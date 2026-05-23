@@ -5,6 +5,7 @@ import HomePage from './pages/HomePage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import GameDetailPage from "./pages/GameDetailPage";
 import { CollectibleKacheln } from './pages/CollectibleKacheln';
+import Link from 'next/link';
 
 function App() {
   const [currentView, setCurrentView] = useState('home');
@@ -98,7 +99,7 @@ function App() {
 
       <main className="pb-24">
         {currentView === 'home' && (
-          <HomePage openGame={openGuide} getProp={getProp} />
+          <HomePage getProp={getProp} />
         )}
 
         {currentView === 'search-results' && (
