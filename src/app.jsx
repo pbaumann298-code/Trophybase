@@ -5,6 +5,8 @@ import HomePage from './pages/HomePage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import GameDetailPage from "./pages/GameDetailPage";
 import { CollectibleKacheln } from './pages/CollectibleKacheln';
+import LoginPage from './pages/LoginPage';
+import TesterSetupPage from './pages/TesterSetupPage';
 
 function App() {
   // 1. Wir schauen beim Start direkt in die URL des Browsers!
@@ -20,6 +22,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [dbStatus, setDbStatus] = useState('Testen...');
 
+  const [sessionUser, setSessionUser] = useState(null);
   const [selectedGame, setSelectedGame] = useState(null);
   const [activeTrophies, setActiveTrophies] = useState([]);
   const [guideItems, setGuideItems] = useState([]);
@@ -35,6 +38,21 @@ function App() {
     }
     return '';
   };
+
+  // 🔐 NEU: Überprüft den Login-Status beim Starten der App
+  useEffect(() => {
+    // 1. Aktuelle Session abrufen
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSessionUser(session?.user ?? null);
+    });
+
+    // 2. Auf Änderungen lauschen (Login / Logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSessionUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // ERSTER HOOK: Testet die DB-Verbindung beim Laden
   useEffect(() => {
@@ -87,6 +105,76 @@ function App() {
     handleUrlRouting();
   }, []);
 
+// 🛠️ FUNKTION 1: Der normale Login
+  const handleLogin = async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      alert(`Login fehlgeschlagen: ${error.message}`);
+    } else {
+      // Wenn es der Tester-Account ist, leiten wir direkt aufs Setup um
+      if (data.user?.email === 'tester@trophybase.app') {
+        setCurrentView('tester-setup');
+      } else {
+        setCurrentView('home');
+      }
+    }
+  };
+
+  // 🛠️ FUNKTION 2: Der Klon-Prozess (Neuen Account aus dem Tester-Tor erstellen)
+  const handleCreateOwnAccount = async (newEmail, newPassword) => {
+    try {
+      // 1. Erstelle den brandneuen User in Supabase
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: newEmail,
+        password: newPassword,
+      });
+
+      if (signUpError) throw new Error(`Registrierung fehlgeschlagen: ${signUpError.message}`);
+
+      print("🚀 Neuer Benutzer-Account erfolgreich angelegt!");
+
+      // 2. Jetzt sperren wir das Tor! Wir ändern das Passwort von tester@trophybase.app 
+      // auf einen völlig unlesbaren, 50-stelligen Zufalls-String.
+      const randomCryptoPassword = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2) + Date.now();
+      
+      // ACHTUNG: Da wir aktuell noch als "tester" eingeloggt sind, 
+      // ändert dieser Befehl genau das Passwort des aktuell angemeldeten Users!
+      const { error: passwordError } = await supabase.auth.updateUser({
+        password: randomCryptoPassword
+      });
+
+      if (passwordError) print("⚠️ Warnung beim Tor-Verriegeln: " + passwordError.message);
+      else print("🔐 Das Tester-Tor wurde erfolgreich für weitere Logins verriegelt!");
+
+      // 3. Ausloggen aus dem Tester-Account
+      await supabase.auth.signOut();
+
+      // 4. Direkt automatisch in den brandneuen eigenen Account einloggen!
+      const { error: autoLoginError } = await supabase.auth.signInWithPassword({
+        email: newEmail,
+        password: newPassword
+      });
+
+      if (autoLoginError) {
+        alert("Account erstellt! Bitte melde dich jetzt mit deinen Daten an.");
+        setCurrentView('login');
+      } else {
+        alert("🎉 Willkommen an Bord! Dein persönlicher Account ist aktiv.");
+        setCurrentView('home');
+      }
+
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // 🛠️ FUNKTION 3: Einfaches Ausloggen
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    window.history.pushState({}, '', '/');
+    setCurrentView('home');
+  };
+
   const handleSearchSubmit = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
@@ -135,13 +223,17 @@ function App() {
 return (
     <div className="min-h-screen flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
       
-      {/* 1. HEADER: Jetzt schlank und ohne die Such-Props */}
-      <Header setCurrentView={setCurrentView} />
+      {/* 1. HEADER */}
+      <Header 
+        setCurrentView={setCurrentView} 
+        sessionUser={sessionUser} 
+        onLogout={handleLogout} 
+      />
 
-      {/* MAIN-INHALT: flex-1 sorgt dafür, dass die Fußzeile immer ganz unten klebt */}
-      <main className="pb-24 flex-1">
+      {/* MAIN-INHALT */}
+      <main className="pb-24 flex-1 flex flex-col">
+        
         {currentView === 'home' && (
-          /* 🛠️ Die Suche wird jetzt direkt an die HomePage übergeben! */
           <HomePage 
             openGame={openGuide} 
             getProp={getProp} 
@@ -174,23 +266,29 @@ return (
             getProp={getProp}
           />
         )}
+
+        {/* 🔐 AUSGELAGERT: LOGIN SEITE */}
+        {currentView === 'login' && (
+          <LoginPage onLogin={handleLogin} />
+        )}
+
+        {/* 🔐 AUSGELAGERT: TESTER SETUP SEITE */}
+        {currentView === 'tester-setup' && (
+          <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />
+        )}
+
       </main>
 
-      {/* 🛠️ NEU: DIE FUSSZEILE (FOOTER) */}
+      {/* FOOTER */}
       <footer className="w-full bg-[#1a1b1c] border-t border-t-zinc-800/80 px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-zinc-500">
-        
-        {/* Linker Teil: Rechtliches */}
         <div className="flex gap-6">
           <a href="/impressum" className="hover:text-zinc-300 transition">Impressum</a>
           <a href="/datenschutz" className="hover:text-zinc-300 transition">Datenschutz (DSGVO)</a>
         </div>
-
-        {/* Rechter Teil: DB-Status als cleaner grüner Punkt */}
         <div className="flex items-center gap-2 font-mono text-[11px]">
           <span className={`w-2 h-2 rounded-full ${dbStatus.includes('Erfolgreich') ? 'bg-[#00ff66] shadow-[0_0_8px_#00ff66]' : 'bg-red-500'}`}></span>
           <span>DB: {dbStatus}</span>
         </div>
-
       </footer>
 
     </div>
