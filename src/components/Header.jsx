@@ -1,7 +1,7 @@
 import React from 'react';
 
 function Header({ setCurrentView }) { // Braucht nur noch das View-Signal
-  
+
   const handleHomeClick = () => {
     // 1. Schaltet intern auf die Startseite um
     setCurrentView('home');
@@ -11,7 +11,7 @@ function Header({ setCurrentView }) { // Braucht nur noch das View-Signal
 
   return (
     <header className="w-full px-8 py-4 flex justify-between items-center bg-[#1a1b1c] border-b border-b-zinc-800/80 sticky top-0 z-50">
-      
+
       {/* LINKER TEIL: LOGO */}
       <div className="flex items-center gap-8">
         <div className="text-xl font-bold cursor-pointer" onClick={handleHomeClick}>
@@ -22,9 +22,9 @@ function Header({ setCurrentView }) { // Braucht nur noch das View-Signal
 
       {/* RECHTER TEIL: LOGIN (Ersetzt den DB-Status) */}
       <div>
-        <button 
-          onClick={() => alert('Login-Funktion kommt bald! 🛠️')} 
-          className="text-xs font-medium text-zinc-300 bg-[#121314] hover:bg-[#202122] border border-zinc-800 px-4 py-1.5 rounded-lg transition"
+        <button
+          onClick={() => setCurrentView('login')}
+          className="..."
         >
           Anmelden
         </button>
