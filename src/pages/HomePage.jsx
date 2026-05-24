@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from "./supabaseClient";
-import Link from 'next/link';
 
-function HomePage({ getProp }) { // openGame wird nicht mehr gebraucht, da wir direkt verlinken
+function HomePage({ openGame, getProp, searchQuery, setSearchQuery, handleSearchSubmit }) { // 🛠️ Such-Props hinzugefügt!
   const [beliebtGames, setBeliebtGames] = useState([]);
   const [soulsGames, setSoulsGames] = useState([]);
-  const [ubisoftGames, setUbisoftGames] = useState([]); 
+  const [ubisoftGames, setUbisoftGames] = useState([]);
 
   const beliebtRef = useRef(null);
   const soulsRef = useRef(null);
-  const ubisoftRef = useRef(null); 
+  const ubisoftRef = useRef(null);
 
   useEffect(() => {
     async function fetchHomeData() {
@@ -53,11 +52,27 @@ function HomePage({ getProp }) { // openGame wird nicht mehr gebraucht, da wir d
     }
 
     fetchHomeData();
-  }, [getProp]); 
+  }, [getProp]);
 
   return (
     <div className="max-w-[1400px] mx-auto px-8 pt-8 flex flex-col gap-12">
-      
+
+      {/* 🛠️ NEU: ZENTRALE SUCHE (Handy-optimiert) */}
+      <div className="w-full max-w-md mx-auto mt-4">
+        <form onSubmit={handleSearchSubmit} className="relative w-full">
+          <input 
+            type="text" 
+            placeholder="Nach PlayStation-Spielen suchen..." 
+            value={searchQuery} 
+            onChange={(e) => setSearchQuery(e.target.value)} 
+            className="w-full bg-[#1a1b1c] text-zinc-200 pl-4 pr-10 py-3 rounded-xl border border-zinc-800 focus:border-zinc-700 focus:outline-none text-sm transition shadow-lg" 
+          />
+          <div className="absolute right-3.5 top-3.5 text-zinc-500 pointer-events-none">
+            🔍
+          </div>
+        </form>
+      </div>
+
       {/* KATEGORIE: BELIEBT */}
       <div>
         <h3 className="text-xs font-bold text-zinc-400 uppercase mb-4 tracking-wider">Beliebt (nach Zugriffen)</h3>
@@ -65,15 +80,25 @@ function HomePage({ getProp }) { // openGame wird nicht mehr gebraucht, da wir d
           {beliebtGames.length === 0 ? (
             <p className="text-xs text-zinc-600 italic pl-2">Keine Einträge oder Spalte 'views' fehlt.</p>
           ) : (
-            beliebtGames.map((g, i) => (
-              /* 🔥 KORREKTUR: Link umschließt die Kachel, key wandert hierher, onClick fliegt raus */
-              <Link href={`/guide/${getProp(g, ['NPWR_ID', 'npwr_id', 'Npwr_Id'])}`} key={i}>
-                <div className="flex-none w-[170px] bg-[#1a1b1c] border border-zinc-800 rounded-xl p-3 cursor-pointer hover:border-zinc-700 transition h-full">
-                  <img src={getProp(g, ['Cover_URL', 'cover_url'])} className="w-full aspect-[3/4] object-cover rounded shadow-md" alt="" />
-                  <p className="text-xs mt-2 text-center truncate text-zinc-300">{getProp(g, ['Spieltitel', 'spieltitel'])}</p>
-                </div>
-              </Link>
-            ))
+            beliebtGames.map((g, i) => {
+              const gameId = getProp(g, ['NPWR_ID', 'npwr_id', 'Npwr_Id']);
+              return (
+                <a 
+                  href={`/guide/${gameId}`} 
+                  key={i}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.history.pushState({}, '', `/guide/${gameId}`);
+                    openGame(g);
+                  }}
+                >
+                  <div className="flex-none w-[170px] bg-[#1a1b1c] border border-zinc-800 rounded-xl p-3 cursor-pointer hover:border-zinc-700 transition h-full">
+                    <img src={getProp(g, ['Cover_URL', 'cover_url'])} className="w-full aspect-[3/4] object-cover rounded shadow-md" alt="" />
+                    <p className="text-xs mt-2 text-center truncate text-zinc-300">{getProp(g, ['Spieltitel', 'spieltitel'])}</p>
+                  </div>
+                </a>
+              );
+            })
           )}
         </div>
       </div>
@@ -85,15 +110,25 @@ function HomePage({ getProp }) { // openGame wird nicht mehr gebraucht, da wir d
           {soulsGames.length === 0 ? (
             <p className="text-xs text-zinc-600 italic pl-2">Keine Souls-Spiele gefunden.</p>
           ) : (
-            soulsGames.map((g, i) => (
-              /* 🔥 KORREKTUR: Link umschließt die Kachel */
-              <Link href={`/guide/${getProp(g, ['NPWR_ID', 'npwr_id', 'Npwr_Id'])}`} key={i}>
-                <div className="flex-none w-[170px] bg-[#1a1b1c] border border-zinc-800 rounded-xl p-3 cursor-pointer hover:border-zinc-700 transition h-full">
-                  <img src={getProp(g, ['Cover_URL', 'cover_url'])} className="w-full aspect-[3/4] object-cover rounded shadow-md" alt="" />
-                  <p className="text-xs mt-2 text-center truncate text-zinc-300">{getProp(g, ['Spieltitel', 'spieltitel'])}</p>
-                </div>
-              </Link>
-            ))
+            soulsGames.map((g, i) => {
+              const gameId = getProp(g, ['NPWR_ID', 'npwr_id', 'Npwr_Id']);
+              return (
+                <a 
+                  href={`/guide/${gameId}`} 
+                  key={i}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.history.pushState({}, '', `/guide/${gameId}`);
+                    openGame(g);
+                  }}
+                >
+                  <div className="flex-none w-[170px] bg-[#1a1b1c] border border-zinc-800 rounded-xl p-3 cursor-pointer hover:border-zinc-700 transition h-full">
+                    <img src={getProp(g, ['Cover_URL', 'cover_url'])} className="w-full aspect-[3/4] object-cover rounded shadow-md" alt="" />
+                    <p className="text-xs mt-2 text-center truncate text-zinc-300">{getProp(g, ['Spieltitel', 'spieltitel'])}</p>
+                  </div>
+                </a>
+              );
+            })
           )}
         </div>
       </div>
@@ -105,15 +140,25 @@ function HomePage({ getProp }) { // openGame wird nicht mehr gebraucht, da wir d
           {ubisoftGames.length === 0 ? (
             <p className="text-xs text-zinc-600 italic pl-2">Keine Ubisoft-Spiele in der Datenbank.</p>
           ) : (
-            ubisoftGames.map((g, i) => (
-              /* 🔥 KORREKTUR: Link umschließt die Kachel */
-              <Link href={`/guide/${getProp(g, ['NPWR_ID', 'npwr_id', 'Npwr_Id'])}`} key={i}>
-                <div className="flex-none w-[170px] bg-[#1a1b1c] border border-zinc-800 rounded-xl p-3 cursor-pointer hover:border-zinc-700 transition h-full">
-                  <img src={getProp(g, ['Cover_URL', 'cover_url'])} className="w-full aspect-[3/4] object-cover rounded shadow-md" alt="" />
-                  <p className="text-xs mt-2 text-center truncate text-zinc-300">{getProp(g, ['Spieltitel', 'spieltitel'])}</p>
-                </div>
-              </Link>
-            ))
+            ubisoftGames.map((g, i) => {
+              const gameId = getProp(g, ['NPWR_ID', 'npwr_id', 'Npwr_Id']);
+              return (
+                <a 
+                  href={`/guide/${gameId}`} 
+                  key={i}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.history.pushState({}, '', `/guide/${gameId}`);
+                    openGame(g);
+                  }}
+                >
+                  <div className="flex-none w-[170px] bg-[#1a1b1c] border border-zinc-800 rounded-xl p-3 cursor-pointer hover:border-zinc-700 transition h-full">
+                    <img src={getProp(g, ['Cover_URL', 'cover_url'])} className="w-full aspect-[3/4] object-cover rounded shadow-md" alt="" />
+                    <p className="text-xs mt-2 text-center truncate text-zinc-300">{getProp(g, ['Spieltitel', 'spieltitel'])}</p>
+                  </div>
+                </a>
+              );
+            })
           )}
         </div>
       </div>
