@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import { CollectibleKacheln as Reiter2CollectibleKacheln } from './CollectibleKacheln';
+import GameSeoInfobox from '../components/GameSeoInfobox';
+import { TABLES, GAME_PK, GAME_FK } from '../lib/gameSchema';
 
 function GamePage({
   currentView,
@@ -27,22 +29,20 @@ function GamePage({
     async function fetchGameData() {
       if (!selectedGame) return;
 
-      const gameId = getProp(selectedGame, ['NPWR_ID', 'npwr_id', 'Npwr_Id']);
+      const gameId = selectedGame[GAME_PK] ?? getProp(selectedGame, [GAME_PK]);
 
       if (gameId) {
-        // 1. Trophäen für Reiter 1 laden
         const { data: trophiesData, error: tError } = await supabase
-          .from('game_trophies')
+          .from(TABLES.trophies)
           .select('*')
-          .eq('game_id', gameId);
+          .eq(GAME_FK, gameId);
 
         if (!tError && trophiesData) setActiveTrophies(trophiesData);
 
-        // 2. Sammelobjekte/Guides für Reiter 2 laden
         const { data: guidesData, error: gError } = await supabase
-          .from('game_guides')
+          .from(TABLES.guides)
           .select('*')
-          .eq('game_id', gameId)
+          .eq(GAME_FK, gameId)
           .order('guide_id', { ascending: true });
 
         if (!gError && guidesData) setGuideItems(guidesData);
@@ -57,7 +57,7 @@ function GamePage({
       {/* SEITE 3: SPIELE-INFO-HUB (Dein Laptop-Design!)            */}
       {/* ========================================================= */}
       {currentView === 'game_info' && selectedGame && (
-        <div className="max-w-[1400px] mx-auto px-4 md:px-8 pt-6 animate-fadeIn">
+        <div className="w-full max-w-[1400px] min-w-0 overflow-x-hidden mx-auto px-4 md:px-8 pt-6 animate-fadeIn box-border">
 
           {/* ZURÜCK-BUTTON */}
           <button
@@ -68,7 +68,7 @@ function GamePage({
           </button>
 
           {/* SPIEL-INFO-CARD */}
-          <div className="w-full bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 flex flex-col md:flex-row gap-8 items-start mb-8 shadow-xl">
+          <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 flex flex-col md:flex-row flex-wrap md:flex-nowrap gap-8 items-start mb-8 shadow-xl">
 
             {/* Linke Spalte: Großes Cover */}
             <div className="w-full md:w-64 aspect-[3/4] rounded-xl overflow-hidden shadow-2xl border border-zinc-800 bg-[#121314] flex-shrink-0">
@@ -80,17 +80,17 @@ function GamePage({
             </div>
 
             {/* Rechte Spalte: Die edle Daten-Tabelle */}
-            <div className="flex-grow w-full flex flex-col justify-between h-full pt-2">
+            <div className="flex-grow w-full min-w-0 flex flex-col justify-between h-full pt-2">
               <div>
                 <span className="text-[10px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-2 py-0.5 rounded font-mono font-bold uppercase tracking-wider">
                   Spiele Hub
                 </span>
-                <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight mb-6 mt-2">
+                <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight mb-6 mt-2 break-words">
                   {getProp(selectedGame, ['Spieltitel', 'spieltitel'])}
                 </h2>
 
                 {/* Datenmatrix im Git-Style */}
-                <div className="grid grid-cols-2 gap-y-4 gap-x-8 max-w-xl text-sm border-t border-zinc-800/60 pt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4 sm:gap-x-8 w-full max-w-xl min-w-0 text-sm border-t border-zinc-800/60 pt-4">
                   <div className="flex justify-between border-b border-zinc-800/40 pb-2">
                     <span className="text-zinc-500 font-mono text-xs uppercase">Release Jahr</span>
                     <span className="text-zinc-200 font-medium">{getProp(selectedGame, ['Release_Jahr', 'release_jahr', 'Releasejahr']) || '—'}</span>
@@ -126,6 +126,11 @@ function GamePage({
             </div>
           </div>
 
+          <GameSeoInfobox
+            title={getProp(selectedGame, ['Spieltitel', 'spieltitel'])}
+            description={getProp(selectedGame, ['beschreibung_de', 'Beschreibung_de'])}
+          />
+
           {/* AKTION-BUTTON ZU SEITE 4 */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center shadow-xl">
             <h3 className="text-xl font-black text-white mb-2">Bereit für die 100% Platin-Trophäe?</h3>
@@ -145,7 +150,7 @@ function GamePage({
       {/* SEITE 4: INTERAKTIVER LEITFADEN (Deine Reiter-Struktur!)  */}
       {/* ========================================================= */}
       {currentView === 'guide' && selectedGame && (
-        <div className="max-w-[1400px] mx-auto px-4 md:px-8 pt-6 animate-fadeIn">
+        <div className="w-full max-w-[1400px] min-w-0 overflow-x-hidden mx-auto px-4 md:px-8 pt-6 animate-fadeIn box-border">
 
           {/* ZURÜCK ZU SEITE 3 */}
           <button
@@ -156,10 +161,10 @@ function GamePage({
           </button>
 
           {/* REITER TABS NAVIGATION */}
-          <div className="flex border-b border-zinc-800 mb-6 gap-2">
+          <div className="flex flex-wrap border-b border-zinc-800 mb-6 gap-2 min-w-0">
             <button
               onClick={() => setActiveTab('reiter1')}
-              className={`px-6 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer ${activeTab === 'reiter1'
+              className={`px-4 sm:px-6 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${activeTab === 'reiter1'
                 ? 'border-[#00ff66] text-white bg-zinc-800/30'
                 : 'border-transparent text-zinc-500 hover:text-zinc-300'
                 }`}
@@ -168,7 +173,7 @@ function GamePage({
             </button>
             <button
               onClick={() => setActiveTab('reiter2')}
-              className={`px-6 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer ${activeTab === 'reiter2'
+              className={`px-4 sm:px-6 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${activeTab === 'reiter2'
                 ? 'border-[#00ff66] text-white bg-zinc-800/30'
                 : 'border-transparent text-zinc-500 hover:text-zinc-300'
                 }`}

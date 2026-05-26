@@ -1,0 +1,226 @@
+/* WinForms VB2006 – kompakt, Massenabfertigung */
+.qa-shell {
+  font-family: Tahoma, 'MS Sans Serif', Arial, sans-serif;
+  font-size: 11px;
+  background: #ece9d8;
+  color: #000;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 4px;
+  border: 2px outset #fff;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.qa-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(180deg, #0a246a 0%, #3a6ea5 100%);
+  color: #fff;
+  padding: 3px 6px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.qa-titlebar-right {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-weight: normal;
+}
+
+.qa-link {
+  background: transparent;
+  border: none;
+  color: #fff;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.qa-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  background: #fff;
+  border: 1px solid #7f9db9;
+  margin-bottom: 2px;
+}
+
+.qa-npwr {
+  font-family: Consolas, 'Courier New', monospace;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.qa-tag {
+  color: #333;
+}
+
+.qa-pipe {
+  color: #999;
+}
+
+.qa-status {
+  margin-left: auto;
+  text-transform: uppercase;
+  font-weight: bold;
+  color: #c00;
+}
+
+.qa-game-title {
+  font-size: 14px;
+  font-weight: bold;
+  margin: 0 0 4px;
+  padding: 2px 4px;
+  background: #ffffe1;
+  border: 1px solid #aca899;
+}
+
+.qa-workspace {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+@media (max-width: 768px) {
+  .qa-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+.qa-panel {
+  border: 1px solid #7f9db9;
+  background: #fff;
+  margin: 0;
+  padding: 4px;
+  min-height: 200px;
+}
+
+.qa-panel legend {
+  padding: 0 4px;
+  font-weight: bold;
+}
+
+.qa-errors-box {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  border: 1px inset #fff;
+  background: #fff;
+  resize: vertical;
+  min-height: 180px;
+}
+
+.qa-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qa-suggestion-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.qa-suggestion-row:hover {
+  background: #316ac5;
+  color: #fff;
+}
+
+.qa-suggestion-row:hover .qa-suggestion-sub,
+.qa-suggestion-row:hover .qa-suggestion-reason {
+  color: #e8e8ff;
+}
+
+.qa-thumb {
+  width: 36px;
+  height: 48px;
+  object-fit: cover;
+  border: 1px solid #000;
+  background: #ddd;
+  flex-shrink: 0;
+}
+
+.qa-suggestion-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+
+.qa-suggestion-sub {
+  font-size: 10px;
+  color: #444;
+}
+
+.qa-suggestion-reason {
+  font-size: 10px;
+  color: #666;
+  font-style: italic;
+}
+
+.qa-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.qa-btn {
+  font-family: Tahoma, sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 10px 6px;
+  border: 2px outset #fff;
+  cursor: pointer;
+  background: #ece9d8;
+}
+
+.qa-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.qa-btn:active:not(:disabled) {
+  border-style: inset;
+}
+
+.qa-btn-ok {
+  background: #d4edda;
+}
+
+.qa-btn-no {
+  background: #f8d7da;
+}
+
+.qa-btn-later {
+  background: #fff3cd;
+}
+
+.qa-btn-refresh {
+  margin-top: 6px;
+  width: 100%;
+  padding: 4px;
+  font-size: 11px;
+}
+
+.qa-msg,
+.qa-foot-msg,
+.qa-empty {
+  padding: 8px;
+  margin: 4px 0;
+}
+
+.qa-foot-msg {
+  background: #ffffcc;
+  border: 1px solid #000;
+}

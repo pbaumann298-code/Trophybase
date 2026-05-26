@@ -8,19 +8,22 @@ import { CollectibleKacheln } from './pages/CollectibleKacheln';
 import LoginPage from './pages/LoginPage';
 import TesterSetupPage from './pages/TesterSetupPage';
 import MaintenancePage from './pages/MaintenancePage';
+import Inbox from './components/Inbox';
+import QaAdminPage from './pages/QaAdminPage';
+import { TABLES, GAME_PK, GAME_FK } from './lib/gameSchema';
 
 function App() {
   // 1. Wir schauen beim Start direkt in die URL des Browsers!
   const [currentView, setCurrentView] = useState(() => {
-    if (window.location.pathname.startsWith('/guide/')) {
-      return 'game_info'; 
-    }
+    const path = window.location.pathname;
+    if (path.startsWith('/admin/qa')) return 'qa_admin';
+    if (path.startsWith('/guide/')) return 'game_info';
     return 'home';
   });
 
   // Wartungs-Konfiguration
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(true);
-  const ALLOWED_ADMINS = ['creator@trophybase.app', 'master@trophybase.app', 'tester@trophybase.app'];
+  const ALLOWED_ADMINS = ['master@trophybase.app'];
 
   // 🔐 Einzigartiger State für den User
   const [sessionUser, setSessionUser] = useState(null);
@@ -59,6 +62,22 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const onPopState = () => {
+      const path = window.location.pathname;
+      if (path.startsWith('/admin/qa')) setCurrentView('qa_admin');
+      else if (path.startsWith('/guide/')) setCurrentView('game_info');
+      else if (currentView === 'qa_admin' || currentView === 'game_info') setCurrentView('home');
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [currentView]);
+
+  const exitQaAdmin = () => {
+    window.history.pushState({}, '', '/');
+    setCurrentView('home');
+  };
+
   // Testet die DB-Verbindung beim Laden
   useEffect(() => {
     async function initDb() {
@@ -78,24 +97,24 @@ function App() {
         if (gameIdFromUrl) {
           setLoadingGuide(true);
           const { data: gameData } = await supabase
-            .from('Playstation_Games')
+            .from(TABLES.games)
             .select('*')
-            .or(`NPWR_ID.eq.${gameIdFromUrl},npwr_id.eq.${gameIdFromUrl},Npwr_Id.eq.${gameIdFromUrl}`)
+            .eq(GAME_PK, gameIdFromUrl)
             .maybeSingle();
 
           if (gameData) {
             setSelectedGame(gameData);
 
             const { data: trophiesData } = await supabase
-              .from('game_trophies')
+              .from(TABLES.trophies)
               .select('*')
-              .eq('game_id', gameIdFromUrl);
+              .eq(GAME_FK, gameIdFromUrl);
             if (trophiesData) setActiveTrophies(trophiesData);
 
             const { data: guidesData } = await supabase
-              .from('game_guides')
+              .from(TABLES.guides)
               .select('*')
-              .eq('game_id', gameIdFromUrl)
+              .eq(GAME_FK, gameIdFromUrl)
               .order('guide_id', { ascending: true });
             if (guidesData) setGuideItems(guidesData);
           }
@@ -184,19 +203,19 @@ function App() {
     setActiveTrophies([]);
     setGuideItems([]);
 
-    const gameId = getProp(game, ['NPWR_ID', 'npwr_id', 'Npwr_Id']);
+    const gameId = game[GAME_PK] ?? getProp(game, [GAME_PK]);
     if (gameId) {
       const { data: trophiesData, error: trophyError } = await supabase
-        .from('game_trophies')
+        .from(TABLES.trophies)
         .select('*')
-        .eq('game_id', gameId);
+        .eq(GAME_FK, gameId);
 
       if (!trophyError && trophiesData) setActiveTrophies(trophiesData);
 
       const { data: guidesData, error: guidesError } = await supabase
-        .from('game_guides')
+        .from(TABLES.guides)
         .select('*')
-        .eq('game_id', gameId)
+        .eq(GAME_FK, gameId)
         .order('guide_id', { ascending: true });
 
       if (!guidesError && guidesData) setGuideItems(guidesData);
@@ -214,9 +233,19 @@ function App() {
   // Prallschutz-Logik für den Wartungsmodus
   const isUserAdmin = sessionUser && ALLOWED_ADMINS.includes(sessionUser.email);
   const showMaintenance = isMaintenanceMode && !isUserAdmin;
+  const isQaAdminView = currentView === 'qa_admin';
+
+  if (isQaAdminView) {
+    return (
+      <QaAdminPage
+        sessionUser={sessionUser}
+        onExit={exitQaAdmin}
+      />
+    );
+  }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
+    <div className="min-h-screen w-full max-w-full min-w-0 overflow-x-hidden flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
       
       <Header 
         setCurrentView={setCurrentView} 
@@ -224,7 +253,7 @@ function App() {
         onLogout={handleLogout} 
       />
 
-      <main className="pb-24 flex-1 flex flex-col justify-center">
+      <main className="pb-24 flex-1 flex flex-col justify-center w-full max-w-full min-w-0 overflow-x-hidden">
         
         {/* ─── LEVEL 1: WARTUNGSMODUS IST AKTIV ─── */}
         {showMaintenance ? (
@@ -244,7 +273,13 @@ function App() {
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
                 handleSearchSubmit={handleSearchSubmit}
+                sessionUser={sessionUser}
+                setCurrentView={setCurrentView}
               />
+            )}
+
+            {currentView === 'inbox' && (
+              <Inbox sessionUser={sessionUser} setCurrentView={setCurrentView} />
             )}
 
             {currentView === 'search-results' && (
@@ -278,14 +313,14 @@ function App() {
 
       </main>
 
-      <footer className="w-full bg-[#1a1b1c] border-t border-t-zinc-800/80 px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-zinc-500">
-        <div className="flex gap-6">
+      <footer className="w-full max-w-full min-w-0 overflow-x-hidden bg-[#1a1b1c] border-t border-t-zinc-800/80 px-4 sm:px-6 md:px-8 py-4 flex flex-col sm:flex-row flex-wrap justify-between items-center gap-4 text-xs text-zinc-500">
+        <div className="flex flex-wrap gap-4 sm:gap-6 min-w-0">
           <a href="/impressum" className="hover:text-zinc-300 transition">Impressum</a>
           <a href="/datenschutz" className="hover:text-zinc-300 transition">Datenschutz (DSGVO)</a>
         </div>
-        <div className="flex items-center gap-2 font-mono text-[11px]">
-          <span className={`w-2 h-2 rounded-full ${dbStatus.includes('Erfolgreich') ? 'bg-[#00ff66] shadow-[0_0_8px_#00ff66]' : 'bg-red-500'}`}></span>
-          <span>DB: {dbStatus}</span>
+        <div className="flex items-center gap-2 font-mono text-[11px] min-w-0 max-w-full">
+          <span className={`w-2 h-2 flex-shrink-0 rounded-full ${dbStatus.includes('Erfolgreich') ? 'bg-[#00ff66] shadow-[0_0_8px_#00ff66]' : 'bg-red-500'}`}></span>
+          <span className="truncate">DB: {dbStatus}</span>
         </div>
       </footer>
 

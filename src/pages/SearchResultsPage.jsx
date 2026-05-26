@@ -4,7 +4,7 @@ function SearchResultsPage({ searchResults, openGame, getProp, loading }) {
   if (loading) return <div className="text-center pt-12 text-zinc-400 text-sm">Suche läuft...</div>;
 
   return (
-    <div className="max-w-4xl mx-auto px-6 pt-8">
+    <div className="w-full max-w-4xl min-w-0 overflow-x-hidden mx-auto px-4 sm:px-6 pt-8 box-border">
       <h3 className="text-sm font-bold text-zinc-400 mb-6 uppercase tracking-wider">
         Suchergebnisse ({searchResults.length})
       </h3>
@@ -20,7 +20,7 @@ function SearchResultsPage({ searchResults, openGame, getProp, loading }) {
             <div 
               key={i} 
               onClick={() => openGame(g)} 
-              className="bg-[#1a1b1c] p-4 rounded-xl border border-zinc-800 flex gap-5 cursor-pointer hover:border-zinc-700 hover:bg-[#202122] transition items-start"
+              className="w-full min-w-0 bg-[#1a1b1c] p-4 rounded-xl border border-zinc-800 flex flex-wrap sm:flex-nowrap gap-4 sm:gap-5 cursor-pointer hover:border-zinc-700 hover:bg-[#202122] transition items-start"
             >
               {/* Größeres Cover-Bild, damit es nicht mehr winzig wirkt */}
               <img 
@@ -30,15 +30,15 @@ function SearchResultsPage({ searchResults, openGame, getProp, loading }) {
               />
               
               {/* Rechter Datenbereich: Nutzt den gesamten restlichen Platz */}
-              <div className="flex-1 flex flex-col h-full justify-between pt-1">
-                <div>
-                  <h4 className="font-bold text-white text-base md:text-lg hover:text-[#00ff66] transition">
+              <div className="flex-1 min-w-0 flex flex-col h-full justify-between pt-1">
+                <div className="min-w-0">
+                  <h4 className="font-bold text-white text-base md:text-lg hover:text-[#00ff66] transition break-words">
                     {getProp(g, ['Spieltitel', 'spieltitel'])}
                   </h4>
                 </div>
 
                 {/* Das neue Metadaten-Grid für die zusätzlichen Supabase-Infos */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-zinc-800/60 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-4 pt-4 border-t border-zinc-800/60 text-xs min-w-0 w-full">
                   <div>
                     <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">Konsole</span>
                     <span className="text-zinc-300 font-medium">{getProp(g, ['Konsole', 'konsole']) || '—'}</span>

@@ -1,14 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from "./supabaseClient";
+import Dashboard from '../components/Dashboard';
+import { GAME_PK } from '../lib/gameSchema';
 
-function HomePage({ openGame, getProp, searchQuery, setSearchQuery, handleSearchSubmit }) { // 🛠️ Such-Props hinzugefügt!
+/** Desktop: exakt 5 Kacheln sichtbar (gap-3 → 4 × 12px = 3rem) */
+const CAROUSEL_TILE_CLASS =
+  'flex-shrink-0 w-44 sm:w-48 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-none';
+
+function HomePage({ openGame, getProp, searchQuery, setSearchQuery, handleSearchSubmit, sessionUser, setCurrentView }) {
   const [beliebtGames, setBeliebtGames] = useState([]);
   const [soulsGames, setSoulsGames] = useState([]);
   const [ubisoftGames, setUbisoftGames] = useState([]);
-
-  const beliebtRef = useRef(null);
-  const soulsRef = useRef(null);
-  const ubisoftRef = useRef(null);
 
   useEffect(() => {
     async function fetchHomeData() {
@@ -54,18 +56,52 @@ function HomePage({ openGame, getProp, searchQuery, setSearchQuery, handleSearch
     fetchHomeData();
   }, [getProp]);
 
-  return (
-    <div className="max-w-[1400px] mx-auto px-8 pt-8 flex flex-col gap-12">
+  const renderGameTile = (g, index) => {
+    const gameId = g[GAME_PK] ?? getProp(g, [GAME_PK]);
+    return (
+      <a
+        href={`/guide/${gameId}`}
+        key={gameId || index}
+        className={CAROUSEL_TILE_CLASS}
+        onClick={(e) => {
+          e.preventDefault();
+          window.history.pushState({}, '', `/guide/${gameId}`);
+          openGame(g);
+        }}
+      >
+        <div className="w-full bg-[#1a1b1c] border border-zinc-800 rounded-xl p-3 cursor-pointer hover:border-zinc-700 transition h-full">
+          <img
+            src={getProp(g, ['Cover_URL', 'cover_url'])}
+            className="w-full aspect-[3/4] object-cover rounded shadow-md"
+            alt=""
+          />
+          <p className="text-xs mt-2 text-center truncate text-zinc-300">
+            {getProp(g, ['Spieltitel', 'spieltitel'])}
+          </p>
+        </div>
+      </a>
+    );
+  };
 
-      {/* 🛠️ NEU: ZENTRALE SUCHE (Handy-optimiert) */}
-      <div className="w-full max-w-md mx-auto mt-4">
+  const renderCarousel = (games) => (
+    <div className="w-full min-w-0 max-w-full overflow-hidden">
+      <div className="flex gap-3 overflow-x-auto scrollbar-hide scroll-smooth w-full overscroll-x-contain pb-1">
+        {games}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="w-full max-w-7xl min-w-0 overflow-x-hidden mx-auto px-4 pt-8 flex flex-col gap-12 box-border">
+
+      <div className="w-full min-w-0 max-w-md mx-auto mt-4">
         <form onSubmit={handleSearchSubmit} className="relative w-full">
-          <input 
-            type="text" 
-            placeholder="Nach PlayStation-Spielen suchen..." 
-            value={searchQuery} 
-            onChange={(e) => setSearchQuery(e.target.value)} 
-            className="w-full bg-[#1a1b1c] text-zinc-200 pl-4 pr-10 py-3 rounded-xl border border-zinc-800 focus:border-zinc-700 focus:outline-none text-sm transition shadow-lg" 
+          <input
+            type="text"
+            placeholder="Nach PlayStation-Spielen suchen..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-[#1a1b1c] text-zinc-200 pl-4 pr-10 py-3 rounded-xl border border-zinc-800 focus:border-zinc-700 focus:outline-none text-sm transition shadow-lg"
           />
           <div className="absolute right-3.5 top-3.5 text-zinc-500 pointer-events-none">
             🔍
@@ -73,95 +109,52 @@ function HomePage({ openGame, getProp, searchQuery, setSearchQuery, handleSearch
         </form>
       </div>
 
-      {/* KATEGORIE: BELIEBT */}
-      <div>
-        <h3 className="text-xs font-bold text-zinc-400 uppercase mb-4 tracking-wider">Beliebt (nach Zugriffen)</h3>
-        <div ref={beliebtRef} className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin">
-          {beliebtGames.length === 0 ? (
-            <p className="text-xs text-zinc-600 italic pl-2">Keine Einträge oder Spalte 'views' fehlt.</p>
-          ) : (
-            beliebtGames.map((g, i) => {
-              const gameId = getProp(g, ['NPWR_ID', 'npwr_id', 'Npwr_Id']);
-              return (
-                <a 
-                  href={`/guide/${gameId}`} 
-                  key={i}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    window.history.pushState({}, '', `/guide/${gameId}`);
-                    openGame(g);
-                  }}
-                >
-                  <div className="flex-none w-[170px] bg-[#1a1b1c] border border-zinc-800 rounded-xl p-3 cursor-pointer hover:border-zinc-700 transition h-full">
-                    <img src={getProp(g, ['Cover_URL', 'cover_url'])} className="w-full aspect-[3/4] object-cover rounded shadow-md" alt="" />
-                    <p className="text-xs mt-2 text-center truncate text-zinc-300">{getProp(g, ['Spieltitel', 'spieltitel'])}</p>
-                  </div>
-                </a>
-              );
-            })
-          )}
-        </div>
-      </div>
+      <Dashboard sessionUser={sessionUser} openGame={openGame} />
 
-      {/* KATEGORIE: SOULS */}
-      <div>
-        <h3 className="text-xs font-bold text-zinc-400 uppercase mb-4 tracking-wider">Souls + Souls-Likes</h3>
-        <div ref={soulsRef} className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin">
-          {soulsGames.length === 0 ? (
-            <p className="text-xs text-zinc-600 italic pl-2">Keine Souls-Spiele gefunden.</p>
-          ) : (
-            soulsGames.map((g, i) => {
-              const gameId = getProp(g, ['NPWR_ID', 'npwr_id', 'Npwr_Id']);
-              return (
-                <a 
-                  href={`/guide/${gameId}`} 
-                  key={i}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    window.history.pushState({}, '', `/guide/${gameId}`);
-                    openGame(g);
-                  }}
-                >
-                  <div className="flex-none w-[170px] bg-[#1a1b1c] border border-zinc-800 rounded-xl p-3 cursor-pointer hover:border-zinc-700 transition h-full">
-                    <img src={getProp(g, ['Cover_URL', 'cover_url'])} className="w-full aspect-[3/4] object-cover rounded shadow-md" alt="" />
-                    <p className="text-xs mt-2 text-center truncate text-zinc-300">{getProp(g, ['Spieltitel', 'spieltitel'])}</p>
-                  </div>
-                </a>
-              );
-            })
-          )}
+      {sessionUser && (
+        <div className="flex justify-center -mt-4">
+          <button
+            type="button"
+            onClick={() => setCurrentView('inbox')}
+            className="text-xs font-mono uppercase tracking-wider text-zinc-500 hover:text-[#00ff66] transition bg-transparent border-none cursor-pointer"
+          >
+            Postfach öffnen →
+          </button>
         </div>
-      </div>
+      )}
 
-      {/* KATEGORIE: UBISOFT */}
-      <div>
-        <h3 className="text-xs font-bold text-zinc-400 uppercase mb-4 tracking-wider">Ubisoft Spiele</h3>
-        <div ref={ubisoftRef} className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin">
-          {ubisoftGames.length === 0 ? (
-            <p className="text-xs text-zinc-600 italic pl-2">Keine Ubisoft-Spiele in der Datenbank.</p>
-          ) : (
-            ubisoftGames.map((g, i) => {
-              const gameId = getProp(g, ['NPWR_ID', 'npwr_id', 'Npwr_Id']);
-              return (
-                <a 
-                  href={`/guide/${gameId}`} 
-                  key={i}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    window.history.pushState({}, '', `/guide/${gameId}`);
-                    openGame(g);
-                  }}
-                >
-                  <div className="flex-none w-[170px] bg-[#1a1b1c] border border-zinc-800 rounded-xl p-3 cursor-pointer hover:border-zinc-700 transition h-full">
-                    <img src={getProp(g, ['Cover_URL', 'cover_url'])} className="w-full aspect-[3/4] object-cover rounded shadow-md" alt="" />
-                    <p className="text-xs mt-2 text-center truncate text-zinc-300">{getProp(g, ['Spieltitel', 'spieltitel'])}</p>
-                  </div>
-                </a>
-              );
-            })
-          )}
-        </div>
-      </div>
+      <section className="w-full min-w-0 max-w-full">
+        <h3 className="text-xs font-bold text-zinc-400 uppercase mb-4 tracking-wider">
+          Beliebt (nach Zugriffen)
+        </h3>
+        {beliebtGames.length === 0 ? (
+          <p className="text-xs text-zinc-600 italic pl-2">Keine Einträge oder Spalte 'views' fehlt.</p>
+        ) : (
+          renderCarousel(beliebtGames.map(renderGameTile))
+        )}
+      </section>
+
+      <section className="w-full min-w-0 max-w-full">
+        <h3 className="text-xs font-bold text-zinc-400 uppercase mb-4 tracking-wider">
+          Souls + Souls-Likes
+        </h3>
+        {soulsGames.length === 0 ? (
+          <p className="text-xs text-zinc-600 italic pl-2">Keine Souls-Spiele gefunden.</p>
+        ) : (
+          renderCarousel(soulsGames.map(renderGameTile))
+        )}
+      </section>
+
+      <section className="w-full min-w-0 max-w-full">
+        <h3 className="text-xs font-bold text-zinc-400 uppercase mb-4 tracking-wider">
+          Ubisoft Spiele
+        </h3>
+        {ubisoftGames.length === 0 ? (
+          <p className="text-xs text-zinc-600 italic pl-2">Keine Ubisoft-Spiele in der Datenbank.</p>
+        ) : (
+          renderCarousel(ubisoftGames.map(renderGameTile))
+        )}
+      </section>
 
     </div>
   );
