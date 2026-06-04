@@ -4,25 +4,32 @@ import { CollectibleKacheln, BossKacheln } from './CollectibleKacheln';
 import GameSeoInfobox from '../components/GameSeoInfobox';
 import { TABLES, GAME_PK, GAME_FK } from '../lib/gameSchema';
 import {
-  buildBossGuideData,
-  buildChapterGuideData,
-  buildCollectibleCategoryData,
+  buildBossOverviewData,
+  buildByTypeGuideData,
+  buildChronologicalGuideData,
 } from '../lib/guideData';
+import { fetchGameGuideBundle } from '../lib/guideQueries';
 
 function GamePage({
   currentView,
   setCurrentView,
   selectedGame,
   activeTrophies,
+  unlockedTrophies,
+  toggleTrophy,
   completedCount,
   progressPercent,
+  hideCompleted,
+  setHideCompleted,
   activeTab,
   setActiveTab,
   loadingGuide,
   guideItems,
+  bossItems,
   getProp,
 }) {
   const [guideRows, setGuideRows] = useState([]);
+  const [bossRows, setBossRows] = useState([]);
   const [guidesLoading, setGuidesLoading] = useState(false);
 
   useEffect(() => {
@@ -30,11 +37,16 @@ function GamePage({
   }, [guideItems]);
 
   useEffect(() => {
+    setBossRows(bossItems?.length ? bossItems : []);
+  }, [bossItems]);
+
+  useEffect(() => {
     let cancelled = false;
 
-    async function fetchGuideRows() {
+    async function loadGuideBundle() {
       if (!selectedGame) {
         setGuideRows([]);
+        setBossRows([]);
         return;
       }
 
@@ -42,44 +54,43 @@ function GamePage({
       if (!gameId) return;
 
       setGuidesLoading(true);
-      const { data, error } = await supabase
-        .from(TABLES.guides)
-        .select('*')
-        .eq(GAME_FK, gameId)
-        .order('guide_id', { ascending: true });
+      const { guides, bosses, guidesError, bossesError } = await fetchGameGuideBundle(
+        supabase,
+        gameId,
+      );
 
       if (cancelled) return;
 
-      if (!error && data) setGuideRows(data);
-      else if (error) console.error('Guide-Daten:', error.message);
+      if (guidesError) console.error('game_guides:', guidesError.message);
+      if (bossesError) console.error('game_bosses:', bossesError.message);
 
+      setGuideRows(guides);
+      setBossRows(bosses);
       setGuidesLoading(false);
     }
 
-    fetchGuideRows();
+    loadGuideBundle();
     return () => {
       cancelled = true;
     };
   }, [selectedGame, getProp]);
 
-  const chapterGuideData = useMemo(
-    () => buildChapterGuideData(guideRows),
+  const chronologicalGuideData = useMemo(
+    () => buildChronologicalGuideData(guideRows),
     [guideRows],
   );
 
-  const collectibleCategoryData = useMemo(
-    () => buildCollectibleCategoryData(guideRows),
-    [guideRows],
-  );
+  const byTypeGuideData = useMemo(() => buildByTypeGuideData(guideRows), [guideRows]);
 
-  const bossGuideData = useMemo(() => buildBossGuideData(guideRows), [guideRows]);
+  const bossOverviewData = useMemo(() => buildBossOverviewData(bossRows), [bossRows]);
 
   const isGuideLoading = guidesLoading || loadingGuide;
 
   const tabCounts = {
-    reiter1: chapterGuideData.length,
-    reiter2: collectibleCategoryData.length,
-    reiter3: bossGuideData.length,
+    reiter0: activeTrophies.length,
+    reiter1: chronologicalGuideData.length,
+    reiter2: byTypeGuideData.length,
+    reiter3: bossOverviewData.length,
   };
 
   return (
@@ -165,13 +176,13 @@ function GamePage({
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center shadow-xl">
             <h3 className="text-xl font-black text-white mb-2">Bereit für die 100% Platin-Trophäe?</h3>
             <p className="text-zinc-400 text-xs mb-6 max-w-md mx-auto">
-              Nutze den interaktiven Leitfaden: Kapitel-Run, Sammelgegenstände und Bossgegner.
+              Vier Reiter: Trophäen, chronologischer Guide, Komplettierung nach Art und Boss-Übersicht.
             </p>
             <button
               type="button"
               onClick={() => {
                 setCurrentView('guide');
-                setActiveTab('reiter1');
+                setActiveTab('reiter0');
               }}
               className="bg-[#00ff66] hover:bg-[#00ee55] text-zinc-950 font-black text-sm uppercase tracking-wider px-8 py-4 rounded-xl shadow-lg transition-all cursor-pointer border-none"
             >
@@ -194,73 +205,199 @@ function GamePage({
           <div className="flex flex-wrap border-b border-zinc-800 mb-6 gap-2 min-w-0">
             <button
               type="button"
+              onClick={() => setActiveTab('reiter0')}
+              className={`px-4 sm:px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+                activeTab === 'reiter0'
+                  ? 'border-[#00ff66] text-white bg-zinc-800/30'
+                  : 'border-transparent text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              🏆 Trophäen ({tabCounts.reiter0})
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('reiter1')}
-              className={`px-4 sm:px-6 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+              className={`px-4 sm:px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${
                 activeTab === 'reiter1'
                   ? 'border-[#00ff66] text-white bg-zinc-800/30'
                   : 'border-transparent text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              📖 Kapitel-Guide ({tabCounts.reiter1})
+              📖 Full-Gameplay ({tabCounts.reiter1})
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('reiter2')}
-              className={`px-4 sm:px-6 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+              className={`px-4 sm:px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${
                 activeTab === 'reiter2'
                   ? 'border-[#00ff66] text-white bg-zinc-800/30'
                   : 'border-transparent text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              📦 Sammelgegenstände ({tabCounts.reiter2})
+              📦 Komplettierung ({tabCounts.reiter2})
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('reiter3')}
-              className={`px-4 sm:px-6 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+              className={`px-4 sm:px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${
                 activeTab === 'reiter3'
                   ? 'border-[#00ff66] text-white bg-zinc-800/30'
                   : 'border-transparent text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              ⚔️ Bossgegner ({tabCounts.reiter3})
+              ⚔️ Bosse ({tabCounts.reiter3})
             </button>
           </div>
 
-          {isGuideLoading && (
+          {isGuideLoading && activeTab !== 'reiter0' && (
             <p className="text-xs text-zinc-500 font-mono mb-4 animate-pulse">Guide-Daten werden geladen …</p>
           )}
 
           <div className="w-full">
+            {activeTab === 'reiter0' && (
+              <div className="bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 shadow-xl animate-fadeIn">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">
+                    Trophäen-Checkliste (game_trophies)
+                  </h3>
+                  <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={hideCompleted}
+                      onChange={(e) => setHideCompleted(e.target.checked)}
+                      className="rounded border-zinc-700 bg-[#121314] text-[#00ff66] focus:ring-0 w-4 h-4 cursor-pointer"
+                    />
+                    Erledigte ausblenden
+                  </label>
+                </div>
+
+                {activeTrophies.length === 0 ? (
+                  <p className="text-xs text-zinc-500 italic text-center py-6">
+                    Keine Trophäen für dieses Spiel in der Datenbank.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-3 max-h-[650px] overflow-y-auto pr-2">
+                    {activeTrophies
+                      .filter((t) => !hideCompleted || !unlockedTrophies[t.trophy_id || t.id])
+                      .map((t, idx) => {
+                        const trophyKey = t.trophy_id || t.id;
+                        const isUnlocked = !!unlockedTrophies[trophyKey];
+
+                        return (
+                          <div
+                            key={trophyKey || idx}
+                            className={`flex flex-col gap-3 p-4 rounded-xl border transition-all ${
+                              isUnlocked
+                                ? 'bg-[#121314]/40 border-zinc-800/40 opacity-60'
+                                : 'bg-[#121314] border-zinc-800 hover:border-zinc-700'
+                            }`}
+                          >
+                            <div className="flex items-start gap-4">
+                              <input
+                                type="checkbox"
+                                checked={isUnlocked}
+                                onChange={() => toggleTrophy(trophyKey)}
+                                className="rounded border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 w-4 h-4 cursor-pointer mt-1 flex-shrink-0"
+                              />
+                              {t.icon_url && (
+                                <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0">
+                                  <img src={t.icon_url} alt="" className="w-full h-full object-cover" />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p
+                                    className={`text-sm font-bold ${
+                                      isUnlocked ? 'text-zinc-500 line-through' : 'text-zinc-200'
+                                    }`}
+                                  >
+                                    {t.trophy_name}
+                                  </p>
+                                  {t.ist_versteckt && (
+                                    <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono uppercase">
+                                      Versteckt
+                                    </span>
+                                  )}
+                                </div>
+                                {t.trophy_description && (
+                                  <p
+                                    className={`text-xs mt-1 leading-relaxed ${
+                                      isUnlocked ? 'text-zinc-600' : 'text-zinc-400'
+                                    }`}
+                                  >
+                                    {t.trophy_description}
+                                  </p>
+                                )}
+                                <span className="inline-block text-[10px] text-zinc-500 font-mono uppercase mt-2 bg-zinc-800/50 px-2 py-0.5 rounded border border-zinc-800">
+                                  {t.trophy_type || 'Bronze'}
+                                </span>
+                              </div>
+                            </div>
+                            {!isUnlocked && (t.guide_tip || t.video_url) && (
+                              <div className="mt-1 pl-4 border-l-2 border-[#00ff66]/30 flex flex-col gap-2 bg-zinc-950/40 p-2 rounded-r-xl">
+                                {t.guide_tip && (
+                                  <p className="text-xs text-zinc-400 font-sans italic">
+                                    <span className="text-[#00ff66] font-mono font-bold not-italic mr-1">
+                                      Tipp:
+                                    </span>
+                                    {t.guide_tip}
+                                  </p>
+                                )}
+                                {t.video_url && (
+                                  <a
+                                    href={t.video_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-[11px] text-[#00ff66] hover:underline flex items-center gap-1 font-mono font-bold"
+                                  >
+                                    🎬 Video-Guide auf YouTube ansehen
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {activeTab === 'reiter1' && (
-              <div className="w-full animate-fadeIn" key="tab-chapter">
-                {chapterGuideData.length === 0 && !isGuideLoading ? (
+              <div className="w-full animate-fadeIn" key="tab-chronological">
+                {chronologicalGuideData.length === 0 && !isGuideLoading ? (
                   <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-                    Keine Kapitel-Einträge (sheet_name=1) für dieses Spiel.
+                    Kein chronologischer Guide (game_guides, sheet_name=1 / chronological_group).
                   </p>
                 ) : (
                   <CollectibleKacheln
-                    collectiblesData={chapterGuideData}
+                    collectiblesData={chronologicalGuideData}
                     progressPercent={progressPercent}
                     completedCount={completedCount}
                     totalCount={activeTrophies.length}
+                    groupByField="chronological_group"
+                    groupHeaderIcon="📍"
+                    emptyVideoMessage="Kein Video für dieses Gebiet oder alle Einträge ausgeblendet."
                   />
                 )}
               </div>
             )}
 
             {activeTab === 'reiter2' && (
-              <div className="w-full animate-fadeIn" key="tab-collectibles">
-                {collectibleCategoryData.length === 0 && !isGuideLoading ? (
+              <div className="w-full animate-fadeIn" key="tab-by-type">
+                {byTypeGuideData.length === 0 && !isGuideLoading ? (
                   <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-                    Keine Sammelgegenstände (sheet_name=2) für dieses Spiel.
+                    Keine Komplettierungs-Einträge (game_guides, sheet_name=2 / category_group).
                   </p>
                 ) : (
                   <CollectibleKacheln
-                    collectiblesData={collectibleCategoryData}
+                    collectiblesData={byTypeGuideData}
                     progressPercent={progressPercent}
                     completedCount={completedCount}
                     totalCount={activeTrophies.length}
+                    groupByField="category_group"
+                    groupHeaderIcon="📦"
+                    emptyVideoMessage="Kein Video für diese Kategorie oder alle Gegenstände ausgeblendet."
                   />
                 )}
               </div>
@@ -268,13 +405,13 @@ function GamePage({
 
             {activeTab === 'reiter3' && (
               <div className="w-full animate-fadeIn" key="tab-bosses">
-                {bossGuideData.length === 0 && !isGuideLoading ? (
+                {bossOverviewData.length === 0 && !isGuideLoading ? (
                   <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-                    Keine Boss-Einträge (sheet_name=3) für dieses Spiel.
+                    Keine Boss-Einträge in game_bosses für dieses Spiel.
                   </p>
                 ) : (
                   <BossKacheln
-                    bossesData={bossGuideData}
+                    bossesData={bossOverviewData}
                     progressPercent={progressPercent}
                     completedCount={completedCount}
                     totalCount={activeTrophies.length}

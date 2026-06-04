@@ -1,8 +1,9 @@
-/** sheet_name-Werte aus dem Python-Worker-Pipeline-Output */
+import { GUIDE_REITER } from './gameTypes';
+
+/** sheet_name in game_guides: 1 = chronologisch, 2 = nach Art */
 export const GUIDE_SHEET = {
-  CHAPTER: 1,
-  COLLECTIBLES: 2,
-  BOSSES: 3,
+  CHRONOLOGICAL: 1,
+  BY_TYPE: 2,
 };
 
 export function normalizeSheetName(value) {
@@ -22,18 +23,25 @@ function compareTimestamp(a, b) {
   return String(a?.timestamp ?? '').localeCompare(String(b?.timestamp ?? ''));
 }
 
-/** Sheet 1 – chronologischer Kapitel-Run */
-export function sortChapterGuideRows(rows) {
+/** Reiter 1 – primär nach chronological_group, dann Zeitstempel */
+export function sortChronologicalGuideRows(rows) {
   return [...rows].sort((a, b) => {
+    const groupCmp = String(a.chronological_group ?? '').localeCompare(
+      String(b.chronological_group ?? ''),
+      'de',
+    );
+    if (groupCmp !== 0) return groupCmp;
+
     const orderA = Number(a.sort_order ?? a.chapter_order ?? a.guide_id ?? 0);
     const orderB = Number(b.sort_order ?? b.chapter_order ?? b.guide_id ?? 0);
     if (orderA !== orderB) return orderA - orderB;
+
     return compareTimestamp(a, b);
   });
 }
 
-/** Sheet 2 – nach Kategorie, dann Item-Name */
-export function sortCollectibleCategoryRows(rows) {
+/** Reiter 2 – nach category_group (Waffen, Ringe, …), dann item_name */
+export function sortByTypeGuideRows(rows) {
   return [...rows].sort((a, b) => {
     const groupCmp = String(a.category_group ?? '').localeCompare(
       String(b.category_group ?? ''),
@@ -44,22 +52,16 @@ export function sortCollectibleCategoryRows(rows) {
   });
 }
 
-/** Sheet 3 – Bosse nach Gruppe / Name */
-export function sortBossGuideRows(rows) {
+/** game_bosses – nach Name / Timestamp */
+export function sortBossRows(rows) {
   return [...rows].sort((a, b) => {
-    const groupCmp = String(a.category_group ?? '').localeCompare(
-      String(b.category_group ?? ''),
-      'de',
-    );
-    if (groupCmp !== 0) return groupCmp;
-    return String(a.boss_name ?? '').localeCompare(String(b.boss_name ?? ''), 'de');
+    const nameCmp = String(a.boss_name ?? '').localeCompare(String(b.boss_name ?? ''), 'de');
+    if (nameCmp !== 0) return nameCmp;
+    return compareTimestamp(a, b);
   });
 }
 
-/**
- * Stabile, tab-spezifische IDs für hiddenItems (keine Kollisionen zwischen Sheets).
- */
-export function mapCollectibleRows(rows, sheetNumber) {
+export function mapGuideRows(rows, sheetNumber) {
   return rows.map((row, index) => {
     const base =
       row.guide_id ??
@@ -67,7 +69,7 @@ export function mapCollectibleRows(rows, sheetNumber) {
       `${row.item_name || 'item'}-${row.timestamp || index}`;
     return {
       ...row,
-      id: `sheet${sheetNumber}-${base}`,
+      id: `guide-s${sheetNumber}-${base}`,
     };
   });
 }
@@ -76,27 +78,45 @@ export function mapBossRows(rows) {
   return rows.map((row, index) => {
     const base =
       row.boss_id ??
-      row.guide_id ??
       row.id ??
       `${row.boss_name || 'boss'}-${row.timestamp || index}`;
     return {
       ...row,
-      id: `sheet3-boss-${base}`,
+      id: `boss-${base}`,
     };
   });
 }
 
-export function buildChapterGuideData(allRows) {
-  const filtered = filterGuideBySheet(allRows, GUIDE_SHEET.CHAPTER);
-  return mapCollectibleRows(sortChapterGuideRows(filtered), GUIDE_SHEET.CHAPTER);
+/** Tab 2: Full-Gameplay chronologisch (sheet_name=1, Gruppierung: chronological_group) */
+export function buildChronologicalGuideData(allGuideRows) {
+  const filtered = filterGuideBySheet(allGuideRows, GUIDE_SHEET.CHRONOLOGICAL);
+  return mapGuideRows(sortChronologicalGuideRows(filtered), GUIDE_SHEET.CHRONOLOGICAL);
 }
 
-export function buildCollectibleCategoryData(allRows) {
-  const filtered = filterGuideBySheet(allRows, GUIDE_SHEET.COLLECTIBLES);
-  return mapCollectibleRows(sortCollectibleCategoryRows(filtered), GUIDE_SHEET.COLLECTIBLES);
+/** Tab 3: Komplettierung nach Art (sheet_name=2, Gruppierung: category_group) */
+export function buildByTypeGuideData(allGuideRows) {
+  const filtered = filterGuideBySheet(allGuideRows, GUIDE_SHEET.BY_TYPE);
+  return mapGuideRows(sortByTypeGuideRows(filtered), GUIDE_SHEET.BY_TYPE);
 }
 
-export function buildBossGuideData(allRows) {
-  const filtered = filterGuideBySheet(allRows, GUIDE_SHEET.BOSSES);
-  return mapBossRows(sortBossGuideRows(filtered));
+/** Tab 4: Boss-Übersicht aus game_bosses */
+export function buildBossOverviewData(bossRows) {
+  return mapBossRows(sortBossRows(bossRows || []));
 }
+
+/** @deprecated Alias – nutze buildChronologicalGuideData */
+export function buildChapterGuideData(rows) {
+  return buildChronologicalGuideData(rows);
+}
+
+/** @deprecated Alias – nutze buildByTypeGuideData */
+export function buildCollectibleCategoryData(rows) {
+  return buildByTypeGuideData(rows);
+}
+
+/** @deprecated Bosse kommen nur noch aus game_bosses */
+export function buildBossGuideData(_guideRows) {
+  return [];
+}
+
+export { GUIDE_REITER };

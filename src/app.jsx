@@ -11,6 +11,7 @@ import MaintenancePage from './pages/MaintenancePage';
 import Inbox from './components/Inbox';
 import QaAdminPage from './pages/QaAdminPage';
 import { TABLES, GAME_PK, GAME_FK } from './lib/gameSchema';
+import { fetchGameGuideBundle } from './lib/guideQueries';
 
 function App() {
   // 1. Wir schauen beim Start direkt in die URL des Browsers!
@@ -36,10 +37,11 @@ function App() {
   const [selectedGame, setSelectedGame] = useState(null);
   const [activeTrophies, setActiveTrophies] = useState([]);
   const [guideItems, setGuideItems] = useState([]);
+  const [bossItems, setBossItems] = useState([]);
   const [loadingGuide, setLoadingGuide] = useState(false);
   const [unlockedTrophies, setUnlockedTrophies] = useState({});
   const [hideCompleted, setHideCompleted] = useState(false);
-  const [activeTab, setActiveTab] = useState('reiter1');
+  const [activeTab, setActiveTab] = useState('reiter0');
 
   const getProp = (obj, keys) => {
     if (!obj) return '';
@@ -111,12 +113,9 @@ function App() {
               .eq(GAME_FK, gameIdFromUrl);
             if (trophiesData) setActiveTrophies(trophiesData);
 
-            const { data: guidesData } = await supabase
-              .from(TABLES.guides)
-              .select('*')
-              .eq(GAME_FK, gameIdFromUrl)
-              .order('guide_id', { ascending: true });
-            if (guidesData) setGuideItems(guidesData);
+            const { guides, bosses } = await fetchGameGuideBundle(supabase, gameIdFromUrl);
+            setGuideItems(guides);
+            setBossItems(bosses);
           }
           setLoadingGuide(false);
         }
@@ -202,6 +201,7 @@ function App() {
     setLoadingGuide(true);
     setActiveTrophies([]);
     setGuideItems([]);
+    setBossItems([]);
 
     const gameId = game[GAME_PK] ?? getProp(game, [GAME_PK]);
     if (gameId) {
@@ -212,13 +212,9 @@ function App() {
 
       if (!trophyError && trophiesData) setActiveTrophies(trophiesData);
 
-      const { data: guidesData, error: guidesError } = await supabase
-        .from(TABLES.guides)
-        .select('*')
-        .eq(GAME_FK, gameId)
-        .order('guide_id', { ascending: true });
-
-      if (!guidesError && guidesData) setGuideItems(guidesData);
+      const { guides, bosses } = await fetchGameGuideBundle(supabase, gameId);
+      setGuideItems(guides);
+      setBossItems(bosses);
     }
     setLoadingGuide(false);
   };
@@ -302,6 +298,7 @@ function App() {
                 setActiveTab={setActiveTab}
                 loadingGuide={loadingGuide}
                 guideItems={guideItems}
+                bossItems={bossItems}
                 getProp={getProp}
               />
             )}

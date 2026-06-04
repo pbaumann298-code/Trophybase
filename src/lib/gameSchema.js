@@ -5,6 +5,7 @@ export const TABLES = {
   watchlist: 'user_watchlist',
   trophies: 'game_trophies',
   guides: 'game_guides',
+  bosses: 'game_bosses',
   inbox: 'user_inbox',
   qaDashboard: 'qa_dashboard',
 };

@@ -14,8 +14,8 @@ const getEmbedUrl = (url) => {
 };
 
 /**
- * Generisches 40/60 Split-Screen-Layout für Sheet 1 (Kapitel), Sheet 2 (Kategorien)
- * und Sheet 3 (Boss-Kämpfe). Gruppierung immer über item.category_group.
+ * Generisches 40/60 Split-Screen-Layout.
+ * @param {'chronological_group'|'category_group'} groupByField – Gruppierung der Kacheln
  */
 function SplitScreenGuideKacheln({
   itemsData = [],
@@ -27,6 +27,7 @@ function SplitScreenGuideKacheln({
   renderNameAddon,
   emptyVideoMessage,
   groupHeaderIcon = '📍',
+  groupByField = 'category_group',
 }) {
   const [hiddenItems, setHiddenItems] = useState({});
 
@@ -35,7 +36,10 @@ function SplitScreenGuideKacheln({
   };
 
   const groupedItems = itemsData.reduce((acc, item) => {
-    const group = item.category_group || 'Allgemein';
+    const group =
+      item[groupByField] ||
+      (groupByField === 'chronological_group' ? item.category_group : item.chronological_group) ||
+      'Allgemein';
     if (!acc[group]) acc[group] = [];
     acc[group].push(item);
     return acc;
@@ -289,12 +293,17 @@ function SplitScreenGuideKacheln({
   );
 }
 
-/** Sheet 1 (Kapitel) & Sheet 2 (Item-Kategorien) – generisch über category_group */
+/**
+ * game_guides – generisch für Reiter 1 (chronological_group) und Reiter 2 (category_group).
+ */
 export function CollectibleKacheln({
   collectiblesData,
   progressPercent,
   completedCount,
   totalCount,
+  groupByField = 'category_group',
+  groupHeaderIcon = '📍',
+  emptyVideoMessage = 'Kein Video für diesen Abschnitt verfügbar oder alle Gegenstände ausgeblendet.',
 }) {
   return (
     <SplitScreenGuideKacheln
@@ -304,13 +313,14 @@ export function CollectibleKacheln({
       totalCount={totalCount}
       getDisplayName={(item) => item.item_name}
       nameColumnHeader="Sammelgegenstand"
-      emptyVideoMessage="Kein Video für diesen Abschnitt verfügbar oder alle Gegenstände ausgeblendet."
-      groupHeaderIcon="📍"
+      emptyVideoMessage={emptyVideoMessage}
+      groupHeaderIcon={groupHeaderIcon}
+      groupByField={groupByField}
     />
   );
 }
 
-/** Sheet 3 – Boss-Kämpfe (gleiches Layout, boss_name + Trophäen-Hinweis) */
+/** game_bosses – Boss-Übersicht (Reiter 3), boss_name + Trophäen-Hinweis */
 export function BossKacheln({ bossesData, progressPercent, completedCount, totalCount }) {
   const renderTrophyBadge = (item, isHidden) => {
     if (item.is_trophy_relevant !== 'Ja') return null;
@@ -351,6 +361,7 @@ export function BossKacheln({ bossesData, progressPercent, completedCount, total
       renderNameAddon={renderTrophyBadge}
       emptyVideoMessage="Kein Video für diesen Abschnitt verfügbar oder alle Bosse ausgeblendet."
       groupHeaderIcon="⚔️"
+      groupByField="category_group"
     />
   );
 }
