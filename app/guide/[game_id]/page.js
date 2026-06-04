@@ -31,14 +31,14 @@ export default async function GuidePage({ params }) {
     .select('*')
     .eq('game_id', game_id);
 
-  const { guides, bosses } = await fetchGameGuideBundle(supabase, game_id);
+  const { chapters, guides, bosses } = await fetchGameGuideBundle(supabase, game_id);
 
   return (
     <div className="text-white p-8">
       <h1>{getProp(gameData, ['Spieltitel', 'spieltitel'])}</h1>
       <p className="text-zinc-400 text-sm mt-2">
-        Reiter 0: {trophiesData?.length ?? 0} Trophäen · Reiter 1+2: {guides.length} Guides · Reiter
-        3: {bosses.length} Bosse
+        Reiter 0: {trophiesData?.length ?? 0} Trophäen · Reiter 1: {chapters.length} Kapitel · Reiter
+        2: {guides.length} Guides · Reiter 3: {bosses.length} Bosse
       </p>
       <p className="text-zinc-500 text-xs mt-4">
         Vollständige interaktive UI: Vite-App unter /guide/{game_id} (GameDetailPage).

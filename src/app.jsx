@@ -37,6 +37,7 @@ function App() {
   const [selectedGame, setSelectedGame] = useState(null);
   const [activeTrophies, setActiveTrophies] = useState([]);
   const [guideItems, setGuideItems] = useState([]);
+  const [chapterItems, setChapterItems] = useState([]);
   const [bossItems, setBossItems] = useState([]);
   const [loadingGuide, setLoadingGuide] = useState(false);
   const [unlockedTrophies, setUnlockedTrophies] = useState({});
@@ -113,7 +114,11 @@ function App() {
               .eq(GAME_FK, gameIdFromUrl);
             if (trophiesData) setActiveTrophies(trophiesData);
 
-            const { guides, bosses } = await fetchGameGuideBundle(supabase, gameIdFromUrl);
+            const { chapters, guides, bosses } = await fetchGameGuideBundle(
+              supabase,
+              gameIdFromUrl,
+            );
+            setChapterItems(chapters);
             setGuideItems(guides);
             setBossItems(bosses);
           }
@@ -201,6 +206,7 @@ function App() {
     setLoadingGuide(true);
     setActiveTrophies([]);
     setGuideItems([]);
+    setChapterItems([]);
     setBossItems([]);
 
     const gameId = game[GAME_PK] ?? getProp(game, [GAME_PK]);
@@ -212,7 +218,8 @@ function App() {
 
       if (!trophyError && trophiesData) setActiveTrophies(trophiesData);
 
-      const { guides, bosses } = await fetchGameGuideBundle(supabase, gameId);
+      const { chapters, guides, bosses } = await fetchGameGuideBundle(supabase, gameId);
+      setChapterItems(chapters);
       setGuideItems(guides);
       setBossItems(bosses);
     }
@@ -298,6 +305,7 @@ function App() {
                 setActiveTab={setActiveTab}
                 loadingGuide={loadingGuide}
                 guideItems={guideItems}
+                chapterItems={chapterItems}
                 bossItems={bossItems}
                 getProp={getProp}
               />

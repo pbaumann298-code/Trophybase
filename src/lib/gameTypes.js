@@ -1,4 +1,17 @@
 /**
+ * @typedef {Object} GameChapterRow
+ * @property {number} [chapter_id]
+ * @property {string} game_id
+ * @property {string} [item_name]
+ * @property {string} [timestamp]
+ * @property {string} [video_url]
+ * @property {string} [chronological_group]
+ * @property {number} [sort_order]
+ * @property {number} [chapter_order]
+ * @property {string} [id] Frontend: stabile Zeilen-ID nach Mapping
+ */
+
+/**
  * @typedef {Object} GameGuideRow
  * @property {number} [guide_id]
  * @property {string} game_id

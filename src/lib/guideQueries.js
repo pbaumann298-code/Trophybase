@@ -1,6 +1,6 @@
 import { TABLES, GAME_FK } from './gameSchema';
 
-/** Explizite Spalten – inkl. neuem chronological_group */
+/** game_guides – Reiter „Nach Art“ (sheet_name=2) */
 export const GUIDE_SELECT = [
   'guide_id',
   'game_id',
@@ -14,7 +14,19 @@ export const GUIDE_SELECT = [
   'chapter_order',
 ].join(', ');
 
-/** Neue Tabelle game_bosses (Reiter 3) */
+/** game_chapters – Reiter „Chronologischer Guide“ */
+export const CHAPTER_SELECT = [
+  'chapter_id',
+  'game_id',
+  'item_name',
+  'timestamp',
+  'video_url',
+  'chronological_group',
+  'sort_order',
+  'chapter_order',
+].join(', ');
+
+/** game_bosses – Boss-Übersicht */
 export const BOSS_SELECT = [
   'boss_id',
   'game_id',
@@ -33,6 +45,14 @@ export async function fetchGuidesForGame(supabase, gameId) {
     .order('guide_id', { ascending: true });
 }
 
+export async function fetchChaptersForGame(supabase, gameId) {
+  return supabase
+    .from(TABLES.chapters)
+    .select(CHAPTER_SELECT)
+    .eq(GAME_FK, gameId)
+    .order('chapter_id', { ascending: true });
+}
+
 export async function fetchBossesForGame(supabase, gameId) {
   return supabase
     .from(TABLES.bosses)
@@ -42,18 +62,20 @@ export async function fetchBossesForGame(supabase, gameId) {
 }
 
 /**
- * Lädt game_guides + game_bosses parallel für ein Spiel.
- * @returns {{ guides: object[], bosses: object[], guidesError: Error|null, bossesError: Error|null }}
+ * Lädt game_chapters, game_guides und game_bosses parallel für ein Spiel.
  */
 export async function fetchGameGuideBundle(supabase, gameId) {
-  const [guidesRes, bossesRes] = await Promise.all([
+  const [chaptersRes, guidesRes, bossesRes] = await Promise.all([
+    fetchChaptersForGame(supabase, gameId),
     fetchGuidesForGame(supabase, gameId),
     fetchBossesForGame(supabase, gameId),
   ]);
 
   return {
+    chapters: chaptersRes.data ?? [],
     guides: guidesRes.data ?? [],
     bosses: bossesRes.data ?? [],
+    chaptersError: chaptersRes.error ?? null,
     guidesError: guidesRes.error ?? null,
     bossesError: bossesRes.error ?? null,
   };

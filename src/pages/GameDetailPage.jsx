@@ -25,16 +25,22 @@ function GamePage({
   setActiveTab,
   loadingGuide,
   guideItems,
+  chapterItems,
   bossItems,
   getProp,
 }) {
   const [guideRows, setGuideRows] = useState([]);
+  const [chapterRows, setChapterRows] = useState([]);
   const [bossRows, setBossRows] = useState([]);
   const [guidesLoading, setGuidesLoading] = useState(false);
 
   useEffect(() => {
     setGuideRows(guideItems?.length ? guideItems : []);
   }, [guideItems]);
+
+  useEffect(() => {
+    setChapterRows(chapterItems?.length ? chapterItems : []);
+  }, [chapterItems]);
 
   useEffect(() => {
     setBossRows(bossItems?.length ? bossItems : []);
@@ -46,6 +52,7 @@ function GamePage({
     async function loadGuideBundle() {
       if (!selectedGame) {
         setGuideRows([]);
+        setChapterRows([]);
         setBossRows([]);
         return;
       }
@@ -54,16 +61,16 @@ function GamePage({
       if (!gameId) return;
 
       setGuidesLoading(true);
-      const { guides, bosses, guidesError, bossesError } = await fetchGameGuideBundle(
-        supabase,
-        gameId,
-      );
+      const { chapters, guides, bosses, chaptersError, guidesError, bossesError } =
+        await fetchGameGuideBundle(supabase, gameId);
 
       if (cancelled) return;
 
+      if (chaptersError) console.error('game_chapters:', chaptersError.message);
       if (guidesError) console.error('game_guides:', guidesError.message);
       if (bossesError) console.error('game_bosses:', bossesError.message);
 
+      setChapterRows(chapters);
       setGuideRows(guides);
       setBossRows(bosses);
       setGuidesLoading(false);
@@ -76,8 +83,8 @@ function GamePage({
   }, [selectedGame, getProp]);
 
   const chronologicalGuideData = useMemo(
-    () => buildChronologicalGuideData(guideRows),
-    [guideRows],
+    () => buildChronologicalGuideData(chapterRows),
+    [chapterRows],
   );
 
   const byTypeGuideData = useMemo(() => buildByTypeGuideData(guideRows), [guideRows]);
@@ -367,7 +374,7 @@ function GamePage({
               <div className="w-full animate-fadeIn" key="tab-chronological">
                 {chronologicalGuideData.length === 0 && !isGuideLoading ? (
                   <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-                    Kein chronologischer Guide (game_guides, sheet_name=1 / chronological_group).
+                    Kein chronologischer Guide (game_chapters / chronological_group).
                   </p>
                 ) : (
                   <CollectibleKacheln

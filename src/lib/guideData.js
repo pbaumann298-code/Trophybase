@@ -32,8 +32,8 @@ export function sortChronologicalGuideRows(rows) {
     );
     if (groupCmp !== 0) return groupCmp;
 
-    const orderA = Number(a.sort_order ?? a.chapter_order ?? a.guide_id ?? 0);
-    const orderB = Number(b.sort_order ?? b.chapter_order ?? b.guide_id ?? 0);
+    const orderA = Number(a.sort_order ?? a.chapter_order ?? a.chapter_id ?? a.guide_id ?? 0);
+    const orderB = Number(b.sort_order ?? b.chapter_order ?? b.chapter_id ?? b.guide_id ?? 0);
     if (orderA !== orderB) return orderA - orderB;
 
     return compareTimestamp(a, b);
@@ -74,6 +74,20 @@ export function mapGuideRows(rows, sheetNumber) {
   });
 }
 
+export function mapChapterRows(rows) {
+  return rows.map((row, index) => {
+    const base =
+      row.chapter_id ??
+      row.guide_id ??
+      row.id ??
+      `${row.item_name || 'item'}-${row.timestamp || index}`;
+    return {
+      ...row,
+      id: `chapter-${base}`,
+    };
+  });
+}
+
 export function mapBossRows(rows) {
   return rows.map((row, index) => {
     const base =
@@ -87,10 +101,9 @@ export function mapBossRows(rows) {
   });
 }
 
-/** Tab 2: Full-Gameplay chronologisch (sheet_name=1, Gruppierung: chronological_group) */
-export function buildChronologicalGuideData(allGuideRows) {
-  const filtered = filterGuideBySheet(allGuideRows, GUIDE_SHEET.CHRONOLOGICAL);
-  return mapGuideRows(sortChronologicalGuideRows(filtered), GUIDE_SHEET.CHRONOLOGICAL);
+/** Tab 2: Full-Gameplay chronologisch aus game_chapters (Gruppierung: chronological_group) */
+export function buildChronologicalGuideData(chapterRows) {
+  return mapChapterRows(sortChronologicalGuideRows(chapterRows || []));
 }
 
 /** Tab 3: Komplettierung nach Art (sheet_name=2, Gruppierung: category_group) */
