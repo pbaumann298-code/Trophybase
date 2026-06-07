@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
+import VisibilityModeToggle from './VisibilityModeToggle';
 
 function Header({ setCurrentView, sessionUser, onLogout }) {
   const [unreadCount, setUnreadCount] = useState(0);
@@ -46,10 +47,10 @@ function Header({ setCurrentView, sessionUser, onLogout }) {
         </div>
       </div>
 
-      {/* LOGIN / PROFILE-STEUERUNG */}
-      <div className="min-w-0 flex-shrink">
+      {/* SICHTBARKEIT + LOGIN / PROFILE */}
+      <div className="min-w-0 flex-shrink flex items-center gap-2 sm:gap-4">
+        <VisibilityModeToggle />
         {sessionUser ? (
-          /* Wenn eingeloggt: Mail & Logout zeigen */
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
               type="button"
@@ -74,9 +75,8 @@ function Header({ setCurrentView, sessionUser, onLogout }) {
             </button>
           </div>
         ) : (
-          /* Wenn NICHT eingeloggt: Echter Umschalter zur Login-Ansicht! */
-          <button 
-            onClick={() => setCurrentView('login')} 
+          <button
+            onClick={() => setCurrentView('login')}
             className="flex-shrink-0 text-xs font-medium text-zinc-300 bg-[#121314] hover:bg-[#202122] border border-zinc-800 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap"
           >
             Anmelden

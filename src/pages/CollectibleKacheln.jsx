@@ -1,32 +1,10 @@
 import React, { useState } from 'react';
-import { buildVideoUrlWithTimestamp, parseTimecodeToSeconds } from '../utils/videoUrl';
-
-/** Wandelt YouTube-Links in Embed-Format um, optional mit Startzeit (Sekunden). */
-const getEmbedUrl = (url, timecode) => {
-  if (!url) return null;
-
-  let embedUrl = url;
-  if (!url.includes('youtube.com/embed/')) {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    embedUrl =
-      match && match[2].length === 11
-        ? `https://www.youtube.com/embed/${match[2]}`
-        : url;
-  }
-
-  const seconds = parseTimecodeToSeconds(timecode);
-  if (seconds != null && seconds > 0) {
-    const sep = embedUrl.includes('?') ? '&' : '?';
-    return `${embedUrl}${sep}start=${seconds}`;
-  }
-
-  return embedUrl;
-};
+import { getYouTubeEmbedUrl } from '../utils/videoUrl';
+import { useVisibility } from '../context/VisibilityContext';
 
 /**
  * Generisches 40/60 Split-Screen-Layout.
- * @param {'chronological_group'|'category_group'} groupByField – Gruppierung der Kacheln
+ * @param {'chronological_group'|'category_group'|'boss_name'} groupByField
  */
 function SplitScreenGuideKacheln({
   itemsData = [],
@@ -40,11 +18,9 @@ function SplitScreenGuideKacheln({
   groupHeaderIcon = '📍',
   groupByField = 'category_group',
 }) {
-  const [hiddenItems, setHiddenItems] = useState({});
-
-  const toggleItem = (itemId) => {
-    setHiddenItems((prev) => ({ ...prev, [itemId]: !prev[itemId] }));
-  };
+  const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
+  const [expandedGroups, setExpandedGroups] = useState({});
+  const [activeVideos, setActiveVideos] = useState({});
 
   const groupedItems = itemsData.reduce((acc, item) => {
     const group =
@@ -55,6 +31,19 @@ function SplitScreenGuideKacheln({
     acc[group].push(item);
     return acc;
   }, {});
+
+  const toggleGroup = (groupName) => {
+    setExpandedGroups((prev) => ({ ...prev, [groupName]: !prev[groupName] }));
+  };
+
+  const selectItemVideo = (groupName, item) => {
+    if (!item.video_url) return;
+    const embedUrl = getYouTubeEmbedUrl(item.video_url, item.timestamp, { autoplay: true });
+    setActiveVideos((prev) => ({
+      ...prev,
+      [groupName]: { itemId: item.id, embedUrl },
+    }));
+  };
 
   return (
     <div className="collectibles-tab" style={{ padding: '0px', color: '#fff' }}>
@@ -114,10 +103,17 @@ function SplitScreenGuideKacheln({
       </div>
 
       {Object.entries(groupedItems).map(([groupName, items]) => {
-        const visibleItem = items.find((i) => !hiddenItems[i.id]);
-        const activeVideoUrl = visibleItem?.video_url
-          ? getEmbedUrl(visibleItem.video_url, visibleItem.timestamp)
+        const isExpanded = !!expandedGroups[groupName];
+        const visibleItems = items.filter((item) =>
+          getEntryState(itemKey(item.id)).visible,
+        );
+        const activeVideo = activeVideos[groupName];
+        const activeItem = activeVideo
+          ? items.find((i) => i.id === activeVideo.itemId)
           : null;
+        const embedUrl = activeVideo?.embedUrl ?? null;
+
+        if (visibleItems.length === 0) return null;
 
         return (
           <div
@@ -127,190 +123,221 @@ function SplitScreenGuideKacheln({
               backgroundColor: '#1a1b1c',
               border: '1px solid #27272a',
               borderRadius: '16px',
-              marginBottom: '30px',
+              marginBottom: '16px',
               overflow: 'hidden',
             }}
           >
-            <h3
+            <button
+              type="button"
+              onClick={() => toggleGroup(groupName)}
               style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
                 color: '#00ff66',
                 margin: 0,
                 padding: '15px 20px',
                 backgroundColor: '#121314',
-                borderBottom: '1px solid #27272a',
+                border: 'none',
+                borderBottom: isExpanded ? '1px solid #27272a' : 'none',
                 fontSize: '14px',
                 fontFamily: 'monospace',
                 textTransform: 'uppercase',
                 letterSpacing: '0.05em',
+                cursor: 'pointer',
+                textAlign: 'left',
               }}
             >
-              {groupHeaderIcon} {groupName}
-            </h3>
+              <span>
+                {groupHeaderIcon} {groupName}
+                <span style={{ color: '#71717a', marginLeft: '8px', fontSize: '11px' }}>
+                  ({visibleItems.length})
+                </span>
+              </span>
+              <span style={{ color: '#71717a', fontSize: '12px' }} aria-hidden>
+                {isExpanded ? '▼' : '▶'}
+              </span>
+            </button>
 
-            <div style={{ display: 'flex', minHeight: '300px', flexWrap: 'wrap' }}>
-              <div
-                style={{
-                  flex: '1 1 40%',
-                  minWidth: '300px',
-                  padding: '15px',
-                  borderRight: '1px solid #27272a',
-                  overflowY: 'auto',
-                  maxHeight: '400px',
-                }}
-              >
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                  <thead>
-                    <tr
-                      style={{
-                        color: '#71717a',
-                        fontSize: '11px',
-                        textTransform: 'uppercase',
-                        fontFamily: 'monospace',
-                      }}
-                    >
-                      <th style={{ padding: '8px' }}>{nameColumnHeader}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((item) => {
-                      const isHidden = hiddenItems[item.id];
-                      const displayName = getDisplayName(item);
-                      const videoLink = item.video_url
-                        ? buildVideoUrlWithTimestamp(item.video_url, item.timestamp)
-                        : null;
+            {isExpanded && (
+              <div style={{ display: 'flex', minHeight: '300px', flexWrap: 'wrap' }}>
+                <div
+                  style={{
+                    flex: '1 1 40%',
+                    minWidth: '300px',
+                    padding: '15px',
+                    borderRight: '1px solid #27272a',
+                    overflowY: 'auto',
+                    maxHeight: '400px',
+                  }}
+                >
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead>
+                      <tr
+                        style={{
+                          color: '#71717a',
+                          fontSize: '11px',
+                          textTransform: 'uppercase',
+                          fontFamily: 'monospace',
+                        }}
+                      >
+                        <th style={{ padding: '8px' }}>{nameColumnHeader}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((item) => {
+                        const visKey = itemKey(item.id);
+                        const { visible, dimmed } = getEntryState(visKey);
+                        if (!visible) return null;
 
-                      return (
-                        <tr
-                          key={item.id}
-                          style={{
-                            borderBottom: '1px solid #27272a',
-                            opacity: isHidden ? 0.3 : 1,
-                            textDecoration: isHidden ? 'line-through' : 'none',
-                          }}
-                        >
-                          <td style={{ padding: '10px 8px', verticalAlign: 'top' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <input
-                                type="checkbox"
-                                checked={!!isHidden}
-                                onChange={() => toggleItem(item.id)}
-                                style={{ accentColor: '#00ff66', cursor: 'pointer' }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => toggleItem(item.id)}
-                                style={{
-                                  background: 'none',
-                                  border: 'none',
-                                  cursor: 'pointer',
-                                  color: '#00ff66',
-                                  fontSize: '14px',
-                                }}
-                                aria-label={isHidden ? 'Eintrag einblenden' : 'Eintrag ausblenden'}
-                              >
-                                {isHidden ? '👁️‍🗨️' : '👁️'}
-                              </button>
-                              {videoLink ? (
-                                <a
-                                  href={videoLink}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="Video an der passenden Stelle öffnen"
+                        const displayName = getDisplayName(item);
+                        const userHidden = isHidden(visKey);
+                        const isActive = activeVideo?.itemId === item.id;
+                        const hasVideo = !!item.video_url;
+
+                        return (
+                          <tr
+                            key={item.id}
+                            style={{
+                              borderBottom: '1px solid #27272a',
+                              opacity: dimmed ? 0.3 : 1,
+                              backgroundColor: isActive ? 'rgba(0, 255, 102, 0.06)' : 'transparent',
+                            }}
+                          >
+                            <td style={{ padding: '10px 8px', verticalAlign: 'top' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleHidden(visKey);
+                                  }}
                                   style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: userHidden ? '#71717a' : '#00ff66',
+                                    fontSize: '14px',
+                                    flexShrink: 0,
+                                  }}
+                                  aria-label={
+                                    userHidden ? 'Eintrag einblenden' : 'Eintrag ausblenden'
+                                  }
+                                  title={userHidden ? 'Einblenden' : 'Ausblenden'}
+                                >
+                                  {userHidden ? '👁️‍🗨️' : '👁️'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => selectItemVideo(groupName, item)}
+                                  disabled={!hasVideo}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    padding: 0,
+                                    cursor: hasVideo ? 'pointer' : 'default',
                                     fontSize: '13px',
-                                    color: isHidden ? '#71717a' : '#00ff66',
-                                    textDecoration: isHidden ? 'line-through' : 'none',
+                                    color: dimmed
+                                      ? '#71717a'
+                                      : isActive
+                                        ? '#00ff66'
+                                        : hasVideo
+                                          ? '#e4e4e7'
+                                          : '#a1a1aa',
+                                    textDecoration: 'none',
                                     display: 'inline-flex',
                                     alignItems: 'center',
                                     gap: '6px',
                                     flexWrap: 'wrap',
+                                    textAlign: 'left',
+                                    fontWeight: isActive ? 'bold' : 'normal',
                                   }}
                                   onMouseEnter={(e) => {
-                                    if (!isHidden) e.currentTarget.style.textDecoration = 'underline';
+                                    if (hasVideo && !dimmed) {
+                                      e.currentTarget.style.color = '#00ff66';
+                                      e.currentTarget.style.textDecoration = 'underline';
+                                    }
                                   }}
                                   onMouseLeave={(e) => {
-                                    e.currentTarget.style.textDecoration = isHidden
-                                      ? 'line-through'
-                                      : 'none';
+                                    e.currentTarget.style.textDecoration = 'none';
+                                    if (!isActive) {
+                                      e.currentTarget.style.color = dimmed
+                                        ? '#71717a'
+                                        : hasVideo
+                                          ? '#e4e4e7'
+                                          : '#a1a1aa';
+                                    } else {
+                                      e.currentTarget.style.color = '#00ff66';
+                                    }
                                   }}
                                 >
                                   {displayName}
-                                  {renderNameAddon ? renderNameAddon(item, isHidden) : null}
-                                </a>
-                              ) : (
-                                <span
-                                  style={{
-                                    fontSize: '13px',
-                                    color: isHidden ? '#71717a' : '#e4e4e7',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    flexWrap: 'wrap',
-                                  }}
-                                >
-                                  {displayName}
-                                  {renderNameAddon ? renderNameAddon(item, isHidden) : null}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                                  {renderNameAddon ? renderNameAddon(item, dimmed) : null}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
 
-              <div
-                style={{
-                  flex: '1 1 60%',
-                  minWidth: '350px',
-                  padding: '10px',
-                  backgroundColor: '#121314',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {activeVideoUrl ? (
-                  <div
-                    style={{
-                      position: 'relative',
-                      width: '100%',
-                      paddingBottom: '56.25%',
-                      height: 0,
-                    }}
-                  >
-                    <iframe
+                <div
+                  style={{
+                    flex: '1 1 60%',
+                    minWidth: '350px',
+                    padding: '10px',
+                    backgroundColor: '#121314',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {embedUrl ? (
+                    <div
                       style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
+                        position: 'relative',
                         width: '100%',
-                        height: '100%',
-                        borderRadius: '8px',
+                        paddingBottom: '56.25%',
+                        height: 0,
                       }}
-                      src={activeVideoUrl}
-                      title={groupName}
-                      frameBorder="0"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      color: '#71717a',
-                      fontSize: '12px',
-                      textAlign: 'center',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {emptyVideoMessage}
-                  </div>
-                )}
+                    >
+                      <iframe
+                        key={`${groupName}-${activeVideo?.itemId || 'default'}-${embedUrl}`}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: '100%',
+                          borderRadius: '8px',
+                        }}
+                        src={embedUrl}
+                        title={activeItem ? getDisplayName(activeItem) : groupName}
+                        frameBorder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        color: '#71717a',
+                        fontSize: '12px',
+                        textAlign: 'center',
+                        fontFamily: 'monospace',
+                        padding: '0 16px',
+                      }}
+                    >
+                      {activeVideo ? emptyVideoMessage : 'Klicke auf ein Item, um das Video hier abzuspielen.'}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         );
       })}
@@ -328,7 +355,7 @@ export function CollectibleKacheln({
   totalCount,
   groupByField = 'category_group',
   groupHeaderIcon = '📍',
-  emptyVideoMessage = 'Kein Video für diesen Abschnitt verfügbar oder alle Gegenstände ausgeblendet.',
+  emptyVideoMessage = 'Klicke auf ein Item mit Video – der Player erscheint hier.',
 }) {
   return (
     <SplitScreenGuideKacheln
@@ -347,7 +374,7 @@ export function CollectibleKacheln({
 
 /** game_bosses – Boss-Übersicht (Reiter 3), boss_name + Trophäen-Hinweis */
 export function BossKacheln({ bossesData, progressPercent, completedCount, totalCount }) {
-  const renderTrophyBadge = (item, isHidden) => {
+  const renderTrophyBadge = (item, dimmed) => {
     if (item.is_trophy_relevant !== 'Ja') return null;
     return (
       <span
@@ -361,12 +388,12 @@ export function BossKacheln({ bossesData, progressPercent, completedCount, total
           fontFamily: 'monospace',
           textTransform: 'uppercase',
           letterSpacing: '0.04em',
-          color: isHidden ? '#4ade80' : '#00ff66',
+          color: dimmed ? '#4ade80' : '#00ff66',
           backgroundColor: 'rgba(0, 255, 102, 0.12)',
           border: '1px solid rgba(0, 255, 102, 0.35)',
           padding: '1px 5px',
           borderRadius: '4px',
-          opacity: isHidden ? 0.7 : 1,
+          opacity: dimmed ? 0.7 : 1,
         }}
       >
         <span aria-hidden>🏆</span>
@@ -384,9 +411,9 @@ export function BossKacheln({ bossesData, progressPercent, completedCount, total
       getDisplayName={(item) => item.boss_name}
       nameColumnHeader="Bossgegner"
       renderNameAddon={renderTrophyBadge}
-      emptyVideoMessage="Kein Video für diesen Abschnitt verfügbar oder alle Bosse ausgeblendet."
+      emptyVideoMessage="Klicke auf einen Boss mit Video – der Player erscheint hier."
       groupHeaderIcon="⚔️"
-      groupByField="category_group"
+      groupByField="boss_name"
     />
   );
 }

@@ -33,11 +33,12 @@ export async function fetchChaptersForGame(supabase, gameId) {
   const id = resolveGameId(gameId);
   if (!id) return { data: [], error: null };
 
+  // game_chapters nutzt dieselben Spalten wie game_guides (PK: guide_id)
   return supabase
     .from(TABLES.chapters)
     .select('*')
     .eq(GAME_FK, id)
-    .order('chapter_id', { ascending: true });
+    .order('guide_id', { ascending: true });
 }
 
 export async function fetchBossesForGame(supabase, gameId) {

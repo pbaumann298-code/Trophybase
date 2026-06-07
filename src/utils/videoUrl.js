@@ -42,3 +42,37 @@ export function buildVideoUrlWithTimestamp(url, timecode) {
   const separator = url.includes('?') ? '&' : '?';
   return `${url}${separator}t=${seconds}`;
 }
+
+/**
+ * YouTube-Embed-URL mit optionalem Startzeitpunkt (Sekunden).
+ * @param {string} url
+ * @param {string|number|null|undefined} timecode
+ * @param {{ autoplay?: boolean }} [options]
+ */
+export function getYouTubeEmbedUrl(url, timecode, { autoplay = false } = {}) {
+  if (!url) return null;
+
+  let embedUrl = url;
+  if (!url.includes('youtube.com/embed/')) {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    embedUrl =
+      match && match[2].length === 11
+        ? `https://www.youtube.com/embed/${match[2]}`
+        : url;
+  }
+
+  const params = new URLSearchParams();
+  const seconds = parseTimecodeToSeconds(timecode);
+  if (seconds != null && seconds > 0) params.set('start', String(seconds));
+  if (autoplay) {
+    params.set('autoplay', '1');
+    params.set('rel', '0');
+  }
+
+  const query = params.toString();
+  if (!query) return embedUrl;
+
+  const sep = embedUrl.includes('?') ? '&' : '?';
+  return `${embedUrl}${sep}${query}`;
+}

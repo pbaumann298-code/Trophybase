@@ -1,30 +1,19 @@
 /**
- * @typedef {Object} GameChapterRow
- * @property {number} [chapter_id]
+ * @typedef {Object} GameGuideEntryRow
+ * Identische Spalten in game_chapters (Reiter 1) und game_guides (Reiter 2).
+ * @property {number} [guide_id]
  * @property {string} game_id
- * @property {string} [item_name]
+ * @property {string} [item_name] Anzeigename in CollectibleKacheln
  * @property {string} [timestamp]
  * @property {string} [video_url]
- * @property {string} [chronological_group]
+ * @property {string} [chronological_group] Gruppierung Reiter 1 (z. B. „Bahnhof Krat“)
+ * @property {string} [category_group] Gruppierung Reiter 2 (z. B. „Waffen“)
  * @property {number} [sort_order]
- * @property {number} [chapter_order]
  * @property {string} [id] Frontend: stabile Zeilen-ID nach Mapping
  */
 
-/**
- * @typedef {Object} GameGuideRow
- * @property {number} [guide_id]
- * @property {string} game_id
- * @property {string} [item_name]
- * @property {string} [timestamp]
- * @property {string} [video_url]
- * @property {string} [chronological_group] Gebiet/Kapitel (Reiter 1 – chronologisch)
- * @property {string} [category_group] Gegenstandstyp (Reiter 2 – Komplettierung)
- * @property {number|string} [sheet_name] Pipeline-Reiter: 1 = chronologisch, 2 = nach Art
- * @property {number} [sort_order]
- * @property {number} [chapter_order]
- * @property {string} [id] Frontend: stabile Zeilen-ID nach Mapping
- */
+/** @typedef {GameGuideEntryRow} GameChapterRow */
+/** @typedef {GameGuideEntryRow} GameGuideRow */
 
 /**
  * @typedef {Object} GameBossRow

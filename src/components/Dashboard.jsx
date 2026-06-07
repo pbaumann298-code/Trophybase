@@ -11,11 +11,13 @@ import {
 } from '../lib/gameSchema';
 import WatchlistProgressBar from './WatchlistProgressBar';
 import WatchlistStatusBadge from './WatchlistStatusBadge';
+import { useVisibility } from '../context/VisibilityContext';
 
 function Dashboard({ sessionUser, openGame }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { toggleHidden, isHidden, getEntryState, gameKey } = useVisibility();
 
   useEffect(() => {
     if (!sessionUser?.id) {
@@ -46,7 +48,7 @@ function Dashboard({ sessionUser, openGame }) {
       }
 
       const activeRows = (watchlistRows || []).filter((row) =>
-        isActiveWatchlistStatus(row[WATCHLIST.status])
+        isActiveWatchlistStatus(row[WATCHLIST.status]),
       );
 
       const gameIds = [...new Set(activeRows.map((row) => row[GAME_FK]).filter(Boolean))];
@@ -107,6 +109,12 @@ function Dashboard({ sessionUser, openGame }) {
     }
   };
 
+  const visibleItems = items.filter((item) => {
+    const key = gameKey(item.npwrId);
+    const completed = item.progressPercent >= 100;
+    return getEntryState(key, { completed }).visible;
+  });
+
   if (!sessionUser) {
     return (
       <section className="w-full min-w-0 rounded-2xl border border-zinc-800 bg-[#1a1b1c] p-6">
@@ -137,7 +145,7 @@ function Dashboard({ sessionUser, openGame }) {
         </div>
         {!loading && (
           <span className="text-xs font-mono text-zinc-500 flex-shrink-0">
-            {items.length} aktiv
+            {visibleItems.length} aktiv
           </span>
         )}
       </div>
@@ -166,60 +174,94 @@ function Dashboard({ sessionUser, openGame }) {
         </p>
       )}
 
-      {!loading && !error && items.length > 0 && (
+      {!loading && !error && items.length > 0 && visibleItems.length === 0 && (
+        <p className="text-xs text-zinc-500 italic py-2">
+          Alle Spiele sind ausgeblendet. Wechsle im Header auf „Einblenden“, um sie ausgegraut zu
+          sehen.
+        </p>
+      )}
+
+      {!loading && !error && visibleItems.length > 0 && (
         <ul className="flex flex-col gap-3">
           {items.map((item) => {
+            const visKey = gameKey(item.npwrId);
+            const completed = item.progressPercent >= 100;
+            const { visible, dimmed } = getEntryState(visKey, { completed });
+            if (!visible) return null;
+
             const title = item.game?.[GAME_FIELDS.title] || item.npwrId || 'Unbekanntes Spiel';
             const cover = item.game?.[GAME_FIELDS.cover];
+            const userHidden = isHidden(visKey);
 
             return (
               <li key={item.watchlistId || item.npwrId}>
-                <button
-                  type="button"
-                  onClick={() => handleOpenGame(item)}
-                  className="group w-full min-w-0 text-left bg-[#121314] border border-zinc-800 hover:border-[#00ff66]/30 rounded-xl p-3 sm:p-4 flex gap-3 sm:gap-4 items-stretch transition cursor-pointer"
+                <div
+                  className={`group w-full min-w-0 bg-[#121314] border border-zinc-800 hover:border-[#00ff66]/30 rounded-xl p-3 sm:p-4 flex gap-3 sm:gap-4 items-stretch transition ${
+                    dimmed ? 'opacity-30' : ''
+                  }`}
                 >
-                  <div className="w-14 sm:w-[4.5rem] flex-shrink-0 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 aspect-[3/4] max-h-24">
-                    {cover ? (
-                      <img src={cover} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-zinc-600 text-lg">
-                        🎮
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <p className="text-sm sm:text-base font-bold text-zinc-100 truncate group-hover:text-[#00ff66] transition-colors">
-                        {title}
-                      </p>
-                      <WatchlistStatusBadge status={item.status} />
+                  <button
+                    type="button"
+                    onClick={() => handleOpenGame(item)}
+                    className="flex flex-1 min-w-0 gap-3 sm:gap-4 items-stretch text-left bg-transparent border-none cursor-pointer p-0"
+                  >
+                    <div className="w-14 sm:w-[4.5rem] flex-shrink-0 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 aspect-[3/4] max-h-24">
+                      {cover ? (
+                        <img src={cover} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-zinc-600 text-lg">
+                          🎮
+                        </div>
+                      )}
                     </div>
 
-                    {item.game?.[GAME_FIELDS.console] && (
-                      <p className="text-[10px] text-zinc-500 font-mono mb-2 truncate">
-                        {item.game[GAME_FIELDS.console]}
-                        {item.game[GAME_FIELDS.genre]
-                          ? ` · ${item.game[GAME_FIELDS.genre]}`
-                          : ''}
-                      </p>
-                    )}
+                    <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <p className="text-sm sm:text-base font-bold text-zinc-100 truncate group-hover:text-[#00ff66] transition-colors">
+                          {title}
+                        </p>
+                        <WatchlistStatusBadge status={item.status} />
+                        {completed && (
+                          <span className="text-[9px] font-mono uppercase text-[#00ff66]/80 border border-[#00ff66]/20 px-1.5 py-0.5 rounded">
+                            Platin
+                          </span>
+                        )}
+                      </div>
 
-                    {item.lastPlayedAt && (
-                      <p className="text-[10px] text-zinc-600 font-mono mb-2">
-                        Zuletzt gezockt:{' '}
-                        {new Date(item.lastPlayedAt).toLocaleDateString('de-DE', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: 'numeric',
-                        })}
-                      </p>
-                    )}
+                      {item.game?.[GAME_FIELDS.console] && (
+                        <p className="text-[10px] text-zinc-500 font-mono mb-2 truncate">
+                          {item.game[GAME_FIELDS.console]}
+                          {item.game[GAME_FIELDS.genre]
+                            ? ` · ${item.game[GAME_FIELDS.genre]}`
+                            : ''}
+                        </p>
+                      )}
 
-                    <WatchlistProgressBar percent={item.progressPercent} />
-                  </div>
-                </button>
+                      {item.lastPlayedAt && (
+                        <p className="text-[10px] text-zinc-600 font-mono mb-2">
+                          Zuletzt gezockt:{' '}
+                          {new Date(item.lastPlayedAt).toLocaleDateString('de-DE', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          })}
+                        </p>
+                      )}
+
+                      <WatchlistProgressBar percent={item.progressPercent} />
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleHidden(visKey)}
+                    className="flex-shrink-0 self-center text-lg bg-transparent border-none cursor-pointer px-1"
+                    aria-label={userHidden ? 'Spiel einblenden' : 'Spiel ausblenden'}
+                    title={userHidden ? 'Einblenden' : 'Ausblenden'}
+                  >
+                    {userHidden ? '👁️‍🗨️' : '👁️'}
+                  </button>
+                </div>
               </li>
             );
           })}

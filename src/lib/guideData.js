@@ -1,63 +1,51 @@
 import { GUIDE_REITER } from './gameTypes';
 
-/** sheet_name in game_guides: 1 = chronologisch, 2 = nach Art */
+/** @deprecated Legacy sheet_name – Tabellen sind jetzt getrennt (game_chapters / game_guides) */
 export const GUIDE_SHEET = {
   CHRONOLOGICAL: 1,
   BY_TYPE: 2,
 };
 
-export function normalizeSheetName(value) {
-  if (value == null || value === '') return null;
-  const raw = String(value).trim();
-  const digits = raw.match(/\d+/);
-  if (digits) return parseInt(digits[0], 10);
-  const n = parseInt(raw, 10);
-  return Number.isNaN(n) ? null : n;
-}
+/**
+ * game_chapters und game_guides nutzen dieselben Spalten.
+ * Mappt Supabase-Zeilen auf ein einheitliches Frontend-Objekt.
+ */
+export function normalizeGuideEntryRow(row) {
+  if (!row) return null;
 
-export function filterGuideBySheet(rows, sheetNumber) {
-  return (rows || []).filter((row) => normalizeSheetName(row.sheet_name) === sheetNumber);
-}
+  const guideId = row.guide_id ?? row.Guide_ID ?? row.id ?? null;
 
-/** Vereinheitlicht Spaltennamen aus Supabase / Excel-Import */
-export function normalizeChapterRow(row) {
-  if (!row) return row;
   return {
-    ...row,
-    chapter_id: row.chapter_id ?? row.id,
-    game_id: String(row.game_id ?? row.NPWR_ID ?? row.npwr_id ?? ''),
-    item_name: row.item_name ?? row.Item_Name ?? row.name ?? '',
-    timestamp: row.timestamp ?? row.Timestamp ?? '',
-    video_url: row.video_url ?? row.Video_URL ?? '',
-    chronological_group:
+    guide_id: guideId,
+    game_id: String(row.game_id ?? row.NPWR_ID ?? row.npwr_id ?? '').trim(),
+    item_name: String(row.item_name ?? row.Item_Name ?? row.name ?? '').trim(),
+    timestamp: String(row.timestamp ?? row.Timestamp ?? '').trim(),
+    video_url: String(row.video_url ?? row.Video_URL ?? '').trim(),
+    chronological_group: String(
       row.chronological_group ?? row.Chronological_Group ?? row.area ?? row.Area ?? '',
-    sort_order: row.sort_order ?? row.Sort_Order,
-    chapter_order: row.chapter_order ?? row.Chapter_Order,
+    ).trim(),
+    category_group: String(
+      row.category_group ?? row.Category_Group ?? row.type ?? row.Type ?? '',
+    ).trim(),
+    sort_order: row.sort_order ?? row.Sort_Order ?? row.chapter_order ?? row.Chapter_Order ?? null,
   };
 }
 
+/** @deprecated Alias – identische Spalten wie game_guides */
+export function normalizeChapterRow(row) {
+  return normalizeGuideEntryRow(row);
+}
+
+/** @deprecated Alias – identische Spalten wie game_chapters */
 export function normalizeGuideRow(row) {
-  if (!row) return row;
-  return {
-    ...row,
-    guide_id: row.guide_id ?? row.id,
-    game_id: String(row.game_id ?? row.NPWR_ID ?? row.npwr_id ?? ''),
-    item_name: row.item_name ?? row.Item_Name ?? row.name ?? '',
-    timestamp: row.timestamp ?? row.Timestamp ?? '',
-    video_url: row.video_url ?? row.Video_URL ?? '',
-    category_group: row.category_group ?? row.Category_Group ?? row.type ?? '',
-    chronological_group: row.chronological_group ?? row.Chronological_Group ?? '',
-    sheet_name: row.sheet_name ?? row.Sheet_Name,
-    sort_order: row.sort_order ?? row.Sort_Order,
-    chapter_order: row.chapter_order ?? row.Chapter_Order,
-  };
+  return normalizeGuideEntryRow(row);
 }
 
 function compareTimestamp(a, b) {
   return String(a?.timestamp ?? '').localeCompare(String(b?.timestamp ?? ''));
 }
 
-/** Reiter 1 – primär nach chronological_group, dann Zeitstempel */
+/** Reiter 1 – primär chronological_group, dann sort_order / guide_id / Zeitstempel */
 export function sortChronologicalGuideRows(rows) {
   return [...rows].sort((a, b) => {
     const groupCmp = String(a.chronological_group ?? '').localeCompare(
@@ -66,15 +54,15 @@ export function sortChronologicalGuideRows(rows) {
     );
     if (groupCmp !== 0) return groupCmp;
 
-    const orderA = Number(a.sort_order ?? a.chapter_order ?? a.chapter_id ?? a.guide_id ?? 0);
-    const orderB = Number(b.sort_order ?? b.chapter_order ?? b.chapter_id ?? b.guide_id ?? 0);
+    const orderA = Number(a.sort_order ?? a.guide_id ?? 0);
+    const orderB = Number(b.sort_order ?? b.guide_id ?? 0);
     if (orderA !== orderB) return orderA - orderB;
 
     return compareTimestamp(a, b);
   });
 }
 
-/** Reiter 2 – nach category_group (Waffen, Ringe, …), dann item_name */
+/** Reiter 2 – category_group (Waffen, Ringe, …), dann item_name */
 export function sortByTypeGuideRows(rows) {
   return [...rows].sort((a, b) => {
     const groupCmp = String(a.category_group ?? '').localeCompare(
@@ -95,31 +83,24 @@ export function sortBossRows(rows) {
   });
 }
 
-export function mapGuideRows(rows, sheetNumber) {
+function assignStableIds(rows, idPrefix) {
   return rows.map((row, index) => {
     const base =
       row.guide_id ??
-      row.id ??
       `${row.item_name || 'item'}-${row.timestamp || index}`;
     return {
       ...row,
-      id: `guide-s${sheetNumber}-${base}`,
+      id: `${idPrefix}-${base}`,
     };
   });
 }
 
+export function mapGuideRows(rows, sheetNumber) {
+  return assignStableIds(rows, `guide-s${sheetNumber}`);
+}
+
 export function mapChapterRows(rows) {
-  return rows.map((row, index) => {
-    const base =
-      row.chapter_id ??
-      row.guide_id ??
-      row.id ??
-      `${row.item_name || 'item'}-${row.timestamp || index}`;
-    return {
-      ...row,
-      id: `chapter-${base}`,
-    };
-  });
+  return assignStableIds(rows, 'chapter');
 }
 
 export function mapBossRows(rows) {
@@ -135,25 +116,30 @@ export function mapBossRows(rows) {
   });
 }
 
-/** Tab 2: Full-Gameplay chronologisch aus game_chapters (Gruppierung: chronological_group) */
-export function buildChronologicalGuideData(chapterRows) {
-  const normalized = (chapterRows || []).map(normalizeChapterRow);
-  return mapChapterRows(sortChronologicalGuideRows(normalized));
+function mapGuideEntryRows(rows, idPrefix) {
+  const normalized = (rows || []).map(normalizeGuideEntryRow).filter(Boolean);
+  return assignStableIds(normalized, idPrefix);
 }
 
 /**
- * Tab 3: Komplettierung nach Art aus game_guides (Gruppierung: category_group).
- * game_guides enthält nur noch „Nach Art“-Daten – kein sheet_name-Filter mehr nötig.
- * Legacy-Fallback: wenn sheet_name gesetzt ist, weiterhin sheet_name=2 bevorzugen.
+ * Reiter 1 (Full-Gameplay): game_chapters
+ * Überschrift: chronological_group · Item: item_name
  */
-export function buildByTypeGuideData(allGuideRows) {
-  const normalized = (allGuideRows || []).map(normalizeGuideRow);
-  const sheetFiltered = filterGuideBySheet(normalized, GUIDE_SHEET.BY_TYPE);
-  const rows = sheetFiltered.length > 0 ? sheetFiltered : normalized;
-  return mapGuideRows(sortByTypeGuideRows(rows), GUIDE_SHEET.BY_TYPE);
+export function buildChronologicalGuideData(chapterRows) {
+  const mapped = mapGuideEntryRows(chapterRows, 'chapter');
+  return sortChronologicalGuideRows(mapped);
 }
 
-/** Tab 4: Boss-Übersicht aus game_bosses */
+/**
+ * Reiter 2 (Komplettierung): game_guides
+ * Überschrift: category_group · Item: item_name
+ */
+export function buildByTypeGuideData(guideRows) {
+  const mapped = mapGuideEntryRows(guideRows, 'guide');
+  return sortByTypeGuideRows(mapped);
+}
+
+/** Reiter 3: Boss-Übersicht aus game_bosses */
 export function buildBossOverviewData(bossRows) {
   return mapBossRows(sortBossRows(bossRows || []));
 }
