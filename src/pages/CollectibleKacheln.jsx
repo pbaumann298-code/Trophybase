@@ -1,16 +1,27 @@
 import React, { useState } from 'react';
+import { buildVideoUrlWithTimestamp, parseTimecodeToSeconds } from '../utils/videoUrl';
 
-/** Wandelt YouTube-Links in das korrekte Einbettungsformat um */
-const getEmbedUrl = (url) => {
+/** Wandelt YouTube-Links in Embed-Format um, optional mit Startzeit (Sekunden). */
+const getEmbedUrl = (url, timecode) => {
   if (!url) return null;
-  if (url.includes('youtube.com/embed/')) return url;
 
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
+  let embedUrl = url;
+  if (!url.includes('youtube.com/embed/')) {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    embedUrl =
+      match && match[2].length === 11
+        ? `https://www.youtube.com/embed/${match[2]}`
+        : url;
+  }
 
-  return match && match[2].length === 11
-    ? `https://www.youtube.com/embed/${match[2]}`
-    : url;
+  const seconds = parseTimecodeToSeconds(timecode);
+  if (seconds != null && seconds > 0) {
+    const sep = embedUrl.includes('?') ? '&' : '?';
+    return `${embedUrl}${sep}start=${seconds}`;
+  }
+
+  return embedUrl;
 };
 
 /**
@@ -104,7 +115,9 @@ function SplitScreenGuideKacheln({
 
       {Object.entries(groupedItems).map(([groupName, items]) => {
         const visibleItem = items.find((i) => !hiddenItems[i.id]);
-        const activeVideoUrl = visibleItem?.video_url;
+        const activeVideoUrl = visibleItem?.video_url
+          ? getEmbedUrl(visibleItem.video_url, visibleItem.timestamp)
+          : null;
 
         return (
           <div
@@ -156,13 +169,15 @@ function SplitScreenGuideKacheln({
                       }}
                     >
                       <th style={{ padding: '8px' }}>{nameColumnHeader}</th>
-                      <th style={{ padding: '8px', width: '80px' }}>Time</th>
                     </tr>
                   </thead>
                   <tbody>
                     {items.map((item) => {
                       const isHidden = hiddenItems[item.id];
                       const displayName = getDisplayName(item);
+                      const videoLink = item.video_url
+                        ? buildVideoUrlWithTimestamp(item.video_url, item.timestamp)
+                        : null;
 
                       return (
                         <tr
@@ -195,39 +210,49 @@ function SplitScreenGuideKacheln({
                               >
                                 {isHidden ? '👁️‍🗨️' : '👁️'}
                               </button>
-                              <span
-                                style={{
-                                  fontSize: '13px',
-                                  color: isHidden ? '#71717a' : '#e4e4e7',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '6px',
-                                  flexWrap: 'wrap',
-                                }}
-                              >
-                                {displayName}
-                                {renderNameAddon ? renderNameAddon(item, isHidden) : null}
-                              </span>
+                              {videoLink ? (
+                                <a
+                                  href={videoLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title="Video an der passenden Stelle öffnen"
+                                  style={{
+                                    fontSize: '13px',
+                                    color: isHidden ? '#71717a' : '#00ff66',
+                                    textDecoration: isHidden ? 'line-through' : 'none',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    flexWrap: 'wrap',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!isHidden) e.currentTarget.style.textDecoration = 'underline';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.textDecoration = isHidden
+                                      ? 'line-through'
+                                      : 'none';
+                                  }}
+                                >
+                                  {displayName}
+                                  {renderNameAddon ? renderNameAddon(item, isHidden) : null}
+                                </a>
+                              ) : (
+                                <span
+                                  style={{
+                                    fontSize: '13px',
+                                    color: isHidden ? '#71717a' : '#e4e4e7',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    flexWrap: 'wrap',
+                                  }}
+                                >
+                                  {displayName}
+                                  {renderNameAddon ? renderNameAddon(item, isHidden) : null}
+                                </span>
+                              )}
                             </div>
-                          </td>
-                          <td
-                            style={{
-                              padding: '10px 8px',
-                              verticalAlign: 'top',
-                              color: '#a1a1aa',
-                            }}
-                          >
-                            <code
-                              style={{
-                                fontSize: '11px',
-                                fontFamily: 'monospace',
-                                backgroundColor: '#27272a',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                              }}
-                            >
-                              {item.timestamp}
-                            </code>
                           </td>
                         </tr>
                       );
@@ -265,7 +290,7 @@ function SplitScreenGuideKacheln({
                         height: '100%',
                         borderRadius: '8px',
                       }}
-                      src={getEmbedUrl(activeVideoUrl)}
+                      src={activeVideoUrl}
                       title={groupName}
                       frameBorder="0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"

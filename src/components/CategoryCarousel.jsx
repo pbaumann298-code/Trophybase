@@ -4,7 +4,7 @@ import { GAME_PK } from '../lib/gameSchema';
 const TILE_CLASS =
   'home-carousel-tile flex-shrink-0 snap-start w-[9.5rem] sm:w-44 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-none';
 
-function CategoryCarousel({ category, games, openGame, getProp, loading }) {
+function CategoryCarousel({ category, games, openGame, getProp, loading, onCategorySearch }) {
   const trackRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -78,12 +78,30 @@ function CategoryCarousel({ category, games, openGame, getProp, loading }) {
     <section className="home-category w-full min-w-0 max-w-full" aria-labelledby={`cat-${category.id}`}>
       <header className="home-category-header">
         <div className="home-category-heading min-w-0">
-          <h2 id={`cat-${category.id}`} className="home-category-title">
-            <span className="home-category-emoji" aria-hidden>
-              {category.emoji}
-            </span>
-            {category.title}
-          </h2>
+          {category.searchTerm && onCategorySearch ? (
+            <button
+              type="button"
+              id={`cat-${category.id}`}
+              className="home-category-title home-category-title--clickable"
+              onClick={() => onCategorySearch(category.searchTerm)}
+              title={`Alle Spiele zu „${category.searchTerm}“ suchen`}
+            >
+              <span className="home-category-emoji" aria-hidden>
+                {category.emoji}
+              </span>
+              {category.title}
+              <span className="home-category-search-hint" aria-hidden>
+                ↗
+              </span>
+            </button>
+          ) : (
+            <h2 id={`cat-${category.id}`} className="home-category-title">
+              <span className="home-category-emoji" aria-hidden>
+                {category.emoji}
+              </span>
+              {category.title}
+            </h2>
+          )}
           <p className="home-category-tagline">{category.tagline}</p>
         </div>
         <div className="home-category-nav flex-shrink-0">

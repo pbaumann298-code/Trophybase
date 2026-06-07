@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import Dashboard from '../components/Dashboard';
 import CategoryCarousel from '../components/CategoryCarousel';
@@ -11,11 +11,13 @@ function HomePage({
   searchQuery,
   setSearchQuery,
   handleSearchSubmit,
+  onCategorySearch,
   sessionUser,
   setCurrentView,
 }) {
   const [categoryGames, setCategoryGames] = useState({});
   const [loading, setLoading] = useState(true);
+  const searchFormRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,7 +50,7 @@ function HomePage({
           Acht kuratierte Welten – vom Souls-Hardcore bis zur Familien-Platin. Wähle die Reihe, die zu
           deinem Gamer-Typ passt.
         </p>
-        <form onSubmit={handleSearchSubmit} className="home-search">
+        <form ref={searchFormRef} onSubmit={handleSearchSubmit} className="home-search">
           <input
             type="text"
             placeholder="Nach PlayStation-Spielen suchen…"
@@ -57,9 +59,14 @@ function HomePage({
             className="home-search-input"
             aria-label="Spielsuche"
           />
-          <span className="home-search-icon" aria-hidden>
+          <button
+            type="button"
+            className="home-search-icon"
+            aria-label="Suche starten"
+            onClick={() => searchFormRef.current?.requestSubmit()}
+          >
             🔍
-          </span>
+          </button>
         </form>
       </header>
 
@@ -86,6 +93,7 @@ function HomePage({
             openGame={openGame}
             getProp={getProp}
             loading={loading}
+            onCategorySearch={onCategorySearch}
           />
         ))}
       </div>

@@ -190,14 +190,24 @@ function App() {
     setCurrentView('home');
   };
 
-  const handleSearchSubmit = async (e) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
+  const runSearch = async (queryOverride) => {
+    const q = (typeof queryOverride === 'string' ? queryOverride : searchQuery).trim();
+    if (!q) return;
+    if (typeof queryOverride === 'string') setSearchQuery(queryOverride);
     setLoading(true);
     setCurrentView('search-results');
-    const { data } = await supabase.from('Playstation_Games').select('*').ilike('Spieltitel', `%${searchQuery}%`);
+    const { data } = await supabase
+      .from('Playstation_Games')
+      .select('*')
+      .ilike('Spieltitel', `%${q}%`);
     setSearchResults(data || []);
     setLoading(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSearchSubmit = async (e) => {
+    e.preventDefault();
+    await runSearch();
   };
 
   const openGuide = async (game) => {
@@ -276,6 +286,7 @@ function App() {
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
                 handleSearchSubmit={handleSearchSubmit}
+                onCategorySearch={runSearch}
                 sessionUser={sessionUser}
                 setCurrentView={setCurrentView}
               />
@@ -289,7 +300,7 @@ function App() {
               <SearchResultsPage searchResults={searchResults} openGame={openGuide} getProp={getProp} loading={loading} />
             )}
 
-            {(currentView === 'game_info' || currentView === 'guide') && selectedGame && (
+            {currentView === 'game_info' && selectedGame && (
               <GameDetailPage 
                 currentView={currentView}
                 setCurrentView={setCurrentView}

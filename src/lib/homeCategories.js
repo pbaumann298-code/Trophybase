@@ -43,6 +43,7 @@ export const HOME_CATEGORIES = [
     id: 'beliebt',
     emoji: '🔥',
     title: 'Beliebt',
+    searchTerm: 'Elden Ring',
     tagline: 'Die meisterwarteten & meistgesuchten Guides',
     accent: '#ff6b35',
     fetch: async (supabase, getProp) => {
@@ -58,6 +59,7 @@ export const HOME_CATEGORIES = [
     id: 'souls',
     emoji: '💀',
     title: 'Souls / Soulslike',
+    searchTerm: 'Souls',
     tagline: 'Für die Hardcore-Fraktion – Elden Ring, Wuchang & Co.',
     accent: '#a855f7',
     fetch: async (supabase, getProp) => {
@@ -80,6 +82,7 @@ export const HOME_CATEGORIES = [
     id: 'ubisoft',
     emoji: '🦅',
     title: 'Ubisoft-Welten',
+    searchTerm: 'Ubisoft',
     tagline: 'Open-World-Suchtis & Komplettierer',
     accent: '#38bdf8',
     fetch: async (supabase, getProp) => {
@@ -98,6 +101,7 @@ export const HOME_CATEGORIES = [
     id: 'rockstar',
     emoji: '⭐️',
     title: 'Rockstar Games',
+    searchTerm: 'Rockstar',
     tagline: 'Legendär schwere & zeitaufwendige Meilensteine',
     accent: '#facc15',
     fetch: async (supabase, getProp) => {
@@ -117,6 +121,7 @@ export const HOME_CATEGORIES = [
     id: 'family',
     emoji: '🧸',
     title: 'Familienspaß & Easy Platin',
+    searchTerm: 'LEGO',
     tagline: 'Kinder- & Familienspiele – entspannt zum Ziel',
     accent: '#4ade80',
     fetch: async (supabase, getProp) => {
@@ -141,6 +146,7 @@ export const HOME_CATEGORIES = [
     id: 'indie',
     emoji: '🕹️',
     title: 'Indie-Perlen',
+    searchTerm: 'Hollow Knight',
     tagline: 'Treue Nischen-Communities – Hollow Knight, Hades, Stray',
     accent: '#f472b6',
     fetch: async (supabase, getProp) => {
@@ -163,6 +169,7 @@ export const HOME_CATEGORIES = [
     id: 'racing',
     emoji: '⏱️',
     title: 'Highspeed & Asphalt',
+    searchTerm: 'Gran Turismo',
     tagline: 'Rennspiele & skill-basierte Sport-Trophäen',
     accent: '#22d3ee',
     fetch: async (supabase, getProp) => {
@@ -186,6 +193,7 @@ export const HOME_CATEGORIES = [
     id: 'halloffame',
     emoji: '🏆',
     title: 'Die Hall of Fame',
+    searchTerm: 'Monster Hunter',
     tagline: 'Die härtesten Platin-Trophäen – nur für die Elite',
     accent: '#ef4444',
     fetch: async (supabase, getProp) => {

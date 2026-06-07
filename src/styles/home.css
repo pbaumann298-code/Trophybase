@@ -72,11 +72,23 @@
 
 .home-search-icon {
   position: absolute;
-  right: 0.9rem;
+  right: 0.65rem;
   top: 50%;
   transform: translateY(-50%);
   color: #71717a;
-  pointer-events: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.25rem;
+  border-radius: 0.35rem;
+  transition: color 0.15s, background 0.15s;
+}
+
+.home-search-icon:hover {
+  color: #00ff66;
+  background: rgba(0, 255, 102, 0.1);
 }
 
 .home-inbox-link {
@@ -112,6 +124,30 @@
   align-items: center;
   gap: 0.4rem;
   line-height: 1.2;
+}
+
+.home-category-title--clickable {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: color 0.15s;
+}
+
+.home-category-title--clickable:hover {
+  color: #00ff66;
+}
+
+.home-category-search-hint {
+  font-size: 0.7rem;
+  opacity: 0.55;
+  margin-left: 0.15rem;
+}
+
+.home-category-title--clickable:hover .home-category-search-hint {
+  opacity: 1;
 }
 
 .home-category-emoji {
