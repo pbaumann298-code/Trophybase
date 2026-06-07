@@ -8,7 +8,7 @@ import {
   buildByTypeGuideData,
   buildChronologicalGuideData,
 } from '../lib/guideData';
-import { fetchGameGuideBundle } from '../lib/guideQueries';
+import { fetchGameGuideBundle, resolveGameId } from '../lib/guideQueries';
 
 function GamePage({
   currentView,
@@ -35,15 +35,15 @@ function GamePage({
   const [guidesLoading, setGuidesLoading] = useState(false);
 
   useEffect(() => {
-    setGuideRows(guideItems?.length ? guideItems : []);
+    if (Array.isArray(guideItems)) setGuideRows(guideItems);
   }, [guideItems]);
 
   useEffect(() => {
-    setChapterRows(chapterItems?.length ? chapterItems : []);
+    if (Array.isArray(chapterItems)) setChapterRows(chapterItems);
   }, [chapterItems]);
 
   useEffect(() => {
-    setBossRows(bossItems?.length ? bossItems : []);
+    if (Array.isArray(bossItems)) setBossRows(bossItems);
   }, [bossItems]);
 
   useEffect(() => {
@@ -57,7 +57,7 @@ function GamePage({
         return;
       }
 
-      const gameId = selectedGame[GAME_PK] ?? getProp(selectedGame, [GAME_PK]);
+      const gameId = resolveGameId(selectedGame, getProp);
       if (!gameId) return;
 
       setGuidesLoading(true);
@@ -66,13 +66,24 @@ function GamePage({
 
       if (cancelled) return;
 
-      if (chaptersError) console.error('game_chapters:', chaptersError.message);
-      if (guidesError) console.error('game_guides:', guidesError.message);
-      if (bossesError) console.error('game_bosses:', bossesError.message);
+      if (chaptersError) {
+        console.error('game_chapters:', chaptersError.message, { gameId });
+      } else {
+        setChapterRows(chapters);
+      }
 
-      setChapterRows(chapters);
-      setGuideRows(guides);
-      setBossRows(bosses);
+      if (guidesError) {
+        console.error('game_guides:', guidesError.message, { gameId });
+      } else {
+        setGuideRows(guides);
+      }
+
+      if (bossesError) {
+        console.error('game_bosses:', bossesError.message, { gameId });
+      } else {
+        setBossRows(bosses);
+      }
+
       setGuidesLoading(false);
     }
 
@@ -394,7 +405,7 @@ function GamePage({
               <div className="w-full animate-fadeIn" key="tab-by-type">
                 {byTypeGuideData.length === 0 && !isGuideLoading ? (
                   <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-                    Keine Komplettierungs-Einträge (game_guides, sheet_name=2 / category_group).
+                    Keine Komplettierungs-Einträge (game_guides / category_group).
                   </p>
                 ) : (
                   <CollectibleKacheln

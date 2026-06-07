@@ -1,63 +1,53 @@
-import { TABLES, GAME_FK } from './gameSchema';
+import { TABLES, GAME_FK, GAME_PK } from './gameSchema';
 
-/** game_guides – Reiter „Nach Art“ (sheet_name=2) */
-export const GUIDE_SELECT = [
-  'guide_id',
-  'game_id',
-  'item_name',
-  'timestamp',
-  'video_url',
-  'chronological_group',
-  'category_group',
-  'sheet_name',
-  'sort_order',
-  'chapter_order',
-].join(', ');
-
-/** game_chapters – Reiter „Chronologischer Guide“ */
-export const CHAPTER_SELECT = [
-  'chapter_id',
-  'game_id',
-  'item_name',
-  'timestamp',
-  'video_url',
-  'chronological_group',
-  'sort_order',
-  'chapter_order',
-].join(', ');
-
-/** game_bosses – Boss-Übersicht */
-export const BOSS_SELECT = [
-  'boss_id',
-  'game_id',
-  'boss_name',
-  'timestamp',
-  'video_url',
-  'is_trophy_relevant',
-  'trophy_id',
-].join(', ');
+/**
+ * Stellt sicher, dass immer die NPWR_ID (String) verwendet wird – nie IGDB_ID.
+ * @param {object|string|null|undefined} gameOrId
+ * @param {(obj: object, keys: string[]) => string} [getProp]
+ */
+export function resolveGameId(gameOrId, getProp) {
+  if (gameOrId == null) return '';
+  if (typeof gameOrId === 'string' || typeof gameOrId === 'number') {
+    return String(gameOrId).trim();
+  }
+  const id =
+    gameOrId[GAME_PK] ??
+    gameOrId.game_id ??
+    gameOrId.npwr_id ??
+    (getProp ? getProp(gameOrId, [GAME_PK, 'game_id', 'NPWR_ID', 'npwr_id']) : '');
+  return String(id ?? '').trim();
+}
 
 export async function fetchGuidesForGame(supabase, gameId) {
+  const id = resolveGameId(gameId);
+  if (!id) return { data: [], error: null };
+
   return supabase
     .from(TABLES.guides)
-    .select(GUIDE_SELECT)
-    .eq(GAME_FK, gameId)
+    .select('*')
+    .eq(GAME_FK, id)
     .order('guide_id', { ascending: true });
 }
 
 export async function fetchChaptersForGame(supabase, gameId) {
+  const id = resolveGameId(gameId);
+  if (!id) return { data: [], error: null };
+
   return supabase
     .from(TABLES.chapters)
-    .select(CHAPTER_SELECT)
-    .eq(GAME_FK, gameId)
+    .select('*')
+    .eq(GAME_FK, id)
     .order('chapter_id', { ascending: true });
 }
 
 export async function fetchBossesForGame(supabase, gameId) {
+  const id = resolveGameId(gameId);
+  if (!id) return { data: [], error: null };
+
   return supabase
     .from(TABLES.bosses)
-    .select(BOSS_SELECT)
-    .eq(GAME_FK, gameId)
+    .select('*')
+    .eq(GAME_FK, id)
     .order('boss_id', { ascending: true });
 }
 
@@ -65,10 +55,22 @@ export async function fetchBossesForGame(supabase, gameId) {
  * Lädt game_chapters, game_guides und game_bosses parallel für ein Spiel.
  */
 export async function fetchGameGuideBundle(supabase, gameId) {
+  const id = resolveGameId(gameId);
+  if (!id) {
+    return {
+      chapters: [],
+      guides: [],
+      bosses: [],
+      chaptersError: null,
+      guidesError: null,
+      bossesError: null,
+    };
+  }
+
   const [chaptersRes, guidesRes, bossesRes] = await Promise.all([
-    fetchChaptersForGame(supabase, gameId),
-    fetchGuidesForGame(supabase, gameId),
-    fetchBossesForGame(supabase, gameId),
+    fetchChaptersForGame(supabase, id),
+    fetchGuidesForGame(supabase, id),
+    fetchBossesForGame(supabase, id),
   ]);
 
   return {

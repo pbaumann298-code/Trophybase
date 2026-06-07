@@ -19,6 +19,40 @@ export function filterGuideBySheet(rows, sheetNumber) {
   return (rows || []).filter((row) => normalizeSheetName(row.sheet_name) === sheetNumber);
 }
 
+/** Vereinheitlicht Spaltennamen aus Supabase / Excel-Import */
+export function normalizeChapterRow(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    chapter_id: row.chapter_id ?? row.id,
+    game_id: String(row.game_id ?? row.NPWR_ID ?? row.npwr_id ?? ''),
+    item_name: row.item_name ?? row.Item_Name ?? row.name ?? '',
+    timestamp: row.timestamp ?? row.Timestamp ?? '',
+    video_url: row.video_url ?? row.Video_URL ?? '',
+    chronological_group:
+      row.chronological_group ?? row.Chronological_Group ?? row.area ?? row.Area ?? '',
+    sort_order: row.sort_order ?? row.Sort_Order,
+    chapter_order: row.chapter_order ?? row.Chapter_Order,
+  };
+}
+
+export function normalizeGuideRow(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    guide_id: row.guide_id ?? row.id,
+    game_id: String(row.game_id ?? row.NPWR_ID ?? row.npwr_id ?? ''),
+    item_name: row.item_name ?? row.Item_Name ?? row.name ?? '',
+    timestamp: row.timestamp ?? row.Timestamp ?? '',
+    video_url: row.video_url ?? row.Video_URL ?? '',
+    category_group: row.category_group ?? row.Category_Group ?? row.type ?? '',
+    chronological_group: row.chronological_group ?? row.Chronological_Group ?? '',
+    sheet_name: row.sheet_name ?? row.Sheet_Name,
+    sort_order: row.sort_order ?? row.Sort_Order,
+    chapter_order: row.chapter_order ?? row.Chapter_Order,
+  };
+}
+
 function compareTimestamp(a, b) {
   return String(a?.timestamp ?? '').localeCompare(String(b?.timestamp ?? ''));
 }
@@ -103,13 +137,20 @@ export function mapBossRows(rows) {
 
 /** Tab 2: Full-Gameplay chronologisch aus game_chapters (Gruppierung: chronological_group) */
 export function buildChronologicalGuideData(chapterRows) {
-  return mapChapterRows(sortChronologicalGuideRows(chapterRows || []));
+  const normalized = (chapterRows || []).map(normalizeChapterRow);
+  return mapChapterRows(sortChronologicalGuideRows(normalized));
 }
 
-/** Tab 3: Komplettierung nach Art (sheet_name=2, Gruppierung: category_group) */
+/**
+ * Tab 3: Komplettierung nach Art aus game_guides (Gruppierung: category_group).
+ * game_guides enthält nur noch „Nach Art“-Daten – kein sheet_name-Filter mehr nötig.
+ * Legacy-Fallback: wenn sheet_name gesetzt ist, weiterhin sheet_name=2 bevorzugen.
+ */
 export function buildByTypeGuideData(allGuideRows) {
-  const filtered = filterGuideBySheet(allGuideRows, GUIDE_SHEET.BY_TYPE);
-  return mapGuideRows(sortByTypeGuideRows(filtered), GUIDE_SHEET.BY_TYPE);
+  const normalized = (allGuideRows || []).map(normalizeGuideRow);
+  const sheetFiltered = filterGuideBySheet(normalized, GUIDE_SHEET.BY_TYPE);
+  const rows = sheetFiltered.length > 0 ? sheetFiltered : normalized;
+  return mapGuideRows(sortByTypeGuideRows(rows), GUIDE_SHEET.BY_TYPE);
 }
 
 /** Tab 4: Boss-Übersicht aus game_bosses */

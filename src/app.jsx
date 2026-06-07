@@ -11,7 +11,7 @@ import MaintenancePage from './pages/MaintenancePage';
 import Inbox from './components/Inbox';
 import QaAdminPage from './pages/QaAdminPage';
 import { TABLES, GAME_PK, GAME_FK } from './lib/gameSchema';
-import { fetchGameGuideBundle } from './lib/guideQueries';
+import { fetchGameGuideBundle, resolveGameId } from './lib/guideQueries';
 
 function App() {
   // 1. Wir schauen beim Start direkt in die URL des Browsers!
@@ -209,7 +209,7 @@ function App() {
     setChapterItems([]);
     setBossItems([]);
 
-    const gameId = game[GAME_PK] ?? getProp(game, [GAME_PK]);
+    const gameId = resolveGameId(game, getProp);
     if (gameId) {
       const { data: trophiesData, error: trophyError } = await supabase
         .from(TABLES.trophies)
