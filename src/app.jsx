@@ -12,6 +12,10 @@ import Inbox from './components/Inbox';
 import QaAdminPage from './pages/QaAdminPage';
 import { TABLES, GAME_PK, GAME_FK } from './lib/gameSchema';
 import { fetchGameGuideBundle, resolveGameId } from './lib/guideQueries';
+import {
+  loadCompletedGuideItems,
+  saveCompletedGuideItems,
+} from './lib/guideProgressStorage';
 
 function App() {
   // 1. Wir schauen beim Start direkt in die URL des Browsers!
@@ -42,6 +46,7 @@ function App() {
   const [loadingGuide, setLoadingGuide] = useState(false);
   const [unlockedTrophies, setUnlockedTrophies] = useState({});
   const [hideCompleted, setHideCompleted] = useState(false);
+  const [completedGuideItems, setCompletedGuideItems] = useState(loadCompletedGuideItems);
   const [activeTab, setActiveTab] = useState('reiter0');
 
   const getProp = (obj, keys) => {
@@ -240,6 +245,15 @@ function App() {
     setUnlockedTrophies(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const toggleGuideItemCompleted = (id) => {
+    setCompletedGuideItems((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      if (!next[id]) delete next[id];
+      saveCompletedGuideItems(next);
+      return next;
+    });
+  };
+
   const completedCount = activeTrophies.filter(t => unlockedTrophies[t.id || t.trophy_id || t.trophy_name]).length;
   const progressPercent = activeTrophies.length > 0 ? Math.round((completedCount / activeTrophies.length) * 100) : 0;
 
@@ -312,6 +326,8 @@ function App() {
                 progressPercent={progressPercent}
                 hideCompleted={hideCompleted}
                 setHideCompleted={setHideCompleted}
+                completedGuideItems={completedGuideItems}
+                toggleGuideItemCompleted={toggleGuideItemCompleted}
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
                 loadingGuide={loadingGuide}

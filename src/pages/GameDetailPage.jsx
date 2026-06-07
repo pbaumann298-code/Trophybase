@@ -23,6 +23,8 @@ function GamePage({
   progressPercent,
   hideCompleted,
   setHideCompleted,
+  completedGuideItems,
+  toggleGuideItemCompleted,
   activeTab,
   setActiveTab,
   loadingGuide,
@@ -245,6 +247,11 @@ function GamePage({
               totalCount={activeTrophies.length}
               groupByField="chronological_group"
               groupHeaderIcon="📍"
+              listTitle="Full-Gameplay Guide"
+              hideCompleted={hideCompleted}
+              setHideCompleted={setHideCompleted}
+              completedItems={completedGuideItems}
+              toggleCompleted={toggleGuideItemCompleted}
               emptyVideoMessage="Kein Video für dieses Gebiet oder alle Einträge ausgeblendet."
             />
           )}
@@ -265,6 +272,11 @@ function GamePage({
               totalCount={activeTrophies.length}
               groupByField="category_group"
               groupHeaderIcon="📦"
+              listTitle="Komplettierungs-Guide"
+              hideCompleted={hideCompleted}
+              setHideCompleted={setHideCompleted}
+              completedItems={completedGuideItems}
+              toggleCompleted={toggleGuideItemCompleted}
               emptyVideoMessage="Kein Video für diese Kategorie oder alle Gegenstände ausgeblendet."
             />
           )}
@@ -283,6 +295,11 @@ function GamePage({
               progressPercent={progressPercent}
               completedCount={completedCount}
               totalCount={activeTrophies.length}
+              listTitle="Boss-Checkliste"
+              hideCompleted={hideCompleted}
+              setHideCompleted={setHideCompleted}
+              completedItems={completedGuideItems}
+              toggleCompleted={toggleGuideItemCompleted}
             />
           )}
         </div>

@@ -4,7 +4,7 @@ import { useVisibility } from '../context/VisibilityContext';
 
 /**
  * Generisches 40/60 Split-Screen-Layout.
- * @param {'chronological_group'|'category_group'|'boss_name'} groupByField
+ * @param {'chronological_group'|'category_group'} groupByField
  */
 function SplitScreenGuideKacheln({
   itemsData = [],
@@ -17,12 +17,25 @@ function SplitScreenGuideKacheln({
   emptyVideoMessage,
   groupHeaderIcon = '📍',
   groupByField = 'category_group',
+  listTitle = 'Guide-Checkliste',
+  hideCompleted = false,
+  setHideCompleted,
+  completedItems = {},
+  toggleCompleted,
 }) {
   const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
   const [expandedGroups, setExpandedGroups] = useState({});
   const [activeVideos, setActiveVideos] = useState({});
 
+  const isItemCompleted = (item) => !!completedItems[item.id];
+
+  const isItemShown = (item) => {
+    if (hideCompleted && isItemCompleted(item)) return false;
+    return getEntryState(itemKey(item.id)).visible;
+  };
+
   const groupedItems = itemsData.reduce((acc, item) => {
+    if (!isItemShown(item)) return acc;
     const group =
       item[groupByField] ||
       (groupByField === 'chronological_group' ? item.category_group : item.chronological_group) ||
@@ -56,6 +69,56 @@ function SplitScreenGuideKacheln({
           marginBottom: '24px',
         }}
       >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '16px',
+            gap: '12px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              fontSize: '13px',
+              fontWeight: 'bold',
+              color: '#a1a1aa',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            {listTitle}
+          </h3>
+          {typeof setHideCompleted === 'function' && (
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '12px',
+                color: '#a1a1aa',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={hideCompleted}
+                onChange={(e) => setHideCompleted(e.target.checked)}
+                style={{
+                  accentColor: '#00ff66',
+                  cursor: 'pointer',
+                  width: '16px',
+                  height: '16px',
+                }}
+              />
+              Erledigte ausblenden
+            </label>
+          )}
+        </div>
+
         <div
           style={{
             display: 'flex',
@@ -104,9 +167,7 @@ function SplitScreenGuideKacheln({
 
       {Object.entries(groupedItems).map(([groupName, items]) => {
         const isExpanded = !!expandedGroups[groupName];
-        const visibleItems = items.filter((item) =>
-          getEntryState(itemKey(item.id)).visible,
-        );
+        const visibleItems = items.filter((item) => isItemShown(item));
         const activeVideo = activeVideos[groupName];
         const activeItem = activeVideo
           ? items.find((i) => i.id === activeVideo.itemId)
@@ -188,26 +249,45 @@ function SplitScreenGuideKacheln({
                     </thead>
                     <tbody>
                       {items.map((item) => {
-                        const visKey = itemKey(item.id);
-                        const { visible, dimmed } = getEntryState(visKey);
-                        if (!visible) return null;
+                        if (!isItemShown(item)) return null;
 
+                        const visKey = itemKey(item.id);
+                        const { dimmed } = getEntryState(visKey);
+                        const isCompleted = isItemCompleted(item);
                         const displayName = getDisplayName(item);
                         const userHidden = isHidden(visKey);
                         const isActive = activeVideo?.itemId === item.id;
                         const hasVideo = !!item.video_url;
+                        const rowDimmed = dimmed || isCompleted;
 
                         return (
                           <tr
                             key={item.id}
                             style={{
                               borderBottom: '1px solid #27272a',
-                              opacity: dimmed ? 0.3 : 1,
+                              opacity: rowDimmed ? 0.6 : 1,
                               backgroundColor: isActive ? 'rgba(0, 255, 102, 0.06)' : 'transparent',
                             }}
                           >
                             <td style={{ padding: '10px 8px', verticalAlign: 'top' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {typeof toggleCompleted === 'function' && (
+                                  <input
+                                    type="checkbox"
+                                    checked={isCompleted}
+                                    onChange={() => toggleCompleted(item.id)}
+                                    style={{
+                                      accentColor: '#00ff66',
+                                      cursor: 'pointer',
+                                      width: '16px',
+                                      height: '16px',
+                                      flexShrink: 0,
+                                    }}
+                                    aria-label={
+                                      isCompleted ? 'Als offen markieren' : 'Als erledigt markieren'
+                                    }
+                                  />
+                                )}
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -239,14 +319,14 @@ function SplitScreenGuideKacheln({
                                     padding: 0,
                                     cursor: hasVideo ? 'pointer' : 'default',
                                     fontSize: '13px',
-                                    color: dimmed
+                                    color: rowDimmed
                                       ? '#71717a'
                                       : isActive
                                         ? '#00ff66'
                                         : hasVideo
                                           ? '#e4e4e7'
                                           : '#a1a1aa',
-                                    textDecoration: 'none',
+                                    textDecoration: isCompleted ? 'line-through' : 'none',
                                     display: 'inline-flex',
                                     alignItems: 'center',
                                     gap: '6px',
@@ -255,15 +335,19 @@ function SplitScreenGuideKacheln({
                                     fontWeight: isActive ? 'bold' : 'normal',
                                   }}
                                   onMouseEnter={(e) => {
-                                    if (hasVideo && !dimmed) {
+                                    if (hasVideo && !rowDimmed) {
                                       e.currentTarget.style.color = '#00ff66';
-                                      e.currentTarget.style.textDecoration = 'underline';
+                                      e.currentTarget.style.textDecoration = isCompleted
+                                        ? 'line-through'
+                                        : 'underline';
                                     }
                                   }}
                                   onMouseLeave={(e) => {
-                                    e.currentTarget.style.textDecoration = 'none';
+                                    e.currentTarget.style.textDecoration = isCompleted
+                                      ? 'line-through'
+                                      : 'none';
                                     if (!isActive) {
-                                      e.currentTarget.style.color = dimmed
+                                      e.currentTarget.style.color = rowDimmed
                                         ? '#71717a'
                                         : hasVideo
                                           ? '#e4e4e7'
@@ -274,7 +358,7 @@ function SplitScreenGuideKacheln({
                                   }}
                                 >
                                   {displayName}
-                                  {renderNameAddon ? renderNameAddon(item, dimmed) : null}
+                                  {renderNameAddon ? renderNameAddon(item, rowDimmed) : null}
                                 </button>
                               </div>
                             </td>
@@ -332,7 +416,9 @@ function SplitScreenGuideKacheln({
                         padding: '0 16px',
                       }}
                     >
-                      {activeVideo ? emptyVideoMessage : 'Klicke auf ein Item, um das Video hier abzuspielen.'}
+                      {activeVideo
+                        ? emptyVideoMessage
+                        : 'Klicke auf ein Item, um das Video hier abzuspielen.'}
                     </div>
                   )}
                 </div>
@@ -345,9 +431,6 @@ function SplitScreenGuideKacheln({
   );
 }
 
-/**
- * game_guides – generisch für Reiter 1 (chronological_group) und Reiter 2 (category_group).
- */
 export function CollectibleKacheln({
   collectiblesData,
   progressPercent,
@@ -356,6 +439,11 @@ export function CollectibleKacheln({
   groupByField = 'category_group',
   groupHeaderIcon = '📍',
   emptyVideoMessage = 'Klicke auf ein Item mit Video – der Player erscheint hier.',
+  listTitle = 'Guide-Checkliste',
+  hideCompleted,
+  setHideCompleted,
+  completedItems,
+  toggleCompleted,
 }) {
   return (
     <SplitScreenGuideKacheln
@@ -368,12 +456,26 @@ export function CollectibleKacheln({
       emptyVideoMessage={emptyVideoMessage}
       groupHeaderIcon={groupHeaderIcon}
       groupByField={groupByField}
+      listTitle={listTitle}
+      hideCompleted={hideCompleted}
+      setHideCompleted={setHideCompleted}
+      completedItems={completedItems}
+      toggleCompleted={toggleCompleted}
     />
   );
 }
 
-/** game_bosses – Boss-Übersicht (Reiter 3), boss_name + Trophäen-Hinweis */
-export function BossKacheln({ bossesData, progressPercent, completedCount, totalCount }) {
+export function BossKacheln({
+  bossesData,
+  progressPercent,
+  completedCount,
+  totalCount,
+  listTitle = 'Boss-Checkliste',
+  hideCompleted,
+  setHideCompleted,
+  completedItems,
+  toggleCompleted,
+}) {
   const renderTrophyBadge = (item, dimmed) => {
     if (item.is_trophy_relevant !== 'Ja') return null;
     return (
@@ -413,7 +515,12 @@ export function BossKacheln({ bossesData, progressPercent, completedCount, total
       renderNameAddon={renderTrophyBadge}
       emptyVideoMessage="Klicke auf einen Boss mit Video – der Player erscheint hier."
       groupHeaderIcon="⚔️"
-      groupByField="boss_name"
+      groupByField="category_group"
+      listTitle={listTitle}
+      hideCompleted={hideCompleted}
+      setHideCompleted={setHideCompleted}
+      completedItems={completedItems}
+      toggleCompleted={toggleCompleted}
     />
   );
 }

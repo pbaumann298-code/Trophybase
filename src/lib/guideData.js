@@ -101,9 +101,32 @@ export function sortByTypeGuideRows(rows) {
   });
 }
 
-/** game_bosses – nach Name / Timestamp */
+function bossCategoryKey(row) {
+  return String(row.category_group ?? '').trim() || 'Allgemein';
+}
+
+export function normalizeBossRow(row) {
+  if (!row) return null;
+  return {
+    boss_id: row.boss_id ?? row.id ?? null,
+    game_id: String(row.game_id ?? row.NPWR_ID ?? row.npwr_id ?? '').trim(),
+    boss_name: String(row.boss_name ?? row.Boss_Name ?? '').trim(),
+    category_group: bossCategoryKey(row),
+    timestamp: String(row.timestamp ?? row.Timestamp ?? '').trim(),
+    video_url: String(row.video_url ?? row.Video_URL ?? '').trim(),
+    is_trophy_relevant: row.is_trophy_relevant ?? row.Is_Trophy_Relevant ?? '',
+  };
+}
+
+/** Bosse – category_group (Kachel), dann boss_id / boss_name */
 export function sortBossRows(rows) {
   return [...rows].sort((a, b) => {
+    const groupCmp = bossCategoryKey(a).localeCompare(bossCategoryKey(b), 'de');
+    if (groupCmp !== 0) return groupCmp;
+
+    const idCmp = toGuideIdNumber(a.boss_id) - toGuideIdNumber(b.boss_id);
+    if (idCmp !== 0) return idCmp;
+
     const nameCmp = String(a.boss_name ?? '').localeCompare(String(b.boss_name ?? ''), 'de');
     if (nameCmp !== 0) return nameCmp;
     return compareTimestamp(a, b);
@@ -166,9 +189,10 @@ export function buildByTypeGuideData(guideRows) {
   return sortByTypeGuideRows(mapped);
 }
 
-/** Reiter 3: Boss-Übersicht aus game_bosses */
+/** Reiter 4: Boss-Übersicht – Kachel: category_group · Item: boss_name */
 export function buildBossOverviewData(bossRows) {
-  return mapBossRows(sortBossRows(bossRows || []));
+  const normalized = (bossRows || []).map(normalizeBossRow).filter(Boolean);
+  return mapBossRows(sortBossRows(normalized));
 }
 
 /** @deprecated Alias – nutze buildChronologicalGuideData */
