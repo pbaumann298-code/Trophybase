@@ -45,20 +45,47 @@ function compareTimestamp(a, b) {
   return String(a?.timestamp ?? '').localeCompare(String(b?.timestamp ?? ''));
 }
 
-/** Reiter 1 – primär chronological_group, dann sort_order / guide_id / Zeitstempel */
+function chronologicalGroupKey(row) {
+  return String(row.chronological_group ?? '').trim() || 'Allgemein';
+}
+
+function toGuideIdNumber(guideId) {
+  const n = Number(guideId);
+  return Number.isFinite(n) ? n : Infinity;
+}
+
+function compareGuideId(a, b) {
+  const idCmp = toGuideIdNumber(a.guide_id) - toGuideIdNumber(b.guide_id);
+  if (idCmp !== 0) return idCmp;
+  return compareTimestamp(a, b);
+}
+
+/**
+ * Full-Gameplay (Reiter 2): Kacheln-Reihenfolge = aufsteigend nach kleinster guide_id
+ * je chronological_group; Items innerhalb einer Kachel ebenfalls nach guide_id.
+ */
 export function sortChronologicalGuideRows(rows) {
+  const minGuideIdByGroup = new Map();
+
+  for (const row of rows) {
+    const group = chronologicalGroupKey(row);
+    const guideNum = toGuideIdNumber(row.guide_id);
+    const prev = minGuideIdByGroup.get(group);
+    if (prev === undefined || guideNum < prev) {
+      minGuideIdByGroup.set(group, guideNum);
+    }
+  }
+
   return [...rows].sort((a, b) => {
-    const groupCmp = String(a.chronological_group ?? '').localeCompare(
-      String(b.chronological_group ?? ''),
-      'de',
-    );
-    if (groupCmp !== 0) return groupCmp;
+    const groupA = chronologicalGroupKey(a);
+    const groupB = chronologicalGroupKey(b);
+    const minA = minGuideIdByGroup.get(groupA) ?? Infinity;
+    const minB = minGuideIdByGroup.get(groupB) ?? Infinity;
 
-    const orderA = Number(a.sort_order ?? a.guide_id ?? 0);
-    const orderB = Number(b.sort_order ?? b.guide_id ?? 0);
-    if (orderA !== orderB) return orderA - orderB;
+    if (minA !== minB) return minA - minB;
+    if (groupA !== groupB) return groupA.localeCompare(groupB, 'de');
 
-    return compareTimestamp(a, b);
+    return compareGuideId(a, b);
   });
 }
 
