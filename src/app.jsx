@@ -6,8 +6,19 @@ import SearchResultsPage from './pages/SearchResultsPage';
 import GameDetailPage from "./pages/GameDetailPage";
 import { CollectibleKacheln } from './pages/CollectibleKacheln';
 import LoginPage from './pages/LoginPage';
+import SocialLinkPage from './pages/SocialLinkPage';
 import TesterSetupPage from './pages/TesterSetupPage';
 import MaintenancePage from './pages/MaintenancePage';
+import {
+  hasMaintenanceBypass,
+  isGateAccount,
+  normalizeEmail,
+} from './lib/maintenanceAccess';
+import {
+  handleSocialLinkRedirect,
+  resolveViewForSession,
+  signInWithGatePassword,
+} from './lib/trophyBaseAuth';
 import Inbox from './components/Inbox';
 import QaAdminPage from './pages/QaAdminPage';
 import { TABLES, GAME_PK, GAME_FK } from './lib/gameSchema';
@@ -28,7 +39,6 @@ function App() {
 
   // Wartungs-Konfiguration
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(true);
-  const ALLOWED_ADMINS = ['master@trophybase.app'];
 
   // 🔐 Einzigartiger State für den User
   const [sessionUser, setSessionUser] = useState(null);
@@ -57,18 +67,58 @@ function App() {
     return '';
   };
 
-  // 🔐 Überprüft den Login-Status beim Starten der App
+  // Session + OAuth-Redirect nach linkIdentity (Schritt 4: maintenance_bypass setzen)
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSessionUser(session?.user ?? null);
-    });
+    let cancelled = false;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSessionUser(session?.user ?? null);
-    });
+    async function initAuth() {
+      const redirectResult = await handleSocialLinkRedirect(supabase);
+      if (cancelled) return;
 
-    return () => subscription.unsubscribe();
-  }, []);
+      if (redirectResult.handled && redirectResult.ok) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!cancelled && session?.user) {
+          setSessionUser(session.user);
+          setCurrentView('home');
+        }
+        return;
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!cancelled) {
+        setSessionUser(session?.user ?? null);
+        if (session?.user && isMaintenanceMode) {
+          setCurrentView(resolveViewForSession(session.user));
+        }
+      }
+    }
+
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        setSessionUser(session?.user ?? null);
+
+        if (
+          isMaintenanceMode &&
+          session?.user &&
+          (event === 'USER_UPDATED' || event === 'SIGNED_IN')
+        ) {
+          const redirectResult = await handleSocialLinkRedirect(supabase);
+          if (redirectResult.handled && redirectResult.ok) {
+            setCurrentView('home');
+            return;
+          }
+          setCurrentView(resolveViewForSession(session.user));
+        }
+      },
+    );
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [isMaintenanceMode]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -136,16 +186,16 @@ function App() {
 
   // 🛠️ FUNKTION 1: Der normale Login
   const handleLogin = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      alert(`Login fehlgeschlagen: ${error.message}`);
-    } else {
-      if (email === 'tester@trophybase.app') {
-        setCurrentView('tester-setup');
-      } else {
-        setCurrentView('home');
-      }
+    const result = await signInWithGatePassword(supabase, email, password);
+
+    if (!result.ok) {
+      const hint = result.hint ? `\n\nHinweis: ${result.hint}` : '';
+      alert(`Login fehlgeschlagen: ${result.error.message}${hint}`);
+      return;
     }
+
+    if (result.user) setSessionUser(result.user);
+    setCurrentView(result.nextView);
   };
 
   // 🛠️ FUNKTION 2: Der Klon-Prozess (Korrektur: console.log statt print!)
@@ -192,7 +242,7 @@ function App() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     window.history.pushState({}, '', '/');
-    setCurrentView('home');
+    setCurrentView(isMaintenanceMode ? 'login' : 'home');
   };
 
   const runSearch = async (queryOverride) => {
@@ -257,10 +307,21 @@ function App() {
   const completedCount = activeTrophies.filter(t => unlockedTrophies[t.id || t.trophy_id || t.trophy_name]).length;
   const progressPercent = activeTrophies.length > 0 ? Math.round((completedCount / activeTrophies.length) * 100) : 0;
 
-  // Prallschutz-Logik für den Wartungsmodus
-  const isUserAdmin = sessionUser && ALLOWED_ADMINS.includes(sessionUser.email);
-  const showMaintenance = isMaintenanceMode && !isUserAdmin;
+  const maintenanceBypass = hasMaintenanceBypass(sessionUser);
   const isQaAdminView = currentView === 'qa_admin';
+
+  const renderMaintenanceAllowedView = () => {
+    if (currentView === 'login') {
+      return <LoginPage onLogin={handleLogin} />;
+    }
+    if (currentView === 'social-link') {
+      return <SocialLinkPage sessionUser={sessionUser} onLogout={handleLogout} />;
+    }
+    if (currentView === 'tester-setup') {
+      return <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />;
+    }
+    return <MaintenancePage setCurrentView={setCurrentView} />;
+  };
 
   if (isQaAdminView) {
     return (
@@ -282,13 +343,9 @@ function App() {
 
       <main className="pb-24 flex-1 flex flex-col justify-center w-full max-w-full min-w-0 overflow-x-hidden">
         
-        {/* ─── LEVEL 1: WARTUNGSMODUS IST AKTIV ─── */}
-        {showMaintenance ? (
-          <>
-            {currentView === 'login' && <LoginPage onLogin={handleLogin} />}
-            {currentView === 'tester-setup' && <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />}
-            {currentView !== 'login' && currentView !== 'tester-setup' && <MaintenancePage setCurrentView={setCurrentView} />}
-          </>
+        {/* ─── WARTUNGSMODUS: login + social-link nie blockieren ─── */}
+        {isMaintenanceMode && !maintenanceBypass ? (
+          renderMaintenanceAllowedView()
         ) : (
           
           /* ─── LEVEL 2: RECHTE VORHANDEN / WARTUNG AUS ─── */

@@ -118,18 +118,38 @@ export function normalizeBossRow(row) {
   };
 }
 
-/** Bosse – category_group (Kachel), dann boss_id / boss_name */
+function compareBossId(a, b) {
+  const idCmp = toGuideIdNumber(a.boss_id) - toGuideIdNumber(b.boss_id);
+  if (idCmp !== 0) return idCmp;
+  return compareTimestamp(a, b);
+}
+
+/**
+ * Bosse (Reiter 4): Kacheln nach kleinster boss_id je category_group;
+ * Bosse innerhalb einer Kachel aufsteigend nach boss_id.
+ */
 export function sortBossRows(rows) {
+  const minBossIdByGroup = new Map();
+
+  for (const row of rows) {
+    const group = bossCategoryKey(row);
+    const bossNum = toGuideIdNumber(row.boss_id);
+    const prev = minBossIdByGroup.get(group);
+    if (prev === undefined || bossNum < prev) {
+      minBossIdByGroup.set(group, bossNum);
+    }
+  }
+
   return [...rows].sort((a, b) => {
-    const groupCmp = bossCategoryKey(a).localeCompare(bossCategoryKey(b), 'de');
-    if (groupCmp !== 0) return groupCmp;
+    const groupA = bossCategoryKey(a);
+    const groupB = bossCategoryKey(b);
+    const minA = minBossIdByGroup.get(groupA) ?? Infinity;
+    const minB = minBossIdByGroup.get(groupB) ?? Infinity;
 
-    const idCmp = toGuideIdNumber(a.boss_id) - toGuideIdNumber(b.boss_id);
-    if (idCmp !== 0) return idCmp;
+    if (minA !== minB) return minA - minB;
+    if (groupA !== groupB) return groupA.localeCompare(groupB, 'de');
 
-    const nameCmp = String(a.boss_name ?? '').localeCompare(String(b.boss_name ?? ''), 'de');
-    if (nameCmp !== 0) return nameCmp;
-    return compareTimestamp(a, b);
+    return compareBossId(a, b);
   });
 }
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { normalizeEmail } from '../lib/maintenanceAccess';
 
 function LoginPage({ onLogin }) {
   const [email, setEmail] = useState('');
@@ -7,22 +8,7 @@ function LoginPage({ onLogin }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // Reicht die exakten eingetippten Werte an handleLogin in der App.jsx weiter
-    onLogin(email, password); 
-  };
-
-  const handleSocialLogin = async (providerName) => {
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: providerName,
-        options: {
-          redirectTo: window.location.origin, 
-        },
-      });
-      if (error) throw error;
-    } catch (err) {
-      alert(`Fehler beim Login mit ${providerName}: ${err.message}`);
-    }
+    onLogin(normalizeEmail(email), password.trim());
   };
 
   return (
@@ -32,27 +18,10 @@ function LoginPage({ onLogin }) {
         Alpha-Tester Login
       </h3>
 
-      {/* SOCIAL LOGINS */}
-      <div className="flex flex-col gap-2.5 mb-6">
-        <button onClick={() => handleSocialLogin('discord')} className="w-full bg-[#5865F2] hover:bg-[#4752C4] text-white text-xs font-semibold py-2.5 rounded-xl transition">
-          Anmelden mit Discord
-        </button>
-        <button onClick={() => handleSocialLogin('google')} className="w-full bg-white hover:bg-zinc-100 text-zinc-900 text-xs font-semibold py-2.5 rounded-xl transition">
-          Anmelden mit Google
-        </button>
-        <button onClick={() => handleSocialLogin('apple')} className="w-full bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-semibold py-2.5 rounded-xl transition">
-          Anmelden mit Apple
-        </button>
-        <button onClick={() => handleSocialLogin('facebook')} className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs font-semibold py-2.5 rounded-xl transition">
-          Anmelden mit Facebook
-        </button>
-      </div>
-
-      <div className="flex items-center my-6 text-zinc-600">
-        <div className="flex-1 border-t border-zinc-800"></div>
-        <span className="px-3 text-[10px] uppercase font-bold tracking-wider">oder klassisch</span>
-        <div className="flex-1 border-t border-zinc-800"></div>
-      </div>
+      <p className="text-xs text-zinc-500 text-center mb-6 leading-relaxed">
+        Schritt 1: Melde dich mit deinem temporären Tester- oder Creator-Zugang an. Im nächsten
+        Schritt verknüpfst du einen Social-Login.
+      </p>
 
       {/* EMAIL & PASSWORT FORMULAR */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">

@@ -76,6 +76,7 @@ function Header({ setCurrentView, sessionUser, onLogout }) {
           </div>
         ) : (
           <button
+            type="button"
             onClick={() => setCurrentView('login')}
             className="flex-shrink-0 text-xs font-medium text-zinc-300 bg-[#121314] hover:bg-[#202122] border border-zinc-800 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap"
           >
