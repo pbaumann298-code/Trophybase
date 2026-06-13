@@ -2,12 +2,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { CollectibleKacheln, BossKacheln } from './CollectibleKacheln';
 import GameSeoInfobox from '../components/GameSeoInfobox';
+import GameStatusBanners from '../components/GameStatusBanners';
 import {
   buildBossOverviewData,
   buildByTypeGuideData,
   buildChronologicalGuideData,
 } from '../lib/guideData';
 import { fetchGameGuideBundle, resolveGameId } from '../lib/guideQueries';
+import { getLocale, LOCALE_STORAGE_KEY } from '../lib/locale';
+import {
+  fetchTrophyStatusMessages,
+  isComingSoonStatus,
+  isServerOffline,
+  STATUS_MESSAGE_KEYS,
+} from '../lib/trophyStatusMessages';
 
 const TAB_BTN =
   'px-4 sm:px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap';
@@ -37,6 +45,11 @@ function GamePage({
   const [chapterRows, setChapterRows] = useState([]);
   const [bossRows, setBossRows] = useState([]);
   const [guidesLoading, setGuidesLoading] = useState(false);
+  const [locale, setLocale] = useState(getLocale);
+  const [statusMessages, setStatusMessages] = useState({
+    [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN]: '',
+    [STATUS_MESSAGE_KEYS.COMING_SOON_BANNER]: '',
+  });
 
   useEffect(() => {
     if (Array.isArray(guideItems)) setGuideRows(guideItems);
@@ -49,6 +62,32 @@ function GamePage({
   useEffect(() => {
     if (Array.isArray(bossItems)) setBossRows(bossItems);
   }, [bossItems]);
+
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key === LOCALE_STORAGE_KEY) setLocale(getLocale());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStatusMessages() {
+      const { messages } = await fetchTrophyStatusMessages(
+        supabase,
+        [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN, STATUS_MESSAGE_KEYS.COMING_SOON_BANNER],
+        locale,
+      );
+      if (!cancelled) setStatusMessages(messages);
+    }
+
+    loadStatusMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [locale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,12 +147,36 @@ function GamePage({
 
   const isGuideLoading = guidesLoading || loadingGuide;
 
+  const showServerShutdown = isServerOffline(selectedGame, getProp);
+  const showComingSoon = isComingSoonStatus(selectedGame, getProp);
+
   const tabCounts = {
     reiter0: activeTrophies.length,
     reiter1: chronologicalGuideData.length,
     reiter2: byTypeGuideData.length,
     reiter3: bossOverviewData.length,
   };
+
+  const tabVisibility = useMemo(
+    () => ({
+      reiter0: true,
+      reiter1: isGuideLoading || tabCounts.reiter1 > 0,
+      reiter2: isGuideLoading || tabCounts.reiter2 > 0,
+      reiter3: isGuideLoading || tabCounts.reiter3 > 0,
+    }),
+    [isGuideLoading, tabCounts.reiter1, tabCounts.reiter2, tabCounts.reiter3],
+  );
+
+  const visibleTabs = useMemo(
+    () => ['reiter0', 'reiter1', 'reiter2', 'reiter3'].filter((tab) => tabVisibility[tab]),
+    [tabVisibility],
+  );
+
+  useEffect(() => {
+    if (!visibleTabs.includes(activeTab) && visibleTabs.length > 0) {
+      setActiveTab(visibleTabs[0]);
+    }
+  }, [activeTab, visibleTabs, setActiveTab]);
 
   const tabBtnClass = (tab) =>
     `${TAB_BTN} ${
@@ -311,6 +374,13 @@ function GamePage({
 
   return (
     <div className="w-full max-w-[1400px] min-w-0 overflow-x-hidden mx-auto px-4 md:px-8 pt-6 pb-12 animate-fadeIn box-border">
+      <GameStatusBanners
+        showServerShutdown={showServerShutdown}
+        showComingSoon={showComingSoon}
+        serverMessage={statusMessages[STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN]}
+        comingSoonMessage={statusMessages[STATUS_MESSAGE_KEYS.COMING_SOON_BANNER]}
+      />
+
       <button
         type="button"
         onClick={() => setCurrentView('home')}
@@ -389,18 +459,26 @@ function GamePage({
 
       <section className="mt-8 w-full min-w-0">
         <div className="flex flex-wrap border-b border-zinc-800 mb-6 gap-2 min-w-0">
-          <button type="button" onClick={() => setActiveTab('reiter0')} className={tabBtnClass('reiter0')}>
-            🏆 Trophäen ({tabCounts.reiter0})
-          </button>
-          <button type="button" onClick={() => setActiveTab('reiter1')} className={tabBtnClass('reiter1')}>
-            📖 Full-Gameplay ({tabCounts.reiter1})
-          </button>
-          <button type="button" onClick={() => setActiveTab('reiter2')} className={tabBtnClass('reiter2')}>
-            📦 Komplettierung ({tabCounts.reiter2})
-          </button>
-          <button type="button" onClick={() => setActiveTab('reiter3')} className={tabBtnClass('reiter3')}>
-            ⚔️ Bosse ({tabCounts.reiter3})
-          </button>
+          {tabVisibility.reiter0 && (
+            <button type="button" onClick={() => setActiveTab('reiter0')} className={tabBtnClass('reiter0')}>
+              🏆 Trophäen ({tabCounts.reiter0})
+            </button>
+          )}
+          {tabVisibility.reiter1 && (
+            <button type="button" onClick={() => setActiveTab('reiter1')} className={tabBtnClass('reiter1')}>
+              📖 Full-Gameplay ({tabCounts.reiter1})
+            </button>
+          )}
+          {tabVisibility.reiter2 && (
+            <button type="button" onClick={() => setActiveTab('reiter2')} className={tabBtnClass('reiter2')}>
+              📦 Komplettierung ({tabCounts.reiter2})
+            </button>
+          )}
+          {tabVisibility.reiter3 && (
+            <button type="button" onClick={() => setActiveTab('reiter3')} className={tabBtnClass('reiter3')}>
+              ⚔️ Bosse ({tabCounts.reiter3})
+            </button>
+          )}
         </div>
 
         {isGuideLoading && activeTab !== 'reiter0' && (

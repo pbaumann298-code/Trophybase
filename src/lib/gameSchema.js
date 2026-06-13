@@ -9,6 +9,7 @@ export const TABLES = {
   bosses: 'game_bosses',
   inbox: 'user_inbox',
   qaDashboard: 'qa_dashboard',
+  statusMessages: 'trophy_status_messages',
 };
 
 /** qa_dashboard.status */
@@ -36,6 +37,8 @@ export const GAME_FIELDS = {
   genre: 'Genre',
   year: 'Release_Jahr',
   developer: 'Entwickler',
+  status: 'Status',
+  serverStatus: 'server_status',
 };
 
 export const ACTIVE_WATCHLIST_STATUSES = ['active', 'aktiv', 'playing'];
