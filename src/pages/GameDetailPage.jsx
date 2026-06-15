@@ -9,11 +9,20 @@ import {
   buildChronologicalGuideData,
 } from '../lib/guideData';
 import { fetchGameGuideBundle, resolveGameId } from '../lib/guideQueries';
+import {
+  fetchOnlineTrophyIdsForGame,
+  getTrophyDescription,
+  getTrophyIdKey,
+} from '../lib/trophyQueries';
 import { getLocale, LOCALE_STORAGE_KEY } from '../lib/locale';
 import {
   fetchTrophyStatusMessages,
+  fetchTrophyStatusMessagesByIds,
+  hasOnlineTrophiesFlag,
   isComingSoonStatus,
+  isServerDead,
   isServerOffline,
+  STATUS_MESSAGE_IDS,
   STATUS_MESSAGE_KEYS,
 } from '../lib/trophyStatusMessages';
 
@@ -50,6 +59,11 @@ function GamePage({
     [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN]: '',
     [STATUS_MESSAGE_KEYS.COMING_SOON_BANNER]: '',
   });
+  const [coverStatusMessages, setCoverStatusMessages] = useState({
+    serverDead: '',
+    onlineTrophies: '',
+  });
+  const [onlineTrophyIds, setOnlineTrophyIds] = useState(() => new Set());
 
   useEffect(() => {
     if (Array.isArray(guideItems)) setGuideRows(guideItems);
@@ -88,6 +102,50 @@ function GamePage({
       cancelled = true;
     };
   }, [locale]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCoverAndOnlineData() {
+      if (!selectedGame) {
+        setCoverStatusMessages({ serverDead: '', onlineTrophies: '' });
+        setOnlineTrophyIds(new Set());
+        return;
+      }
+
+      const gameId = resolveGameId(selectedGame, getProp);
+      const showServerDead = isServerDead(selectedGame, getProp);
+      const showOnlineNote = hasOnlineTrophiesFlag(selectedGame, getProp);
+
+      const idsToLoad = [];
+      if (showServerDead) idsToLoad.push(STATUS_MESSAGE_IDS.SERVER_DEAD);
+      if (showOnlineNote) idsToLoad.push(STATUS_MESSAGE_IDS.HAS_ONLINE_TROPHIES);
+
+      const [messagesById, onlineRes] = await Promise.all([
+        idsToLoad.length > 0
+          ? fetchTrophyStatusMessagesByIds(supabase, idsToLoad, locale)
+          : Promise.resolve({ messages: {} }),
+        gameId ? fetchOnlineTrophyIdsForGame(supabase, gameId) : Promise.resolve({ ids: new Set() }),
+      ]);
+
+      if (cancelled) return;
+
+      setCoverStatusMessages({
+        serverDead: showServerDead
+          ? messagesById.messages[STATUS_MESSAGE_IDS.SERVER_DEAD] ?? ''
+          : '',
+        onlineTrophies: showOnlineNote
+          ? messagesById.messages[STATUS_MESSAGE_IDS.HAS_ONLINE_TROPHIES] ?? ''
+          : '',
+      });
+      setOnlineTrophyIds(onlineRes.ids ?? new Set());
+    }
+
+    loadCoverAndOnlineData();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGame, getProp, locale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,6 +207,8 @@ function GamePage({
 
   const showServerShutdown = isServerOffline(selectedGame, getProp);
   const showComingSoon = isComingSoonStatus(selectedGame, getProp);
+  const showCoverServerDead = isServerDead(selectedGame, getProp);
+  const showCoverOnlineNote = hasOnlineTrophiesFlag(selectedGame, getProp);
 
   const tabCounts = {
     reiter0: activeTrophies.length,
@@ -211,10 +271,12 @@ function GamePage({
           ) : (
             <div className="flex flex-col gap-3 max-h-[650px] overflow-y-auto pr-2">
               {activeTrophies
-                .filter((t) => !hideCompleted || !unlockedTrophies[t.trophy_id || t.id])
+                .filter((t) => !hideCompleted || !unlockedTrophies[getTrophyIdKey(t)])
                 .map((t, idx) => {
-                  const trophyKey = t.trophy_id || t.id;
+                  const trophyKey = getTrophyIdKey(t) || idx;
                   const isUnlocked = !!unlockedTrophies[trophyKey];
+                  const trophyDesc = getTrophyDescription(t);
+                  const isOnlineTrophy = onlineTrophyIds.has(getTrophyIdKey(t));
 
                   return (
                     <div
@@ -251,14 +313,19 @@ function GamePage({
                                 Versteckt
                               </span>
                             )}
+                            {isOnlineTrophy && (
+                              <span className="text-[9px] bg-sky-500/10 text-sky-400 border border-sky-500/25 px-1.5 py-0.5 rounded font-mono uppercase">
+                                Online Trophäe
+                              </span>
+                            )}
                           </div>
-                          {t.trophy_description && (
+                          {trophyDesc && (
                             <p
                               className={`text-xs mt-1 leading-relaxed ${
                                 isUnlocked ? 'text-zinc-600' : 'text-zinc-400'
                               }`}
                             >
-                              {t.trophy_description}
+                              {trophyDesc}
                             </p>
                           )}
                           <span className="inline-block text-[10px] text-zinc-500 font-mono uppercase mt-2 bg-zinc-800/50 px-2 py-0.5 rounded border border-zinc-800">
@@ -432,6 +499,22 @@ function GamePage({
                   {getProp(selectedGame, ['Entwickler', 'entwickler']) || '—'}
                 </span>
               </div>
+
+              {showCoverServerDead && coverStatusMessages.serverDead && (
+                <div className="col-span-2 pt-2">
+                  <p className="text-xs leading-relaxed text-red-400 bg-red-950/40 border border-red-900/50 rounded-lg px-3 py-2">
+                    {coverStatusMessages.serverDead}
+                  </p>
+                </div>
+              )}
+
+              {showCoverOnlineNote && coverStatusMessages.onlineTrophies && (
+                <div className="col-span-2 pt-2">
+                  <p className="text-xs leading-relaxed text-sky-300 bg-sky-950/40 border border-sky-800/50 rounded-lg px-3 py-2">
+                    {coverStatusMessages.onlineTrophies}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

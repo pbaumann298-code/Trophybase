@@ -20,8 +20,14 @@ export const STATUS_MESSAGE_FALLBACKS = {
   },
 };
 
-export const SERVER_OFFLINE_VALUES = ['OFFLINE', 'SERVER_TOT'];
+export const SERVER_OFFLINE_VALUES = ['OFFLINE', 'SERVER_TOT', 'TOT'];
 export const GAME_STATUS_COMING_SOON = 'COMING_SOON';
+
+/** trophy_status_messages.id – Cover-Hinweise auf der Spieldetailseite */
+export const STATUS_MESSAGE_IDS = {
+  SERVER_DEAD: 2,
+  HAS_ONLINE_TROPHIES: 3,
+};
 
 /**
  * Liest lokalisierten Text aus einer trophy_status_messages-Zeile.
@@ -65,6 +71,22 @@ export function isServerOffline(game, getProp) {
     getProp(game, ['server_status', 'Server_Status', 'server_Status']),
   );
   return SERVER_OFFLINE_VALUES.includes(status);
+}
+
+/** server_status = „tot“ (inkl. Varianten) → Hinweis id 2 in der Cover-Kachel */
+export function isServerDead(game, getProp) {
+  const raw = String(
+    getProp(game, ['server_status', 'Server_Status', 'server_Status']) ?? '',
+  )
+    .trim()
+    .toLowerCase();
+  return raw === 'tot' || raw === 'server_tot' || raw === 'offline';
+}
+
+export function hasOnlineTrophiesFlag(game, getProp) {
+  const raw = getProp(game, ['has_online_trophies', 'Has_Online_Trophies']);
+  if (raw === true) return true;
+  return String(raw ?? '').trim().toUpperCase() === 'TRUE';
 }
 
 export function isComingSoonStatus(game, getProp) {
@@ -117,6 +139,39 @@ export async function fetchTrophyStatusMessages(supabase, keys, locale = DEFAULT
 
     const text = pickLocalizedMessage(rows[0], loc);
     if (text) result[key] = text;
+  }
+
+  return { messages: result, error: null };
+}
+
+/**
+ * Nach numerischer id aus trophy_status_messages (z. B. id 2 / 3).
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {number[]} ids
+ * @param {string} [locale]
+ */
+export async function fetchTrophyStatusMessagesByIds(supabase, ids, locale = DEFAULT_LOCALE) {
+  const loc = normalizeLocale(locale);
+  const result = {};
+
+  if (!ids?.length) return { messages: result, error: null };
+
+  const { data, error } = await supabase
+    .from(TABLES.statusMessages)
+    .select('*')
+    .in('id', ids);
+
+  if (error) {
+    console.error('trophy_status_messages (by id):', error.message);
+    return { messages: result, error };
+  }
+
+  for (const id of ids) {
+    const row = (data ?? []).find((entry) => Number(entry.id) === Number(id));
+    if (row) {
+      const text = pickLocalizedMessage(row, loc);
+      if (text) result[id] = text;
+    }
   }
 
   return { messages: result, error: null };

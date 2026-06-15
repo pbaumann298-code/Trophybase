@@ -11,6 +11,7 @@ export const TABLES = {
   qaDashboard: 'qa_dashboard',
   statusMessages: 'trophy_status_messages',
   inviteKeys: 'invite_keys',
+  onlineTrophiesLog: 'online_trophies_log',
 };
 
 /** qa_dashboard.status */
@@ -40,6 +41,7 @@ export const GAME_FIELDS = {
   developer: 'Entwickler',
   status: 'Status',
   serverStatus: 'server_status',
+  hasOnlineTrophies: 'has_online_trophies',
 };
 
 export const ACTIVE_WATCHLIST_STATUSES = ['active', 'aktiv', 'playing'];
