@@ -329,7 +329,11 @@ function App() {
   const renderMaintenanceAllowedView = () => {
     if (currentView === 'beta') {
       return (
-        <BetaRegistrationPage sessionUser={sessionUser} onComplete={handleBetaComplete} />
+        <BetaRegistrationPage
+          sessionUser={sessionUser}
+          onSessionEstablished={setSessionUser}
+          onComplete={handleBetaComplete}
+        />
       );
     }
     if (currentView === 'login') {
@@ -355,7 +359,11 @@ function App() {
 
   if (currentView === 'beta') {
     return (
-      <BetaRegistrationPage sessionUser={sessionUser} onComplete={handleBetaComplete} />
+      <BetaRegistrationPage
+        sessionUser={sessionUser}
+        onSessionEstablished={setSessionUser}
+        onComplete={handleBetaComplete}
+      />
     );
   }
 

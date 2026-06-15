@@ -52,7 +52,35 @@ export async function redeemInviteKey(supabase, userKey, currentUserId) {
   return { ok: true, user: authData.user };
 }
 
+async function establishSessionAfterSignUp(supabase, email, password) {
+  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (signInError || !signInData.session?.user) {
+    return {
+      ok: false,
+      signInError,
+      message:
+        signInError?.message ??
+        'Account wurde angelegt, aber die automatische Anmeldung ist fehlgeschlagen.',
+    };
+  }
+
+  return {
+    ok: true,
+    user: signInData.session.user,
+    session: signInData.session,
+  };
+}
+
 /**
+ * Beta-Registrierung:
+ * 1. signUp
+ * 2. Sofort signInWithPassword → aktive Session (Bypass)
+ * 3. Erst dann Key-Einlösung möglich
+ *
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} email
  * @param {string} password
@@ -74,31 +102,72 @@ export async function registerBetaAccount(supabase, email, password) {
   });
 
   if (error) {
+    const alreadyExists = /already registered|already exists|user already/i.test(error.message);
+
+    if (alreadyExists) {
+      const loginResult = await establishSessionAfterSignUp(
+        supabase,
+        normalizedEmail,
+        trimmedPassword,
+      );
+      if (loginResult.ok) {
+        return { ...loginResult, existingAccount: true };
+      }
+      return {
+        ok: false,
+        message: loginResult.message ?? 'Diese E-Mail ist bereits registriert. Passwort prüfen.',
+      };
+    }
+
     return { ok: false, message: error.message };
   }
 
   if (data.session?.user) {
-    return { ok: true, user: data.session.user, needsEmailConfirm: false };
-  }
-
-  if (data.user && !data.session) {
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password: trimmedPassword,
-    });
-
-    if (!signInError && signInData.session?.user) {
-      return { ok: true, user: signInData.session.user, needsEmailConfirm: false };
-    }
-
     return {
       ok: true,
-      user: data.user,
-      needsEmailConfirm: true,
-      message:
-        'Account angelegt. Bitte bestätige deine E-Mail und melde dich danach erneut an, um deinen Beta-Key einzulösen.',
+      user: data.session.user,
+      session: data.session,
+    };
+  }
+
+  if (data.user) {
+    const loginResult = await establishSessionAfterSignUp(
+      supabase,
+      normalizedEmail,
+      trimmedPassword,
+    );
+
+    if (loginResult.ok) {
+      return loginResult;
+    }
+
+    const needsEmailConfirm =
+      loginResult.signInError?.message?.toLowerCase().includes('email not confirmed') ||
+      loginResult.signInError?.message?.toLowerCase().includes('invalid login');
+
+    return {
+      ok: false,
+      needsEmailConfirm,
+      message: needsEmailConfirm
+        ? 'Account angelegt. Bitte E-Mail bestätigen, danach erneut mit E-Mail + Passwort einloggen und deinen Beta-Key auf /beta einlösen.'
+        : `${loginResult.message} (Tipp: In Supabase „Confirm email“ für die Beta ggf. deaktivieren.)`,
     };
   }
 
   return { ok: false, message: 'Registrierung fehlgeschlagen. Bitte erneut versuchen.' };
+}
+
+/**
+ * Bestehenden Account einloggen und zur Key-Eingabe weiterleiten.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ */
+export async function signInBetaAccount(supabase, email, password) {
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
+  const trimmedPassword = String(password ?? '').trim();
+
+  const result = await establishSessionAfterSignUp(supabase, normalizedEmail, trimmedPassword);
+  if (!result.ok) {
+    return { ok: false, message: result.message ?? 'Login fehlgeschlagen.' };
+  }
+  return { ok: true, user: result.user, session: result.session };
 }
