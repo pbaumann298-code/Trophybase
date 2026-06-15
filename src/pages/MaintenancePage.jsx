@@ -10,19 +10,32 @@ function MaintenancePage({ setCurrentView }) {
         TrophyBase bekommt ein Update
       </h1>
       <p className="text-sm text-zinc-400 max-w-sm mx-auto mb-6">
-        Wir schrauben gerade am Live-System, um die Trophäen-Guides noch besser zu machen. Schau in ein paar Minuten wieder vorbei!
+        Wir schrauben gerade am Live-System, um die Trophäen-Guides noch besser zu machen. Schau in
+        ein paar Minuten wieder vorbei!
       </p>
       <div className="text-[10px] font-mono text-zinc-600 uppercase tracking-widest mb-6">
         Maintenance Mode Active
       </div>
       {setCurrentView && (
-        <button
-          type="button"
-          onClick={() => setCurrentView('login')}
-          className="text-xs font-semibold text-[#00ff66] bg-[#00ff66]/10 border border-[#00ff66]/25 px-4 py-2 rounded-xl hover:bg-[#00ff66]/15 transition cursor-pointer"
-        >
-          Tester / Creator Login
-        </button>
+        <div className="flex flex-col items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              window.history.pushState({}, '', '/beta');
+              setCurrentView('beta');
+            }}
+            className="text-xs font-semibold text-sky-400 bg-sky-500/10 border border-sky-500/25 px-4 py-2 rounded-xl hover:bg-sky-500/15 transition cursor-pointer"
+          >
+            Beta-Zugang beantragen
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentView('login')}
+            className="text-xs font-semibold text-[#00ff66] bg-[#00ff66]/10 border border-[#00ff66]/25 px-4 py-2 rounded-xl hover:bg-[#00ff66]/15 transition cursor-pointer"
+          >
+            Tester / Creator Login
+          </button>
+        </div>
       )}
     </div>
   );

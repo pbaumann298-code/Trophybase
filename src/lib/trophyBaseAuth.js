@@ -10,6 +10,7 @@
 
 import {
   GATE_ACCOUNTS,
+  hasMaintenanceBypass,
   isGateAccount,
   normalizeEmail,
   hasLinkedSocialIdentity,
@@ -171,11 +172,12 @@ export function resolveViewForSession(user) {
   if (!user) return 'login';
 
   const email = normalizeEmail(user.email);
-  if (!isGateAccount(email)) return 'home';
-  if (hasMaintenanceBypassFlag(user) || hasLinkedSocialIdentity(user)) {
-    return 'home';
+  if (isGateAccount(email)) {
+    if (hasMaintenanceBypassFlag(user) || hasLinkedSocialIdentity(user)) return 'home';
+    return 'social-link';
   }
-  return 'social-link';
+
+  return hasMaintenanceBypass(user) ? 'home' : 'login';
 }
 
 export { GATE_ACCOUNTS, isGateAccount, normalizeEmail };

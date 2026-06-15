@@ -10,6 +10,7 @@ export const TABLES = {
   inbox: 'user_inbox',
   qaDashboard: 'qa_dashboard',
   statusMessages: 'trophy_status_messages',
+  inviteKeys: 'invite_keys',
 };
 
 /** qa_dashboard.status */

@@ -9,6 +9,7 @@ import LoginPage from './pages/LoginPage';
 import SocialLinkPage from './pages/SocialLinkPage';
 import TesterSetupPage from './pages/TesterSetupPage';
 import MaintenancePage from './pages/MaintenancePage';
+import BetaRegistrationPage from './pages/BetaRegistrationPage';
 import {
   hasMaintenanceBypass,
   isGateAccount,
@@ -34,6 +35,7 @@ function App() {
     const path = window.location.pathname;
     if (path.startsWith('/admin/qa')) return 'qa_admin';
     if (path.startsWith('/guide/')) return 'game_info';
+    if (path === '/beta' || path.startsWith('/beta/')) return 'beta';
     return 'home';
   });
 
@@ -87,7 +89,9 @@ function App() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!cancelled) {
         setSessionUser(session?.user ?? null);
-        if (session?.user && isMaintenanceMode) {
+        const path = window.location.pathname;
+        const onBetaRoute = path === '/beta' || path.startsWith('/beta/');
+        if (session?.user && isMaintenanceMode && !onBetaRoute) {
           setCurrentView(resolveViewForSession(session.user));
         }
       }
@@ -104,6 +108,10 @@ function App() {
           session?.user &&
           (event === 'USER_UPDATED' || event === 'SIGNED_IN')
         ) {
+          const path = window.location.pathname;
+          const onBetaRoute = path === '/beta' || path.startsWith('/beta/');
+          if (onBetaRoute) return;
+
           const redirectResult = await handleSocialLinkRedirect(supabase);
           if (redirectResult.handled && redirectResult.ok) {
             setCurrentView('home');
@@ -125,7 +133,10 @@ function App() {
       const path = window.location.pathname;
       if (path.startsWith('/admin/qa')) setCurrentView('qa_admin');
       else if (path.startsWith('/guide/')) setCurrentView('game_info');
-      else if (currentView === 'qa_admin' || currentView === 'game_info') setCurrentView('home');
+      else if (path === '/beta' || path.startsWith('/beta/')) setCurrentView('beta');
+      else if (currentView === 'qa_admin' || currentView === 'game_info' || currentView === 'beta') {
+        setCurrentView('home');
+      }
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -307,10 +318,20 @@ function App() {
   const completedCount = activeTrophies.filter(t => unlockedTrophies[t.id || t.trophy_id || t.trophy_name]).length;
   const progressPercent = activeTrophies.length > 0 ? Math.round((completedCount / activeTrophies.length) * 100) : 0;
 
+  const handleBetaComplete = () => {
+    window.history.pushState({}, '', '/');
+    setCurrentView('home');
+  };
+
   const maintenanceBypass = hasMaintenanceBypass(sessionUser);
   const isQaAdminView = currentView === 'qa_admin';
 
   const renderMaintenanceAllowedView = () => {
+    if (currentView === 'beta') {
+      return (
+        <BetaRegistrationPage sessionUser={sessionUser} onComplete={handleBetaComplete} />
+      );
+    }
     if (currentView === 'login') {
       return <LoginPage onLogin={handleLogin} />;
     }
@@ -329,6 +350,12 @@ function App() {
         sessionUser={sessionUser}
         onExit={exitQaAdmin}
       />
+    );
+  }
+
+  if (currentView === 'beta') {
+    return (
+      <BetaRegistrationPage sessionUser={sessionUser} onComplete={handleBetaComplete} />
     );
   }
 

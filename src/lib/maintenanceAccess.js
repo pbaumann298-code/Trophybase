@@ -1,3 +1,5 @@
+import { isBetaTester } from './betaAccess';
+
 /** Temporäre Einlass-Accounts (Schritt 1: Passwort-Login) */
 export const GATE_ACCOUNTS = ['tester@trophybase.app', 'creator@trophybase.app'];
 
@@ -6,9 +8,8 @@ export const ALLOWED_ADMINS = ['master@trophybase.app'];
 
 /**
  * Views, die während der Wartung NIEMALS durch die Sperrseite blockiert werden.
- * Schritt 2 (Social-Link) muss hier explizit stehen.
  */
-export const MAINTENANCE_ALLOWED_VIEWS = ['login', 'social-link'];
+export const MAINTENANCE_ALLOWED_VIEWS = ['login', 'social-link', 'beta'];
 
 export const MAINTENANCE_BYPASS_METADATA_KEY = 'maintenance_bypass';
 
@@ -32,18 +33,21 @@ export function hasMaintenanceBypassFlag(user) {
 }
 
 /**
- * Wartung umgehen: Admin, persönlicher Account, oder Gate-Account mit
- * gesetztem maintenance_bypass-Flag / verknüpfter Social-Identität.
+ * Wartung umgehen: Admin, Beta-Tester, oder Gate-Account mit Social-Link / Flag.
  */
 export function hasMaintenanceBypass(user) {
   if (!user) return false;
 
   const email = normalizeEmail(user.email);
   if (ALLOWED_ADMINS.includes(email)) return true;
-  if (!isGateAccount(email)) return true;
+  if (isBetaTester(user)) return true;
 
-  if (hasMaintenanceBypassFlag(user)) return true;
-  return hasLinkedSocialIdentity(user);
+  if (isGateAccount(email)) {
+    if (hasMaintenanceBypassFlag(user)) return true;
+    return hasLinkedSocialIdentity(user);
+  }
+
+  return false;
 }
 
 export function shouldBlockWithMaintenancePage(isMaintenanceMode, user, currentView) {
@@ -55,3 +59,5 @@ export function shouldBlockWithMaintenancePage(isMaintenanceMode, user, currentV
 export function resolvePostLoginView(email) {
   return isGateAccount(email) ? 'social-link' : 'home';
 }
+
+export { isBetaTester };
