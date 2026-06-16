@@ -3,6 +3,8 @@ import { supabase } from './supabaseClient';
 import { CollectibleKacheln, BossKacheln } from './CollectibleKacheln';
 import GameSeoInfobox from '../components/GameSeoInfobox';
 import GameStatusBanners from '../components/GameStatusBanners';
+import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
+import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
 import {
   buildBossOverviewData,
   buildByTypeGuideData,
@@ -11,7 +13,6 @@ import {
 import { fetchGameGuideBundle, resolveGameId } from '../lib/guideQueries';
 import {
   fetchOnlineTrophyIdsForGame,
-  getTrophyDescription,
   getTrophyIdKey,
 } from '../lib/trophyQueries';
 import { getLocale, LOCALE_STORAGE_KEY } from '../lib/locale';
@@ -246,12 +247,12 @@ function GamePage({
     }`;
 
   const renderTabContent = () => (
-    <div className="w-full">
+    <div className="w-full flex flex-col gap-4">
       {activeTab === 'reiter0' && (
-        <div className="bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 shadow-xl animate-fadeIn">
-          <div className="flex justify-between items-center mb-6">
+        <div className="animate-fadeIn">
+          <div className="flex justify-between items-center mb-4 px-1">
             <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">
-              Trophäen-Checkliste
+              100% Trophäen-Checkliste
             </h3>
             <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer select-none">
               <input
@@ -264,102 +265,14 @@ function GamePage({
             </label>
           </div>
 
-          {activeTrophies.length === 0 ? (
-            <p className="text-xs text-zinc-500 italic text-center py-6">
-              Keine Trophäen für dieses Spiel in der Datenbank.
-            </p>
-          ) : (
-            <div className="flex flex-col gap-3 max-h-[650px] overflow-y-auto pr-2">
-              {activeTrophies
-                .filter((t) => !hideCompleted || !unlockedTrophies[getTrophyIdKey(t)])
-                .map((t, idx) => {
-                  const trophyKey = getTrophyIdKey(t) || idx;
-                  const isUnlocked = !!unlockedTrophies[trophyKey];
-                  const trophyDesc = getTrophyDescription(t);
-                  const isOnlineTrophy = onlineTrophyIds.has(getTrophyIdKey(t));
-
-                  return (
-                    <div
-                      key={trophyKey || idx}
-                      className={`flex flex-col gap-3 p-4 rounded-xl border transition-all ${
-                        isUnlocked
-                          ? 'bg-[#121314]/40 border-zinc-800/40 opacity-60'
-                          : 'bg-[#121314] border-zinc-800 hover:border-zinc-700'
-                      }`}
-                    >
-                      <div className="flex items-start gap-4">
-                        <input
-                          type="checkbox"
-                          checked={isUnlocked}
-                          onChange={() => toggleTrophy(trophyKey)}
-                          className="rounded border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 w-4 h-4 cursor-pointer mt-1 flex-shrink-0"
-                        />
-                        {t.icon_url && (
-                          <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0">
-                            <img src={t.icon_url} alt="" className="w-full h-full object-cover" />
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p
-                              className={`text-sm font-bold ${
-                                isUnlocked ? 'text-zinc-500 line-through' : 'text-zinc-200'
-                              }`}
-                            >
-                              {t.trophy_name}
-                            </p>
-                            {t.ist_versteckt && (
-                              <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono uppercase">
-                                Versteckt
-                              </span>
-                            )}
-                            {isOnlineTrophy && (
-                              <span className="text-[9px] bg-sky-500/10 text-sky-400 border border-sky-500/25 px-1.5 py-0.5 rounded font-mono uppercase">
-                                Online Trophäe
-                              </span>
-                            )}
-                          </div>
-                          {trophyDesc && (
-                            <p
-                              className={`text-xs mt-1 leading-relaxed ${
-                                isUnlocked ? 'text-zinc-600' : 'text-zinc-400'
-                              }`}
-                            >
-                              {trophyDesc}
-                            </p>
-                          )}
-                          <span className="inline-block text-[10px] text-zinc-500 font-mono uppercase mt-2 bg-zinc-800/50 px-2 py-0.5 rounded border border-zinc-800">
-                            {t.trophy_type || 'Bronze'}
-                          </span>
-                        </div>
-                      </div>
-                      {!isUnlocked && (t.guide_tip || t.video_url) && (
-                        <div className="mt-1 pl-4 border-l-2 border-[#00ff66]/30 flex flex-col gap-2 bg-zinc-950/40 p-2 rounded-r-xl">
-                          {t.guide_tip && (
-                            <p className="text-xs text-zinc-400 font-sans italic">
-                              <span className="text-[#00ff66] font-mono font-bold not-italic mr-1">
-                                Tipp:
-                              </span>
-                              {t.guide_tip}
-                            </p>
-                          )}
-                          {t.video_url && (
-                            <a
-                              href={t.video_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[11px] text-[#00ff66] hover:underline flex items-center gap-1 font-mono font-bold"
-                            >
-                              🎬 Video-Guide auf YouTube ansehen
-                            </a>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-            </div>
-          )}
+          <TrophyGroupedChecklist
+            trophies={activeTrophies}
+            unlockedTrophies={unlockedTrophies}
+            onlineTrophyIds={onlineTrophyIds}
+            hideCompleted={hideCompleted}
+            onToggle={toggleTrophy}
+            mainGameTitle={`Hauptspiel · ${getProp(selectedGame, ['Spieltitel', 'spieltitel'])}`}
+          />
         </div>
       )}
 
@@ -370,20 +283,30 @@ function GamePage({
               Kein chronologischer Guide (game_chapters / chronological_group).
             </p>
           ) : (
-            <CollectibleKacheln
-              collectiblesData={chronologicalGuideData}
-              progressPercent={progressPercent}
-              completedCount={completedCount}
-              totalCount={activeTrophies.length}
-              groupByField="chronological_group"
-              groupHeaderIcon="📍"
-              listTitle="Full-Gameplay Guide"
-              hideCompleted={hideCompleted}
-              setHideCompleted={setHideCompleted}
-              completedItems={completedGuideItems}
-              toggleCompleted={toggleGuideItemCompleted}
-              emptyVideoMessage="Kein Video für dieses Gebiet oder alle Einträge ausgeblendet."
-            />
+            <CollapsibleSectionCard
+              sectionId="guide-chronological"
+              title="Full-Gameplay Guide"
+              subtitle="Chronologisch nach Gebieten · Reiter 2"
+              badge={`${chronologicalGuideData.length} Einträge`}
+              defaultOpen
+              accent="green"
+            >
+              <CollectibleKacheln
+                collectiblesData={chronologicalGuideData}
+                progressPercent={progressPercent}
+                completedCount={completedCount}
+                totalCount={activeTrophies.length}
+                groupByField="chronological_group"
+                groupHeaderIcon="📍"
+                listTitle="Full-Gameplay Guide"
+                hideCompleted={hideCompleted}
+                setHideCompleted={setHideCompleted}
+                completedItems={completedGuideItems}
+                toggleCompleted={toggleGuideItemCompleted}
+                emptyVideoMessage="Kein Video für dieses Gebiet oder alle Einträge ausgeblendet."
+                embedInAccordion
+              />
+            </CollapsibleSectionCard>
           )}
         </div>
       )}
@@ -395,20 +318,30 @@ function GamePage({
               Keine Komplettierungs-Einträge (game_guides / category_group).
             </p>
           ) : (
-            <CollectibleKacheln
-              collectiblesData={byTypeGuideData}
-              progressPercent={progressPercent}
-              completedCount={completedCount}
-              totalCount={activeTrophies.length}
-              groupByField="category_group"
-              groupHeaderIcon="📦"
-              listTitle="Komplettierungs-Guide"
-              hideCompleted={hideCompleted}
-              setHideCompleted={setHideCompleted}
-              completedItems={completedGuideItems}
-              toggleCompleted={toggleGuideItemCompleted}
-              emptyVideoMessage="Kein Video für diese Kategorie oder alle Gegenstände ausgeblendet."
-            />
+            <CollapsibleSectionCard
+              sectionId="guide-by-type"
+              title="Komplettierungs-Guide"
+              subtitle="Nach Kategorien · Reiter 3"
+              badge={`${byTypeGuideData.length} Einträge`}
+              defaultOpen
+              accent="amber"
+            >
+              <CollectibleKacheln
+                collectiblesData={byTypeGuideData}
+                progressPercent={progressPercent}
+                completedCount={completedCount}
+                totalCount={activeTrophies.length}
+                groupByField="category_group"
+                groupHeaderIcon="📦"
+                listTitle="Komplettierungs-Guide"
+                hideCompleted={hideCompleted}
+                setHideCompleted={setHideCompleted}
+                completedItems={completedGuideItems}
+                toggleCompleted={toggleGuideItemCompleted}
+                emptyVideoMessage="Kein Video für diese Kategorie oder alle Gegenstände ausgeblendet."
+                embedInAccordion
+              />
+            </CollapsibleSectionCard>
           )}
         </div>
       )}
@@ -420,17 +353,27 @@ function GamePage({
               Keine Boss-Einträge in game_bosses für dieses Spiel.
             </p>
           ) : (
-            <BossKacheln
-              bossesData={bossOverviewData}
-              progressPercent={progressPercent}
-              completedCount={completedCount}
-              totalCount={activeTrophies.length}
-              listTitle="Boss-Checkliste"
-              hideCompleted={hideCompleted}
-              setHideCompleted={setHideCompleted}
-              completedItems={completedGuideItems}
-              toggleCompleted={toggleGuideItemCompleted}
-            />
+            <CollapsibleSectionCard
+              sectionId="guide-bosses"
+              title="Boss-Checkliste"
+              subtitle="Boss-Übersicht · Reiter 4"
+              badge={`${bossOverviewData.length} Bosse`}
+              defaultOpen
+              accent="purple"
+            >
+              <BossKacheln
+                bossesData={bossOverviewData}
+                progressPercent={progressPercent}
+                completedCount={completedCount}
+                totalCount={activeTrophies.length}
+                listTitle="Boss-Checkliste"
+                hideCompleted={hideCompleted}
+                setHideCompleted={setHideCompleted}
+                completedItems={completedGuideItems}
+                toggleCompleted={toggleGuideItemCompleted}
+                embedInAccordion
+              />
+            </CollapsibleSectionCard>
           )}
         </div>
       )}

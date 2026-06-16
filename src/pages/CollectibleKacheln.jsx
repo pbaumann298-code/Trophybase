@@ -22,6 +22,7 @@ function SplitScreenGuideKacheln({
   setHideCompleted,
   completedItems = {},
   toggleCompleted,
+  embedInAccordion = false,
 }) {
   const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -59,39 +60,74 @@ function SplitScreenGuideKacheln({
   };
 
   return (
-    <div className="collectibles-tab" style={{ padding: '0px', color: '#fff' }}>
+    <div className={`collectibles-tab ${embedInAccordion ? '' : ''}`} style={{ padding: '0px', color: '#fff' }}>
       <div
-        style={{
-          backgroundColor: '#1a1b1c',
-          padding: '20px',
-          borderRadius: '16px',
-          border: '1px solid #27272a',
-          marginBottom: '24px',
-        }}
+        style={
+          embedInAccordion
+            ? { marginBottom: '16px' }
+            : {
+                backgroundColor: '#1a1b1c',
+                padding: '20px',
+                borderRadius: '16px',
+                border: '1px solid #27272a',
+                marginBottom: '24px',
+              }
+        }
       >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '16px',
-            gap: '12px',
-            flexWrap: 'wrap',
-          }}
-        >
-          <h3
+        {!embedInAccordion && (
+          <div
             style={{
-              margin: 0,
-              fontSize: '13px',
-              fontWeight: 'bold',
-              color: '#a1a1aa',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '16px',
+              gap: '12px',
+              flexWrap: 'wrap',
             }}
           >
-            {listTitle}
-          </h3>
-          {typeof setHideCompleted === 'function' && (
+            <h3
+              style={{
+                margin: 0,
+                fontSize: '13px',
+                fontWeight: 'bold',
+                color: '#a1a1aa',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}
+            >
+              {listTitle}
+            </h3>
+            {typeof setHideCompleted === 'function' && (
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '12px',
+                  color: '#a1a1aa',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={hideCompleted}
+                  onChange={(e) => setHideCompleted(e.target.checked)}
+                  style={{
+                    accentColor: '#00ff66',
+                    cursor: 'pointer',
+                    width: '16px',
+                    height: '16px',
+                  }}
+                />
+                Erledigte ausblenden
+              </label>
+            )}
+          </div>
+        )}
+
+        {embedInAccordion && typeof setHideCompleted === 'function' && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
             <label
               style={{
                 display: 'flex',
@@ -116,8 +152,8 @@ function SplitScreenGuideKacheln({
               />
               Erledigte ausblenden
             </label>
-          )}
-        </div>
+          </div>
+        )}
 
         <div
           style={{
@@ -218,7 +254,7 @@ function SplitScreenGuideKacheln({
                 </span>
               </span>
               <span style={{ color: '#71717a', fontSize: '12px' }} aria-hidden>
-                {isExpanded ? '▼' : '▶'}
+                {isExpanded ? '▲' : '▼'}
               </span>
             </button>
 
@@ -444,6 +480,7 @@ export function CollectibleKacheln({
   setHideCompleted,
   completedItems,
   toggleCompleted,
+  embedInAccordion = false,
 }) {
   return (
     <SplitScreenGuideKacheln
@@ -461,6 +498,7 @@ export function CollectibleKacheln({
       setHideCompleted={setHideCompleted}
       completedItems={completedItems}
       toggleCompleted={toggleCompleted}
+      embedInAccordion={embedInAccordion}
     />
   );
 }
@@ -475,6 +513,7 @@ export function BossKacheln({
   setHideCompleted,
   completedItems,
   toggleCompleted,
+  embedInAccordion = false,
 }) {
   const renderTrophyBadge = (item, dimmed) => {
     if (item.is_trophy_relevant !== 'Ja') return null;
@@ -521,6 +560,7 @@ export function BossKacheln({
       setHideCompleted={setHideCompleted}
       completedItems={completedItems}
       toggleCompleted={toggleCompleted}
+      embedInAccordion={embedInAccordion}
     />
   );
 }
