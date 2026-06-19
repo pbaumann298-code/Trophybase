@@ -204,6 +204,11 @@ function GamePage({
 
   const bossOverviewData = useMemo(() => buildBossOverviewData(bossRows), [bossRows]);
 
+  const gameId = useMemo(
+    () => resolveGameId(selectedGame, getProp),
+    [selectedGame, getProp],
+  );
+
   const isGuideLoading = guidesLoading || loadingGuide;
 
   const showServerShutdown = isServerOffline(selectedGame, getProp);
@@ -266,6 +271,7 @@ function GamePage({
           </div>
 
           <TrophyGroupedChecklist
+            gameId={gameId}
             trophies={activeTrophies}
             unlockedTrophies={unlockedTrophies}
             onlineTrophyIds={onlineTrophyIds}
@@ -292,6 +298,8 @@ function GamePage({
               accent="green"
             >
               <CollectibleKacheln
+                gameId={gameId}
+                reportEntityType="guide_step"
                 collectiblesData={chronologicalGuideData}
                 progressPercent={progressPercent}
                 completedCount={completedCount}
@@ -327,6 +335,8 @@ function GamePage({
               accent="amber"
             >
               <CollectibleKacheln
+                gameId={gameId}
+                reportEntityType="guide_item"
                 collectiblesData={byTypeGuideData}
                 progressPercent={progressPercent}
                 completedCount={completedCount}
@@ -362,6 +372,7 @@ function GamePage({
               accent="purple"
             >
               <BossKacheln
+                gameId={gameId}
                 bossesData={bossOverviewData}
                 progressPercent={progressPercent}
                 completedCount={completedCount}

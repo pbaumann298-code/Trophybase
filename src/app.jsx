@@ -28,6 +28,7 @@ import {
   loadCompletedGuideItems,
   saveCompletedGuideItems,
 } from './lib/guideProgressStorage';
+import { ErrorReportProvider } from './context/ErrorReportContext';
 
 function App() {
   // 1. Wir schauen beim Start direkt in die URL des Browsers!
@@ -368,6 +369,10 @@ function App() {
   }
 
   return (
+    <ErrorReportProvider
+      sessionUser={sessionUser}
+      onRequestLogin={() => setCurrentView('login')}
+    >
     <div className="min-h-screen w-full max-w-full min-w-0 overflow-x-hidden flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
       
       <Header 
@@ -449,6 +454,7 @@ function App() {
       </footer>
 
     </div>
+    </ErrorReportProvider>
   );
 }
 

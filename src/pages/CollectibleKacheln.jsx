@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { getYouTubeEmbedUrl } from '../utils/videoUrl';
 import { useVisibility } from '../context/VisibilityContext';
+import Reportable from '../components/Reportable';
 
 /**
  * Generisches 40/60 Split-Screen-Layout.
@@ -23,6 +24,9 @@ function SplitScreenGuideKacheln({
   completedItems = {},
   toggleCompleted,
   embedInAccordion = false,
+  gameId = '',
+  reportEntityType = 'guide_item',
+  reportKeyField = 'guide_id',
 }) {
   const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -291,6 +295,7 @@ function SplitScreenGuideKacheln({
                         const { dimmed } = getEntryState(visKey);
                         const isCompleted = isItemCompleted(item);
                         const displayName = getDisplayName(item);
+                        const reportKey = String(item[reportKeyField] ?? item.id ?? '');
                         const userHidden = isHidden(visKey);
                         const isActive = activeVideo?.itemId === item.id;
                         const hasVideo = !!item.video_url;
@@ -393,7 +398,19 @@ function SplitScreenGuideKacheln({
                                     }
                                   }}
                                 >
-                                  {displayName}
+                                  {gameId && reportKey ? (
+                                    <Reportable
+                                      as="span"
+                                      source={gameId}
+                                      type={reportEntityType}
+                                      reportKey={reportKey}
+                                      field="name"
+                                    >
+                                      {displayName}
+                                    </Reportable>
+                                  ) : (
+                                    displayName
+                                  )}
                                   {renderNameAddon ? renderNameAddon(item, rowDimmed) : null}
                                 </button>
                               </div>
@@ -481,6 +498,8 @@ export function CollectibleKacheln({
   completedItems,
   toggleCompleted,
   embedInAccordion = false,
+  gameId = '',
+  reportEntityType = 'guide_item',
 }) {
   return (
     <SplitScreenGuideKacheln
@@ -499,6 +518,9 @@ export function CollectibleKacheln({
       completedItems={completedItems}
       toggleCompleted={toggleCompleted}
       embedInAccordion={embedInAccordion}
+      gameId={gameId}
+      reportEntityType={reportEntityType}
+      reportKeyField="guide_id"
     />
   );
 }
@@ -514,6 +536,7 @@ export function BossKacheln({
   completedItems,
   toggleCompleted,
   embedInAccordion = false,
+  gameId = '',
 }) {
   const renderTrophyBadge = (item, dimmed) => {
     if (item.is_trophy_relevant !== 'Ja') return null;
@@ -561,6 +584,9 @@ export function BossKacheln({
       completedItems={completedItems}
       toggleCompleted={toggleCompleted}
       embedInAccordion={embedInAccordion}
+      gameId={gameId}
+      reportEntityType="boss"
+      reportKeyField="boss_id"
     />
   );
 }

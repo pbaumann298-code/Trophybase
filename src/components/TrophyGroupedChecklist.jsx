@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
 import CollapsibleSectionCard from './CollapsibleSectionCard';
+import Reportable from './Reportable';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
 import { getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
 
-function TrophyRow({ trophy, isUnlocked, isOnlineTrophy, onToggle }) {
+function TrophyRow({ trophy, gameId, isUnlocked, isOnlineTrophy, onToggle }) {
   const trophyKey = getTrophyIdKey(trophy);
   const trophyDesc = getTrophyDescription(trophy);
 
@@ -24,18 +25,31 @@ function TrophyRow({ trophy, isUnlocked, isOnlineTrophy, onToggle }) {
         />
         {trophy.icon_url && (
           <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0">
-            <img src={trophy.icon_url} alt="" className="w-full h-full object-cover" />
+            <Reportable
+              as="img"
+              source={gameId}
+              type="trophy"
+              reportKey={trophyKey}
+              field="icon_url"
+              src={trophy.icon_url}
+              className="w-full h-full object-cover"
+            />
           </div>
         )}
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p
+            <Reportable
+              as="p"
+              source={gameId}
+              type="trophy"
+              reportKey={trophyKey}
+              field="name"
               className={`text-sm font-bold ${
                 isUnlocked ? 'text-zinc-500 line-through' : 'text-zinc-200'
               }`}
             >
               {trophy.trophy_name}
-            </p>
+            </Reportable>
             {trophy.ist_versteckt && (
               <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono uppercase">
                 Versteckt
@@ -48,13 +62,18 @@ function TrophyRow({ trophy, isUnlocked, isOnlineTrophy, onToggle }) {
             )}
           </div>
           {trophyDesc && (
-            <p
+            <Reportable
+              as="p"
+              source={gameId}
+              type="trophy"
+              reportKey={trophyKey}
+              field="description"
               className={`text-xs mt-1 leading-relaxed ${
                 isUnlocked ? 'text-zinc-600' : 'text-zinc-400'
               }`}
             >
               {trophyDesc}
-            </p>
+            </Reportable>
           )}
           <span className="inline-block text-[10px] text-zinc-500 font-mono uppercase mt-2 bg-zinc-800/50 px-2 py-0.5 rounded border border-zinc-800">
             {trophy.trophy_type || 'Bronze'}
@@ -66,18 +85,31 @@ function TrophyRow({ trophy, isUnlocked, isOnlineTrophy, onToggle }) {
           {trophy.guide_tip && (
             <p className="text-xs text-zinc-400 font-sans italic">
               <span className="text-[#00ff66] font-mono font-bold not-italic mr-1">Tipp:</span>
-              {trophy.guide_tip}
+              <Reportable
+                as="span"
+                source={gameId}
+                type="trophy"
+                reportKey={trophyKey}
+                field="guide_tip"
+              >
+                {trophy.guide_tip}
+              </Reportable>
             </p>
           )}
           {trophy.video_url && (
-            <a
+            <Reportable
+              as="a"
+              source={gameId}
+              type="trophy"
+              reportKey={trophyKey}
+              field="video_url"
               href={trophy.video_url}
               target="_blank"
               rel="noreferrer"
               className="text-[11px] text-[#00ff66] hover:underline flex items-center gap-1 font-mono font-bold"
             >
               🎬 Video-Guide auf YouTube ansehen
-            </a>
+            </Reportable>
           )}
         </div>
       )}
@@ -85,7 +117,7 @@ function TrophyRow({ trophy, isUnlocked, isOnlineTrophy, onToggle }) {
   );
 }
 
-function TrophyList({ trophies, unlockedTrophies, onlineTrophyIds, hideCompleted, onToggle }) {
+function TrophyList({ gameId, trophies, unlockedTrophies, onlineTrophyIds, hideCompleted, onToggle }) {
   const visible = trophies.filter(
     (t) => !hideCompleted || !unlockedTrophies[getTrophyIdKey(t)],
   );
@@ -105,6 +137,7 @@ function TrophyList({ trophies, unlockedTrophies, onlineTrophyIds, hideCompleted
         return (
           <TrophyRow
             key={key}
+            gameId={gameId}
             trophy={t}
             isUnlocked={!!unlockedTrophies[key]}
             isOnlineTrophy={onlineTrophyIds.has(getTrophyIdKey(t))}
@@ -117,6 +150,7 @@ function TrophyList({ trophies, unlockedTrophies, onlineTrophyIds, hideCompleted
 }
 
 function TrophyGroupedChecklist({
+  gameId,
   trophies,
   unlockedTrophies,
   onlineTrophyIds,
@@ -154,6 +188,7 @@ function TrophyGroupedChecklist({
           accent="green"
         >
           <TrophyList
+            gameId={gameId}
             trophies={mainGame}
             unlockedTrophies={unlockedTrophies}
             onlineTrophyIds={onlineTrophyIds}
@@ -176,6 +211,7 @@ function TrophyGroupedChecklist({
             accent="purple"
           >
             <TrophyList
+              gameId={gameId}
               trophies={dlc.trophies}
               unlockedTrophies={unlockedTrophies}
               onlineTrophyIds={onlineTrophyIds}

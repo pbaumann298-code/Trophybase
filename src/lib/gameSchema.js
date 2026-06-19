@@ -12,6 +12,7 @@ export const TABLES = {
   statusMessages: 'trophy_status_messages',
   inviteKeys: 'invite_keys',
   onlineTrophiesLog: 'online_trophies_log',
+  communityReports: 'community_reports',
 };
 
 /** qa_dashboard.status */
