@@ -8,6 +8,7 @@ function WatchlistButton({
   gameId,
   onRequestLogin,
   size = 'md',
+  variant = 'icon',
   className = '',
   showLabel = false,
 }) {
@@ -55,6 +56,38 @@ function WatchlistButton({
     setHint(active ? 'Von Watchlist entfernt.' : 'Zur Watchlist hinzugefügt.');
     window.setTimeout(() => setHint(''), 2200);
   };
+
+  const hintClass =
+    hint.includes('hinzugefügt') || hint.includes('entfernt')
+      ? 'text-[#00ff66]'
+      : 'text-amber-400';
+
+  if (variant === 'detail') {
+    return (
+      <div className={`inline-flex flex-col items-stretch sm:items-end gap-1.5 ${className}`}>
+        <button
+          type="button"
+          onClick={handleClick}
+          disabled={busy || loading}
+          className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-mono font-bold uppercase tracking-wider transition-all duration-200 disabled:opacity-50 ${
+            active
+              ? 'border-[#00ff66]/40 bg-[#00ff66]/10 text-[#00ff66] hover:bg-[#00ff66]/15'
+              : dim
+                ? 'border-zinc-700 bg-zinc-900/50 text-zinc-500 hover:border-zinc-600 hover:text-zinc-400'
+                : 'border-zinc-700 bg-[#1a1b1c] text-zinc-300 hover:border-[#00ff66]/35 hover:text-[#00ff66]'
+          }`}
+        >
+          <span aria-hidden className="text-base leading-none">
+            {active ? '★' : '☆'}
+          </span>
+          {active ? 'Auf Watchlist' : 'Zur Watchlist'}
+        </button>
+        {hint && (
+          <span className={`text-[10px] font-mono text-right leading-snug ${hintClass}`}>{hint}</span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={`inline-flex flex-col items-end gap-1 ${className}`}>

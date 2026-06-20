@@ -5,7 +5,8 @@ import GameSeoInfobox from '../components/GameSeoInfobox';
 import GameStatusBanners from '../components/GameStatusBanners';
 import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
 import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
-import WatchlistButton from '../components/WatchlistButton';
+import GameDetailMetaBar from '../components/GameDetailMetaBar';
+import { GAME_FIELDS } from '../lib/gameSchema';
 import {
   buildBossOverviewData,
   buildByTypeGuideData,
@@ -426,33 +427,24 @@ function GamePage({
             <span className="text-[10px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-2 py-0.5 rounded font-mono font-bold uppercase tracking-wider">
               Spiele Hub
             </span>
-            <div className="flex flex-wrap items-start justify-between gap-3 mt-2 mb-6">
-              <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words min-w-0 flex-1">
-                {getProp(selectedGame, ['Spieltitel', 'spieltitel'])}
-              </h2>
-              <WatchlistButton
-                gameId={gameId}
-                onRequestLogin={onRequestLogin}
-                size="lg"
-                showLabel
-                className="flex-shrink-0"
-              />
-            </div>
+            <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-2 mb-6">
+              {getProp(selectedGame, ['Spieltitel', 'spieltitel'])}
+            </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4 sm:gap-x-8 w-full max-w-xl min-w-0 text-sm border-t border-zinc-800/60 pt-4">
+              <div className="flex justify-between border-b border-zinc-800/40 pb-2 sm:col-span-2">
+                <span className="text-zinc-500 font-mono text-xs uppercase">Konsole</span>
+                <span className="text-sky-300 font-semibold text-right">
+                  {getProp(selectedGame, [GAME_FIELDS.console, 'Konsole', 'konsole']) || '—'}
+                </span>
+              </div>
               <div className="flex justify-between border-b border-zinc-800/40 pb-2">
                 <span className="text-zinc-500 font-mono text-xs uppercase">Release Jahr</span>
                 <span className="text-zinc-200 font-medium">
                   {getProp(selectedGame, ['Release_Jahr', 'release_jahr', 'Releasejahr']) || '—'}
                 </span>
               </div>
-              <div className="flex justify-between border-b border-zinc-800/40 pb-2">
-                <span className="text-zinc-500 font-mono text-xs uppercase">Konsole</span>
-                <span className="text-zinc-200 font-medium">
-                  {getProp(selectedGame, ['Konsole', 'konsole']) || '—'}
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
+              <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2 sm:col-span-1">
                 <span className="text-zinc-500 font-mono text-xs uppercase">Genre</span>
                 <span className="text-zinc-200 font-medium">
                   {getProp(selectedGame, ['Genre', 'genre']) || '—'}
@@ -499,6 +491,12 @@ function GamePage({
           </div>
         </div>
       </div>
+
+      <GameDetailMetaBar
+        consoleLabel={getProp(selectedGame, [GAME_FIELDS.console, 'Konsole', 'konsole'])}
+        gameId={gameId}
+        onRequestLogin={onRequestLogin}
+      />
 
       <GameSeoInfobox
         title={getProp(selectedGame, ['Spieltitel', 'spieltitel'])}
