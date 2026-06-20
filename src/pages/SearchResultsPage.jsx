@@ -1,6 +1,8 @@
 import React from 'react';
+import WatchlistButton from '../components/WatchlistButton';
+import { GAME_PK } from '../lib/gameSchema';
 
-function SearchResultsPage({ searchResults, openGame, getProp, loading }) {
+function SearchResultsPage({ searchResults, openGame, getProp, loading, onRequestLogin }) {
   if (loading) return <div className="text-center pt-12 text-zinc-400 text-sm">Suche läuft...</div>;
 
   return (
@@ -16,9 +18,11 @@ function SearchResultsPage({ searchResults, openGame, getProp, loading }) {
       ) : (
         // flex-col sorgt dafür, dass alle Kästen sauber untereinander stehen
         <div className="flex flex-col gap-4">
-          {searchResults.map((g, i) => (
+          {searchResults.map((g, i) => {
+            const gameId = g[GAME_PK] ?? getProp(g, [GAME_PK, 'NPWR_ID', 'npwr_id']);
+            return (
             <div 
-              key={i} 
+              key={gameId || i} 
               onClick={() => openGame(g)} 
               className="w-full min-w-0 bg-[#1a1b1c] p-4 rounded-xl border border-zinc-800 flex flex-wrap sm:flex-nowrap gap-4 sm:gap-5 cursor-pointer hover:border-zinc-700 hover:bg-[#202122] transition items-start"
             >
@@ -31,10 +35,16 @@ function SearchResultsPage({ searchResults, openGame, getProp, loading }) {
               
               {/* Rechter Datenbereich: Nutzt den gesamten restlichen Platz */}
               <div className="flex-1 min-w-0 flex flex-col h-full justify-between pt-1">
-                <div className="min-w-0">
+                <div className="min-w-0 flex items-start justify-between gap-3">
                   <h4 className="font-bold text-white text-base md:text-lg hover:text-[#00ff66] transition break-words">
                     {getProp(g, ['Spieltitel', 'spieltitel'])}
                   </h4>
+                  <WatchlistButton
+                    gameId={gameId}
+                    onRequestLogin={onRequestLogin}
+                    size="md"
+                    className="flex-shrink-0"
+                  />
                 </div>
 
                 {/* Das neue Metadaten-Grid für die zusätzlichen Supabase-Infos */}
@@ -58,7 +68,8 @@ function SearchResultsPage({ searchResults, openGame, getProp, loading }) {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

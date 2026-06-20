@@ -14,6 +14,7 @@ function HomePage({
   onCategorySearch,
   sessionUser,
   setCurrentView,
+  onRequestLogin,
 }) {
   const [categoryGames, setCategoryGames] = useState({});
   const [loading, setLoading] = useState(true);
@@ -70,7 +71,9 @@ function HomePage({
         </form>
       </header>
 
-      <Dashboard sessionUser={sessionUser} openGame={openGame} />
+      {sessionUser && (
+        <Dashboard sessionUser={sessionUser} openGame={openGame} />
+      )}
 
       {sessionUser && (
         <div className="home-inbox-link">
@@ -94,6 +97,7 @@ function HomePage({
             getProp={getProp}
             loading={loading}
             onCategorySearch={onCategorySearch}
+            onRequestLogin={onRequestLogin}
           />
         ))}
       </div>

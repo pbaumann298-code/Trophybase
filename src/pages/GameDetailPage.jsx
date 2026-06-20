@@ -5,6 +5,7 @@ import GameSeoInfobox from '../components/GameSeoInfobox';
 import GameStatusBanners from '../components/GameStatusBanners';
 import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
 import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
+import WatchlistButton from '../components/WatchlistButton';
 import {
   buildBossOverviewData,
   buildByTypeGuideData,
@@ -50,6 +51,7 @@ function GamePage({
   chapterItems,
   bossItems,
   getProp,
+  onRequestLogin,
 }) {
   const [guideRows, setGuideRows] = useState([]);
   const [chapterRows, setChapterRows] = useState([]);
@@ -424,9 +426,18 @@ function GamePage({
             <span className="text-[10px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-2 py-0.5 rounded font-mono font-bold uppercase tracking-wider">
               Spiele Hub
             </span>
-            <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight mb-6 mt-2 break-words">
-              {getProp(selectedGame, ['Spieltitel', 'spieltitel'])}
-            </h2>
+            <div className="flex flex-wrap items-start justify-between gap-3 mt-2 mb-6">
+              <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words min-w-0 flex-1">
+                {getProp(selectedGame, ['Spieltitel', 'spieltitel'])}
+              </h2>
+              <WatchlistButton
+                gameId={gameId}
+                onRequestLogin={onRequestLogin}
+                size="lg"
+                showLabel
+                className="flex-shrink-0"
+              />
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4 sm:gap-x-8 w-full max-w-xl min-w-0 text-sm border-t border-zinc-800/60 pt-4">
               <div className="flex justify-between border-b border-zinc-800/40 pb-2">

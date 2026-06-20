@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { GAME_PK } from '../lib/gameSchema';
+import WatchlistButton from './WatchlistButton';
 
 const TILE_CLASS =
   'home-carousel-tile flex-shrink-0 snap-start w-[9.5rem] sm:w-44 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-none';
 
-function CategoryCarousel({ category, games, openGame, getProp, loading, onCategorySearch }) {
+function CategoryCarousel({ category, games, openGame, getProp, loading, onCategorySearch, onRequestLogin }) {
   const trackRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -59,6 +60,9 @@ function CategoryCarousel({ category, games, openGame, getProp, loading, onCateg
             ) : (
               <div className="home-tile-cover home-tile-cover--empty">🎮</div>
             )}
+            <div className="home-tile-watchlist">
+              <WatchlistButton gameId={gameId} onRequestLogin={onRequestLogin} size="sm" />
+            </div>
             <div className="home-tile-shine" aria-hidden />
           </div>
           <div className="home-tile-meta">

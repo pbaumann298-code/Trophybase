@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './pages/supabaseClient';
 import Header from './components/Header';
 import HomePage from './pages/HomePage';
@@ -17,9 +17,13 @@ import {
 } from './lib/maintenanceAccess';
 import {
   handleSocialLinkRedirect,
-  resolveViewForSession,
   signInWithGatePassword,
 } from './lib/trophyBaseAuth';
+import {
+  getGameIdFromPath,
+  getViewFromPath,
+  resolveAppViewForSession,
+} from './lib/routeUtils';
 import Inbox from './components/Inbox';
 import QaAdminPage from './pages/QaAdminPage';
 import { TABLES, GAME_PK, GAME_FK } from './lib/gameSchema';
@@ -29,14 +33,13 @@ import {
   saveCompletedGuideItems,
 } from './lib/guideProgressStorage';
 import { ErrorReportProvider } from './context/ErrorReportContext';
+import { WatchlistProvider } from './context/WatchlistContext';
 
 function App() {
   // 1. Wir schauen beim Start direkt in die URL des Browsers!
   const [currentView, setCurrentView] = useState(() => {
-    const path = window.location.pathname;
-    if (path.startsWith('/admin/qa')) return 'qa_admin';
-    if (path.startsWith('/guide/')) return 'game_info';
-    if (path === '/beta' || path.startsWith('/beta/')) return 'beta';
+    const pathView = getViewFromPath(window.location.pathname);
+    if (pathView) return pathView;
     return 'home';
   });
 
@@ -82,7 +85,8 @@ function App() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!cancelled && session?.user) {
           setSessionUser(session.user);
-          setCurrentView('home');
+          const path = window.location.pathname;
+          setCurrentView(resolveAppViewForSession(session.user, path));
         }
         return;
       }
@@ -93,7 +97,7 @@ function App() {
         const path = window.location.pathname;
         const onBetaRoute = path === '/beta' || path.startsWith('/beta/');
         if (session?.user && isMaintenanceMode && !onBetaRoute) {
-          setCurrentView(resolveViewForSession(session.user));
+          setCurrentView(resolveAppViewForSession(session.user, path));
         }
       }
     }
@@ -113,12 +117,15 @@ function App() {
           const onBetaRoute = path === '/beta' || path.startsWith('/beta/');
           if (onBetaRoute) return;
 
+          // Deep Links bei Session-Restore nicht überschreiben (F5 auf /guide/…)
+          if (getViewFromPath(path)) return;
+
           const redirectResult = await handleSocialLinkRedirect(supabase);
           if (redirectResult.handled && redirectResult.ok) {
-            setCurrentView('home');
+            setCurrentView(resolveAppViewForSession(session.user, path));
             return;
           }
-          setCurrentView(resolveViewForSession(session.user));
+          setCurrentView(resolveAppViewForSession(session.user, path));
         }
       },
     );
@@ -129,19 +136,65 @@ function App() {
     };
   }, [isMaintenanceMode]);
 
+  // Deep Link / F5: Spieldaten aus URL laden
+  const loadGameFromUrl = useCallback(async (pathname = window.location.pathname) => {
+    const gameIdFromUrl = getGameIdFromPath(pathname);
+    if (!gameIdFromUrl) return;
+
+    setCurrentView('game_info');
+    setLoadingGuide(true);
+
+    const { data: gameData } = await supabase
+      .from(TABLES.games)
+      .select('*')
+      .eq(GAME_PK, gameIdFromUrl)
+      .maybeSingle();
+
+    if (gameData) {
+      setSelectedGame(gameData);
+
+      const { data: trophiesData } = await supabase
+        .from(TABLES.trophies)
+        .select('*')
+        .eq(GAME_FK, gameIdFromUrl);
+      setActiveTrophies(trophiesData ?? []);
+
+      const { chapters, guides, bosses } = await fetchGameGuideBundle(
+        supabase,
+        gameIdFromUrl,
+      );
+      setChapterItems(chapters);
+      setGuideItems(guides);
+      setBossItems(bosses);
+    } else {
+      setSelectedGame(null);
+      setActiveTrophies([]);
+    }
+
+    setLoadingGuide(false);
+  }, []);
+
+  useEffect(() => {
+    loadGameFromUrl();
+  }, [loadGameFromUrl]);
+
   useEffect(() => {
     const onPopState = () => {
       const path = window.location.pathname;
-      if (path.startsWith('/admin/qa')) setCurrentView('qa_admin');
-      else if (path.startsWith('/guide/')) setCurrentView('game_info');
-      else if (path === '/beta' || path.startsWith('/beta/')) setCurrentView('beta');
-      else if (currentView === 'qa_admin' || currentView === 'game_info' || currentView === 'beta') {
+      const pathView = getViewFromPath(path);
+      if (pathView) {
+        setCurrentView(pathView);
+        if (pathView === 'game_info') loadGameFromUrl(path);
+        return;
+      }
+      if (currentView === 'qa_admin' || currentView === 'game_info' || currentView === 'beta') {
         setCurrentView('home');
+        setSelectedGame(null);
       }
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [currentView]);
+  }, [currentView, loadGameFromUrl]);
 
   const exitQaAdmin = () => {
     window.history.pushState({}, '', '/');
@@ -155,45 +208,6 @@ function App() {
       setDbStatus(error ? 'Fehlgeschlagen' : 'Erfolgreich verbunden!');
     }
     initDb();
-  }, []);
-
-  // Holt die Spieldaten live aus der URL bei F5
-  useEffect(() => {
-    async function handleUrlRouting() {
-      const path = window.location.pathname; 
-      if (path.startsWith('/guide/')) {
-        const gameIdFromUrl = path.split('/')[2]; 
-
-        if (gameIdFromUrl) {
-          setLoadingGuide(true);
-          const { data: gameData } = await supabase
-            .from(TABLES.games)
-            .select('*')
-            .eq(GAME_PK, gameIdFromUrl)
-            .maybeSingle();
-
-          if (gameData) {
-            setSelectedGame(gameData);
-
-            const { data: trophiesData } = await supabase
-              .from(TABLES.trophies)
-              .select('*')
-              .eq(GAME_FK, gameIdFromUrl);
-            if (trophiesData) setActiveTrophies(trophiesData);
-
-            const { chapters, guides, bosses } = await fetchGameGuideBundle(
-              supabase,
-              gameIdFromUrl,
-            );
-            setChapterItems(chapters);
-            setGuideItems(guides);
-            setBossItems(bosses);
-          }
-          setLoadingGuide(false);
-        }
-      }
-    }
-    handleUrlRouting();
   }, []);
 
   // 🛠️ FUNKTION 1: Der normale Login
@@ -288,6 +302,8 @@ function App() {
 
     const gameId = resolveGameId(game, getProp);
     if (gameId) {
+      window.history.pushState({}, '', `/guide/${gameId}`);
+
       const { data: trophiesData, error: trophyError } = await supabase
         .from(TABLES.trophies)
         .select('*')
@@ -373,6 +389,7 @@ function App() {
       sessionUser={sessionUser}
       onRequestLogin={() => setCurrentView('login')}
     >
+    <WatchlistProvider sessionUser={sessionUser}>
     <div className="min-h-screen w-full max-w-full min-w-0 overflow-x-hidden flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
       
       <Header 
@@ -400,6 +417,7 @@ function App() {
                 onCategorySearch={runSearch}
                 sessionUser={sessionUser}
                 setCurrentView={setCurrentView}
+                onRequestLogin={() => setCurrentView('login')}
               />
             )}
 
@@ -408,7 +426,19 @@ function App() {
             )}
 
             {currentView === 'search-results' && (
-              <SearchResultsPage searchResults={searchResults} openGame={openGuide} getProp={getProp} loading={loading} />
+              <SearchResultsPage
+                searchResults={searchResults}
+                openGame={openGuide}
+                getProp={getProp}
+                loading={loading}
+                onRequestLogin={() => setCurrentView('login')}
+              />
+            )}
+
+            {currentView === 'game_info' && !selectedGame && loadingGuide && (
+              <p className="text-center text-sm text-zinc-500 font-mono py-16 animate-pulse">
+                Guide wird geladen…
+              </p>
             )}
 
             {currentView === 'game_info' && selectedGame && (
@@ -432,6 +462,7 @@ function App() {
                 chapterItems={chapterItems}
                 bossItems={bossItems}
                 getProp={getProp}
+                onRequestLogin={() => setCurrentView('login')}
               />
             )}
 
@@ -454,6 +485,7 @@ function App() {
       </footer>
 
     </div>
+    </WatchlistProvider>
     </ErrorReportProvider>
   );
 }

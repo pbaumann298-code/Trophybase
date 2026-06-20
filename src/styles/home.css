@@ -250,6 +250,13 @@
   background: #121314;
 }
 
+.home-tile-watchlist {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 3;
+}
+
 .home-tile-cover {
   width: 100%;
   height: 100%;

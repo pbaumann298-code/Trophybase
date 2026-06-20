@@ -12,12 +12,14 @@ import {
 import WatchlistProgressBar from './WatchlistProgressBar';
 import WatchlistStatusBadge from './WatchlistStatusBadge';
 import { useVisibility } from '../context/VisibilityContext';
+import { useWatchlist } from '../context/WatchlistContext';
 
 function Dashboard({ sessionUser, openGame }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { toggleHidden, isHidden, getEntryState, gameKey } = useVisibility();
+  const { version } = useWatchlist();
 
   useEffect(() => {
     if (!sessionUser?.id) {
@@ -36,7 +38,7 @@ function Dashboard({ sessionUser, openGame }) {
         .from(TABLES.watchlist)
         .select(`id, ${GAME_FK}, ${WATCHLIST.progress}, ${WATCHLIST.status}, last_played_at, updated_at`)
         .eq('user_id', sessionUser.id)
-        .order('last_played_at', { ascending: false });
+        .order('updated_at', { ascending: false });
 
       if (cancelled) return;
 
@@ -97,7 +99,7 @@ function Dashboard({ sessionUser, openGame }) {
     return () => {
       cancelled = true;
     };
-  }, [sessionUser?.id]);
+  }, [sessionUser?.id, version]);
 
   const handleOpenGame = (item) => {
     if (item.game) {
@@ -116,16 +118,7 @@ function Dashboard({ sessionUser, openGame }) {
   });
 
   if (!sessionUser) {
-    return (
-      <section className="w-full min-w-0 rounded-2xl border border-zinc-800 bg-[#1a1b1c] p-6">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">
-          Aktive Spiele
-        </h2>
-        <p className="text-sm text-zinc-500">
-          Melde dich an, um deine Watchlist mit Live-Fortschritt aus Supabase zu sehen.
-        </p>
-      </section>
-    );
+    return null;
   }
 
   return (
@@ -169,8 +162,9 @@ function Dashboard({ sessionUser, openGame }) {
 
       {!loading && !error && items.length === 0 && (
         <p className="text-xs text-zinc-500 italic py-2">
-          Keine aktiven Spiele in deiner Watchlist. Setze den Status auf{' '}
-          <span className="font-mono text-zinc-400">active</span>, um Einträge hier zu sehen.
+          Noch keine Spiele auf deiner Watchlist. Markiere Spiele mit dem{' '}
+          <span className="text-zinc-300">☆</span>-Symbol in den Kategorien oder auf der
+          Spieleseite.
         </p>
       )}
 
