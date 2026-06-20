@@ -132,8 +132,54 @@ export async function uploadErrorReportEvidence(supabase, userId, file) {
   return { url: data?.publicUrl ?? null, error: null };
 }
 
+/** Mehrere Belege parallel hochladen. */
+export async function uploadErrorReportEvidenceBatch(supabase, userId, files) {
+  const list = files?.filter(Boolean) ?? [];
+  if (list.length === 0) return { urls: [], error: null };
+
+  const results = await Promise.all(
+    list.map((file) => uploadErrorReportEvidence(supabase, userId, file)),
+  );
+
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    return { urls: results.map((r) => r.url).filter(Boolean), error: failed.error };
+  }
+
+  return { urls: results.map((r) => r.url).filter(Boolean), error: null };
+}
+
+/**
+ * Speichert 1..n URLs in image_url (TEXT).
+ * Ein Bild = plain URL; mehrere = JSON-Array (abwärtskompatibel).
+ * @param {string[]} urls
+ */
+export function serializeReportImageUrls(urls) {
+  const clean = (urls ?? []).filter(Boolean);
+  if (clean.length === 0) return null;
+  if (clean.length === 1) return clean[0];
+  return JSON.stringify(clean);
+}
+
+/** Liest image_url – einzelne URL oder JSON-Array. */
+export function parseReportImageUrls(imageUrl) {
+  if (!imageUrl) return [];
+  const trimmed = String(imageUrl).trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : [trimmed];
+    } catch {
+      return [trimmed];
+    }
+  }
+  return [trimmed];
+}
+
 /**
  * Insert in public.community_reports
+ * user_id kommt aus der aktiven Supabase-Session (nicht aus React-State),
+ * damit RLS (authenticated vs anon) nicht verletzt wird.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {{
  *   metadata: ReturnType<typeof resolveReportMetadata>,
@@ -141,8 +187,8 @@ export async function uploadErrorReportEvidence(supabase, userId, file) {
  *   contentKind: string,
  *   suggestion: string,
  *   imageUrl?: string | null,
+ *   imageUrls?: string[],
  *   languageCode?: string,
- *   userId?: string | null,
  * }} payload
  */
 export async function submitErrorReport(supabase, payload) {
@@ -152,8 +198,8 @@ export async function submitErrorReport(supabase, payload) {
     contentKind,
     suggestion,
     imageUrl = null,
+    imageUrls,
     languageCode = getLocale(),
-    userId = null,
   } = payload;
 
   if (!metadata) {
@@ -167,6 +213,18 @@ export async function submitErrorReport(supabase, payload) {
     return { data: null, error: new Error('Änderungsvorschlag ist erforderlich.') };
   }
 
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) {
+    return { data: null, error: sessionError };
+  }
+
+  const authUserId = sessionData.session?.user?.id ?? null;
+
+  const storedImageUrl =
+    imageUrls?.length > 0
+      ? serializeReportImageUrls(imageUrls)
+      : imageUrl;
+
   const row = {
     source_identifier: metadata.sourceIdentifier,
     content_type: metadata.contentType,
@@ -175,8 +233,9 @@ export async function submitErrorReport(supabase, payload) {
     original_text: originalText,
     suggested_text: suggestedText,
     language_code: languageCode,
-    image_url: imageUrl,
-    user_id: userId || null,
+    image_url: storedImageUrl,
+    // NULL für Gäste; bei Login muss user_id = auth.uid() sein (RLS)
+    user_id: authUserId,
     status: 'pending',
   };
 
@@ -188,6 +247,14 @@ export async function submitErrorReport(supabase, payload) {
 
   if (error) {
     console.error('community_reports insert:', error.message, row);
+    if (error.code === '42501' || /row-level security/i.test(error.message)) {
+      return {
+        data: null,
+        error: new Error(
+          'Speichern blockiert (RLS). Bitte in Supabase community_reports_rls.sql ausführen oder neu anmelden.',
+        ),
+      };
+    }
   }
 
   return { data, error };

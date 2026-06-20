@@ -1,9 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import VisibilityModeToggle from './VisibilityModeToggle';
+import { hasAdminReturnFlag } from '../lib/adminAccess';
 
 function Header({ setCurrentView, sessionUser, onLogout }) {
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showAdminReturn, setShowAdminReturn] = useState(false);
+
+  useEffect(() => {
+    setShowAdminReturn(hasAdminReturnFlag());
+  }, []);
 
   useEffect(() => {
     if (!sessionUser?.id) {
@@ -49,6 +55,14 @@ function Header({ setCurrentView, sessionUser, onLogout }) {
 
       {/* SICHTBARKEIT + LOGIN / PROFILE */}
       <div className="min-w-0 flex-shrink flex items-center gap-2 sm:gap-4">
+        {showAdminReturn && (
+          <a
+            href="/admin"
+            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/30 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap"
+          >
+            Admin
+          </a>
+        )}
         <VisibilityModeToggle />
         {sessionUser ? (
           <div className="flex items-center gap-2 sm:gap-4 min-w-0">

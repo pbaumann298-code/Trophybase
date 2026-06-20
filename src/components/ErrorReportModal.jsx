@@ -2,34 +2,91 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   detectContentKind,
   submitErrorReport,
-  uploadErrorReportEvidence,
+  uploadErrorReportEvidenceBatch,
 } from '../lib/errorReport';
 import { supabase } from '../pages/supabaseClient';
 
+const MAX_EVIDENCE_FILES = 8;
+
+function EvidencePreview({ item, onRemove }) {
+  return (
+    <div className="relative group w-24 h-24 flex-shrink-0">
+      <img
+        src={item.previewUrl}
+        alt={item.file.name}
+        className="w-full h-full object-cover rounded-lg border border-zinc-800 bg-zinc-950"
+      />
+      <button
+        type="button"
+        onClick={() => onRemove(item.id)}
+        className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-red-500 hover:bg-red-400 text-white text-sm font-bold leading-none shadow-md flex items-center justify-center transition-colors"
+        aria-label={`${item.file.name} entfernen`}
+        title="Entfernen"
+      >
+        ×
+      </button>
+      <span className="absolute bottom-0 left-0 right-0 px-1 py-0.5 text-[9px] font-mono text-zinc-300 bg-black/70 rounded-b-lg truncate">
+        {item.file.name}
+      </span>
+    </div>
+  );
+}
+
 function ErrorReportModal({ draft, sessionUser, onClose, onRequestLogin }) {
   const [suggestion, setSuggestion] = useState('');
-  const [evidenceFile, setEvidenceFile] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState(null);
+  const [evidenceItems, setEvidenceItems] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const fileInputRef = useRef(null);
+  const evidenceItemsRef = useRef([]);
+
+  const revokeAllPreviews = (items) => {
+    items.forEach((item) => {
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    });
+  };
 
   useEffect(() => {
     setSuggestion('');
-    setEvidenceFile(null);
-    setPreviewUrl(null);
+    setEvidenceItems((prev) => {
+      revokeAllPreviews(prev);
+      return [];
+    });
     setFeedback(null);
   }, [draft]);
 
   useEffect(() => {
-    if (!evidenceFile) {
-      setPreviewUrl(null);
-      return undefined;
-    }
-    const url = URL.createObjectURL(evidenceFile);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [evidenceFile]);
+    evidenceItemsRef.current = evidenceItems;
+  }, [evidenceItems]);
+
+  useEffect(() => () => revokeAllPreviews(evidenceItemsRef.current), []);
+
+  const handleFilesSelected = (e) => {
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length === 0) return;
+
+    setEvidenceItems((prev) => {
+      const remaining = MAX_EVIDENCE_FILES - prev.length;
+      if (remaining <= 0) return prev;
+
+      const toAdd = picked.slice(0, remaining).map((file) => ({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+      }));
+      return [...prev, ...toAdd];
+    });
+
+    e.target.value = '';
+  };
+
+  const removeEvidence = (id) => {
+    setEvidenceItems((prev) => {
+      const target = prev.find((item) => item.id === id);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((item) => item.id !== id);
+    });
+  };
 
   if (!draft) return null;
 
@@ -47,12 +104,15 @@ function ErrorReportModal({ draft, sessionUser, onClose, onRequestLogin }) {
 
     setSubmitting(true);
 
-    let imageUrl = null;
-    if (evidenceFile) {
-      const upload = await uploadErrorReportEvidence(
+    await supabase.auth.getSession();
+
+    let imageUrls = [];
+    if (evidenceItems.length > 0) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const upload = await uploadErrorReportEvidenceBatch(
         supabase,
-        sessionUser?.id,
-        evidenceFile,
+        sessionData.session?.user?.id,
+        evidenceItems.map((item) => item.file),
       );
       if (upload.error) {
         setSubmitting(false);
@@ -62,7 +122,7 @@ function ErrorReportModal({ draft, sessionUser, onClose, onRequestLogin }) {
         });
         return;
       }
-      imageUrl = upload.url;
+      imageUrls = upload.urls;
     }
 
     const { error } = await submitErrorReport(supabase, {
@@ -70,8 +130,7 @@ function ErrorReportModal({ draft, sessionUser, onClose, onRequestLogin }) {
       markedContent,
       contentKind,
       suggestion,
-      imageUrl,
-      userId: sessionUser?.id ?? null,
+      imageUrls,
     });
 
     setSubmitting(false);
@@ -155,7 +214,7 @@ function ErrorReportModal({ draft, sessionUser, onClose, onRequestLogin }) {
             </div>
           </div>
 
-          {!sessionUser?.id && evidenceFile && (
+          {!sessionUser?.id && evidenceItems.length > 0 && (
             <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
               Für Beleg-Upload empfohlen: anmelden (Storage-Pfad).
             </p>
@@ -175,34 +234,43 @@ function ErrorReportModal({ draft, sessionUser, onClose, onRequestLogin }) {
           </label>
 
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-              Beleg (Screenshot / Foto)
-            </span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                Belege (Screenshots / Fotos)
+              </span>
+              <span className="text-[10px] font-mono text-zinc-600">
+                {evidenceItems.length}/{MAX_EVIDENCE_FILES}
+              </span>
+            </div>
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
+              multiple
               className="hidden"
-              onChange={(e) => setEvidenceFile(e.target.files?.[0] ?? null)}
+              onChange={handleFilesSelected}
             />
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="text-xs font-mono font-bold uppercase px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66] transition-colors"
+                disabled={evidenceItems.length >= MAX_EVIDENCE_FILES}
+                className="text-xs font-mono font-bold uppercase px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Bild auswählen
+                Bilder auswählen
               </button>
-              {evidenceFile && (
-                <span className="text-xs text-zinc-500 truncate max-w-[200px]">{evidenceFile.name}</span>
+              {evidenceItems.length > 0 && (
+                <span className="text-xs text-zinc-500">
+                  {evidenceItems.length} {evidenceItems.length === 1 ? 'Bild' : 'Bilder'}
+                </span>
               )}
             </div>
-            {previewUrl && (
-              <img
-                src={previewUrl}
-                alt="Beleg-Vorschau"
-                className="max-h-32 rounded-lg border border-zinc-800 object-contain self-start"
-              />
+            {evidenceItems.length > 0 && (
+              <div className="flex flex-wrap gap-3 pt-1">
+                {evidenceItems.map((item) => (
+                  <EvidencePreview key={item.id} item={item} onRemove={removeEvidence} />
+                ))}
+              </div>
             )}
           </div>
 
