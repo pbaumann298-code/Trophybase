@@ -1,10 +1,11 @@
 -- user_watchlist: Schema + RLS (Supabase SQL Editor)
--- Ausführen, wenn Spalten fehlen oder Policies noch nicht gesetzt sind.
+-- game_id → public.games.id (UUID)
+-- Für Migration von NPWR-Text-IDs: migrate_user_tables_to_game_uuid.sql
 
 create table if not exists public.user_watchlist (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
-  game_id text not null,
+  game_id uuid not null references public.games (id) on delete cascade,
   progress_percent smallint not null default 0 check (progress_percent >= 0 and progress_percent <= 100),
   status text not null default 'active',
   last_played_at timestamptz default now(),

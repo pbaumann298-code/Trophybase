@@ -2,10 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { CollectibleKacheln, BossKacheln } from './CollectibleKacheln';
 import GameSeoInfobox from '../components/GameSeoInfobox';
+import GuideLanguageSelector from '../components/GuideLanguageSelector';
 import GameStatusBanners from '../components/GameStatusBanners';
 import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
 import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
 import GameDetailMetaBar from '../components/GameDetailMetaBar';
+import PortraitGuideHint from '../components/PortraitGuideHint';
+import { GuideVideoProvider, useGuideVideo } from '../context/GuideVideoContext';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import {
   buildBossOverviewData,
@@ -13,11 +16,12 @@ import {
   buildChronologicalGuideData,
 } from '../lib/guideData';
 import { fetchGameGuideBundle, resolveGameId } from '../lib/guideQueries';
+import { getGameUuid, getRouteSlug } from '../lib/gameModel';
+import { useLocale } from '../context/LocaleContext';
 import {
   fetchOnlineTrophyIdsForGame,
   getTrophyIdKey,
 } from '../lib/trophyQueries';
-import { getLocale, LOCALE_STORAGE_KEY } from '../lib/locale';
 import {
   fetchTrophyStatusMessages,
   fetchTrophyStatusMessagesByIds,
@@ -32,12 +36,13 @@ import {
 const TAB_BTN =
   'px-4 sm:px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap';
 
-function GamePage({
+function GamePageContent({
   currentView,
   setCurrentView,
   selectedGame,
   activeTrophies,
   unlockedTrophies,
+  earnedTrophyIds,
   toggleTrophy,
   completedCount,
   progressPercent,
@@ -53,12 +58,14 @@ function GamePage({
   bossItems,
   getProp,
   onRequestLogin,
+  onNavigateHome,
 }) {
   const [guideRows, setGuideRows] = useState([]);
   const [chapterRows, setChapterRows] = useState([]);
   const [bossRows, setBossRows] = useState([]);
   const [guidesLoading, setGuidesLoading] = useState(false);
-  const [locale, setLocale] = useState(getLocale);
+  const { globalLocale, t } = useLocale();
+  const [guideLanguageOverride, setGuideLanguageOverride] = useState(null);
   const [statusMessages, setStatusMessages] = useState({
     [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN]: '',
     [STATUS_MESSAGE_KEYS.COMING_SOON_BANNER]: '',
@@ -68,6 +75,17 @@ function GamePage({
     onlineTrophies: '',
   });
   const [onlineTrophyIds, setOnlineTrophyIds] = useState(() => new Set());
+  const { notifyVideoCleared } = useGuideVideo();
+
+  useEffect(() => {
+    if (activeTab === 'reiter0') {
+      notifyVideoCleared();
+    }
+  }, [activeTab, notifyVideoCleared]);
+
+  useEffect(() => {
+    notifyVideoCleared();
+  }, [selectedGame?.id, selectedGame?.platform_game_id, notifyVideoCleared]);
 
   useEffect(() => {
     if (Array.isArray(guideItems)) setGuideRows(guideItems);
@@ -82,12 +100,8 @@ function GamePage({
   }, [bossItems]);
 
   useEffect(() => {
-    const onStorage = (event) => {
-      if (event.key === LOCALE_STORAGE_KEY) setLocale(getLocale());
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+    setGuideLanguageOverride(null);
+  }, [selectedGame?.id, selectedGame?.platform_game_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,7 +110,7 @@ function GamePage({
       const { messages } = await fetchTrophyStatusMessages(
         supabase,
         [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN, STATUS_MESSAGE_KEYS.COMING_SOON_BANNER],
-        locale,
+        globalLocale,
       );
       if (!cancelled) setStatusMessages(messages);
     }
@@ -105,7 +119,7 @@ function GamePage({
     return () => {
       cancelled = true;
     };
-  }, [locale]);
+  }, [globalLocale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,7 +141,7 @@ function GamePage({
 
       const [messagesById, onlineRes] = await Promise.all([
         idsToLoad.length > 0
-          ? fetchTrophyStatusMessagesByIds(supabase, idsToLoad, locale)
+          ? fetchTrophyStatusMessagesByIds(supabase, idsToLoad, globalLocale)
           : Promise.resolve({ messages: {} }),
         gameId ? fetchOnlineTrophyIdsForGame(supabase, gameId) : Promise.resolve({ ids: new Set() }),
       ]);
@@ -149,7 +163,7 @@ function GamePage({
     return () => {
       cancelled = true;
     };
-  }, [selectedGame, getProp, locale]);
+  }, [selectedGame, getProp, globalLocale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,27 +181,19 @@ function GamePage({
 
       setGuidesLoading(true);
       const { chapters, guides, bosses, chaptersError, guidesError, bossesError } =
-        await fetchGameGuideBundle(supabase, gameId);
+        await fetchGameGuideBundle(supabase, gameId, globalLocale, guideLanguageOverride);
 
       if (cancelled) return;
 
-      if (chaptersError) {
-        console.error('game_chapters:', chaptersError.message, { gameId });
-      } else {
-        setChapterRows(chapters);
+      if (chaptersError || guidesError || bossesError) {
+        console.error('game_guides:', (chaptersError || guidesError || bossesError).message, {
+          gameId,
+        });
       }
 
-      if (guidesError) {
-        console.error('game_guides:', guidesError.message, { gameId });
-      } else {
-        setGuideRows(guides);
-      }
-
-      if (bossesError) {
-        console.error('game_bosses:', bossesError.message, { gameId });
-      } else {
-        setBossRows(bosses);
-      }
+      if (!chaptersError) setChapterRows(chapters);
+      if (!guidesError) setGuideRows(guides);
+      if (!bossesError) setBossRows(bosses);
 
       setGuidesLoading(false);
     }
@@ -196,7 +202,7 @@ function GamePage({
     return () => {
       cancelled = true;
     };
-  }, [selectedGame, getProp]);
+  }, [selectedGame, getProp, globalLocale, guideLanguageOverride]);
 
   const chronologicalGuideData = useMemo(
     () => buildChronologicalGuideData(chapterRows),
@@ -207,10 +213,14 @@ function GamePage({
 
   const bossOverviewData = useMemo(() => buildBossOverviewData(bossRows), [bossRows]);
 
-  const gameId = useMemo(
-    () => resolveGameId(selectedGame, getProp),
+  const watchlistGameId = useMemo(
+    () => getGameUuid(selectedGame) || resolveGameId(selectedGame, getProp),
     [selectedGame, getProp],
   );
+
+  const routeSlug = useMemo(() => getRouteSlug(selectedGame), [selectedGame]);
+
+  const gameId = watchlistGameId;
 
   const isGuideLoading = guidesLoading || loadingGuide;
 
@@ -269,7 +279,7 @@ function GamePage({
                 onChange={(e) => setHideCompleted(e.target.checked)}
                 className="rounded border-zinc-700 bg-[#121314] text-[#00ff66] focus:ring-0 w-4 h-4 cursor-pointer"
               />
-              Erledigte ausblenden
+              {t('hideCompleted')}
             </label>
           </div>
 
@@ -277,6 +287,7 @@ function GamePage({
             gameId={gameId}
             trophies={activeTrophies}
             unlockedTrophies={unlockedTrophies}
+            earnedTrophyIds={earnedTrophyIds}
             onlineTrophyIds={onlineTrophyIds}
             hideCompleted={hideCompleted}
             onToggle={toggleTrophy}
@@ -286,16 +297,16 @@ function GamePage({
       )}
 
       {activeTab === 'reiter1' && (
-        <div className="w-full animate-fadeIn" key="tab-chronological">
+        <div className="w-full animate-fadeIn" key="tab-walkthrough">
           {chronologicalGuideData.length === 0 && !isGuideLoading ? (
             <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-              Kein chronologischer Guide (game_chapters / chronological_group).
+              Kein Walkthrough für dieses Spiel (sheet_type 1 / chronological_group).
             </p>
           ) : (
             <CollapsibleSectionCard
-              sectionId="guide-chronological"
-              title="Full-Gameplay Guide"
-              subtitle="Chronologisch nach Gebieten · Reiter 2"
+              sectionId="guide-walkthrough"
+              title="Walkthrough"
+              subtitle="Chronologisch nach Gebieten"
               badge={`${chronologicalGuideData.length} Einträge`}
               defaultOpen
               accent="green"
@@ -309,7 +320,7 @@ function GamePage({
                 totalCount={activeTrophies.length}
                 groupByField="chronological_group"
                 groupHeaderIcon="📍"
-                listTitle="Full-Gameplay Guide"
+                listTitle="Walkthrough"
                 hideCompleted={hideCompleted}
                 setHideCompleted={setHideCompleted}
                 completedItems={completedGuideItems}
@@ -323,16 +334,16 @@ function GamePage({
       )}
 
       {activeTab === 'reiter2' && (
-        <div className="w-full animate-fadeIn" key="tab-by-type">
+        <div className="w-full animate-fadeIn" key="tab-collectibles">
           {byTypeGuideData.length === 0 && !isGuideLoading ? (
             <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-              Keine Komplettierungs-Einträge (game_guides / category_group).
+              Keine Sammelobjekte für dieses Spiel (sheet_type 2 / category_group).
             </p>
           ) : (
             <CollapsibleSectionCard
-              sectionId="guide-by-type"
-              title="Komplettierungs-Guide"
-              subtitle="Nach Kategorien · Reiter 3"
+              sectionId="guide-collectibles"
+              title="Sammelobjekte"
+              subtitle="Nach Kategorien"
               badge={`${byTypeGuideData.length} Einträge`}
               defaultOpen
               accent="amber"
@@ -346,7 +357,7 @@ function GamePage({
                 totalCount={activeTrophies.length}
                 groupByField="category_group"
                 groupHeaderIcon="📦"
-                listTitle="Komplettierungs-Guide"
+                listTitle="Sammelobjekte"
                 hideCompleted={hideCompleted}
                 setHideCompleted={setHideCompleted}
                 completedItems={completedGuideItems}
@@ -363,13 +374,13 @@ function GamePage({
         <div className="w-full animate-fadeIn" key="tab-bosses">
           {bossOverviewData.length === 0 && !isGuideLoading ? (
             <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-              Keine Boss-Einträge in game_bosses für dieses Spiel.
+              Keine Bosse für dieses Spiel (sheet_type 3 / category_group).
             </p>
           ) : (
             <CollapsibleSectionCard
               sectionId="guide-bosses"
-              title="Boss-Checkliste"
-              subtitle="Boss-Übersicht · Reiter 4"
+              title="Bosse"
+              subtitle="Nach Kategorien"
               badge={`${bossOverviewData.length} Bosse`}
               defaultOpen
               accent="purple"
@@ -380,7 +391,7 @@ function GamePage({
                 progressPercent={progressPercent}
                 completedCount={completedCount}
                 totalCount={activeTrophies.length}
-                listTitle="Boss-Checkliste"
+                listTitle="Bosse"
                 hideCompleted={hideCompleted}
                 setHideCompleted={setHideCompleted}
                 completedItems={completedGuideItems}
@@ -398,6 +409,7 @@ function GamePage({
 
   return (
     <div className="w-full max-w-[1400px] min-w-0 overflow-x-hidden mx-auto px-4 md:px-8 pt-6 pb-12 animate-fadeIn box-border">
+      <PortraitGuideHint isGuideView isVideoGuideTab={activeTab !== 'reiter0'} />
       <GameStatusBanners
         showServerShutdown={showServerShutdown}
         showComingSoon={showComingSoon}
@@ -407,10 +419,10 @@ function GamePage({
 
       <button
         type="button"
-        onClick={() => setCurrentView('home')}
+        onClick={onNavigateHome}
         className="text-[#00ff66] mb-6 flex items-center gap-1 text-xs uppercase tracking-wider font-bold hover:underline bg-none border-none cursor-pointer"
       >
-        ← Zurück zum Dashboard
+        {t('backDashboard')}
       </button>
 
       <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 flex flex-col md:flex-row flex-wrap md:flex-nowrap gap-8 items-start mb-8 shadow-xl">
@@ -447,7 +459,7 @@ function GamePage({
               <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2 sm:col-span-1">
                 <span className="text-zinc-500 font-mono text-xs uppercase">Genre</span>
                 <span className="text-zinc-200 font-medium">
-                  {getProp(selectedGame, ['Genre', 'genre']) || '—'}
+                  {getProp(selectedGame, ['genre', 'Genre']) || '—'}
                 </span>
               </div>
               <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
@@ -493,8 +505,9 @@ function GamePage({
       </div>
 
       <GameDetailMetaBar
-        consoleLabel={getProp(selectedGame, [GAME_FIELDS.console, 'Konsole', 'konsole'])}
-        gameId={gameId}
+        consoleLabel={getProp(selectedGame, [GAME_FIELDS.console, 'hardware', 'Konsole'])}
+        gameId={watchlistGameId}
+        displayRef={routeSlug}
         onRequestLogin={onRequestLogin}
       />
 
@@ -504,36 +517,49 @@ function GamePage({
       />
 
       <section className="mt-8 w-full min-w-0">
+        <GuideLanguageSelector
+          guideLanguageOverride={guideLanguageOverride}
+          onGuideLanguageOverride={setGuideLanguageOverride}
+        />
+
         <div className="flex flex-wrap border-b border-zinc-800 mb-6 gap-2 min-w-0">
           {tabVisibility.reiter0 && (
             <button type="button" onClick={() => setActiveTab('reiter0')} className={tabBtnClass('reiter0')}>
-              🏆 Trophäen ({tabCounts.reiter0})
+              🏆 {t('trophies')} ({tabCounts.reiter0})
             </button>
           )}
           {tabVisibility.reiter1 && (
             <button type="button" onClick={() => setActiveTab('reiter1')} className={tabBtnClass('reiter1')}>
-              📖 Full-Gameplay ({tabCounts.reiter1})
+              📖 {t('fullGameplay')} ({tabCounts.reiter1})
             </button>
           )}
           {tabVisibility.reiter2 && (
             <button type="button" onClick={() => setActiveTab('reiter2')} className={tabBtnClass('reiter2')}>
-              📦 Komplettierung ({tabCounts.reiter2})
+              📦 {t('completion')} ({tabCounts.reiter2})
             </button>
           )}
           {tabVisibility.reiter3 && (
             <button type="button" onClick={() => setActiveTab('reiter3')} className={tabBtnClass('reiter3')}>
-              ⚔️ Bosse ({tabCounts.reiter3})
+              ⚔️ {t('bosses')} ({tabCounts.reiter3})
             </button>
           )}
         </div>
 
         {isGuideLoading && activeTab !== 'reiter0' && (
-          <p className="text-xs text-zinc-500 font-mono mb-4 animate-pulse">Guide-Daten werden geladen …</p>
+          <p className="text-xs text-zinc-500 font-mono mb-4 animate-pulse">{t('guideLoading')}</p>
         )}
 
         {renderTabContent()}
       </section>
     </div>
+  );
+}
+
+function GamePage(props) {
+  return (
+    <GuideVideoProvider>
+      <GamePageContent {...props} />
+    </GuideVideoProvider>
   );
 }
 

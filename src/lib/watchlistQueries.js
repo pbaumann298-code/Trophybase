@@ -1,4 +1,13 @@
-import { TABLES, GAME_FK, WATCHLIST } from './gameSchema';
+import { TABLES, GAME_FK, WATCHLIST, clampProgressPercent } from './gameSchema';
+
+/** Zentraler Upsert – immer mit Unique-Constraint (user_id, game_id). */
+function upsertWatchlistRow(supabase, row, select = 'id') {
+  return supabase
+    .from(TABLES.watchlist)
+    .upsert(row, { onConflict: WATCHLIST.onConflict })
+    .select(select)
+    .single();
+}
 
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
@@ -23,7 +32,7 @@ export async function fetchWatchlistGameIds(supabase, userId) {
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} userId
- * @param {string} gameId NPWR_ID
+ * @param {string} gameId games.id (UUID)
  */
 export async function addGameToWatchlist(supabase, userId, gameId) {
   if (!userId || !gameId) {
@@ -40,11 +49,33 @@ export async function addGameToWatchlist(supabase, userId, gameId) {
     updated_at: now,
   };
 
-  const { data, error } = await supabase
-    .from(TABLES.watchlist)
-    .upsert(row, { onConflict: 'user_id,game_id' })
-    .select('id')
-    .single();
+  const { data, error } = await upsertWatchlistRow(supabase, row);
+
+  return { data, error };
+}
+
+/**
+ * Fortschritt in der Watchlist speichern (Upsert auf bestehenden Eintrag).
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} userId
+ * @param {string} gameId
+ * @param {number} progressPercent
+ */
+export async function upsertWatchlistProgress(supabase, userId, gameId, progressPercent) {
+  if (!userId || !gameId) {
+    return { data: null, error: new Error('Anmeldung und Spiel-ID erforderlich') };
+  }
+
+  const now = new Date().toISOString();
+  const row = {
+    user_id: userId,
+    [GAME_FK]: gameId,
+    [WATCHLIST.progress]: clampProgressPercent(progressPercent),
+    last_played_at: now,
+    updated_at: now,
+  };
+
+  const { data, error } = await upsertWatchlistRow(supabase, row);
 
   return { data, error };
 }

@@ -1,42 +1,50 @@
 import { GUIDE_REITER } from './gameTypes';
+import { GUIDE_SHEET_TYPE, hasSheetType, resolveSheetTypes } from './gameSchema';
 
-/** @deprecated Legacy sheet_name – Tabellen sind jetzt getrennt (game_chapters / game_guides) */
+/** sheet_type on unified game_guides */
 export const GUIDE_SHEET = {
-  CHRONOLOGICAL: 1,
-  BY_TYPE: 2,
+  WALKTHROUGH: GUIDE_SHEET_TYPE.WALKTHROUGH,
+  COLLECTIBLES: GUIDE_SHEET_TYPE.COLLECTIBLES,
+  BOSSES: GUIDE_SHEET_TYPE.BOSSES,
 };
 
 /**
- * game_chapters und game_guides nutzen dieselben Spalten.
- * Mappt Supabase-Zeilen auf ein einheitliches Frontend-Objekt.
+ * Map a locale-resolved game_guides row to a flat frontend object.
  */
 export function normalizeGuideEntryRow(row) {
   if (!row) return null;
 
-  const guideId = row.guide_id ?? row.Guide_ID ?? row.id ?? null;
+  const guideId = row.guide_id ?? row.id ?? null;
+  const itemName = String(row.item_name ?? row.boss_name ?? row.name ?? '').trim();
+  const sheetTypes = resolveSheetTypes(row.sheet_types ?? row.sheet_type);
 
   return {
     guide_id: guideId,
-    game_id: String(row.game_id ?? row.NPWR_ID ?? row.npwr_id ?? '').trim(),
-    item_name: String(row.item_name ?? row.Item_Name ?? row.name ?? '').trim(),
-    timestamp: String(row.timestamp ?? row.Timestamp ?? '').trim(),
-    video_url: String(row.video_url ?? row.Video_URL ?? '').trim(),
-    chronological_group: String(
-      row.chronological_group ?? row.Chronological_Group ?? row.area ?? row.Area ?? '',
-    ).trim(),
-    category_group: String(
-      row.category_group ?? row.Category_Group ?? row.type ?? row.Type ?? '',
-    ).trim(),
-    sort_order: row.sort_order ?? row.Sort_Order ?? row.chapter_order ?? row.Chapter_Order ?? null,
+    boss_id: row.boss_id ?? guideId,
+    local_id: row.local_id ?? null,
+    game_id: String(row.game_id ?? '').trim(),
+    sheet_types: sheetTypes,
+    /** Primärer Reiter – für Filter ist sheet_types maßgeblich */
+    sheet_type: sheetTypes[0] ?? 0,
+    item_name: itemName,
+    boss_name: String(row.boss_name ?? itemName).trim(),
+    timestamp: String(row.timestamp ?? '').trim(),
+    video_url: String(row.video_url ?? '').trim(),
+    video_chapter: String(row.video_chapter ?? '').trim(),
+    chronological_group: String(row.chronological_group ?? row.area ?? '').trim(),
+    category_group: String(row.category_group ?? row.type ?? '').trim(),
+    sort_order: row.sort_order ?? null,
+    trophy_id: row.trophy_id ?? null,
+    is_trophy_relevant: row.is_trophy_relevant ?? (row.trophy_id ? 'Ja' : ''),
   };
 }
 
-/** @deprecated Alias – identische Spalten wie game_guides */
+/** @deprecated Alias */
 export function normalizeChapterRow(row) {
   return normalizeGuideEntryRow(row);
 }
 
-/** @deprecated Alias – identische Spalten wie game_chapters */
+/** @deprecated Alias */
 export function normalizeGuideRow(row) {
   return normalizeGuideEntryRow(row);
 }
@@ -49,27 +57,36 @@ function chronologicalGroupKey(row) {
   return String(row.chronological_group ?? '').trim() || 'Allgemein';
 }
 
-function toGuideIdNumber(guideId) {
-  const n = Number(guideId);
-  return Number.isFinite(n) ? n : Infinity;
+/**
+ * game_guides.id ist eine UUID – die Reihenfolge steckt in sort_order
+ * (aus local_id bzw. Ladereihenfolge, siehe mergeGuideRow).
+ * Bosse haben ein „B_"-Präfix auf local_id („B_12"), aus dem /\d+/ die 12 zieht.
+ */
+function toSortNumber(row) {
+  const candidates = [row?.sort_order, String(row?.local_id ?? '').match(/\d+/)?.[0]];
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === '') continue;
+    const n = Number(candidate);
+    if (Number.isFinite(n)) return n;
+  }
+  return Infinity;
 }
 
-function compareGuideId(a, b) {
-  const idCmp = toGuideIdNumber(a.guide_id) - toGuideIdNumber(b.guide_id);
-  if (idCmp !== 0) return idCmp;
+function compareGuideOrder(a, b) {
+  const orderCmp = toSortNumber(a) - toSortNumber(b);
+  if (orderCmp !== 0) return orderCmp;
   return compareTimestamp(a, b);
 }
 
 /**
- * Full-Gameplay (Reiter 2): Kacheln-Reihenfolge = aufsteigend nach kleinster guide_id
- * je chronological_group; Items innerhalb einer Kachel ebenfalls nach guide_id.
+ * Walkthrough (sheet_type 1): Kacheln nach kleinster sort_order je chronological_group.
  */
 export function sortChronologicalGuideRows(rows) {
   const minGuideIdByGroup = new Map();
 
   for (const row of rows) {
     const group = chronologicalGroupKey(row);
-    const guideNum = toGuideIdNumber(row.guide_id);
+    const guideNum = toSortNumber(row);
     const prev = minGuideIdByGroup.get(group);
     if (prev === undefined || guideNum < prev) {
       minGuideIdByGroup.set(group, guideNum);
@@ -85,11 +102,11 @@ export function sortChronologicalGuideRows(rows) {
     if (minA !== minB) return minA - minB;
     if (groupA !== groupB) return groupA.localeCompare(groupB, 'de');
 
-    return compareGuideId(a, b);
+    return compareGuideOrder(a, b);
   });
 }
 
-/** Reiter 2 – category_group (Waffen, Ringe, …), dann item_name */
+/** Sammelobjekte (sheet_type 2) – category_group, dann item_name */
 export function sortByTypeGuideRows(rows) {
   return [...rows].sort((a, b) => {
     const groupCmp = String(a.category_group ?? '').localeCompare(
@@ -106,34 +123,25 @@ function bossCategoryKey(row) {
 }
 
 export function normalizeBossRow(row) {
-  if (!row) return null;
+  const normalized = normalizeGuideEntryRow(row);
+  if (!normalized) return null;
   return {
-    boss_id: row.boss_id ?? row.id ?? null,
-    game_id: String(row.game_id ?? row.NPWR_ID ?? row.npwr_id ?? '').trim(),
-    boss_name: String(row.boss_name ?? row.Boss_Name ?? '').trim(),
-    category_group: bossCategoryKey(row),
-    timestamp: String(row.timestamp ?? row.Timestamp ?? '').trim(),
-    video_url: String(row.video_url ?? row.Video_URL ?? '').trim(),
-    is_trophy_relevant: row.is_trophy_relevant ?? row.Is_Trophy_Relevant ?? '',
+    ...normalized,
+    boss_id: normalized.boss_id ?? normalized.guide_id,
+    boss_name: normalized.boss_name || normalized.item_name,
+    category_group: bossCategoryKey(normalized),
   };
 }
 
-function compareBossId(a, b) {
-  const idCmp = toGuideIdNumber(a.boss_id) - toGuideIdNumber(b.boss_id);
-  if (idCmp !== 0) return idCmp;
-  return compareTimestamp(a, b);
-}
-
 /**
- * Bosse (Reiter 4): Kacheln nach kleinster boss_id je category_group;
- * Bosse innerhalb einer Kachel aufsteigend nach boss_id.
+ * Bosse (sheet_type 3): Kacheln nach kleinster sort_order je category_group.
  */
 export function sortBossRows(rows) {
   const minBossIdByGroup = new Map();
 
   for (const row of rows) {
     const group = bossCategoryKey(row);
-    const bossNum = toGuideIdNumber(row.boss_id);
+    const bossNum = toSortNumber(row);
     const prev = minBossIdByGroup.get(group);
     if (prev === undefined || bossNum < prev) {
       minBossIdByGroup.set(group, bossNum);
@@ -149,7 +157,7 @@ export function sortBossRows(rows) {
     if (minA !== minB) return minA - minB;
     if (groupA !== groupB) return groupA.localeCompare(groupB, 'de');
 
-    return compareBossId(a, b);
+    return compareGuideOrder(a, b);
   });
 }
 
@@ -157,7 +165,7 @@ function assignStableIds(rows, idPrefix) {
   return rows.map((row, index) => {
     const base =
       row.guide_id ??
-      `${row.item_name || 'item'}-${row.timestamp || index}`;
+      `${row.item_name || row.boss_name || 'item'}-${row.timestamp || index}`;
     return {
       ...row,
       id: `${idPrefix}-${base}`,
@@ -170,15 +178,16 @@ export function mapGuideRows(rows, sheetNumber) {
 }
 
 export function mapChapterRows(rows) {
-  return assignStableIds(rows, 'chapter');
+  return assignStableIds(rows, 'walkthrough');
 }
 
 export function mapBossRows(rows) {
   return rows.map((row, index) => {
     const base =
       row.boss_id ??
+      row.guide_id ??
       row.id ??
-      `${row.boss_name || 'boss'}-${row.timestamp || index}`;
+      `${row.boss_name || row.item_name || 'boss'}-${row.timestamp || index}`;
     return {
       ...row,
       id: `boss-${base}`,
@@ -191,43 +200,45 @@ function mapGuideEntryRows(rows, idPrefix) {
   return assignStableIds(normalized, idPrefix);
 }
 
+export function filterGuidesBySheetType(rows, sheetType) {
+  return (rows || []).filter((row) => hasSheetType(row, sheetType));
+}
+
 /**
- * Reiter 1 (Full-Gameplay): game_chapters
- * Überschrift: chronological_group · Item: item_name
+ * Walkthrough (sheet_type 1): group by chronological_group · Item: item_name
  */
 export function buildChronologicalGuideData(chapterRows) {
-  const mapped = mapGuideEntryRows(chapterRows, 'chapter');
+  const mapped = mapGuideEntryRows(chapterRows, 'walkthrough');
   return sortChronologicalGuideRows(mapped);
 }
 
 /**
- * Reiter 2 (Komplettierung): game_guides
- * Überschrift: category_group · Item: item_name
+ * Sammelobjekte (sheet_type 2): group by category_group · Item: item_name
  */
 export function buildByTypeGuideData(guideRows) {
-  const mapped = mapGuideEntryRows(guideRows, 'guide');
+  const mapped = mapGuideEntryRows(guideRows, 'collectible');
   return sortByTypeGuideRows(mapped);
 }
 
-/** Reiter 4: Boss-Übersicht – Kachel: category_group · Item: boss_name */
+/** Bosse (sheet_type 3): group by category_group · Item: item_name / boss_name */
 export function buildBossOverviewData(bossRows) {
   const normalized = (bossRows || []).map(normalizeBossRow).filter(Boolean);
   return mapBossRows(sortBossRows(normalized));
 }
 
-/** @deprecated Alias – nutze buildChronologicalGuideData */
+/** @deprecated Alias */
 export function buildChapterGuideData(rows) {
   return buildChronologicalGuideData(rows);
 }
 
-/** @deprecated Alias – nutze buildByTypeGuideData */
+/** @deprecated Alias */
 export function buildCollectibleCategoryData(rows) {
   return buildByTypeGuideData(rows);
 }
 
-/** @deprecated Bosse kommen nur noch aus game_bosses */
-export function buildBossGuideData(_guideRows) {
-  return [];
+/** @deprecated Prefer buildBossOverviewData on sheet_type === 3 rows */
+export function buildBossGuideData(guideRows) {
+  return buildBossOverviewData(filterGuidesBySheetType(guideRows, GUIDE_SHEET.BOSSES));
 }
 
-export { GUIDE_REITER };
+export { GUIDE_REITER, GUIDE_SHEET_TYPE };

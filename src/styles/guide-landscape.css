@@ -1,0 +1,210 @@
+/* ─── Guide Split-Screen: Basis (Desktop / Portrait) ─── */
+.guide-split--expanded {
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 300px;
+}
+
+.guide-split__list {
+  flex: 1 1 40%;
+  min-width: 280px;
+  padding: 15px;
+  border-right: 1px solid #27272a;
+  overflow-y: auto;
+  max-height: 400px;
+}
+
+.guide-split__video {
+  flex: 1 1 60%;
+  min-width: 300px;
+  padding: 10px;
+  background-color: #121314;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.guide-split__video-inner {
+  position: relative;
+  width: 100%;
+  padding-bottom: 56.25%;
+  height: 0;
+}
+
+.guide-split__video-inner iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  border: 0;
+}
+
+.guide-split__table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.guide-split__row td {
+  padding: 10px 8px;
+  vertical-align: top;
+  border-bottom: 1px solid #27272a;
+}
+
+/* ─── Mobile Querformat: 60 % Video links (sticky), 40 % Liste rechts (scroll) ─── */
+@media (orientation: landscape) and (max-height: 520px) {
+  .guide-landscape-root {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .guide-split--expanded {
+    display: grid;
+    grid-template-columns: minmax(0, 60%) minmax(0, 40%);
+    grid-template-rows: 1fr;
+    flex-wrap: nowrap;
+    min-height: 0;
+    height: calc(100dvh - 7.5rem);
+    max-height: calc(100dvh - 7.5rem);
+    overflow: hidden;
+  }
+
+  .guide-split__video {
+    grid-column: 1;
+    grid-row: 1;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    min-width: 0;
+    height: calc(100dvh - 7.5rem);
+    max-height: calc(100dvh - 7.5rem);
+    padding: 8px;
+    z-index: 2;
+  }
+
+  .guide-split__video-inner {
+    position: sticky;
+    top: 8px;
+    padding-bottom: 0;
+    height: calc(100% - 16px);
+    max-height: calc(100dvh - 8rem);
+  }
+
+  .guide-split__video-inner iframe {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    width: 100%;
+  }
+
+  .guide-split__list {
+    grid-column: 2;
+    grid-row: 1;
+    flex: unset;
+    min-width: 0;
+    max-height: calc(100dvh - 7.5rem);
+    height: calc(100dvh - 7.5rem);
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    border-right: none;
+    border-left: 1px solid #27272a;
+    padding: 8px 6px;
+  }
+
+  .guide-split__row td {
+    padding: 5px 4px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .guide-split__row button {
+    font-size: 11px !important;
+  }
+
+  .guide-split__thead th {
+    padding: 4px;
+    font-size: 9px;
+  }
+
+  .category-box {
+    margin-bottom: 8px !important;
+  }
+
+  .category-box > button {
+    padding: 10px 12px !important;
+    font-size: 11px !important;
+  }
+}
+
+/* ─── Dezenter Portrait-Hinweis (nur Guide + Video aktiv) ─── */
+.portrait-guide-hint {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.75rem;
+  background: rgba(26, 27, 28, 0.94);
+  border: 1px solid rgba(0, 255, 102, 0.25);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  animation: portrait-hint-in 0.35s ease-out;
+}
+
+.portrait-guide-hint--pill {
+  padding: 0.4rem 0.75rem;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  color: #00ff66;
+  cursor: pointer;
+}
+
+.portrait-guide-hint__text {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #d4d4d8;
+  text-align: center;
+}
+
+.portrait-guide-hint__actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.portrait-guide-hint__btn {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(0, 255, 102, 0.4);
+  background: rgba(0, 255, 102, 0.12);
+  color: #00ff66;
+  cursor: pointer;
+}
+
+.portrait-guide-hint__btn--muted {
+  border-color: #3f3f46;
+  background: transparent;
+  color: #a1a1aa;
+}
+
+@keyframes portrait-hint-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}

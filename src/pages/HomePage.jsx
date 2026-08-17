@@ -3,6 +3,8 @@ import { supabase } from './supabaseClient';
 import Dashboard from '../components/Dashboard';
 import CategoryCarousel from '../components/CategoryCarousel';
 import { HOME_CATEGORIES, fetchAllHomeCategories } from '../lib/homeCategories';
+import { navigateToProfile } from '../lib/routeUtils';
+import { useLocale } from '../context/LocaleContext';
 import '../styles/home.css';
 
 function HomePage({
@@ -16,6 +18,7 @@ function HomePage({
   setCurrentView,
   onRequestLogin,
 }) {
+  const { globalLocale, t } = useLocale();
   const [categoryGames, setCategoryGames] = useState({});
   const [loading, setLoading] = useState(true);
   const searchFormRef = useRef(null);
@@ -40,21 +43,18 @@ function HomePage({
     return () => {
       cancelled = true;
     };
-  }, [getProp]);
+  }, [getProp, globalLocale]);
 
   return (
     <div className="home-landing w-full min-w-0 overflow-x-hidden box-border">
       <header className="home-hero">
-        <span className="home-hero-kicker">TrophyBase · Dein Guide-Hub</span>
-        <h1 className="home-hero-title">Finde deinen nächsten Platin-Run</h1>
-        <p className="home-hero-sub">
-          Acht kuratierte Welten – vom Souls-Hardcore bis zur Familien-Platin. Wähle die Reihe, die zu
-          deinem Gamer-Typ passt.
-        </p>
+        <span className="home-hero-kicker">{t('homeKicker')}</span>
+        <h1 className="home-hero-title">{t('homeTitle')}</h1>
+        <p className="home-hero-sub">{t('homeSub')}</p>
         <form ref={searchFormRef} onSubmit={handleSearchSubmit} className="home-search">
           <input
             type="text"
-            placeholder="Nach PlayStation-Spielen suchen…"
+            placeholder={t('searchPlaceholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="home-search-input"
@@ -79,10 +79,13 @@ function HomePage({
         <div className="home-inbox-link">
           <button
             type="button"
-            onClick={() => setCurrentView('inbox')}
+            onClick={() => {
+              setCurrentView('profile');
+              navigateToProfile();
+            }}
             className="text-xs font-mono uppercase tracking-wider text-zinc-500 hover:text-[#00ff66] transition bg-transparent border-none cursor-pointer"
           >
-            Postfach öffnen →
+            Postfach im Profil →
           </button>
         </div>
       )}

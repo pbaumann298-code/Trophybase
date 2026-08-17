@@ -1,4 +1,6 @@
-const HIDDEN_IDS_KEY = 'tb_hidden_ids';
+import { HIDDEN_IDS_STORAGE_KEY, runGuideKeyMigration } from './guideKeyMigration';
+
+const HIDDEN_IDS_KEY = HIDDEN_IDS_STORAGE_KEY;
 const DISPLAY_MODE_KEY = 'tb_hidden_display_mode';
 
 export const VISIBILITY_MODE = {
@@ -8,6 +10,7 @@ export const VISIBILITY_MODE = {
   FILTER: 'filter',
 };
 
+/** @param {string} id guideProgressKey(item), nicht die reiter-präfixierte item.id */
 export function itemVisibilityKey(id) {
   return `item:${id}`;
 }
@@ -17,6 +20,7 @@ export function gameVisibilityKey(npwrId) {
 }
 
 function readHiddenIds() {
+  runGuideKeyMigration();
   try {
     const raw = localStorage.getItem(HIDDEN_IDS_KEY);
     const parsed = raw ? JSON.parse(raw) : [];

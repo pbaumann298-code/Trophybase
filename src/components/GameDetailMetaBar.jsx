@@ -4,8 +4,9 @@ import WatchlistButton from './WatchlistButton';
 /**
  * Konsole + Watchlist direkt über der Spielbeschreibung.
  */
-function GameDetailMetaBar({ consoleLabel, gameId, onRequestLogin }) {
+function GameDetailMetaBar({ consoleLabel, gameId, displayRef, onRequestLogin }) {
   const consoleText = String(consoleLabel ?? '').trim();
+  const refLabel = String(displayRef ?? gameId ?? '').trim();
 
   return (
     <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-zinc-800/80 bg-[#121314]/80 px-4 py-3">
@@ -20,9 +21,9 @@ function GameDetailMetaBar({ consoleLabel, gameId, onRequestLogin }) {
         ) : (
           <span className="text-xs text-zinc-500 font-mono">Konsole: —</span>
         )}
-        {gameId && (
-          <span className="text-[10px] font-mono text-zinc-600 truncate" title={gameId}>
-            {gameId}
+        {refLabel && (
+          <span className="text-[10px] font-mono text-zinc-600 truncate" title={refLabel}>
+            {refLabel}
           </span>
         )}
       </div>

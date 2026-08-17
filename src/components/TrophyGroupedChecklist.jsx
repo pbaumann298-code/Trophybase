@@ -4,7 +4,7 @@ import Reportable from './Reportable';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
 import { getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
 
-function TrophyRow({ trophy, gameId, isUnlocked, isOnlineTrophy, onToggle }) {
+function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onToggle }) {
   const trophyKey = getTrophyIdKey(trophy);
   const trophyDesc = getTrophyDescription(trophy);
 
@@ -20,8 +20,12 @@ function TrophyRow({ trophy, gameId, isUnlocked, isOnlineTrophy, onToggle }) {
         <input
           type="checkbox"
           checked={isUnlocked}
-          onChange={() => onToggle(trophyKey)}
-          className="rounded border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 w-4 h-4 cursor-pointer mt-1 flex-shrink-0"
+          disabled={isEarned}
+          onChange={() => !isEarned && onToggle(trophyKey)}
+          title={isEarned ? 'Von PSN synchronisiert' : undefined}
+          className={`rounded border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 w-4 h-4 mt-1 flex-shrink-0 ${
+            isEarned ? 'cursor-default opacity-70' : 'cursor-pointer'
+          }`}
         />
         {trophy.icon_url && (
           <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0">
@@ -50,9 +54,14 @@ function TrophyRow({ trophy, gameId, isUnlocked, isOnlineTrophy, onToggle }) {
             >
               {trophy.trophy_name}
             </Reportable>
-            {trophy.ist_versteckt && (
+            {trophy.is_hidden && (
               <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono uppercase">
                 Versteckt
+              </span>
+            )}
+            {isEarned && (
+              <span className="text-[9px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-1.5 py-0.5 rounded font-mono uppercase">
+                PSN
               </span>
             )}
             {isOnlineTrophy && (
@@ -117,10 +126,13 @@ function TrophyRow({ trophy, gameId, isUnlocked, isOnlineTrophy, onToggle }) {
   );
 }
 
-function TrophyList({ gameId, trophies, unlockedTrophies, onlineTrophyIds, hideCompleted, onToggle }) {
-  const visible = trophies.filter(
-    (t) => !hideCompleted || !unlockedTrophies[getTrophyIdKey(t)],
-  );
+function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, onlineTrophyIds, hideCompleted, onToggle }) {
+  const earnedSet = earnedTrophyIds ?? new Set();
+  const visible = trophies.filter((t) => {
+    const key = getTrophyIdKey(t);
+    const done = earnedSet.has(key) || unlockedTrophies[key];
+    return !hideCompleted || !done;
+  });
 
   if (visible.length === 0) {
     return (
@@ -134,12 +146,14 @@ function TrophyList({ gameId, trophies, unlockedTrophies, onlineTrophyIds, hideC
     <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-1">
       {visible.map((t, idx) => {
         const key = getTrophyIdKey(t) || idx;
+        const isEarned = earnedTrophyIds?.has?.(key) ?? false;
         return (
           <TrophyRow
             key={key}
             gameId={gameId}
             trophy={t}
-            isUnlocked={!!unlockedTrophies[key]}
+            isUnlocked={isEarned || !!unlockedTrophies[key]}
+            isEarned={isEarned}
             isOnlineTrophy={onlineTrophyIds.has(getTrophyIdKey(t))}
             onToggle={onToggle}
           />
@@ -153,6 +167,7 @@ function TrophyGroupedChecklist({
   gameId,
   trophies,
   unlockedTrophies,
+  earnedTrophyIds,
   onlineTrophyIds,
   hideCompleted,
   onToggle,
@@ -163,9 +178,11 @@ function TrophyGroupedChecklist({
     [trophies],
   );
 
+  const earnedSet = earnedTrophyIds ?? new Set();
+
   const mainProgress = useMemo(
-    () => countUnlockedInList(mainGame, unlockedTrophies, getTrophyIdKey),
-    [mainGame, unlockedTrophies],
+    () => countUnlockedInList(mainGame, unlockedTrophies, getTrophyIdKey, earnedSet),
+    [mainGame, unlockedTrophies, earnedSet],
   );
 
   if (trophies.length === 0) {
@@ -191,6 +208,7 @@ function TrophyGroupedChecklist({
             gameId={gameId}
             trophies={mainGame}
             unlockedTrophies={unlockedTrophies}
+            earnedTrophyIds={earnedSet}
             onlineTrophyIds={onlineTrophyIds}
             hideCompleted={hideCompleted}
             onToggle={onToggle}
@@ -199,7 +217,12 @@ function TrophyGroupedChecklist({
       )}
 
       {dlcGroups.map((dlc) => {
-        const dlcProgress = countUnlockedInList(dlc.trophies, unlockedTrophies, getTrophyIdKey);
+        const dlcProgress = countUnlockedInList(
+          dlc.trophies,
+          unlockedTrophies,
+          getTrophyIdKey,
+          earnedSet,
+        );
         return (
           <CollapsibleSectionCard
             key={dlc.gruppe}
@@ -214,6 +237,7 @@ function TrophyGroupedChecklist({
               gameId={gameId}
               trophies={dlc.trophies}
               unlockedTrophies={unlockedTrophies}
+              earnedTrophyIds={earnedSet}
               onlineTrophyIds={onlineTrophyIds}
               hideCompleted={hideCompleted}
               onToggle={onToggle}

@@ -1,72 +1,55 @@
-import { TABLES } from './gameSchema';
+import { TABLES, ACHIEVEMENT_PK, GAME_FK, GUIDE_PK, GUIDE_I18N } from './gameSchema';
+import { getLocale } from './locale';
+import { mergeLocalizedValue } from './translationUtils';
 import { REPORT_ENTITY_MAP } from './errorReport';
 
+const DEFAULT_REPORT_LANG = 'de';
+
 /**
- * Ziel-Tabelle für manuelles Approve aus community_reports.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {object} report
  */
 export async function resolveApplyTarget(supabase, report) {
   const { content_type, field_name, content_key, source_identifier } = report;
+  const lang = getLocale() || DEFAULT_REPORT_LANG;
 
   if (content_type === 'trophy') {
-    const column = REPORT_ENTITY_MAP.trophy.fields[field_name];
-    if (!column) return { target: null, error: `Unbekanntes Trophäen-Feld: ${field_name}` };
-    return {
-      target: {
-        table: TABLES.trophies,
-        pkColumn: 'trophy_id',
-        pkValue: content_key,
-        column,
-        gameId: source_identifier,
-      },
-      error: null,
-    };
-  }
+    const jsonField = REPORT_ENTITY_MAP.trophy.jsonLangFields[field_name];
+    const structField = REPORT_ENTITY_MAP.trophy.structFields[field_name];
+    const column = jsonField ?? structField;
 
-  if (content_type === 'guide_step') {
-    const column = REPORT_ENTITY_MAP.guide_step.fields[field_name] || 'item_name';
-    return {
-      target: {
-        table: TABLES.chapters,
-        pkColumn: 'guide_id',
-        pkValue: content_key,
-        column,
-        gameId: source_identifier,
-      },
-      error: null,
-    };
-  }
-
-  if (content_type === 'item_name') {
-    const { data: bossRow } = await supabase
-      .from(TABLES.bosses)
-      .select('boss_id')
-      .eq('boss_id', content_key)
-      .eq('game_id', source_identifier)
-      .maybeSingle();
-
-    if (bossRow) {
-      const column = REPORT_ENTITY_MAP.boss.fields[field_name] || 'boss_name';
-      return {
-        target: {
-          table: TABLES.bosses,
-          pkColumn: 'boss_id',
-          pkValue: content_key,
-          column,
-          gameId: source_identifier,
-        },
-        error: null,
-      };
+    if (!column) {
+      return { target: null, error: `Unbekanntes Trophäen-Feld: ${field_name}` };
     }
 
-    const column = REPORT_ENTITY_MAP.guide_item.fields[field_name] || 'item_name';
+    return {
+      target: {
+        table: TABLES.achievements,
+        pkColumns: {
+          [GAME_FK]: source_identifier,
+          [ACHIEVEMENT_PK]: content_key,
+        },
+        column,
+        jsonLang: jsonField ? lang : null,
+        gameId: source_identifier,
+      },
+      error: null,
+    };
+  }
+
+  if (content_type === 'guide_step' || content_type === 'item_name') {
+    const column =
+      REPORT_ENTITY_MAP.guide_item.jsonLangFields?.[field_name] || GUIDE_I18N.itemName;
+
     return {
       target: {
         table: TABLES.guides,
-        pkColumn: 'guide_id',
-        pkValue: content_key,
+        pkColumns: {
+          [GAME_FK]: source_identifier,
+          [GUIDE_PK]: content_key,
+        },
         column,
+        jsonLang: lang,
         gameId: source_identifier,
       },
       error: null,
@@ -101,15 +84,34 @@ export async function applyReportToContentTable(supabase, report) {
   if (resolveError) return { error: new Error(resolveError) };
   if (!target) return { error: new Error('Kein Update-Ziel') };
 
-  const patch = { [target.column]: report.suggested_text };
+  let patch = { [target.column]: report.suggested_text };
 
-  let query = supabase
-    .from(target.table)
-    .update(patch)
-    .eq(target.pkColumn, target.pkValue);
+  // JSONB-Sprachmap (z. B. item_name.de) – andere Sprachen erhalten
+  if (target.jsonLang) {
+    let fetchQuery = supabase.from(target.table).select(target.column);
+    for (const [col, val] of Object.entries(target.pkColumns ?? {})) {
+      fetchQuery = fetchQuery.eq(col, val);
+    }
+    const { data: existing, error: fetchError } = await fetchQuery.maybeSingle();
+    if (fetchError) return { error: fetchError, target };
 
-  if (target.gameId) {
-    query = query.eq('game_id', target.gameId);
+    patch = {
+      [target.column]: mergeLocalizedValue(
+        existing?.[target.column],
+        target.jsonLang,
+        report.suggested_text,
+      ),
+    };
+  }
+
+  let query = supabase.from(target.table).update(patch);
+
+  if (target.pkColumns) {
+    for (const [col, val] of Object.entries(target.pkColumns)) {
+      query = query.eq(col, val);
+    }
+  } else if (target.pkColumn) {
+    query = query.eq(target.pkColumn, target.pkValue);
   }
 
   const { error } = await query;

@@ -1,50 +1,47 @@
-import { TABLES } from './gameSchema';
+import {
+  TABLES,
+  ACHIEVEMENT_PK,
+  ACHIEVEMENT_STRUCT,
+  ACHIEVEMENT_I18N,
+  GUIDE_PK,
+  GUIDE_I18N,
+} from './gameSchema';
 import { getLocale } from './locale';
 import { readReportableDataset } from './reportableAttrs';
 
 export const ERROR_REPORT_STORAGE_BUCKET = 'error-report-evidence';
 
-/** data-type → Supabase-Tabelle & Spalten (nur UI / Admin-Routing) */
+/** Alle Guide-Reiter melden auf dieselbe Spalte in game_guides. */
+const GUIDE_REPORT_TARGET = {
+  table: TABLES.guides,
+  pkColumn: GUIDE_PK,
+  jsonLangFields: {
+    name: GUIDE_I18N.itemName,
+  },
+};
+
+/**
+ * data-type → Supabase-Ziel.
+ * jsonLangFields sind JSONB-Sprachmaps, structFields einfache Textspalten.
+ */
 export const REPORT_ENTITY_MAP = {
   trophy: {
-    table: TABLES.trophies,
-    pkColumn: 'trophy_id',
-    fields: {
-      name: 'trophy_name',
-      description: 'trophy_desc',
-      guide_tip: 'guide_tip',
-      icon_url: 'icon_url',
-      video_url: 'video_url',
+    table: TABLES.achievements,
+    pkColumn: ACHIEVEMENT_PK,
+    jsonLangFields: {
+      name: ACHIEVEMENT_I18N.name,
+      description: ACHIEVEMENT_I18N.desc,
+      guide_tip: ACHIEVEMENT_I18N.guideTip,
+      icon_url: ACHIEVEMENT_I18N.iconUrl,
+    },
+    structFields: {
+      video_url: ACHIEVEMENT_STRUCT.videoUrl,
     },
   },
-  guide_step: {
-    table: TABLES.chapters,
-    pkColumn: 'guide_id',
-    fields: {
-      name: 'item_name',
-    },
-  },
-  guide_item: {
-    table: TABLES.guides,
-    pkColumn: 'guide_id',
-    fields: {
-      name: 'item_name',
-    },
-  },
-  item_name: {
-    table: TABLES.guides,
-    pkColumn: 'guide_id',
-    fields: {
-      name: 'item_name',
-    },
-  },
-  boss: {
-    table: TABLES.bosses,
-    pkColumn: 'boss_id',
-    fields: {
-      name: 'boss_name',
-    },
-  },
+  guide_step: GUIDE_REPORT_TARGET,
+  guide_item: GUIDE_REPORT_TARGET,
+  item_name: GUIDE_REPORT_TARGET,
+  boss: GUIDE_REPORT_TARGET,
 };
 
 /** data-type (HTML) → community_reports.content_type */
@@ -64,7 +61,8 @@ export function resolveReportMetadata(attrs) {
   if (!attrs) return null;
   const entity = REPORT_ENTITY_MAP[attrs.type];
   if (!entity) return null;
-  const column = entity.fields[attrs.field];
+  const column =
+    entity.jsonLangFields?.[attrs.field] ?? entity.structFields?.[attrs.field];
   if (!column) return null;
 
   return {

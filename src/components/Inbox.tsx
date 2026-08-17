@@ -36,7 +36,7 @@ function RewardCodeBox({ code }) {
   );
 }
 
-function Inbox({ sessionUser, setCurrentView }) {
+function Inbox({ sessionUser, setCurrentView, embedded = false }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -101,6 +101,7 @@ function Inbox({ sessionUser, setCurrentView }) {
   const unreadCount = messages.filter(isUnread).length;
 
   if (!sessionUser) {
+    if (embedded) return null;
     return (
       <div className="w-full max-w-2xl min-w-0 mx-auto px-4 sm:px-6 pt-8">
         <p className="text-sm text-zinc-500 text-center">
@@ -111,20 +112,32 @@ function Inbox({ sessionUser, setCurrentView }) {
   }
 
   return (
-    <div className="w-full max-w-2xl min-w-0 overflow-x-hidden mx-auto px-4 sm:px-6 md:px-8 pt-8 pb-12 box-border">
-      <button
-        type="button"
-        onClick={() => setCurrentView('home')}
-        className="text-[#00ff66] mb-6 flex items-center gap-1 text-xs uppercase tracking-wider font-bold hover:underline bg-transparent border-none cursor-pointer p-0"
-      >
-        ← Zurück zum Dashboard
-      </button>
+    <div
+      className={
+        embedded
+          ? 'w-full min-w-0'
+          : 'w-full max-w-2xl min-w-0 overflow-x-hidden mx-auto px-4 sm:px-6 md:px-8 pt-8 pb-12 box-border'
+      }
+    >
+      {!embedded && (
+        <button
+          type="button"
+          onClick={() => setCurrentView('home')}
+          className="text-[#00ff66] mb-6 flex items-center gap-1 text-xs uppercase tracking-wider font-bold hover:underline bg-transparent border-none cursor-pointer p-0"
+        >
+          ← Zurück zum Dashboard
+        </button>
+      )}
 
-      <header className="mb-6">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#00ff66] border border-[#00ff66]/20 bg-[#00ff66]/10 px-2 py-0.5 rounded">
-          Postfach
-        </span>
-        <h1 className="mt-2 text-2xl font-extrabold text-white tracking-tight">Nachrichten</h1>
+      <header className={embedded ? 'mb-4' : 'mb-6'}>
+        {!embedded && (
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#00ff66] border border-[#00ff66]/20 bg-[#00ff66]/10 px-2 py-0.5 rounded">
+            Postfach
+          </span>
+        )}
+        <h2 className={`${embedded ? 'text-lg' : 'mt-2 text-2xl'} font-extrabold text-white tracking-tight`}>
+          {embedded ? 'Postfach' : 'Nachrichten'}
+        </h2>
         {!loading && unreadCount > 0 && (
           <p className="text-xs text-zinc-500 mt-1 font-mono">
             {unreadCount} ungelesen

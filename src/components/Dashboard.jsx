@@ -1,20 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import {
+  fetchGameByRouteRef,
+  fetchGamesByIds,
+} from '../lib/gameQueries';
+import {
   TABLES,
   GAME_PK,
   GAME_FK,
   WATCHLIST,
   GAME_FIELDS,
+  GAME_PLATFORM_ID,
   isActiveWatchlistStatus,
   clampProgressPercent,
 } from '../lib/gameSchema';
+import { navigateToGame } from '../lib/routeUtils';
+import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
 import WatchlistProgressBar from './WatchlistProgressBar';
 import WatchlistStatusBadge from './WatchlistStatusBadge';
 import { useVisibility } from '../context/VisibilityContext';
 import { useWatchlist } from '../context/WatchlistContext';
+import { useLocale } from '../context/LocaleContext';
 
 function Dashboard({ sessionUser, openGame }) {
+  const { globalLocale } = useLocale();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -55,12 +64,13 @@ function Dashboard({ sessionUser, openGame }) {
 
       const gameIds = [...new Set(activeRows.map((row) => row[GAME_FK]).filter(Boolean))];
 
-      let gamesByNpwr = new Map();
+      let gamesById = new Map();
       if (gameIds.length > 0) {
-        const { data: games, error: gamesError } = await supabase
-          .from(TABLES.games)
-          .select(`${GAME_PK}, ${GAME_FIELDS.title}, ${GAME_FIELDS.cover}, ${GAME_FIELDS.console}, ${GAME_FIELDS.genre}`)
-          .in(GAME_PK, gameIds);
+        const { data: games, error: gamesError } = await fetchGamesByIds(
+          supabase,
+          gameIds,
+          globalLocale,
+        );
 
         if (cancelled) return;
 
@@ -72,18 +82,19 @@ function Dashboard({ sessionUser, openGame }) {
         }
 
         for (const game of games || []) {
-          gamesByNpwr.set(game[GAME_PK], game);
+          gamesById.set(game[GAME_PK], game);
         }
       }
 
       if (cancelled) return;
 
       const merged = activeRows.map((row) => {
-        const npwrId = row[GAME_FK];
-        const game = gamesByNpwr.get(npwrId) ?? null;
+        const gameUuid = row[GAME_FK];
+        const game = gamesById.get(gameUuid) ?? null;
         return {
           watchlistId: row.id,
-          npwrId,
+          gameUuid,
+          routeSlug: getRouteSlug(game) || gameUuid,
           game,
           progressPercent: clampProgressPercent(row[WATCHLIST.progress]),
           status: row[WATCHLIST.status] || 'active',
@@ -99,20 +110,36 @@ function Dashboard({ sessionUser, openGame }) {
     return () => {
       cancelled = true;
     };
-  }, [sessionUser?.id, version]);
+  }, [sessionUser?.id, version, globalLocale]);
 
-  const handleOpenGame = (item) => {
+  const handleOpenGame = async (item) => {
     if (item.game) {
       openGame(item.game);
       return;
     }
-    if (item.npwrId) {
-      window.history.pushState({}, '', `/guide/${item.npwrId}`);
+    if (!item.routeSlug && !item.gameUuid) return;
+
+    const { data: game, error: gameError } = await fetchGameByRouteRef(
+      supabase,
+      item.game ?? item.routeSlug ?? item.gameUuid,
+      globalLocale,
+    );
+
+    if (gameError) {
+      console.error('Watchlist-Spiel:', gameError.message);
     }
+
+    if (game) {
+      openGame(game);
+      return;
+    }
+
+    navigateToGame(item.routeSlug ?? item.gameUuid);
+    openGame({ id: item.gameUuid, [GAME_PLATFORM_ID]: item.routeSlug });
   };
 
   const visibleItems = items.filter((item) => {
-    const key = gameKey(item.npwrId);
+    const key = gameKey(item.gameUuid || item.routeSlug);
     const completed = item.progressPercent >= 100;
     return getEntryState(key, { completed }).visible;
   });
@@ -178,17 +205,17 @@ function Dashboard({ sessionUser, openGame }) {
       {!loading && !error && visibleItems.length > 0 && (
         <ul className="flex flex-col gap-3">
           {items.map((item) => {
-            const visKey = gameKey(item.npwrId);
+            const visKey = gameKey(item.gameUuid || item.routeSlug);
             const completed = item.progressPercent >= 100;
             const { visible, dimmed } = getEntryState(visKey, { completed });
             if (!visible) return null;
 
-            const title = item.game?.[GAME_FIELDS.title] || item.npwrId || 'Unbekanntes Spiel';
-            const cover = item.game?.[GAME_FIELDS.cover];
+            const title = getGameTitle(item.game) || item.routeSlug || 'Unbekanntes Spiel';
+            const cover = getGameCover(item.game);
             const userHidden = isHidden(visKey);
 
             return (
-              <li key={item.watchlistId || item.npwrId}>
+              <li key={item.watchlistId || item.gameUuid}>
                 <div
                   className={`group w-full min-w-0 bg-[#121314] border border-zinc-800 hover:border-[#00ff66]/30 rounded-xl p-3 sm:p-4 flex gap-3 sm:gap-4 items-stretch transition ${
                     dimmed ? 'opacity-30' : ''

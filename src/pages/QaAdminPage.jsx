@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
-import { TABLES, GAME_PK } from '../lib/gameSchema';
+import { TABLES, GAME_PK, GAME_STRUCT } from '../lib/gameSchema';
+import { fetchGameByRouteRef, updateGameLocalizedFields } from '../lib/gameQueries';
+import { getLocale } from '../lib/locale';
 import '../styles/qa-admin.css';
 
 const QA_TABLE = TABLES.qaDashboard;
@@ -145,11 +147,11 @@ export default function QaAdminPage({ sessionUser, onExit }) {
         setCurrentGame(null);
         return;
       }
-      const { data, error } = await supabase
-        .from(TABLES.games)
-        .select('Cover_URL, Konsole, Release_Jahr, Spieltitel, IGDB_ID')
-        .eq(GAME_PK, current.game_id)
-        .maybeSingle();
+      const { data, error } = await fetchGameByRouteRef(
+        supabase,
+        current.game_id,
+        getLocale(),
+      );
 
       if (cancelled) return;
       if (error) setCurrentGame(null);
@@ -173,31 +175,50 @@ export default function QaAdminPage({ sessionUser, onExit }) {
     const pick = selectedPick;
     setBusy(true);
     setMsg('');
-    const patch = {
-      Spieltitel: pick.title,
-      Cover_URL: pick.cover_url || undefined,
-      IGDB_ID: pick.igdb_id,
-    };
-    if (selectedVersion === 'ps3') patch.Konsole = 'PS3';
-    if (selectedVersion === 'ps4' || selectedVersion === 'remastered') patch.Konsole = 'PS4';
+    const gameUuid = currentGame?.[GAME_PK] ?? current.game_id;
+    const patchGame = {};
 
-    if (!patch.Konsole && pick.platforms?.length === 1) {
+    if (selectedVersion === 'ps3') patchGame[GAME_STRUCT.hardware] = 'PS3';
+    if (selectedVersion === 'ps4' || selectedVersion === 'remastered') {
+      patchGame[GAME_STRUCT.hardware] = 'PS4';
+    }
+
+    if (!patchGame[GAME_STRUCT.hardware] && pick.platforms?.length === 1) {
       const p = pick.platforms[0];
       if (['PlayStation 3', 'PlayStation 4', 'PlayStation 5'].includes(p)) {
-        patch.Konsole = p.replace('PlayStation ', 'PS');
+        patchGame[GAME_STRUCT.hardware] = p.replace('PlayStation ', 'PS');
       }
     }
-    if (pick.release_year) patch.Release_Jahr = parseInt(pick.release_year, 10) || undefined;
+    if (pick.release_year) {
+      patchGame[GAME_STRUCT.releaseYear] = parseInt(pick.release_year, 10) || undefined;
+    }
+    if (pick.igdb_id) patchGame[GAME_STRUCT.igdbId] = pick.igdb_id;
 
-    const { error: gameErr } = await supabase
-      .from(TABLES.games)
-      .update(patch)
-      .eq(GAME_PK, current.game_id);
+    // spieltitel / cover_url sind JSONB-Sprachmaps: nur die aktive Sprache patchen
+    const { error: localizedErr } = await updateGameLocalizedFields(
+      supabase,
+      gameUuid,
+      getLocale(),
+      { title: pick.title, coverUrl: pick.cover_url },
+    );
 
-    if (gameErr) {
-      setMsg(gameErr.message);
+    if (localizedErr) {
+      setMsg(localizedErr.message);
       setBusy(false);
       return;
+    }
+
+    if (Object.keys(patchGame).length > 0) {
+      const { error: gameErr } = await supabase
+        .from(TABLES.games)
+        .update(patchGame)
+        .eq(GAME_PK, gameUuid);
+
+      if (gameErr) {
+        setMsg(gameErr.message);
+        setBusy(false);
+        return;
+      }
     }
 
     const { error: qaErr } = await supabase

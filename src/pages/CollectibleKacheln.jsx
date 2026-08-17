@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { getYouTubeEmbedUrl } from '../utils/videoUrl';
 import { useVisibility } from '../context/VisibilityContext';
+import { useGuideVideo } from '../context/GuideVideoContext';
+import { guideProgressKey } from '../lib/guideProgressStorage';
 import Reportable from '../components/Reportable';
 
 /**
@@ -29,14 +31,17 @@ function SplitScreenGuideKacheln({
   reportKeyField = 'guide_id',
 }) {
   const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
+  const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
   const [expandedGroups, setExpandedGroups] = useState({});
   const [activeVideos, setActiveVideos] = useState({});
 
-  const isItemCompleted = (item) => !!completedItems[item.id];
+  // Fortschritt/Sichtbarkeit hängen an der guide_id, damit ein in zwei Reitern
+  // gelisteter Eintrag (sheet_types [1, 2]) nur einmal abgehakt werden muss.
+  const isItemCompleted = (item) => !!completedItems[guideProgressKey(item)];
 
   const isItemShown = (item) => {
     if (hideCompleted && isItemCompleted(item)) return false;
-    return getEntryState(itemKey(item.id)).visible;
+    return getEntryState(itemKey(guideProgressKey(item))).visible;
   };
 
   const groupedItems = itemsData.reduce((acc, item) => {
@@ -61,10 +66,21 @@ function SplitScreenGuideKacheln({
       ...prev,
       [groupName]: { itemId: item.id, embedUrl },
     }));
+    notifyVideoStarted();
   };
 
+  const hasAnyActiveVideo = Object.values(activeVideos).some((v) => v?.embedUrl);
+
+  useEffect(() => {
+    if (!hasAnyActiveVideo) {
+      notifyVideoCleared();
+    }
+  }, [hasAnyActiveVideo, notifyVideoCleared]);
+
+  useEffect(() => () => notifyVideoCleared(), [notifyVideoCleared]);
+
   return (
-    <div className={`collectibles-tab ${embedInAccordion ? '' : ''}`} style={{ padding: '0px', color: '#fff' }}>
+    <div className={`collectibles-tab guide-landscape-root ${embedInAccordion ? '' : ''}`} style={{ padding: '0px', color: '#fff' }}>
       <div
         style={
           embedInAccordion
@@ -263,19 +279,10 @@ function SplitScreenGuideKacheln({
             </button>
 
             {isExpanded && (
-              <div style={{ display: 'flex', minHeight: '300px', flexWrap: 'wrap' }}>
-                <div
-                  style={{
-                    flex: '1 1 40%',
-                    minWidth: '300px',
-                    padding: '15px',
-                    borderRight: '1px solid #27272a',
-                    overflowY: 'auto',
-                    maxHeight: '400px',
-                  }}
-                >
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead>
+              <div className="guide-split guide-split--expanded">
+                <div className="guide-split__list">
+                  <table className="guide-split__table">
+                    <thead className="guide-split__thead">
                       <tr
                         style={{
                           color: '#71717a',
@@ -284,14 +291,15 @@ function SplitScreenGuideKacheln({
                           fontFamily: 'monospace',
                         }}
                       >
-                        <th style={{ padding: '8px' }}>{nameColumnHeader}</th>
+                        <th>{nameColumnHeader}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.map((item) => {
                         if (!isItemShown(item)) return null;
 
-                        const visKey = itemKey(item.id);
+                        const progressKey = guideProgressKey(item);
+                        const visKey = itemKey(progressKey);
                         const { dimmed } = getEntryState(visKey);
                         const isCompleted = isItemCompleted(item);
                         const displayName = getDisplayName(item);
@@ -304,19 +312,19 @@ function SplitScreenGuideKacheln({
                         return (
                           <tr
                             key={item.id}
+                            className="guide-split__row"
                             style={{
-                              borderBottom: '1px solid #27272a',
                               opacity: rowDimmed ? 0.6 : 1,
                               backgroundColor: isActive ? 'rgba(0, 255, 102, 0.06)' : 'transparent',
                             }}
                           >
-                            <td style={{ padding: '10px 8px', verticalAlign: 'top' }}>
+                            <td>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 {typeof toggleCompleted === 'function' && (
                                   <input
                                     type="checkbox"
                                     checked={isCompleted}
-                                    onChange={() => toggleCompleted(item.id)}
+                                    onChange={() => toggleCompleted(progressKey)}
                                     style={{
                                       accentColor: '#00ff66',
                                       cursor: 'pointer',
@@ -375,28 +383,6 @@ function SplitScreenGuideKacheln({
                                     textAlign: 'left',
                                     fontWeight: isActive ? 'bold' : 'normal',
                                   }}
-                                  onMouseEnter={(e) => {
-                                    if (hasVideo && !rowDimmed) {
-                                      e.currentTarget.style.color = '#00ff66';
-                                      e.currentTarget.style.textDecoration = isCompleted
-                                        ? 'line-through'
-                                        : 'underline';
-                                    }
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.textDecoration = isCompleted
-                                      ? 'line-through'
-                                      : 'none';
-                                    if (!isActive) {
-                                      e.currentTarget.style.color = rowDimmed
-                                        ? '#71717a'
-                                        : hasVideo
-                                          ? '#e4e4e7'
-                                          : '#a1a1aa';
-                                    } else {
-                                      e.currentTarget.style.color = '#00ff66';
-                                    }
-                                  }}
                                 >
                                   {gameId && reportKey ? (
                                     <Reportable
@@ -422,39 +408,13 @@ function SplitScreenGuideKacheln({
                   </table>
                 </div>
 
-                <div
-                  style={{
-                    flex: '1 1 60%',
-                    minWidth: '350px',
-                    padding: '10px',
-                    backgroundColor: '#121314',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
+                <div className="guide-split__video">
                   {embedUrl ? (
-                    <div
-                      style={{
-                        position: 'relative',
-                        width: '100%',
-                        paddingBottom: '56.25%',
-                        height: 0,
-                      }}
-                    >
+                    <div className="guide-split__video-inner">
                       <iframe
                         key={`${groupName}-${activeVideo?.itemId || 'default'}-${embedUrl}`}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: '100%',
-                          borderRadius: '8px',
-                        }}
                         src={embedUrl}
                         title={activeItem ? getDisplayName(activeItem) : groupName}
-                        frameBorder="0"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                         allowFullScreen
                       />
@@ -539,10 +499,16 @@ export function BossKacheln({
   gameId = '',
 }) {
   const renderTrophyBadge = (item, dimmed) => {
-    if (item.is_trophy_relevant !== 'Ja') return null;
+    const hasTrophy =
+      Boolean(item.trophy_id) || item.is_trophy_relevant === 'Ja';
+    if (!hasTrophy) return null;
     return (
       <span
-        title="Dieser Boss liefert direkt eine Sony-Trophäe"
+        title={
+          item.trophy_id
+            ? `Trophäen-Referenz: ${item.trophy_id}`
+            : 'Dieser Boss liefert direkt eine Trophäe'
+        }
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -572,7 +538,7 @@ export function BossKacheln({
       progressPercent={progressPercent}
       completedCount={completedCount}
       totalCount={totalCount}
-      getDisplayName={(item) => item.boss_name}
+      getDisplayName={(item) => item.item_name || item.boss_name}
       nameColumnHeader="Bossgegner"
       renderNameAddon={renderTrophyBadge}
       emptyVideoMessage="Klicke auf einen Boss mit Video – der Player erscheint hier."
@@ -586,7 +552,7 @@ export function BossKacheln({
       embedInAccordion={embedInAccordion}
       gameId={gameId}
       reportEntityType="boss"
-      reportKeyField="boss_id"
+      reportKeyField="guide_id"
     />
   );
 }

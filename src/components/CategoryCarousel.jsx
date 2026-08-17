@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { GAME_PK } from '../lib/gameSchema';
+import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
+import { GAME_FIELDS } from '../lib/gameSchema';
+import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
 import WatchlistButton from './WatchlistButton';
 
 const TILE_CLASS =
@@ -34,19 +36,18 @@ function CategoryCarousel({ category, games, openGame, getProp, loading, onCateg
   };
 
   const renderTile = (g, index) => {
-    const gameId = g[GAME_PK] ?? getProp(g, [GAME_PK]);
-    const title = getProp(g, ['Spieltitel', 'spieltitel']);
-    const cover = getProp(g, ['Cover_URL', 'cover_url']);
-    const consoleLabel = getProp(g, ['Konsole', 'konsole']);
-
+    const routeSlug = getRouteSlug(g);
+    const watchlistGameId = getGameUuid(g) || routeSlug;
+    const title = getGameTitle(g) || g[GAME_FIELDS.title];
+    const cover = getGameCover(g) || g[GAME_FIELDS.cover];
+    const consoleLabel = g[GAME_FIELDS.console] ?? g.hardware;
     return (
       <a
-        href={`/guide/${gameId}`}
-        key={gameId || `${category.id}-${index}`}
-        className={TILE_CLASS}
+        href={gameGuidePath(g)}
+        key={routeSlug || watchlistGameId || `${category.id}-${index}`}        className={TILE_CLASS}
         onClick={(e) => {
           e.preventDefault();
-          window.history.pushState({}, '', `/guide/${gameId}`);
+          navigateToGame(g);
           openGame(g);
         }}
       >
@@ -61,8 +62,7 @@ function CategoryCarousel({ category, games, openGame, getProp, loading, onCateg
               <div className="home-tile-cover home-tile-cover--empty">🎮</div>
             )}
             <div className="home-tile-watchlist">
-              <WatchlistButton gameId={gameId} onRequestLogin={onRequestLogin} size="sm" />
-            </div>
+              <WatchlistButton gameId={watchlistGameId} onRequestLogin={onRequestLogin} size="sm" />            </div>
             <div className="home-tile-shine" aria-hidden />
           </div>
           <div className="home-tile-meta">

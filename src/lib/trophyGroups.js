@@ -62,11 +62,13 @@ export function groupTrophiesByPack(trophies) {
  * @param {object[]} trophies
  * @param {Record<string, boolean>} unlockedTrophies
  * @param {(t: object) => string} getTrophyKey
+ * @param {Set<string>} [earnedIds]
  */
-export function countUnlockedInList(trophies, unlockedTrophies, getTrophyKey) {
+export function countUnlockedInList(trophies, unlockedTrophies, getTrophyKey, earnedIds) {
   let unlocked = 0;
   for (const t of trophies) {
-    if (unlockedTrophies[getTrophyKey(t)]) unlocked += 1;
+    const key = getTrophyKey(t);
+    if (earnedIds?.has?.(key) || unlockedTrophies[key]) unlocked += 1;
   }
   return unlocked;
 }

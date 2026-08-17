@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from './pages/supabaseClient';
 import Header from './components/Header';
 import HomePage from './pages/HomePage';
@@ -22,12 +22,24 @@ import {
 import {
   getGameIdFromPath,
   getViewFromPath,
+  navigateToGame,
+  navigateToHome,
+  canRenderAppContent,
   resolveAppViewForSession,
 } from './lib/routeUtils';
-import Inbox from './components/Inbox';
+import { searchGames } from './lib/gameSearch';
+import ProfilePage from './pages/ProfilePage';
 import QaAdminPage from './pages/QaAdminPage';
-import { TABLES, GAME_PK, GAME_FK } from './lib/gameSchema';
+import { TABLES } from './lib/gameSchema';
 import { fetchGameGuideBundle, resolveGameId } from './lib/guideQueries';
+import { fetchGameByRouteRef } from './lib/gameQueries';
+import { useLocale } from './context/LocaleContext';
+import {
+  countEarnedInList,
+  earnedIdsToUnlockedMap,
+  fetchGameTrophiesWithEarned,
+} from './lib/earnedTrophyQueries';
+import { getTrophyIdKey } from './lib/trophyQueries';
 import {
   loadCompletedGuideItems,
   saveCompletedGuideItems,
@@ -36,6 +48,7 @@ import { ErrorReportProvider } from './context/ErrorReportContext';
 import { WatchlistProvider } from './context/WatchlistContext';
 
 function App() {
+  const { globalLocale, t } = useLocale();
   // 1. Wir schauen beim Start direkt in die URL des Browsers!
   const [currentView, setCurrentView] = useState(() => {
     const pathView = getViewFromPath(window.location.pathname);
@@ -52,7 +65,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [dbStatus, setDbStatus] = useState('Testen...');
+  const [dbOk, setDbOk] = useState(null);
 
   const [selectedGame, setSelectedGame] = useState(null);
   const [activeTrophies, setActiveTrophies] = useState([]);
@@ -61,6 +74,7 @@ function App() {
   const [bossItems, setBossItems] = useState([]);
   const [loadingGuide, setLoadingGuide] = useState(false);
   const [unlockedTrophies, setUnlockedTrophies] = useState({});
+  const [earnedTrophyIds, setEarnedTrophyIds] = useState(() => new Set());
   const [hideCompleted, setHideCompleted] = useState(false);
   const [completedGuideItems, setCompletedGuideItems] = useState(loadCompletedGuideItems);
   const [activeTab, setActiveTab] = useState('reiter0');
@@ -141,27 +155,47 @@ function App() {
     const gameIdFromUrl = getGameIdFromPath(pathname);
     if (!gameIdFromUrl) return;
 
+    if (!pathname.startsWith('/guide/')) {
+      navigateToGame(gameIdFromUrl, { replace: true });
+    }
+
     setCurrentView('game_info');
     setLoadingGuide(true);
 
-    const { data: gameData } = await supabase
-      .from(TABLES.games)
-      .select('*')
-      .eq(GAME_PK, gameIdFromUrl)
-      .maybeSingle();
+    const { data: gameData, error: gameError } = await fetchGameByRouteRef(
+      supabase,
+      gameIdFromUrl,
+      globalLocale,
+    );
+
+    if (gameError) {
+      console.error('Guide Deep-Link:', gameError.message, { gameId: gameIdFromUrl });
+    }
 
     if (gameData) {
       setSelectedGame(gameData);
+      setUnlockedTrophies({});
+      setEarnedTrophyIds(new Set());
 
-      const { data: trophiesData } = await supabase
-        .from(TABLES.trophies)
-        .select('*')
-        .eq(GAME_FK, gameIdFromUrl);
-      setActiveTrophies(trophiesData ?? []);
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id ?? null;
+
+      const { trophies, earnedIds } = await fetchGameTrophiesWithEarned(
+        supabase,
+        userId,
+        gameData,
+        globalLocale,
+      );
+      setActiveTrophies(trophies);
+      setEarnedTrophyIds(earnedIds);
+      if (earnedIds.size > 0) {
+        setUnlockedTrophies(earnedIdsToUnlockedMap(earnedIds));
+      }
 
       const { chapters, guides, bosses } = await fetchGameGuideBundle(
         supabase,
-        gameIdFromUrl,
+        gameData,
+        globalLocale,
       );
       setChapterItems(chapters);
       setGuideItems(guides);
@@ -172,29 +206,68 @@ function App() {
     }
 
     setLoadingGuide(false);
-  }, []);
+  }, [globalLocale]);
 
   useEffect(() => {
     loadGameFromUrl();
   }, [loadGameFromUrl]);
 
+  // Trophäen-Texte + Verdienst-Status bei Login oder globaler Sprachänderung
+  useEffect(() => {
+    if (currentView !== 'game_info' || !selectedGame) return;
+
+    let cancelled = false;
+    const gameId = resolveGameId(selectedGame, getProp);
+    if (!gameId) return;
+
+    async function reloadTrophies() {
+      const userId = sessionUser?.id ?? null;
+      const { trophies, earnedIds } = await fetchGameTrophiesWithEarned(
+        supabase,
+        userId,
+        selectedGame,
+        globalLocale,
+      );
+      if (cancelled) return;
+
+      setActiveTrophies(trophies);
+      setEarnedTrophyIds(earnedIds);
+      setUnlockedTrophies((prev) => {
+        const next = { ...prev };
+        for (const id of earnedIds) next[id] = true;
+        return next;
+      });
+    }
+
+    reloadTrophies();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionUser?.id, currentView, selectedGame, globalLocale]);
+
   useEffect(() => {
     const onPopState = () => {
       const path = window.location.pathname;
       const pathView = getViewFromPath(path);
-      if (pathView) {
-        setCurrentView(pathView);
-        if (pathView === 'game_info') loadGameFromUrl(path);
+
+      if (pathView === 'game_info') {
+        setCurrentView('game_info');
+        loadGameFromUrl(path);
         return;
       }
-      if (currentView === 'qa_admin' || currentView === 'game_info' || currentView === 'beta') {
-        setCurrentView('home');
+
+      if (pathView) {
+        setCurrentView(pathView);
         setSelectedGame(null);
+        return;
       }
+
+      setCurrentView('home');
+      setSelectedGame(null);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [currentView, loadGameFromUrl]);
+  }, [loadGameFromUrl]);
 
   const exitQaAdmin = () => {
     window.history.pushState({}, '', '/');
@@ -204,8 +277,8 @@ function App() {
   // Testet die DB-Verbindung beim Laden
   useEffect(() => {
     async function initDb() {
-      const { error } = await supabase.from('Playstation_Games').select('*').limit(1);
-      setDbStatus(error ? 'Fehlgeschlagen' : 'Erfolgreich verbunden!');
+      const { error } = await supabase.from(TABLES.games).select('id').limit(1);
+      setDbOk(!error);
     }
     initDb();
   }, []);
@@ -277,10 +350,10 @@ function App() {
     if (typeof queryOverride === 'string') setSearchQuery(queryOverride);
     setLoading(true);
     setCurrentView('search-results');
-    const { data } = await supabase
-      .from('Playstation_Games')
-      .select('*')
-      .ilike('Spieltitel', `%${q}%`);
+    const { data, error } = await searchGames(supabase, q);
+    if (error) {
+      console.error('Suche:', error.message);
+    }
     setSearchResults(data || []);
     setLoading(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -299,19 +372,31 @@ function App() {
     setGuideItems([]);
     setChapterItems([]);
     setBossItems([]);
+    setUnlockedTrophies({});
+    setEarnedTrophyIds(new Set());
 
     const gameId = resolveGameId(game, getProp);
     if (gameId) {
-      window.history.pushState({}, '', `/guide/${gameId}`);
+      navigateToGame(game);
 
-      const { data: trophiesData, error: trophyError } = await supabase
-        .from(TABLES.trophies)
-        .select('*')
-        .eq(GAME_FK, gameId);
+      const userId = sessionUser?.id ?? null;
+      const { trophies, earnedIds } = await fetchGameTrophiesWithEarned(
+        supabase,
+        userId,
+        game,
+        globalLocale,
+      );
+      setActiveTrophies(trophies);
+      setEarnedTrophyIds(earnedIds);
+      if (earnedIds.size > 0) {
+        setUnlockedTrophies(earnedIdsToUnlockedMap(earnedIds));
+      }
 
-      if (!trophyError && trophiesData) setActiveTrophies(trophiesData);
-
-      const { chapters, guides, bosses } = await fetchGameGuideBundle(supabase, gameId);
+      const { chapters, guides, bosses } = await fetchGameGuideBundle(
+        supabase,
+        game,
+        globalLocale,
+      );
       setChapterItems(chapters);
       setGuideItems(guides);
       setBossItems(bosses);
@@ -320,6 +405,7 @@ function App() {
   };
 
   const toggleTrophy = (id) => {
+    if (earnedTrophyIds.has(id)) return;
     setUnlockedTrophies(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
@@ -332,13 +418,26 @@ function App() {
     });
   };
 
-  const completedCount = activeTrophies.filter(t => unlockedTrophies[t.id || t.trophy_id || t.trophy_name]).length;
+  const completedCount = useMemo(() => {
+    const earned = countEarnedInList(activeTrophies, earnedTrophyIds);
+    const manual = activeTrophies.filter((t) => {
+      const key = getTrophyIdKey(t);
+      return !earnedTrophyIds.has(key) && unlockedTrophies[key];
+    }).length;
+    return earned + manual;
+  }, [activeTrophies, earnedTrophyIds, unlockedTrophies]);
   const progressPercent = activeTrophies.length > 0 ? Math.round((completedCount / activeTrophies.length) * 100) : 0;
 
   const handleBetaComplete = () => {
     window.history.pushState({}, '', '/');
     setCurrentView('home');
   };
+
+  const goHome = useCallback(() => {
+    setCurrentView('home');
+    setSelectedGame(null);
+    navigateToHome();
+  }, []);
 
   const maintenanceBypass = hasMaintenanceBypass(sessionUser);
   const isQaAdminView = currentView === 'qa_admin';
@@ -401,11 +500,12 @@ function App() {
       <main className="pb-24 flex-1 flex flex-col justify-center w-full max-w-full min-w-0 overflow-x-hidden">
         
         {/* ─── WARTUNGSMODUS: login + social-link nie blockieren ─── */}
-        {isMaintenanceMode && !maintenanceBypass ? (
-          renderMaintenanceAllowedView()
-        ) : (
-          
-          /* ─── LEVEL 2: RECHTE VORHANDEN / WARTUNG AUS ─── */
+        {canRenderAppContent({
+          isMaintenanceMode,
+          maintenanceBypass,
+          sessionUser,
+          currentView,
+        }) ? (
           <>
             {currentView === 'home' && (
               <HomePage 
@@ -421,8 +521,13 @@ function App() {
               />
             )}
 
-            {currentView === 'inbox' && (
-              <Inbox sessionUser={sessionUser} setCurrentView={setCurrentView} />
+            {currentView === 'profile' && (
+              <ProfilePage
+                sessionUser={sessionUser}
+                setCurrentView={setCurrentView}
+                onRequestLogin={() => setCurrentView('login')}
+                openGame={openGuide}
+              />
             )}
 
             {currentView === 'search-results' && (
@@ -448,6 +553,7 @@ function App() {
                 selectedGame={selectedGame}
                 activeTrophies={activeTrophies}
                 unlockedTrophies={unlockedTrophies}
+                earnedTrophyIds={earnedTrophyIds}
                 toggleTrophy={toggleTrophy}
                 completedCount={completedCount}
                 progressPercent={progressPercent}
@@ -463,24 +569,29 @@ function App() {
                 bossItems={bossItems}
                 getProp={getProp}
                 onRequestLogin={() => setCurrentView('login')}
+                onNavigateHome={goHome}
               />
             )}
 
             {currentView === 'login' && <LoginPage onLogin={handleLogin} />}
             {currentView === 'tester-setup' && <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />}
           </>
+        ) : (
+          renderMaintenanceAllowedView()
         )}
 
       </main>
 
       <footer className="w-full max-w-full min-w-0 overflow-x-hidden bg-[#1a1b1c] border-t border-t-zinc-800/80 px-4 sm:px-6 md:px-8 py-4 flex flex-col sm:flex-row flex-wrap justify-between items-center gap-4 text-xs text-zinc-500">
         <div className="flex flex-wrap gap-4 sm:gap-6 min-w-0">
-          <a href="/impressum" className="hover:text-zinc-300 transition">Impressum</a>
-          <a href="/datenschutz" className="hover:text-zinc-300 transition">Datenschutz (DSGVO)</a>
+          <a href="/impressum" className="hover:text-zinc-300 transition">{t('impressum')}</a>
+          <a href="/datenschutz" className="hover:text-zinc-300 transition">{t('privacy')}</a>
         </div>
         <div className="flex items-center gap-2 font-mono text-[11px] min-w-0 max-w-full">
-          <span className={`w-2 h-2 flex-shrink-0 rounded-full ${dbStatus.includes('Erfolgreich') ? 'bg-[#00ff66] shadow-[0_0_8px_#00ff66]' : 'bg-red-500'}`}></span>
-          <span className="truncate">DB: {dbStatus}</span>
+          <span className={`w-2 h-2 flex-shrink-0 rounded-full ${dbOk === true ? 'bg-[#00ff66] shadow-[0_0_8px_#00ff66]' : dbOk === false ? 'bg-red-500' : 'bg-zinc-600'}`}></span>
+          <span className="truncate">
+            {t('dbLabel')}: {dbOk === null ? '…' : dbOk ? t('dbConnected') : t('dbFailed')}
+          </span>
         </div>
       </footer>
 
