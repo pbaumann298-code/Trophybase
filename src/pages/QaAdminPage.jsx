@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { supabase } from './supabaseClient';
 import { TABLES, GAME_PK, GAME_STRUCT } from '../lib/gameSchema';
 import { fetchGameByRouteRef, updateGameLocalizedFields } from '../lib/gameQueries';
+import { getGameCover } from '../lib/gameModel';
 import { getLocale } from '../lib/locale';
 import '../styles/qa-admin.css';
 
@@ -438,7 +439,7 @@ export default function QaAdminPage({ sessionUser, onExit }) {
                     <div className="qa-compare-slot-title">Aktuell</div>
                     <img
                       className="qa-cover-big qa-cover-current"
-                      src={currentGame?.Cover_URL || ''}
+                      src={getGameCover(currentGame, getLocale())}
                       alt=""
                       onError={(e) => {
                         e.currentTarget.style.visibility = 'hidden';

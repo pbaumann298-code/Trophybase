@@ -16,7 +16,13 @@ import {
   buildChronologicalGuideData,
 } from '../lib/guideData';
 import { fetchGameGuideBundle, resolveGameId } from '../lib/guideQueries';
-import { getGameUuid, getRouteSlug } from '../lib/gameModel';
+import {
+  getGameCover,
+  getGameDescription,
+  getGameTitle,
+  getGameUuid,
+  getRouteSlug,
+} from '../lib/gameModel';
 import { useLocale } from '../context/LocaleContext';
 import {
   fetchOnlineTrophyIdsForGame,
@@ -56,7 +62,6 @@ function GamePageContent({
   guideItems,
   chapterItems,
   bossItems,
-  getProp,
   onRequestLogin,
   onNavigateHome,
 }) {
@@ -131,9 +136,9 @@ function GamePageContent({
         return;
       }
 
-      const gameId = resolveGameId(selectedGame, getProp);
-      const showServerDead = isServerDead(selectedGame, getProp);
-      const showOnlineNote = hasOnlineTrophiesFlag(selectedGame, getProp);
+      const gameId = resolveGameId(selectedGame);
+      const showServerDead = isServerDead(selectedGame);
+      const showOnlineNote = hasOnlineTrophiesFlag(selectedGame);
 
       const idsToLoad = [];
       if (showServerDead) idsToLoad.push(STATUS_MESSAGE_IDS.SERVER_DEAD);
@@ -163,7 +168,7 @@ function GamePageContent({
     return () => {
       cancelled = true;
     };
-  }, [selectedGame, getProp, globalLocale]);
+  }, [selectedGame, globalLocale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,7 +181,7 @@ function GamePageContent({
         return;
       }
 
-      const gameId = resolveGameId(selectedGame, getProp);
+      const gameId = resolveGameId(selectedGame);
       if (!gameId) return;
 
       setGuidesLoading(true);
@@ -202,7 +207,7 @@ function GamePageContent({
     return () => {
       cancelled = true;
     };
-  }, [selectedGame, getProp, globalLocale, guideLanguageOverride]);
+  }, [selectedGame, globalLocale, guideLanguageOverride]);
 
   const chronologicalGuideData = useMemo(
     () => buildChronologicalGuideData(chapterRows),
@@ -214,8 +219,8 @@ function GamePageContent({
   const bossOverviewData = useMemo(() => buildBossOverviewData(bossRows), [bossRows]);
 
   const watchlistGameId = useMemo(
-    () => getGameUuid(selectedGame) || resolveGameId(selectedGame, getProp),
-    [selectedGame, getProp],
+    () => getGameUuid(selectedGame) || resolveGameId(selectedGame),
+    [selectedGame],
   );
 
   const routeSlug = useMemo(() => getRouteSlug(selectedGame), [selectedGame]);
@@ -224,10 +229,14 @@ function GamePageContent({
 
   const isGuideLoading = guidesLoading || loadingGuide;
 
-  const showServerShutdown = isServerOffline(selectedGame, getProp);
-  const showComingSoon = isComingSoonStatus(selectedGame, getProp);
-  const showCoverServerDead = isServerDead(selectedGame, getProp);
-  const showCoverOnlineNote = hasOnlineTrophiesFlag(selectedGame, getProp);
+  const gameTitle = getGameTitle(selectedGame, globalLocale);
+  const gameCover = getGameCover(selectedGame, globalLocale);
+  const gameDescription = getGameDescription(selectedGame, globalLocale);
+
+  const showServerShutdown = isServerOffline(selectedGame);
+  const showComingSoon = isComingSoonStatus(selectedGame);
+  const showCoverServerDead = isServerDead(selectedGame);
+  const showCoverOnlineNote = hasOnlineTrophiesFlag(selectedGame);
 
   const tabCounts = {
     reiter0: activeTrophies.length,
@@ -291,7 +300,7 @@ function GamePageContent({
             onlineTrophyIds={onlineTrophyIds}
             hideCompleted={hideCompleted}
             onToggle={toggleTrophy}
-            mainGameTitle={`Hauptspiel · ${getProp(selectedGame, ['Spieltitel', 'spieltitel'])}`}
+            mainGameTitle={`Hauptspiel · ${gameTitle}`}
           />
         </div>
       )}
@@ -428,7 +437,7 @@ function GamePageContent({
       <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 flex flex-col md:flex-row flex-wrap md:flex-nowrap gap-8 items-start mb-8 shadow-xl">
         <div className="w-full md:w-64 aspect-[3/4] rounded-xl overflow-hidden shadow-2xl border border-zinc-800 bg-[#121314] flex-shrink-0">
           <img
-            src={getProp(selectedGame, ['Cover_URL', 'cover_url'])}
+            src={gameCover}
             className="w-full h-full object-cover"
             alt="Game Cover"
           />
@@ -440,32 +449,32 @@ function GamePageContent({
               Spiele Hub
             </span>
             <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-2 mb-6">
-              {getProp(selectedGame, ['Spieltitel', 'spieltitel'])}
+              {gameTitle}
             </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4 sm:gap-x-8 w-full max-w-xl min-w-0 text-sm border-t border-zinc-800/60 pt-4">
               <div className="flex justify-between border-b border-zinc-800/40 pb-2 sm:col-span-2">
                 <span className="text-zinc-500 font-mono text-xs uppercase">Konsole</span>
                 <span className="text-sky-300 font-semibold text-right">
-                  {getProp(selectedGame, [GAME_FIELDS.console, 'Konsole', 'konsole']) || '—'}
+                  {selectedGame[GAME_FIELDS.console] || '—'}
                 </span>
               </div>
               <div className="flex justify-between border-b border-zinc-800/40 pb-2">
                 <span className="text-zinc-500 font-mono text-xs uppercase">Release Jahr</span>
                 <span className="text-zinc-200 font-medium">
-                  {getProp(selectedGame, ['Release_Jahr', 'release_jahr', 'Releasejahr']) || '—'}
+                  {selectedGame[GAME_FIELDS.year] || '—'}
                 </span>
               </div>
               <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2 sm:col-span-1">
                 <span className="text-zinc-500 font-mono text-xs uppercase">Genre</span>
                 <span className="text-zinc-200 font-medium">
-                  {getProp(selectedGame, ['genre', 'Genre']) || '—'}
+                  {selectedGame[GAME_FIELDS.genre] || '—'}
                 </span>
               </div>
               <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
                 <span className="text-zinc-500 font-mono text-xs uppercase">Entwickler</span>
                 <span className="text-zinc-200 font-medium">
-                  {getProp(selectedGame, ['Entwickler', 'entwickler']) || '—'}
+                  {selectedGame[GAME_FIELDS.developer] || '—'}
                 </span>
               </div>
 
@@ -505,16 +514,13 @@ function GamePageContent({
       </div>
 
       <GameDetailMetaBar
-        consoleLabel={getProp(selectedGame, [GAME_FIELDS.console, 'hardware', 'Konsole'])}
+        consoleLabel={selectedGame[GAME_FIELDS.console]}
         gameId={watchlistGameId}
         displayRef={routeSlug}
         onRequestLogin={onRequestLogin}
       />
 
-      <GameSeoInfobox
-        title={getProp(selectedGame, ['Spieltitel', 'spieltitel'])}
-        description={getProp(selectedGame, ['beschreibung_de', 'Beschreibung_de'])}
-      />
+      <GameSeoInfobox title={gameTitle} description={gameDescription} />
 
       <section className="mt-8 w-full min-w-0">
         <GuideLanguageSelector

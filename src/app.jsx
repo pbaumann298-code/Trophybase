@@ -79,14 +79,6 @@ function App() {
   const [completedGuideItems, setCompletedGuideItems] = useState(loadCompletedGuideItems);
   const [activeTab, setActiveTab] = useState('reiter0');
 
-  const getProp = (obj, keys) => {
-    if (!obj) return '';
-    for (let key of keys) {
-      if (obj[key] !== undefined && obj[key] !== null) return obj[key];
-    }
-    return '';
-  };
-
   // Session + OAuth-Redirect nach linkIdentity (Schritt 4: maintenance_bypass setzen)
   useEffect(() => {
     let cancelled = false;
@@ -217,7 +209,7 @@ function App() {
     if (currentView !== 'game_info' || !selectedGame) return;
 
     let cancelled = false;
-    const gameId = resolveGameId(selectedGame, getProp);
+    const gameId = resolveGameId(selectedGame);
     if (!gameId) return;
 
     async function reloadTrophies() {
@@ -375,7 +367,7 @@ function App() {
     setUnlockedTrophies({});
     setEarnedTrophyIds(new Set());
 
-    const gameId = resolveGameId(game, getProp);
+    const gameId = resolveGameId(game);
     if (gameId) {
       navigateToGame(game);
 
@@ -510,7 +502,6 @@ function App() {
             {currentView === 'home' && (
               <HomePage 
                 openGame={openGuide} 
-                getProp={getProp} 
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
                 handleSearchSubmit={handleSearchSubmit}
@@ -534,7 +525,6 @@ function App() {
               <SearchResultsPage
                 searchResults={searchResults}
                 openGame={openGuide}
-                getProp={getProp}
                 loading={loading}
                 onRequestLogin={() => setCurrentView('login')}
               />
@@ -567,7 +557,6 @@ function App() {
                 guideItems={guideItems}
                 chapterItems={chapterItems}
                 bossItems={bossItems}
-                getProp={getProp}
                 onRequestLogin={() => setCurrentView('login')}
                 onNavigateHome={goHome}
               />

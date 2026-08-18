@@ -36,12 +36,13 @@
  */
 
 /**
- * games-Zeile nach mergeGameRecord: JSONB-Felder sind aufgelöste Strings,
- * plus Alt-Aliase (Spieltitel, Cover_URL, Release_Jahr, …).
+ * games-Zeile nach mergeGameRecord: die JSONB-Spalten sind durch aufgelöste
+ * Strings ersetzt, zusätzlich gibt es die flachen UI-Felder aus GAME_FIELDS.
  * @typedef {GameRow & Object} NormalizedGame
  * @property {string} [title]
  * @property {string} [description]
  * @property {string} [cover_url]
+ * @property {string} [status_explanation]
  * @property {string} [_locale] Tatsächlich benutzte Sprache
  * @property {boolean} [_translationFallback] true = Fallback-Sprache benutzt
  */

@@ -1,25 +1,26 @@
-import { GAME_PK, GAME_FIELDS } from './gameSchema';
+import { GAME_PK } from './gameSchema';
 import { getGameTitle, getRouteSlug } from './gameModel';
 import {
   GAME_SEARCH_STRUCT_COLUMNS,
   GAME_SEARCH_LOCALIZED_COLUMNS,
   fetchRecentGames,
   searchGamesByColumn,
-  validateSearchQuery,
 } from './gameQueries';
 import { getLocale } from './locale';
 
 const LIMIT = 12;
 
-/** Eindeutige Spiele nach games.id (Fallback: Titel / Route-Slug) */
-export function dedupeGames(games, getProp) {
+/**
+ * Eindeutige Spiele nach games.id (Fallback: Route-Slug, dann Titel).
+ * Der Schlüssel muss ein Primitive sein, sonst greift die Map-Deduplizierung
+ * nicht.
+ * @param {Array<Record<string, unknown>>} games
+ * @param {string} [locale]
+ */
+export function dedupeGames(games, locale = getLocale()) {
   const map = new Map();
   for (const game of games) {
-    const key =
-      game[GAME_PK] ??
-      getRouteSlug(game) ??
-      getProp?.(game, [GAME_FIELDS.title, 'Spieltitel', 'title']) ??
-      getGameTitle(game);
+    const key = game[GAME_PK] || getRouteSlug(game) || getGameTitle(game, locale);
     if (key && !map.has(key)) map.set(key, game);
   }
   return [...map.values()];
@@ -67,11 +68,6 @@ function genreLike(supabase, pattern, locale) {
   );
 }
 
-function categoryPattern(keyword) {
-  const check = validateSearchQuery(keyword, { minLength: 2 });
-  return check.valid ? check.pattern : null;
-}
-
 /**
  * Die 8 psychologischen Startseiten-Kategorien (Netflix-Prinzip).
  */
@@ -83,14 +79,13 @@ export const HOME_CATEGORIES = [
     searchTerm: 'Elden Ring',
     tagline: 'Die meisterwarteten & meistgesuchten Guides',
     accent: '#ff6b35',
-    fetch: async (supabase, getProp) => {
-      const locale = getLocale();
+    fetch: async (supabase, locale = getLocale()) => {
       const { data, error } = await fetchRecentGames(supabase, LIMIT, locale);
       if (error) {
         console.error('Kategorie beliebt:', error.message);
         return [];
       }
-      return dedupeGames(data || [], getProp);
+      return dedupeGames(data || [], locale);
     },
   },
   {
@@ -100,8 +95,7 @@ export const HOME_CATEGORIES = [
     searchTerm: 'Souls',
     tagline: 'Für die Hardcore-Fraktion – Elden Ring, Wuchang & Co.',
     accent: '#a855f7',
-    fetch: async (supabase, getProp) => {
-      const locale = getLocale();
+    fetch: async (supabase, locale = getLocale()) => {
       const rows = await runQueries([
         genreLike(supabase, '%Soulslike%', locale),
         genreLike(supabase, '%Souls%', locale),
@@ -114,7 +108,7 @@ export const HOME_CATEGORIES = [
         titleLike(supabase, '%Lies of P%', locale),
         titleLike(supabase, '%Nioh%', locale),
       ]);
-      return dedupeGames(rows, getProp).slice(0, LIMIT);
+      return dedupeGames(rows, locale).slice(0, LIMIT);
     },
   },
   {
@@ -124,8 +118,7 @@ export const HOME_CATEGORIES = [
     searchTerm: 'Ubisoft',
     tagline: 'Open-World-Suchtis & Komplettierer',
     accent: '#38bdf8',
-    fetch: async (supabase, getProp) => {
-      const locale = getLocale();
+    fetch: async (supabase, locale = getLocale()) => {
       const rows = await runQueries([
         devLike(supabase, '%Ubisoft%', locale),
         titleLike(supabase, '%Assassin%', locale),
@@ -134,7 +127,7 @@ export const HOME_CATEGORIES = [
         titleLike(supabase, '%Ghost Recon%', locale),
         titleLike(supabase, '%Rainbow Six%', locale),
       ]);
-      return dedupeGames(rows, getProp).slice(0, LIMIT);
+      return dedupeGames(rows, locale).slice(0, LIMIT);
     },
   },
   {
@@ -144,8 +137,7 @@ export const HOME_CATEGORIES = [
     searchTerm: 'Rockstar',
     tagline: 'Legendär schwere & zeitaufwendige Meilensteine',
     accent: '#facc15',
-    fetch: async (supabase, getProp) => {
-      const locale = getLocale();
+    fetch: async (supabase, locale = getLocale()) => {
       const rows = await runQueries([
         devLike(supabase, '%Rockstar%', locale),
         titleLike(supabase, '%Grand Theft Auto%', locale),
@@ -155,7 +147,7 @@ export const HOME_CATEGORIES = [
         titleLike(supabase, '%Max Payne%', locale),
         titleLike(supabase, '%Lies of P%', locale),
       ]);
-      return dedupeGames(rows, getProp).slice(0, LIMIT);
+      return dedupeGames(rows, locale).slice(0, LIMIT);
     },
   },
   {
@@ -165,8 +157,7 @@ export const HOME_CATEGORIES = [
     searchTerm: 'LEGO',
     tagline: 'Kinder- & Familienspiele – entspannt zum Ziel',
     accent: '#4ade80',
-    fetch: async (supabase, getProp) => {
-      const locale = getLocale();
+    fetch: async (supabase, locale = getLocale()) => {
       const rows = await runQueries([
         genreLike(supabase, '%Familie%', locale),
         genreLike(supabase, '%Kinder%', locale),
@@ -181,7 +172,7 @@ export const HOME_CATEGORIES = [
         titleLike(supabase, '%Crash Bandicoot%', locale),
         titleLike(supabase, '%Disney%', locale),
       ]);
-      return dedupeGames(rows, getProp).slice(0, LIMIT);
+      return dedupeGames(rows, locale).slice(0, LIMIT);
     },
   },
   {
@@ -191,8 +182,7 @@ export const HOME_CATEGORIES = [
     searchTerm: 'Hollow Knight',
     tagline: 'Treue Nischen-Communities – Hollow Knight, Hades, Stray',
     accent: '#f472b6',
-    fetch: async (supabase, getProp) => {
-      const locale = getLocale();
+    fetch: async (supabase, locale = getLocale()) => {
       const rows = await runQueries([
         genreLike(supabase, '%Indie%', locale),
         titleLike(supabase, '%Hollow Knight%', locale),
@@ -205,7 +195,7 @@ export const HOME_CATEGORIES = [
         titleLike(supabase, '%Shovel Knight%', locale),
         titleLike(supabase, '%Dead Cells%', locale),
       ]);
-      return dedupeGames(rows, getProp).slice(0, LIMIT);
+      return dedupeGames(rows, locale).slice(0, LIMIT);
     },
   },
   {
@@ -215,8 +205,7 @@ export const HOME_CATEGORIES = [
     searchTerm: 'Gran Turismo',
     tagline: 'Rennspiele & skill-basierte Sport-Trophäen',
     accent: '#22d3ee',
-    fetch: async (supabase, getProp) => {
-      const locale = getLocale();
+    fetch: async (supabase, locale = getLocale()) => {
       const rows = await runQueries([
         genreLike(supabase, '%Renn%', locale),
         genreLike(supabase, '%Racing%', locale),
@@ -230,7 +219,7 @@ export const HOME_CATEGORIES = [
         titleLike(supabase, '%Burnout%', locale),
         titleLike(supabase, '%Driveclub%', locale),
       ]);
-      return dedupeGames(rows, getProp).slice(0, LIMIT);
+      return dedupeGames(rows, locale).slice(0, LIMIT);
     },
   },
   {
@@ -240,8 +229,7 @@ export const HOME_CATEGORIES = [
     searchTerm: 'Monster Hunter',
     tagline: 'Die härtesten Platin-Trophäen – nur für die Elite',
     accent: '#ef4444',
-    fetch: async (supabase, getProp) => {
-      const locale = getLocale();
+    fetch: async (supabase, locale = getLocale()) => {
       const rows = await runQueries([
         titleLike(supabase, '%Rainbow Six Siege%', locale),
         titleLike(supabase, '%Call of Duty%', locale),
@@ -259,16 +247,20 @@ export const HOME_CATEGORIES = [
         titleLike(supabase, '%Elden Ring%', locale),
         titleLike(supabase, '%Bloodborne%', locale),
       ]);
-      return dedupeGames(rows, getProp).slice(0, LIMIT);
+      return dedupeGames(rows, locale).slice(0, LIMIT);
     },
   },
 ];
 
-export async function fetchAllHomeCategories(supabase, getProp) {
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} [locale]
+ */
+export async function fetchAllHomeCategories(supabase, locale = getLocale()) {
   const entries = await Promise.all(
     HOME_CATEGORIES.map(async (cat) => {
       try {
-        const games = await cat.fetch(supabase, getProp);
+        const games = await cat.fetch(supabase, locale);
         return [cat.id, games];
       } catch (err) {
         console.error(`Kategorie ${cat.id}:`, err);

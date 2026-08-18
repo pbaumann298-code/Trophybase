@@ -60,7 +60,7 @@ export async function fetchUserAreaStats(supabase, userId) {
   };
 }
 
-export async function fetchProfileWatchlistPreview(supabase, userId, limit = 6) {
+export async function fetchProfileWatchlistPreview(supabase, userId, limit = 6, locale = getLocale()) {
   if (!userId) return { items: [], error: null };
 
   const { data: watchlistRows, error: watchError } = await supabase
@@ -82,11 +82,7 @@ export async function fetchProfileWatchlistPreview(supabase, userId, limit = 6) 
   let gamesById = new Map();
 
   if (gameIds.length > 0) {
-    const { data: games, error: gamesError } = await fetchGamesByIds(
-      supabase,
-      gameIds,
-      getLocale(),
-    );
+    const { data: games, error: gamesError } = await fetchGamesByIds(supabase, gameIds, locale);
 
     if (gamesError) {
       return { items: [], error: gamesError };
@@ -102,8 +98,8 @@ export async function fetchProfileWatchlistPreview(supabase, userId, limit = 6) 
     return {
       watchlistId: row.id,
       gameId: row[GAME_FK],
-      title: getGameTitle(game) || row[GAME_FK],
-      cover: getGameCover(game) || null,
+      title: getGameTitle(game, locale) || row[GAME_FK],
+      cover: getGameCover(game, locale) || null,
       progress: row[WATCHLIST.progress] ?? 0,
       game,
     };

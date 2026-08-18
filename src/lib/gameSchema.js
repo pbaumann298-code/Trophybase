@@ -210,7 +210,11 @@ export const WATCHLIST = {
   onConflict: 'user_id,game_id',
 };
 
-/** Feldnamen auf dem gemergten Spiel-Objekt (UI) */
+/**
+ * Feldnamen auf dem gemergten Spiel-Objekt (UI). Lokalisierte Felder sind hier
+ * bereits aufgelöste Strings – cover_url trägt denselben Namen wie die
+ * JSONB-Spalte und wird von mergeGameRecord überschrieben.
+ */
 export const GAME_FIELDS = {
   title: 'title',
   cover: 'cover_url',
@@ -222,6 +226,7 @@ export const GAME_FIELDS = {
   serverStatus: 'server_status',
   hasOnlineTrophies: 'has_online_trophies',
   description: 'description',
+  statusExplanation: 'status_explanation',
   platformGameId: 'platform_game_id',
 };
 

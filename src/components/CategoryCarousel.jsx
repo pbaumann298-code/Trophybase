@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
+import { useLocale } from '../context/LocaleContext';
 import WatchlistButton from './WatchlistButton';
 
 const TILE_CLASS =
   'home-carousel-tile flex-shrink-0 snap-start w-[9.5rem] sm:w-44 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-none';
 
-function CategoryCarousel({ category, games, openGame, getProp, loading, onCategorySearch, onRequestLogin }) {
+function CategoryCarousel({ category, games, openGame, loading, onCategorySearch, onRequestLogin }) {
+  const { globalLocale } = useLocale();
   const trackRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -38,9 +40,9 @@ function CategoryCarousel({ category, games, openGame, getProp, loading, onCateg
   const renderTile = (g, index) => {
     const routeSlug = getRouteSlug(g);
     const watchlistGameId = getGameUuid(g) || routeSlug;
-    const title = getGameTitle(g) || g[GAME_FIELDS.title];
-    const cover = getGameCover(g) || g[GAME_FIELDS.cover];
-    const consoleLabel = g[GAME_FIELDS.console] ?? g.hardware;
+    const title = getGameTitle(g, globalLocale);
+    const cover = getGameCover(g, globalLocale);
+    const consoleLabel = g[GAME_FIELDS.console] ?? '';
     return (
       <a
         href={gameGuidePath(g)}

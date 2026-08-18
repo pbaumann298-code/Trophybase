@@ -38,12 +38,7 @@ export function gameGuidePath(gameOrRef) {
     const id = gameOrRef.trim();
     return id ? `/guide/${id}` : '/';
   }
-  const slug =
-    gameOrRef.platform_game_id ??
-    gameOrRef.NPWR_ID ??
-    gameOrRef.npwr_id ??
-    gameOrRef.id ??
-    gameOrRef.game_id;
+  const slug = gameOrRef.platform_game_id ?? gameOrRef.id ?? gameOrRef.game_id;
   const id = String(slug ?? '').trim();
   return id ? `/guide/${id}` : '/';
 }

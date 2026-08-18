@@ -1,19 +1,38 @@
 import { FALLBACK_LANGUAGE } from './gameSchema';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 
+/** Primärsprache der Redaktion – vor FALLBACK_LANGUAGE in der Fallback-Kette. */
+export const PRIMARY_LANGUAGE = 'de';
+
 /**
- * @param {string|null|undefined} preferred
- * @param {string|null|undefined} fallback
+ * Nur Skalare gelten als Text. Verschachtelte Objekte/Arrays dürfen niemals
+ * über String() zu „[object Object]" werden.
+ * @param {unknown} value
+ * @returns {string}
  */
-export function coalesceText(preferred, fallback) {
-  const a = String(preferred ?? '').trim();
-  if (a) return a;
-  return String(fallback ?? '').trim();
+export function asText(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+/**
+ * Reihenfolge der Sprachkandidaten: gewünschte Sprache → de → en → übrige
+ * unterstützte Sprachen → beliebiger vorhandener Schlüssel.
+ * @param {Record<string, unknown>} map
+ * @param {string} preferred
+ * @param {string} fallback
+ * @returns {string[]}
+ */
+function languageCandidates(map, preferred, fallback) {
+  const chain = [preferred, PRIMARY_LANGUAGE, fallback, ...SUPPORTED_LOCALES, ...Object.keys(map)];
+  return [...new Set(chain.filter(Boolean))];
 }
 
 /**
  * Löst eine JSONB-Sprachmap ({ de, en, es }) auf und meldet, welche Sprache
- * tatsächlich benutzt wurde.
+ * tatsächlich benutzt wurde. Das Ergebnis ist immer ein String.
  * @param {unknown} value
  * @param {string} preferredLang
  * @param {string} [fallbackLang]
@@ -28,27 +47,18 @@ export function pickLocalized(value, preferredLang, fallbackLang = FALLBACK_LANG
 
   // Nicht lokalisierte Altdaten: reiner Text statt Sprachmap
   if (typeof value === 'string' || typeof value === 'number') {
-    return { text: String(value).trim(), locale: preferred || fallback, usedFallback: false };
+    return { text: asText(value), locale: preferred || fallback, usedFallback: false };
   }
 
   if (typeof value !== 'object' || Array.isArray(value)) return empty;
 
   const map = /** @type {Record<string, unknown>} */ (value);
 
-  const fromPreferred = coalesceText(map[preferred], map[preferredLang]);
-  if (fromPreferred) return { text: fromPreferred, locale: preferred, usedFallback: false };
-
-  const fromFallback = coalesceText(map[fallback], map[fallbackLang]);
-  if (fromFallback) return { text: fromFallback, locale: fallback, usedFallback: true };
-
-  for (const candidate of SUPPORTED_LOCALES) {
-    const text = coalesceText(map[candidate], null);
-    if (text) return { text, locale: candidate, usedFallback: true };
-  }
-
-  for (const [key, entry] of Object.entries(map)) {
-    const text = coalesceText(entry, null);
-    if (text) return { text, locale: key, usedFallback: true };
+  for (const candidate of languageCandidates(map, preferred, fallback)) {
+    const text = asText(map[candidate]);
+    if (text) {
+      return { text, locale: candidate, usedFallback: candidate !== preferred };
+    }
   }
 
   return empty;

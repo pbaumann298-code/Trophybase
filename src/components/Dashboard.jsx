@@ -210,8 +210,8 @@ function Dashboard({ sessionUser, openGame }) {
             const { visible, dimmed } = getEntryState(visKey, { completed });
             if (!visible) return null;
 
-            const title = getGameTitle(item.game) || item.routeSlug || 'Unbekanntes Spiel';
-            const cover = getGameCover(item.game);
+            const title = getGameTitle(item.game, globalLocale) || item.routeSlug || 'Unbekanntes Spiel';
+            const cover = getGameCover(item.game, globalLocale);
             const userHidden = isHidden(visKey);
 
             return (

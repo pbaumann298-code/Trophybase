@@ -9,7 +9,6 @@ import '../styles/home.css';
 
 function HomePage({
   openGame,
-  getProp,
   searchQuery,
   setSearchQuery,
   handleSearchSubmit,
@@ -29,7 +28,7 @@ function HomePage({
     async function load() {
       setLoading(true);
       try {
-        const byId = await fetchAllHomeCategories(supabase, getProp);
+        const byId = await fetchAllHomeCategories(supabase, globalLocale);
         if (!cancelled) setCategoryGames(byId);
       } catch (err) {
         console.error('Startseite: Kategorien konnten nicht geladen werden:', err);
@@ -43,7 +42,7 @@ function HomePage({
     return () => {
       cancelled = true;
     };
-  }, [getProp, globalLocale]);
+  }, [globalLocale]);
 
   return (
     <div className="home-landing w-full min-w-0 overflow-x-hidden box-border">
@@ -97,7 +96,6 @@ function HomePage({
             category={category}
             games={categoryGames[category.id] || []}
             openGame={openGame}
-            getProp={getProp}
             loading={loading}
             onCategorySearch={onCategorySearch}
             onRequestLogin={onRequestLogin}

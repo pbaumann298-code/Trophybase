@@ -1,7 +1,6 @@
 import {
   GAME_PK,
   GAME_PLATFORM_ID,
-  GAME_STRUCT,
   GAME_I18N,
   GAME_FIELDS,
   ACHIEVEMENT_PK,
@@ -9,10 +8,17 @@ import {
   ACHIEVEMENT_I18N,
   FALLBACK_LANGUAGE,
 } from './gameSchema';
-import { localizeJsonField, parsePercentValue, pickLocalized } from './translationUtils';
+import {
+  localizeJsonField,
+  parsePercentValue,
+  pickLocalized,
+  PRIMARY_LANGUAGE,
+} from './translationUtils';
 
 /**
  * Mergt eine games-Zeile (JSONB-Sprachmaps) zu einem flachen UI-Objekt.
+ * Die JSONB-Spalten werden dabei durch die aufgelösten Strings ersetzt, damit
+ * kein Rohobjekt in die UI gelangt.
  * @param {Record<string, unknown>} gameRow
  * @param {string} locale
  * @param {string} [fallbackLocale]
@@ -22,62 +28,24 @@ export function mergeGameRecord(gameRow, locale, fallbackLocale = FALLBACK_LANGU
 
   const titlePick = pickLocalized(gameRow[GAME_I18N.title], locale, fallbackLocale);
   const description = localizeJsonField(gameRow[GAME_I18N.description], locale, fallbackLocale);
-  const cover_url = localizeJsonField(gameRow[GAME_I18N.coverUrl], locale, fallbackLocale);
+  const cover = localizeJsonField(gameRow[GAME_I18N.coverUrl], locale, fallbackLocale);
   const statusExplanation = localizeJsonField(
     gameRow[GAME_I18N.statusExplanation],
     locale,
     fallbackLocale,
   );
 
-  const merged = {
+  return {
     ...gameRow,
     [GAME_FIELDS.title]: titlePick.text,
     [GAME_FIELDS.description]: description,
-    [GAME_FIELDS.cover]: cover_url,
-    // JSONB-Spalten durch aufgelöste Strings ersetzen
+    [GAME_FIELDS.cover]: cover,
+    [GAME_FIELDS.statusExplanation]: statusExplanation,
     [GAME_I18N.title]: titlePick.text,
     [GAME_I18N.description]: description,
     [GAME_I18N.statusExplanation]: statusExplanation,
-    status_explanation: statusExplanation,
     _locale: titlePick.locale,
     _translationFallback: titlePick.usedFallback,
-  };
-
-  return applyLegacyGameAliases(merged);
-}
-
-/** Aliase für bestehende UI-Bindings (Spieltitel, Cover_URL, …) */
-export function applyLegacyGameAliases(game) {
-  if (!game) return game;
-
-  const title = game[GAME_FIELDS.title] ?? game.Spieltitel ?? '';
-  const cover = game[GAME_FIELDS.cover] ?? game.Cover_URL ?? '';
-  const description = game[GAME_FIELDS.description] ?? game.Beschreibung_de ?? '';
-  const year = game[GAME_STRUCT.releaseYear] ?? game.Release_Jahr ?? null;
-  const developer = game[GAME_STRUCT.developer] ?? game.Entwickler ?? '';
-
-  return {
-    ...game,
-    NPWR_ID: game[GAME_PLATFORM_ID] ?? game.NPWR_ID,
-    npwr_id: game[GAME_PLATFORM_ID] ?? game.npwr_id,
-    Spieltitel: title,
-    Cover_URL: cover,
-    cover_url: cover,
-    Konsole: game[GAME_STRUCT.hardware] ?? game.Konsole,
-    konsole: game[GAME_STRUCT.hardware] ?? game.konsole,
-    Release_Jahr: year,
-    release_jahr: year,
-    /** @deprecated Spalte heißt release_jahr */
-    release_year: year,
-    Entwickler: developer,
-    entwickler: developer,
-    /** @deprecated Spalte heißt entwickler */
-    developer,
-    Genre: game[GAME_STRUCT.genre] ?? game.Genre,
-    beschreibung: description,
-    beschreibung_de: description,
-    Beschreibung_de: description,
-    Status: game[GAME_STRUCT.status] ?? game.Status,
   };
 }
 
@@ -150,7 +118,7 @@ export function getGameUuid(game) {
 
 export function getPlatformGameId(game) {
   if (!game || typeof game === 'string') return '';
-  return String(game[GAME_PLATFORM_ID] ?? game.NPWR_ID ?? game.npwr_id ?? '').trim();
+  return String(game[GAME_PLATFORM_ID] ?? '').trim();
 }
 
 /** URL-Segment: Plattform-ID bevorzugt, sonst UUID */
@@ -160,14 +128,68 @@ export function getRouteSlug(gameOrId) {
   return getPlatformGameId(gameOrId) || getGameUuid(gameOrId);
 }
 
-export function getGameTitle(game) {
-  if (!game) return '';
-  return String(game[GAME_FIELDS.title] ?? game.Spieltitel ?? '').trim();
+/**
+ * Liest ein lokalisiertes games-Feld unabhängig davon, ob die Zeile noch die
+ * rohe JSONB-Sprachmap enthält oder bereits durch mergeGameRecord lief.
+ * Gibt garantiert einen String zurück – niemals ein Objekt.
+ * @param {object|null|undefined} game
+ * @param {string} jsonbColumn JSONB-Spalte auf games (z. B. spieltitel)
+ * @param {string|null} mergedField Feld auf dem gemergten UI-Objekt
+ * @param {string} locale
+ * @returns {string}
+ */
+function readLocalizedGameField(game, jsonbColumn, mergedField, locale) {
+  if (!game || typeof game !== 'object') return '';
+
+  const fromColumn = localizeJsonField(game[jsonbColumn], locale);
+  if (fromColumn) return fromColumn;
+
+  if (mergedField && mergedField !== jsonbColumn) {
+    return localizeJsonField(game[mergedField], locale);
+  }
+
+  return '';
 }
 
-export function getGameCover(game) {
-  if (!game) return '';
-  return String(game[GAME_FIELDS.cover] ?? game.Cover_URL ?? '').trim();
+/**
+ * @param {object|null|undefined} game
+ * @param {string} [locale]
+ * @returns {string}
+ */
+export function getGameTitle(game, locale = PRIMARY_LANGUAGE) {
+  return readLocalizedGameField(game, GAME_I18N.title, GAME_FIELDS.title, locale);
+}
+
+/**
+ * @param {object|null|undefined} game
+ * @param {string} [locale]
+ * @returns {string}
+ */
+export function getGameCover(game, locale = PRIMARY_LANGUAGE) {
+  return readLocalizedGameField(game, GAME_I18N.coverUrl, GAME_FIELDS.cover, locale);
+}
+
+/**
+ * @param {object|null|undefined} game
+ * @param {string} [locale]
+ * @returns {string}
+ */
+export function getGameDescription(game, locale = PRIMARY_LANGUAGE) {
+  return readLocalizedGameField(game, GAME_I18N.description, GAME_FIELDS.description, locale);
+}
+
+/**
+ * @param {object|null|undefined} game
+ * @param {string} [locale]
+ * @returns {string}
+ */
+export function getGameStatusExplanation(game, locale = PRIMARY_LANGUAGE) {
+  return readLocalizedGameField(
+    game,
+    GAME_I18N.statusExplanation,
+    GAME_FIELDS.statusExplanation,
+    locale,
+  );
 }
 
 export const UUID_PATTERN =

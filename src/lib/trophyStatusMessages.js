@@ -1,4 +1,4 @@
-import { TABLES } from './gameSchema';
+import { GAME_STRUCT, TABLES } from './gameSchema';
 import { DEFAULT_LOCALE, normalizeLocale } from './locale';
 
 export const STATUS_MESSAGE_KEYS = {
@@ -66,31 +66,31 @@ export function normalizeGameFlag(value) {
     .replace(/\s+/g, '_');
 }
 
-export function isServerOffline(game, getProp) {
-  const status = normalizeGameFlag(
-    getProp(game, ['server_status', 'Server_Status', 'server_Status']),
-  );
+/** @param {Record<string, unknown>|null|undefined} game */
+export function isServerOffline(game) {
+  const status = normalizeGameFlag(game?.[GAME_STRUCT.serverStatus]);
   return SERVER_OFFLINE_VALUES.includes(status);
 }
 
-/** server_status = „tot“ (inkl. Varianten) → Hinweis id 2 in der Cover-Kachel */
-export function isServerDead(game, getProp) {
-  const raw = String(
-    getProp(game, ['server_status', 'Server_Status', 'server_Status']) ?? '',
-  )
-    .trim()
-    .toLowerCase();
+/**
+ * server_status = „tot“ (inkl. Varianten) → Hinweis id 2 in der Cover-Kachel
+ * @param {Record<string, unknown>|null|undefined} game
+ */
+export function isServerDead(game) {
+  const raw = String(game?.[GAME_STRUCT.serverStatus] ?? '').trim().toLowerCase();
   return raw === 'tot' || raw === 'server_tot' || raw === 'offline';
 }
 
-export function hasOnlineTrophiesFlag(game, getProp) {
-  const raw = getProp(game, ['has_online_trophies', 'Has_Online_Trophies']);
+/** @param {Record<string, unknown>|null|undefined} game */
+export function hasOnlineTrophiesFlag(game) {
+  const raw = game?.[GAME_STRUCT.hasOnlineTrophies];
   if (raw === true) return true;
   return String(raw ?? '').trim().toUpperCase() === 'TRUE';
 }
 
-export function isComingSoonStatus(game, getProp) {
-  const status = normalizeGameFlag(getProp(game, ['Status', 'status', 'game_status']));
+/** @param {Record<string, unknown>|null|undefined} game */
+export function isComingSoonStatus(game) {
+  const status = normalizeGameFlag(game?.[GAME_STRUCT.status]);
   return status === GAME_STATUS_COMING_SOON;
 }
 

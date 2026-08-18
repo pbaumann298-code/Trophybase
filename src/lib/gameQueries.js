@@ -245,6 +245,9 @@ async function searchStructColumn(supabase, column, pattern, limit) {
 }
 
 /**
+ * Sucht in einer JSONB-Sprachmap (spieltitel->>de …) oder einer skalaren
+ * Textspalte (genre, entwickler). Die Spalte muss in einer der beiden
+ * Allowlists stehen, damit kein beliebiger Filter durchgereicht wird.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} column
  * @param {string} pattern
@@ -254,19 +257,22 @@ async function searchStructColumn(supabase, column, pattern, limit) {
 export async function searchGamesByColumn(supabase, column, pattern, limit = 60, locale = getLocale()) {
   const safeLimit = Math.min(Math.max(Number(limit) || 60, 1), 100);
 
-  if (column === GAME_SEARCH_LOCALIZED_COLUMNS.title) {
-    const { data, error } = await searchLocalizedColumn(supabase, column, pattern, safeLimit);
-    if (error) return { data: [], error };
-    return { data: mergeGameRows(data, locale), error: null };
-  }
+  const localizedColumns = new Set(Object.values(GAME_SEARCH_LOCALIZED_COLUMNS));
+  const structColumns = new Set(Object.values(GAME_SEARCH_STRUCT_COLUMNS));
 
-  const allowed = new Set(Object.values(GAME_SEARCH_STRUCT_COLUMNS));
-  const colCheck = validateSearchColumn(column, allowed);
+  const colCheck = validateSearchColumn(
+    column,
+    new Set([...localizedColumns, ...structColumns]),
+  );
   if (!colCheck.valid) {
     return { data: [], error: new Error(colCheck.error) };
   }
 
-  const { data, error } = await searchStructColumn(supabase, colCheck.column, pattern, safeLimit);
+  const runSearch = localizedColumns.has(colCheck.column)
+    ? searchLocalizedColumn
+    : searchStructColumn;
+
+  const { data, error } = await runSearch(supabase, colCheck.column, pattern, safeLimit);
   if (error) return { data: [], error };
 
   return { data: mergeGameRows(data, locale), error: null };
