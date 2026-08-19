@@ -4,17 +4,12 @@ import Header from './components/Header';
 import HomePage from './pages/HomePage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import GameDetailPage from "./pages/GameDetailPage";
-import { CollectibleKacheln } from './pages/CollectibleKacheln';
 import LoginPage from './pages/LoginPage';
 import SocialLinkPage from './pages/SocialLinkPage';
 import TesterSetupPage from './pages/TesterSetupPage';
 import MaintenancePage from './pages/MaintenancePage';
 import BetaRegistrationPage from './pages/BetaRegistrationPage';
-import {
-  hasMaintenanceBypass,
-  isGateAccount,
-  normalizeEmail,
-} from './lib/maintenanceAccess';
+import { hasMaintenanceBypass } from './lib/maintenanceAccess';
 import {
   handleSocialLinkRedirect,
   signInWithGatePassword,
@@ -36,14 +31,18 @@ import { fetchGameByRouteRef } from './lib/gameQueries';
 import { useLocale } from './context/LocaleContext';
 import {
   countEarnedInList,
-  earnedIdsToUnlockedMap,
   fetchGameTrophiesWithEarned,
 } from './lib/earnedTrophyQueries';
 import { getTrophyIdKey } from './lib/trophyQueries';
+import { getGameUuid } from './lib/gameModel';
 import {
   loadCompletedGuideItems,
   saveCompletedGuideItems,
 } from './lib/guideProgressStorage';
+import {
+  mergeUnlockedTrophies,
+  saveUnlockedTrophies,
+} from './lib/trophyProgressStorage';
 import { ErrorReportProvider } from './context/ErrorReportContext';
 import { WatchlistProvider } from './context/WatchlistContext';
 
@@ -166,7 +165,8 @@ function App() {
 
     if (gameData) {
       setSelectedGame(gameData);
-      setUnlockedTrophies({});
+      const gameUuid = getGameUuid(gameData);
+      setUnlockedTrophies(mergeUnlockedTrophies(gameUuid));
       setEarnedTrophyIds(new Set());
 
       const { data: { session } } = await supabase.auth.getSession();
@@ -180,9 +180,7 @@ function App() {
       );
       setActiveTrophies(trophies);
       setEarnedTrophyIds(earnedIds);
-      if (earnedIds.size > 0) {
-        setUnlockedTrophies(earnedIdsToUnlockedMap(earnedIds));
-      }
+      setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
 
       const { chapters, guides, bosses } = await fetchGameGuideBundle(
         supabase,
@@ -195,6 +193,8 @@ function App() {
     } else {
       setSelectedGame(null);
       setActiveTrophies([]);
+      setUnlockedTrophies({});
+      setEarnedTrophyIds(new Set());
     }
 
     setLoadingGuide(false);
@@ -211,6 +211,7 @@ function App() {
     let cancelled = false;
     const gameId = resolveGameId(selectedGame);
     if (!gameId) return;
+    const gameUuid = getGameUuid(selectedGame);
 
     async function reloadTrophies() {
       const userId = sessionUser?.id ?? null;
@@ -224,11 +225,7 @@ function App() {
 
       setActiveTrophies(trophies);
       setEarnedTrophyIds(earnedIds);
-      setUnlockedTrophies((prev) => {
-        const next = { ...prev };
-        for (const id of earnedIds) next[id] = true;
-        return next;
-      });
+      setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
     }
 
     reloadTrophies();
@@ -364,7 +361,8 @@ function App() {
     setGuideItems([]);
     setChapterItems([]);
     setBossItems([]);
-    setUnlockedTrophies({});
+    const gameUuid = getGameUuid(game);
+    setUnlockedTrophies(mergeUnlockedTrophies(gameUuid));
     setEarnedTrophyIds(new Set());
 
     const gameId = resolveGameId(game);
@@ -380,9 +378,7 @@ function App() {
       );
       setActiveTrophies(trophies);
       setEarnedTrophyIds(earnedIds);
-      if (earnedIds.size > 0) {
-        setUnlockedTrophies(earnedIdsToUnlockedMap(earnedIds));
-      }
+      setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
 
       const { chapters, guides, bosses } = await fetchGameGuideBundle(
         supabase,
@@ -398,7 +394,13 @@ function App() {
 
   const toggleTrophy = (id) => {
     if (earnedTrophyIds.has(id)) return;
-    setUnlockedTrophies(prev => ({ ...prev, [id]: !prev[id] }));
+    const gameUuid = getGameUuid(selectedGame);
+    setUnlockedTrophies((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      if (!next[id]) delete next[id];
+      saveUnlockedTrophies(gameUuid, next, earnedTrophyIds);
+      return next;
+    });
   };
 
   const toggleGuideItemCompleted = (id) => {
