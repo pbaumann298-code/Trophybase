@@ -29,6 +29,7 @@
  * @property {boolean} [is_sony_fallback]
  * @property {boolean} [is_auto_translated]
  * @property {string} [original_locale]
+ * @property {string} [slug] Pretty-URL-Segment, eindeutig pro Konsole
  * @property {LocalizedText} [spieltitel]
  * @property {LocalizedText} [cover_url]
  * @property {LocalizedText} [beschreibung]

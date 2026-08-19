@@ -9,6 +9,7 @@ import { getLocale } from './locale';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 import { getGameUuid, isUuid, mergeGameRecord, mergeGameRows } from './gameModel';
 import { mergeLocalizedValue } from './translationUtils';
+import { hardwareToUrlSegment } from './gameSlug';
 import { NPWR_ID_PATTERN, UUID_PATTERN } from './routeUtils';
 
 export const GAME_SELECT = [
@@ -35,6 +36,7 @@ export const GAME_SELECT = [
   GAME_STRUCT.isAutoTranslated,
   GAME_STRUCT.originalLocale,
   GAME_STRUCT.createdAt,
+  GAME_STRUCT.slug,
   GAME_I18N.title,
   GAME_I18N.coverUrl,
   GAME_I18N.description,
@@ -147,6 +149,37 @@ async function fetchGameStructByRef(supabase, ref) {
 
   const { data, error } = await query.maybeSingle();
   return { data, error };
+}
+
+/**
+ * Spiel über Pretty-URL /:locale/:hardware/:slug laden.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} hardware URL-Segment (ps5, ps4, …)
+ * @param {string} slug
+ * @param {string} [locale]
+ */
+export async function fetchGameBySlug(supabase, hardware, slug, locale = getLocale()) {
+  const wantedSlug = String(slug ?? '').trim().toLowerCase();
+  const wantedHw = String(hardware ?? '').trim().toLowerCase();
+  if (!wantedSlug || !wantedHw) {
+    return { data: null, error: new Error('Pretty-URL unvollständig') };
+  }
+
+  const { data, error } = await supabase
+    .from(TABLES.games)
+    .select(GAME_SELECT)
+    .eq(GAME_STRUCT.slug, wantedSlug)
+    .limit(20);
+
+  if (error) return { data: null, error };
+
+  const rows = data ?? [];
+  const match =
+    rows.find((row) => hardwareToUrlSegment(row[GAME_STRUCT.hardware]) === wantedHw) ??
+    (rows.length === 1 ? rows[0] : null);
+
+  if (!match) return { data: null, error: null };
+  return { data: mergeGameRecord(match, locale), error: null };
 }
 
 /**

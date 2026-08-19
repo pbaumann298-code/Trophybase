@@ -1,4 +1,10 @@
 import { resolveViewForSession } from './trophyBaseAuth';
+import { getLocale, normalizeLocale } from './locale';
+import {
+  buildPrettyGamePath,
+  hardwareToUrlSegment,
+  parsePrettyGamePath,
+} from './gameSlug';
 
 /** NPWR-IDs haben das Format NPWR12345_00 (legacy platform_game_id) */
 export const NPWR_ID_PATTERN = /^NPWR\d+_\d+$/i;
@@ -20,6 +26,12 @@ export function canRenderAppContent({ isMaintenanceMode, maintenanceBypass, sess
   return false;
 }
 
+export function normalizePath(pathname = '') {
+  const path = pathname || (typeof window !== 'undefined' ? window.location.pathname : '');
+  if (!path || path === '/') return '/';
+  return path.endsWith('/') && path.length > 1 ? path.slice(0, -1) : path;
+}
+
 /** View aus URL-Pfad (Deep Links bei F5 / Direktaufruf). */
 export function getViewFromPath(pathname = '') {
   const path = normalizePath(pathname);
@@ -27,30 +39,38 @@ export function getViewFromPath(pathname = '') {
   if (path.startsWith('/admin/qa')) return 'qa_admin';
   if (path.startsWith('/guide/')) return 'game_info';
   if (path === '/beta' || path.startsWith('/beta/')) return 'beta';
+  if (parsePrettyGamePath(path)) return 'game_info';
   if (getGameIdFromPath(path)) return 'game_info';
   return null;
 }
 
-/** Kanonische Guide-URL: platform_game_id bevorzugt, sonst games.id (UUID) */
-export function gameGuidePath(gameOrRef) {
+/**
+ * Pretty-URL wenn slug + Konsole da sind: /de/ps5/astro-bot
+ * sonst Legacy /guide/{platform_game_id|uuid}.
+ * @param {object|string|null|undefined} gameOrRef
+ * @param {string} [locale]
+ */
+export function gameGuidePath(gameOrRef, locale = getLocale()) {
   if (!gameOrRef) return '/';
+
   if (typeof gameOrRef === 'string') {
     const id = gameOrRef.trim();
     return id ? `/guide/${id}` : '/';
   }
-  const slug = gameOrRef.platform_game_id ?? gameOrRef.id ?? gameOrRef.game_id;
-  const id = String(slug ?? '').trim();
-  return id ? `/guide/${id}` : '/';
-}
 
-function normalizePath(pathname = '') {
-  const path = pathname || (typeof window !== 'undefined' ? window.location.pathname : '');
-  if (!path || path === '/') return '/';
-  return path.endsWith('/') && path.length > 1 ? path.slice(0, -1) : path;
+  const slug = String(gameOrRef.slug ?? '').trim();
+  const hardware = hardwareToUrlSegment(gameOrRef.hardware);
+  const pretty = buildPrettyGamePath(normalizeLocale(locale), hardware, slug);
+  if (pretty) return pretty;
+
+  const fallback = gameOrRef.platform_game_id ?? gameOrRef.id ?? gameOrRef.game_id;
+  const id = String(fallback ?? '').trim();
+  return id ? `/guide/${id}` : '/';
 }
 
 /**
  * Route segment from /guide/{id} — UUID or platform_game_id (e.g. NPWR…)
+ * Pretty-URLs /:locale/:hardware/:slug werden von parsePrettyGamePath gelesen.
  */
 export function getGameIdFromPath(pathname = '') {
   const path = normalizePath(pathname);
@@ -69,7 +89,7 @@ export function getGameIdFromPath(pathname = '') {
 }
 
 /**
- * Session-View, aber Deep Links (/guide/…, /NPWR…) haben Vorrang vor home/login-Redirect.
+ * Session-View, aber Deep Links (/guide/…, /de/ps5/…, /NPWR…) haben Vorrang vor home/login-Redirect.
  */
 export function resolveAppViewForSession(user, pathname) {
   const pathView = getViewFromPath(pathname);
@@ -81,6 +101,7 @@ export function resolveAppViewForSession(user, pathname) {
 export function writeAppPath(path, { replace = false } = {}) {
   if (typeof window === 'undefined') return;
   const target = path || '/';
+  if (normalizePath(window.location.pathname) === normalizePath(target)) return;
   if (replace) {
     window.history.replaceState({}, '', target);
   } else {
@@ -96,6 +117,18 @@ export function navigateToProfile() {
   writeAppPath('/profile');
 }
 
-export function navigateToGame(gameOrRef, { replace = false } = {}) {
-  writeAppPath(gameGuidePath(gameOrRef), { replace });
+export function navigateToGame(gameOrRef, { replace = false, locale = getLocale() } = {}) {
+  writeAppPath(gameGuidePath(gameOrRef, locale), { replace });
 }
+
+/** Sprachwechsel auf einer Pretty-URL: nur das Locale-Segment tauschen. */
+export function syncPathLocale(nextLocale) {
+  if (typeof window === 'undefined') return;
+  const pretty = parsePrettyGamePath(window.location.pathname);
+  if (!pretty) return;
+  const normalized = normalizeLocale(nextLocale);
+  if (pretty.locale === normalized) return;
+  writeAppPath(buildPrettyGamePath(normalized, pretty.hardware, pretty.slug), { replace: true });
+}
+
+export { parsePrettyGamePath };

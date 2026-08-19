@@ -21,13 +21,16 @@ import {
   navigateToHome,
   canRenderAppContent,
   resolveAppViewForSession,
+  writeAppPath,
+  gameGuidePath,
+  parsePrettyGamePath,
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
 import ProfilePage from './pages/ProfilePage';
 import QaAdminPage from './pages/QaAdminPage';
 import { TABLES } from './lib/gameSchema';
 import { fetchGameGuideBundle, resolveGameId } from './lib/guideQueries';
-import { fetchGameByRouteRef } from './lib/gameQueries';
+import { fetchGameByRouteRef, fetchGameBySlug } from './lib/gameQueries';
 import { useLocale } from './context/LocaleContext';
 import {
   countEarnedInList,
@@ -35,6 +38,7 @@ import {
 } from './lib/earnedTrophyQueries';
 import { getTrophyIdKey } from './lib/trophyQueries';
 import { getGameUuid } from './lib/gameModel';
+import { applyGameSeoLinks, clearGameSeoLinks } from './lib/seoHead';
 import {
   loadCompletedGuideItems,
   saveCompletedGuideItems,
@@ -143,27 +147,37 @@ function App() {
 
   // Deep Link / F5: Spieldaten aus URL laden
   const loadGameFromUrl = useCallback(async (pathname = window.location.pathname) => {
-    const gameIdFromUrl = getGameIdFromPath(pathname);
-    if (!gameIdFromUrl) return;
-
-    if (!pathname.startsWith('/guide/')) {
-      navigateToGame(gameIdFromUrl, { replace: true });
-    }
+    const pretty = parsePrettyGamePath(pathname);
+    const legacyRef = getGameIdFromPath(pathname);
+    if (!pretty && !legacyRef) return;
 
     setCurrentView('game_info');
     setLoadingGuide(true);
 
-    const { data: gameData, error: gameError } = await fetchGameByRouteRef(
-      supabase,
-      gameIdFromUrl,
-      globalLocale,
-    );
+    const localeForPage = pretty?.locale || globalLocale;
+    let gameData;
+    let gameError;
+
+    if (pretty) {
+      const result = await fetchGameBySlug(supabase, pretty.hardware, pretty.slug, localeForPage);
+      gameData = result.data;
+      gameError = result.error;
+    } else {
+      const result = await fetchGameByRouteRef(supabase, legacyRef, localeForPage);
+      gameData = result.data;
+      gameError = result.error;
+    }
 
     if (gameError) {
-      console.error('Guide Deep-Link:', gameError.message, { gameId: gameIdFromUrl });
+      console.error('Guide Deep-Link:', gameError.message, {
+        path: pathname,
+        ref: pretty ? `${pretty.hardware}/${pretty.slug}` : legacyRef,
+      });
     }
 
     if (gameData) {
+      writeAppPath(gameGuidePath(gameData, localeForPage), { replace: true });
+
       setSelectedGame(gameData);
       const gameUuid = getGameUuid(gameData);
       setUnlockedTrophies(mergeUnlockedTrophies(gameUuid));
@@ -176,7 +190,7 @@ function App() {
         supabase,
         userId,
         gameData,
-        globalLocale,
+        localeForPage,
       );
       setActiveTrophies(trophies);
       setEarnedTrophyIds(earnedIds);
@@ -185,7 +199,7 @@ function App() {
       const { chapters, guides, bosses } = await fetchGameGuideBundle(
         supabase,
         gameData,
-        globalLocale,
+        localeForPage,
       );
       setChapterItems(chapters);
       setGuideItems(guides);
@@ -367,7 +381,7 @@ function App() {
 
     const gameId = resolveGameId(game);
     if (gameId) {
-      navigateToGame(game);
+      navigateToGame(game, { locale: globalLocale });
 
       const userId = sessionUser?.id ?? null;
       const { trophies, earnedIds } = await fetchGameTrophiesWithEarned(
@@ -426,6 +440,15 @@ function App() {
     window.history.pushState({}, '', '/');
     setCurrentView('home');
   };
+
+  useEffect(() => {
+    if (currentView !== 'game_info' || !selectedGame) {
+      clearGameSeoLinks();
+      return undefined;
+    }
+    applyGameSeoLinks({ locale: globalLocale, game: selectedGame });
+    return () => clearGameSeoLinks();
+  }, [currentView, selectedGame, globalLocale]);
 
   const goHome = useCallback(() => {
     setCurrentView('home');

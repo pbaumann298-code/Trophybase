@@ -45,11 +45,11 @@ function CategoryCarousel({ category, games, openGame, loading, onCategorySearch
     const consoleLabel = g[GAME_FIELDS.console] ?? '';
     return (
       <a
-        href={gameGuidePath(g)}
+        href={gameGuidePath(g, globalLocale)}
         key={routeSlug || watchlistGameId || `${category.id}-${index}`}        className={TILE_CLASS}
         onClick={(e) => {
           e.preventDefault();
-          navigateToGame(g);
+          navigateToGame(g, { locale: globalLocale });
           openGame(g);
         }}
       >

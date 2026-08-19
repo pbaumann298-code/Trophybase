@@ -66,6 +66,7 @@ export const GAME_STRUCT = {
   isAutoTranslated: 'is_auto_translated',
   originalLocale: 'original_locale',
   createdAt: 'created_at',
+  slug: 'slug',
 };
 
 /** JSONB-Sprachmaps auf public.games */

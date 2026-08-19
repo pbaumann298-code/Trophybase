@@ -7,41 +7,43 @@ fertige deutsche Guides. Pretty-URLs gelten **nur für veröffentlichte Guides**
 
 ```
 trophybase.app/de/ps5/elden-ring
-               │   │    └── Slug, gespeichert in der DB, nicht bei jedem Build neu gerechnet
-               │   └── Konsole, kleingeschrieben (PS5 → ps5)
+               │   │    └── Slug, gespeichert in games.slug, nicht bei jedem Request neu gerechnet
+               │   └── Konsole, kleingeschrieben (PS5 → ps5; PS4/PS5 → ps5)
                └── Sprache zuerst
 ```
 
 Sprache steht vorn, nicht die Konsole. hreflang, Sitemaps und Routing hängen am
-Pfad-Anfang; Standardwerkzeuge erwarten das so. `/ps5/de/elden-ring` ist machbar,
-aber man kämpft damit gegen jedes Tool.
+Pfad-Anfang; Standardwerkzeuge erwarten das so.
 
-Ein **gemeinsamer Slug für alle Sprachen**, abgeleitet vom deutschen Titel (zum
-Start sowieso der einzige). Eigene Slugs pro Sprache (`/de/…/der-titel` vs.
-`/en/…/the-title`) verdoppeln Kollisionen und Pflege, und fehlende Übersetzungen
-hätten keine Adresse. Lokalisierten Slug kann man später ergänzen — der gemeinsame
-ist der stabile Kern.
+Ein **gemeinsamer Slug für alle Sprachen**, abgeleitet vom englischen Titel
+(`spieltitel->>'en'`, Fallback `de` / `es`). Eigene Slugs pro Sprache verdoppeln
+Kollisionen und Pflege. Der gemeinsame Slug ist der stabile Kern.
+
+**Stand der Umsetzung:** SPA-Routing, Slug-Trigger (SQL) und Laufzeit-Tags
+(canonical + hreflang) sind im Frontend verdrahtet. `/guide/{id}` bleibt als
+Fallback und wird clientseitig auf die Pretty-URL umgeschrieben, sobald `slug`
+gesetzt ist. Statisches HTML für Google (Prerender) bleibt `docs/seo-rendering.md`.
 
 ## Was gespeichert wird
 
-Neue Spalte auf `public.games`:
+Neue Spalte auf `public.games` — Skript: `supabase/games_slug.sql`.
 
 ```sql
 alter table public.games
   add column if not exists slug text;
 
 create unique index if not exists games_hardware_slug_idx
-  on public.games (lower(hardware), slug)
-  where slug is not null;
+  on public.games (tb_hardware_slug(hardware), slug)
+  where slug is not null and tb_hardware_slug(hardware) is not null;
 ```
 
-`slug` ist einmal berechnet und danach unveränderlich. Titelkorrekturen ändern
-die URL nicht. Wenn ein Slug wirklich umbenannt werden muss: alten Wert in einer
-kleinen Redirect-Tabelle halten und per 301 weiterleiten — nicht den Slug
-überschreiben.
+`slug` ist **nicht** global UNIQUE: dieselbe Basis (`god-of-war`) darf auf PS4
+und PS5 existieren, weil die URLs `/de/ps4/god-of-war` und `/de/ps5/god-of-war`
+verschieden sind. Unique ist `(Konsole, Slug)`.
 
-Pretty-URL nur setzen, wo ein Guide veröffentlicht wird. Die restlichen Zeilen
-behalten `slug = null` und bleiben über die Suche erreichbar, ohne eigene Adresse.
+Ein Trigger (`games_assign_slug`) setzt den Slug beim Insert aus
+`slugify(spieltitel->>'en')`. Danach bleibt er unveränderlich. Titelkorrekturen
+ändern die URL nicht. Reicht ein Jahr-Suffix nicht: kurzes `platform_game_id`-Suffix.
 
 ## Wo die URLs herkommen
 
@@ -49,22 +51,17 @@ Kurz: **Niemand legt 42.000 Adressen als Dateien an.** Eine URL ist eine
 *Rechenregel* plus Felder aus der Datenbankzeile. Der Website-Code enthält
 keine Ordner pro Spiel.
 
-**Heute** kommt ein Besucher z. B. auf `/guide/NPWR12345_00`. Vercel kennt diese
-Datei nicht — `vercel.json` schickt jeden unbekannten Pfad an dieselbe
-`index.html`. React startet, liest den Pfad (`getViewFromPath` /
-`getGameIdFromPath` in `src/lib/routeUtils.js`) und fragt Supabase nach genau
-dieser einen Zeile (`fetchGameByRouteRef` in `src/lib/gameQueries.js`). Die
-Adresse selbst hat `gameGuidePath()` gebaut: `/guide/` plus
-`platform_game_id`, sonst die UUID `id`. Die URL existiert, sobald die Zeile
-in `games` existiert — nicht sobald jemand eine HTML-Datei angelegt hat.
+**Heute** kommt ein Besucher z. B. auf `/de/ps5/elden-ring` oder noch auf
+`/guide/NPWR12345_00`. Vercel kennt diese Datei nicht — `vercel.json` schickt
+jeden unbekannten Pfad an dieselbe `index.html`. React startet, liest den Pfad
+(`parsePrettyGamePath` / `getGameIdFromPath` in `src/lib/routeUtils.js`) und
+fragt Supabase (`fetchGameBySlug` bzw. `fetchGameByRouteRef`).
+`gameGuidePath()` baut `/{locale}/{hardware}/{slug}`, sobald `games.slug` und
+eine erkannte Konsole da sind, sonst `/guide/{platform_game_id|id}`.
 
-**Künftig** (nur fertige Guides) ändert sich die *Regel*, nicht das Prinzip:
-`/{sprache}/{konsole}/{slug}`, z. B. `/de/ps5/elden-ring`. Der `slug` wird
-**einmal** berechnet und in `games.slug` gespeichert. Danach gehört er zur
-Tabellenzeile, nicht zu einer Datei im Repo. Titelkorrekturen ändern die URL
-nicht. Die übrigen ~41.500 Stammdaten-Zeilen brauchen zum Start **keine**
-Pretty-URL und **keine** Datei; sie bleiben über die Suche erreichbar. Wenn
-später eine Adresse gebraucht wird: Slug setzen (Skript), fertig.
+Altpfade `/guide/…` werden nach dem Laden per `replaceState` auf die Pretty-URL
+gehoben. `/profile`, `/admin`, `/admin/qa`, `/beta` liegen außerhalb dieses
+Schemas.
 
 Die HTML-Dateien unter `dist/de/ps5/…` aus dem geplanten Prerender
 (`docs/seo-rendering.md`) sind ein **SEO-Cache** für Google — eine Kopie des
@@ -110,8 +107,21 @@ PS4-Original neben PS4-Remaster, das QA fälschlich beide als `PS4` schreibt):
 Reicht das Jahr nicht (zwei Einträge, gleiches Jahr, gleiche Konsole):
 kurzes `platform_game_id`-Suffix. Nicht als erste Regel — die IDs sind hässlich.
 
-Konsolen-Segment: `PS3`/`PS4`/`PS5` → `ps3`/`ps4`/`ps5`. Unbekannt oder leer:
-kein Pretty-URL, bis die Zeile bereinigt ist.
+Konsolen-Segment: `PS3`/`PS4`/`PS5` → `ps3`/`ps4`/`ps5`. `PS4/PS5` wird zu
+`ps5` (höchste Generation). Unbekannt oder leer: kein Pretty-URL.
+
+## SEO-Tags (Laufzeit)
+
+`src/lib/seoHead.js` setzt im `<head>`:
+
+- `<link rel="canonical" href="https://trophybase.app/de/ps5/…">` — immer die
+  **aufgerufene** Sprache, nie eine andere Variante.
+- `<link rel="alternate" hreflang="de|en|es">` auf dieselben Pfade mit
+  getauschtem Locale-Segment.
+- `hreflang="x-default"` zeigt auf Englisch (`en`).
+
+Das ist die SPA-Umsetzung. Damit Google die Tags ohne JavaScript sieht, bleibt
+der Prerender aus `docs/seo-rendering.md` der nächste Schritt.
 
 ## Prüfskript
 
@@ -132,9 +142,9 @@ allem Datenqualität, nicht Launch-Blocker.
 
 ## Alte Pfade
 
-Heutige URLs `/guide/{platform_game_id|uuid}` bleiben als 301 auf die Pretty-URL
-stehen, sobald ein Slug existiert. Ohne Slug (Stammdaten): Verhalten wie bisher,
-kein 404 erzwingen, solange die Suche sie noch ausspielt.
+`/guide/{platform_game_id|uuid}` bleibt gültig. Sobald `slug` existiert, schreibt
+die SPA die Adresse per `history.replaceState` auf `/{locale}/{hardware}/{slug}`
+um. Ein echter HTTP-301 kommt mit dem Prerender/Edge-Schritt.
 
 `/profile`, `/admin`, `/admin/qa`, `/beta` bleiben unverändert außerhalb dieses
 Schemas.

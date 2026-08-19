@@ -14,6 +14,8 @@ import {
   LOCALE_CHANGE_EVENT,
   setLocale as persistLocale,
 } from '../lib/locale';
+import { parsePrettyGamePath } from '../lib/gameSlug';
+import { syncPathLocale } from '../lib/routeUtils';
 import { t } from '../lib/uiStrings';
 
 const LocaleContext = createContext(null);
@@ -21,6 +23,10 @@ const LocaleContext = createContext(null);
 export function LocaleProvider({ children }) {
   const [globalLocale, setGlobalLocaleState] = useState(() => {
     if (typeof window !== 'undefined') {
+      const pretty = parsePrettyGamePath(window.location.pathname);
+      if (pretty?.locale) {
+        return persistLocale(pretty.locale, { skipEvent: true });
+      }
       return bootstrapGlobalLocaleSync();
     }
     return getLocale();
@@ -47,6 +53,10 @@ export function LocaleProvider({ children }) {
   const setGlobalLocale = useCallback((next) => {
     const normalized = persistLocale(next);
     setGlobalLocaleState(normalized);
+    syncPathLocale(normalized);
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = normalized;
+    }
   }, []);
 
   useEffect(() => {
@@ -66,11 +76,14 @@ export function LocaleProvider({ children }) {
 
     window.addEventListener(LOCALE_CHANGE_EVENT, onLocaleChange);
     window.addEventListener('storage', onStorage);
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = globalLocale;
+    }
     return () => {
       window.removeEventListener(LOCALE_CHANGE_EVENT, onLocaleChange);
       window.removeEventListener('storage', onStorage);
     };
-  }, []);
+  }, [globalLocale]);
 
   const value = useMemo(
     () => ({

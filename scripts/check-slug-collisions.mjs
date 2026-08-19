@@ -1,14 +1,16 @@
 /**
- * Prüft, wie viele URL-Konflikte das geplante Schema /{sprache}/{konsole}/{slug}
- * in den echten Daten erzeugen würde – VOR der Migration.
+ * Prüft, wie viele URL-Konflikte /:locale/:hardware/:slug in den echten
+ * Daten erzeugen würde – VOR bzw. nach der Slug-Migration.
  *
  * Aufruf (PowerShell):
  *   $env:SUPABASE_URL="https://<projekt>.supabase.co"
  *   $env:SUPABASE_ANON_KEY="<anon key>"
  *   node scripts/check-slug-collisions.mjs
  *
- * Beide Werte stehen aktuell in src/pages/supabaseClient.js.
+ * Werte stehen in src/pages/supabaseClient.js.
  */
+
+import { slugify, hardwareToUrlSegment } from '../src/lib/gameSlug.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, '');
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
@@ -19,55 +21,19 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 }
 
 const PAGE_SIZE = 1000;
-const COLUMNS = 'id,platform_game_id,hardware,release_jahr,spieltitel';
+const COLUMNS = 'id,platform_game_id,hardware,release_jahr,spieltitel,slug';
 
-/** Konsolenbezeichnung → URL-Segment */
-function consoleSlug(hardware) {
-  const raw = String(hardware ?? '').trim();
-  if (!raw) return 'unbekannt';
-
-  const normalized = raw
-    .toLowerCase()
-    .replace(/playstation\s*/g, 'ps')
-    .replace(/[^a-z0-9]/g, '');
-
-  return normalized || 'unbekannt';
-}
-
-/**
- * Titel aus der JSONB-Sprachmap holen. Reihenfolge wie im Frontend:
- * de → en → es → beliebiger vorhandener Wert.
- */
+/** Titel wie der Trigger: en → de → es → beliebiger Wert. */
 function pickTitle(spieltitel) {
   if (spieltitel == null) return '';
   if (typeof spieltitel === 'string') return spieltitel.trim();
   if (typeof spieltitel !== 'object' || Array.isArray(spieltitel)) return '';
 
-  for (const key of ['de', 'en', 'es', ...Object.keys(spieltitel)]) {
+  for (const key of ['en', 'de', 'es', ...Object.keys(spieltitel)]) {
     const value = spieltitel[key];
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return '';
-}
-
-/** Spieltitel → URL-Segment. Muss deterministisch und stabil sein. */
-export function slugify(title) {
-  return String(title ?? '')
-    .normalize('NFD')
-    // Akzente entfernen: é → e, ñ → n
-    .replace(/[\u0300-\u036f]/g, '')
-    // Deutsche Umlaute ausschreiben, bevor sie wegfallen
-    .replace(/ä/gi, 'ae')
-    .replace(/ö/gi, 'oe')
-    .replace(/ü/gi, 'ue')
-    .replace(/ß/g, 'ss')
-    .replace(/&/g, ' und ')
-    .toLowerCase()
-    // Apostrophe ersatzlos: "assassin's" → "assassins"
-    .replace(/['’`]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-{2,}/g, '-');
 }
 
 async function fetchPage(offset) {
@@ -98,6 +64,7 @@ async function fetchAllGames() {
 function report(rows) {
   const byKey = new Map();
   const untitled = [];
+  const unknownHardware = [];
 
   for (const row of rows) {
     const title = pickTitle(row.spieltitel);
@@ -106,15 +73,22 @@ function report(rows) {
       continue;
     }
 
-    const key = `${consoleSlug(row.hardware)}/${slugify(title)}`;
+    const hw = hardwareToUrlSegment(row.hardware);
+    if (!hw) {
+      unknownHardware.push(row);
+      continue;
+    }
+
+    const key = `${hw}/${slugify(title)}`;
     if (!byKey.has(key)) byKey.set(key, []);
-    byKey.get(key).push({ ...row, _title: title });
+    byKey.get(key).push({ ...row, _title: title, _hw: hw });
   }
 
   const collisions = [...byKey.entries()].filter(([, group]) => group.length > 1);
 
   console.log(`Spiele gesamt:           ${rows.length}`);
   console.log(`Ohne brauchbaren Titel:  ${untitled.length}`);
+  console.log(`Ohne Konsole (ps3–ps5):  ${unknownHardware.length}`);
   console.log(`Eindeutige URLs:         ${byKey.size}`);
   console.log(`Konflikt-URLs:           ${collisions.length}`);
   console.log(
@@ -130,20 +104,19 @@ function report(rows) {
   }
 
   if (collisions.length > 0) {
-    console.log('\n--- Konflikte ---');
+    console.log('\n--- Konflikte (Jahr-Suffix nur auf derselben Konsole) ---');
     for (const [key, group] of collisions) {
-      console.log(`\n  /${key}`);
+      console.log(`\n  /de/${key}`);
       for (const row of group) {
         const year = row.release_jahr ?? '—';
         console.log(`    ${row._title}  (Jahr ${year}, ${row.platform_game_id ?? row.id})`);
       }
-      // Prüfen, ob das Jahr als Unterscheidungsmerkmal ausreicht
       const years = new Set(group.map((r) => r.release_jahr ?? null));
       const yearSolves = years.size === group.length && !years.has(null);
       console.log(`    → Jahr-Suffix ${yearSolves ? 'löst diesen Konflikt' : 'reicht NICHT aus'}`);
     }
   } else {
-    console.log('\nKeine Konflikte. Das Schema funktioniert ohne Zusatzregel.');
+    console.log('\nKeine Konflikte auf derselben Konsole.');
   }
 }
 

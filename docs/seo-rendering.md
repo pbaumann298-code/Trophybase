@@ -238,9 +238,10 @@ Arbeit zieht bei einer späteren Migration vollständig mit um.
 1. **Launch-Schnitt:** Deutsch, ohne Pflicht-Login, nur Guides mit Inhalt. Wartungsmodus
    aus. Trophäen-Häkchen lokal speichern (heute überleben sie einen Reload nicht —
    Walkthrough-Häkchen schon). Login, Profil, PSN, Übersetzungen danach.
-2. **URL-Schema festziehen** für die veröffentlichten Guides:
-   `/{sprache}/{konsole}/{spiel-slug}`. Slugs in der Datenbank, eindeutig, stabil.
-   Die 42.000 Stammdaten-Zeilen bekommen vorerst keine Pretty-URL.
+2. **URL-Schema:** SPA-Routing `/{sprache}/{konsole}/{spiel-slug}` plus
+   `games.slug` (Trigger in `supabase/games_slug.sql`) und Laufzeit-Tags
+   (canonical + hreflang) sind umgesetzt. HTTP-301 und fertiges HTML im
+   Quelltext folgen mit dem Prerender.
 3. **Prerender-Skript** nur für diese Guides, zum Start nur `de`: Metadaten plus
    sichtbarer Inhalt (H1, Beschreibung, Trophäenliste).
 4. **`robots.txt` und `sitemap.xml`** — nur die prerenderten URLs. Admin, Profil,
