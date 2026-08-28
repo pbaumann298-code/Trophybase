@@ -1,116 +1,85 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
-import {
-  fetchGameByRouteRef,
-  fetchGamesByIds,
-} from '../lib/gameQueries';
-import {
-  TABLES,
-  GAME_PK,
-  GAME_FK,
-  WATCHLIST,
-  GAME_FIELDS,
-  GAME_PLATFORM_ID,
-  isActiveWatchlistStatus,
-  clampProgressPercent,
-} from '../lib/gameSchema';
+import { fetchGameByRouteRef, fetchGamesByIds, parseRouteGameRef } from '../lib/gameQueries';
+import { GAME_PK, GAME_FIELDS, GAME_PLATFORM_ID } from '../lib/gameSchema';
 import { navigateToGame } from '../lib/routeUtils';
 import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
-import WatchlistProgressBar from './WatchlistProgressBar';
-import WatchlistStatusBadge from './WatchlistStatusBadge';
 import { useVisibility } from '../context/VisibilityContext';
 import { useWatchlist } from '../context/WatchlistContext';
 import { useLocale } from '../context/LocaleContext';
 
-function Dashboard({ sessionUser, openGame }) {
-  const { globalLocale } = useLocale();
+function Dashboard({ openGame }) {
+  const { globalLocale, t } = useLocale();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { toggleHidden, isHidden, getEntryState, gameKey } = useVisibility();
-  const { version } = useWatchlist();
+  const { watchlistIdList, version } = useWatchlist();
 
   useEffect(() => {
-    if (!sessionUser?.id) {
-      setItems([]);
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
 
-    async function loadActiveWatchlist() {
+    async function loadWatchlistGames() {
+      const ids = watchlistIdList.filter((id) => parseRouteGameRef(id).valid);
+      if (ids.length === 0) {
+        if (!cancelled) {
+          setItems([]);
+          setError(null);
+          setLoading(false);
+        }
+        return;
+      }
+
       setLoading(true);
       setError(null);
 
-      const { data: watchlistRows, error: watchError } = await supabase
-        .from(TABLES.watchlist)
-        .select(`id, ${GAME_FK}, ${WATCHLIST.progress}, ${WATCHLIST.status}, last_played_at, updated_at`)
-        .eq('user_id', sessionUser.id)
-        .order('updated_at', { ascending: false });
+      const { data: games, error: gamesError } = await fetchGamesByIds(
+        supabase,
+        ids,
+        globalLocale,
+      );
 
       if (cancelled) return;
 
-      if (watchError) {
-        setError(watchError.message);
+      if (gamesError) {
+        setError(gamesError.message);
         setItems([]);
         setLoading(false);
         return;
       }
 
-      const activeRows = (watchlistRows || []).filter((row) =>
-        isActiveWatchlistStatus(row[WATCHLIST.status]),
-      );
-
-      const gameIds = [...new Set(activeRows.map((row) => row[GAME_FK]).filter(Boolean))];
-
-      let gamesById = new Map();
-      if (gameIds.length > 0) {
-        const { data: games, error: gamesError } = await fetchGamesByIds(
-          supabase,
-          gameIds,
-          globalLocale,
-        );
-
-        if (cancelled) return;
-
-        if (gamesError) {
-          setError(gamesError.message);
-          setItems([]);
-          setLoading(false);
-          return;
-        }
-
-        for (const game of games || []) {
-          gamesById.set(game[GAME_PK], game);
-        }
+      const byRef = new Map();
+      for (const game of games || []) {
+        const uuid = getGameUuid(game);
+        const slug = getRouteSlug(game);
+        const platformId = game[GAME_PLATFORM_ID];
+        if (uuid) byRef.set(String(uuid), game);
+        if (slug) byRef.set(String(slug), game);
+        if (platformId) byRef.set(String(platformId), game);
+        if (game[GAME_PK]) byRef.set(String(game[GAME_PK]), game);
       }
 
-      if (cancelled) return;
-
-      const merged = activeRows.map((row) => {
-        const gameUuid = row[GAME_FK];
-        const game = gamesById.get(gameUuid) ?? null;
-        return {
-          watchlistId: row.id,
-          gameUuid,
-          routeSlug: getRouteSlug(game) || gameUuid,
-          game,
-          progressPercent: clampProgressPercent(row[WATCHLIST.progress]),
-          status: row[WATCHLIST.status] || 'active',
-          lastPlayedAt: row.last_played_at || row.updated_at,
-        };
-      });
+      const merged = ids
+        .map((id) => {
+          const game = byRef.get(id) ?? null;
+          if (!game) return null;
+          return {
+            gameUuid: getGameUuid(game) || id,
+            routeSlug: getRouteSlug(game) || id,
+            game,
+          };
+        })
+        .filter(Boolean);
 
       setItems(merged);
       setLoading(false);
     }
 
-    loadActiveWatchlist();
+    loadWatchlistGames();
     return () => {
       cancelled = true;
     };
-  }, [sessionUser?.id, version, globalLocale]);
+  }, [watchlistIdList, version, globalLocale]);
 
   const handleOpenGame = async (item) => {
     if (item.game) {
@@ -121,7 +90,7 @@ function Dashboard({ sessionUser, openGame }) {
 
     const { data: game, error: gameError } = await fetchGameByRouteRef(
       supabase,
-      item.game ?? item.routeSlug ?? item.gameUuid,
+      item.routeSlug ?? item.gameUuid,
       globalLocale,
     );
 
@@ -140,33 +109,22 @@ function Dashboard({ sessionUser, openGame }) {
 
   const visibleItems = items.filter((item) => {
     const key = gameKey(item.gameUuid || item.routeSlug);
-    const completed = item.progressPercent >= 100;
-    return getEntryState(key, { completed }).visible;
+    return getEntryState(key, { completed: false }).visible;
   });
 
-  if (!sessionUser) {
-    return null;
-  }
+  const countLabel =
+    visibleItems.length === 1 ? t('watchlistCountOne') : t('watchlistCountMany').replace('{n}', String(visibleItems.length));
 
   return (
     <section className="w-full min-w-0 rounded-2xl border border-zinc-800 bg-gradient-to-b from-[#1a1b1c] to-[#161718] p-5 sm:p-6 shadow-xl">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#00ff66] border border-[#00ff66]/20 bg-[#00ff66]/10 px-2 py-0.5 rounded">
-            Dein Dashboard
-          </span>
-          <h2 className="mt-2 text-lg sm:text-xl font-extrabold text-white tracking-tight">
-            Aktive Spiele
+          <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">
+            {t('watchlistTitle')}
           </h2>
-          <p className="text-xs text-zinc-500 mt-1">
-            Watchlist · verknüpft über <span className="font-mono text-zinc-400">{GAME_FK}</span> →{' '}
-            <span className="font-mono text-zinc-400">{GAME_PK}</span>
-          </p>
         </div>
         {!loading && (
-          <span className="text-xs font-mono text-zinc-500 flex-shrink-0">
-            {visibleItems.length} aktiv
-          </span>
+          <span className="text-xs font-mono text-zinc-500 flex-shrink-0">{countLabel}</span>
         )}
       </div>
 
@@ -188,11 +146,7 @@ function Dashboard({ sessionUser, openGame }) {
       )}
 
       {!loading && !error && items.length === 0 && (
-        <p className="text-xs text-zinc-500 italic py-2">
-          Noch keine Spiele auf deiner Watchlist. Markiere Spiele mit dem{' '}
-          <span className="text-zinc-300">☆</span>-Symbol in den Kategorien oder auf der
-          Spieleseite.
-        </p>
+        <p className="text-xs text-zinc-500 italic py-2">{t('watchlistEmpty')}</p>
       )}
 
       {!loading && !error && items.length > 0 && visibleItems.length === 0 && (
@@ -206,8 +160,7 @@ function Dashboard({ sessionUser, openGame }) {
         <ul className="flex flex-col gap-3">
           {items.map((item) => {
             const visKey = gameKey(item.gameUuid || item.routeSlug);
-            const completed = item.progressPercent >= 100;
-            const { visible, dimmed } = getEntryState(visKey, { completed });
+            const { visible, dimmed } = getEntryState(visKey, { completed: false });
             if (!visible) return null;
 
             const title = getGameTitle(item.game, globalLocale) || item.routeSlug || 'Unbekanntes Spiel';
@@ -215,7 +168,7 @@ function Dashboard({ sessionUser, openGame }) {
             const userHidden = isHidden(visKey);
 
             return (
-              <li key={item.watchlistId || item.gameUuid}>
+              <li key={item.gameUuid || item.routeSlug}>
                 <div
                   className={`group w-full min-w-0 bg-[#121314] border border-zinc-800 hover:border-[#00ff66]/30 rounded-xl p-3 sm:p-4 flex gap-3 sm:gap-4 items-stretch transition ${
                     dimmed ? 'opacity-30' : ''
@@ -237,39 +190,17 @@ function Dashboard({ sessionUser, openGame }) {
                     </div>
 
                     <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <p className="text-sm sm:text-base font-bold text-zinc-100 truncate group-hover:text-[#00ff66] transition-colors">
-                          {title}
-                        </p>
-                        <WatchlistStatusBadge status={item.status} />
-                        {completed && (
-                          <span className="text-[9px] font-mono uppercase text-[#00ff66]/80 border border-[#00ff66]/20 px-1.5 py-0.5 rounded">
-                            Platin
-                          </span>
-                        )}
-                      </div>
-
+                      <p className="text-sm sm:text-base font-bold text-zinc-100 break-words min-w-0 group-hover:text-[#00ff66] transition-colors">
+                        {title}
+                      </p>
                       {item.game?.[GAME_FIELDS.console] && (
-                        <p className="text-[10px] text-zinc-500 font-mono mb-2 truncate">
+                        <p className="text-[10px] text-zinc-500 font-mono mt-1 truncate">
                           {item.game[GAME_FIELDS.console]}
                           {item.game[GAME_FIELDS.genre]
                             ? ` · ${item.game[GAME_FIELDS.genre]}`
                             : ''}
                         </p>
                       )}
-
-                      {item.lastPlayedAt && (
-                        <p className="text-[10px] text-zinc-600 font-mono mb-2">
-                          Zuletzt gezockt:{' '}
-                          {new Date(item.lastPlayedAt).toLocaleDateString('de-DE', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                          })}
-                        </p>
-                      )}
-
-                      <WatchlistProgressBar percent={item.progressPercent} />
                     </div>
                   </button>
 

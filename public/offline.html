@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#121314" />
+    <title>Offline · TrophyBase.app</title>
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #121314;
+        color: #d4d4d8;
+        font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+      }
+      main {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem 1.25rem;
+        text-align: center;
+        box-sizing: border-box;
+      }
+      .mark {
+        font-size: 1.25rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin-bottom: 2rem;
+      }
+      .mark span {
+        color: #00ff66;
+      }
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: 1.5rem;
+        color: #fafafa;
+      }
+      p {
+        margin: 0;
+        max-width: 28rem;
+        line-height: 1.55;
+        color: #a1a1aa;
+        font-size: 0.95rem;
+      }
+      a {
+        display: inline-block;
+        margin-top: 1.75rem;
+        padding: 0.7rem 1.25rem;
+        border-radius: 0.75rem;
+        background: #00ff66;
+        color: #000;
+        font-weight: 600;
+        font-size: 0.85rem;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">TrophyBase<span>.app</span></div>
+      <h1>Du bist offline</h1>
+      <p>
+        TrophyBase braucht eine Verbindung, damit Trophäen und Guides aktuell bleiben.
+        Sobald du wieder online bist, einfach neu laden.
+      </p>
+      <a href="/">Erneut versuchen</a>
+    </main>
+  </body>
+</html>

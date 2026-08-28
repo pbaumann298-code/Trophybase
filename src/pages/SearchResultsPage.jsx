@@ -4,13 +4,19 @@ import { GAME_FIELDS } from '../lib/gameSchema';
 import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
 import { useLocale } from '../context/LocaleContext';
 
-function SearchResultsPage({ searchResults, openGame, loading, onRequestLogin }) {
+function SearchResultsPage({ searchResults, openGame, loading, onRequestLogin, compact = false }) {
   const { globalLocale } = useLocale();
 
   if (loading) return <div className="text-center pt-12 text-zinc-400 text-sm">Suche läuft...</div>;
 
   return (
-    <div className="w-full max-w-4xl min-w-0 overflow-x-hidden mx-auto px-4 sm:px-6 pt-8 box-border">
+    <div
+      className={
+        compact
+          ? 'w-full min-w-0 overflow-x-hidden box-border'
+          : 'w-full max-w-4xl min-w-0 overflow-x-hidden mx-auto px-4 sm:px-6 pt-8 box-border'
+      }
+    >
       <h3 className="text-sm font-bold text-zinc-400 mb-6 uppercase tracking-wider">
         Suchergebnisse ({searchResults.length})
       </h3>
@@ -31,11 +37,18 @@ function SearchResultsPage({ searchResults, openGame, loading, onRequestLogin })
                 onClick={() => openGame(g)}
                 className="w-full min-w-0 bg-[#1a1b1c] p-4 rounded-xl border border-zinc-800 flex flex-wrap sm:flex-nowrap gap-4 sm:gap-5 cursor-pointer hover:border-zinc-700 hover:bg-[#202122] transition items-start"
               >
-                <img
-                  src={cover}
-                  className="w-24 h-32 object-cover rounded-lg shadow-lg flex-shrink-0 border border-zinc-800"
-                  alt=""
-                />
+                {cover ? (
+                  <img
+                    src={cover}
+                    className="w-24 h-32 object-cover rounded-lg shadow-lg flex-shrink-0 border border-zinc-800"
+                    alt=""
+                  />
+                ) : (
+                  <div
+                    className="w-24 h-32 rounded-lg flex-shrink-0 border border-zinc-800 bg-[#121314]"
+                    aria-hidden
+                  />
+                )}
 
                 <div className="flex-1 min-w-0 flex flex-col h-full justify-between pt-1">
                   <div className="min-w-0 flex items-start justify-between gap-3">

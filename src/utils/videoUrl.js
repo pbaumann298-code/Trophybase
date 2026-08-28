@@ -58,8 +58,10 @@ export function getYouTubeEmbedUrl(url, timecode, { autoplay = false } = {}) {
     const match = url.match(regExp);
     embedUrl =
       match && match[2].length === 11
-        ? `https://www.youtube.com/embed/${match[2]}`
+        ? `https://www.youtube-nocookie.com/embed/${match[2]}`
         : url;
+  } else {
+    embedUrl = url.replace('youtube.com/embed/', 'youtube-nocookie.com/embed/');
   }
 
   const params = new URLSearchParams();

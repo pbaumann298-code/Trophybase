@@ -239,6 +239,15 @@ function BetaRegistrationPage({ sessionUser, onSessionEstablished, onComplete })
             )}
           </form>
         )}
+
+        <nav className="mt-8 flex justify-center gap-4 text-[11px] text-zinc-600">
+          <a href="/impressum" className="hover:text-zinc-300 transition">
+            Impressum
+          </a>
+          <a href="/datenschutz" className="hover:text-zinc-300 transition">
+            Datenschutz
+          </a>
+        </nav>
       </div>
     </div>
   );

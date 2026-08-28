@@ -52,6 +52,7 @@ export const GAME_SEARCH_LOCALIZED_COLUMNS = {
 export const GAME_SEARCH_STRUCT_COLUMNS = {
   genre: GAME_STRUCT.genre,
   developer: GAME_STRUCT.developer,
+  hardware: GAME_STRUCT.hardware,
 };
 
 /**
@@ -309,6 +310,48 @@ export async function searchGamesByColumn(supabase, column, pattern, limit = 60,
   if (error) return { data: [], error };
 
   return { data: mergeGameRows(data, locale), error: null };
+}
+
+/**
+ * Erweiterte Suche: ausgefüllte Felder werden UND-verknüpft.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{ title?: string, developer?: string, genre?: string, console?: string, hardware?: string }} filters
+ * @param {{ limit?: number, locale?: string }} [options]
+ */
+export async function searchGamesAdvanced(supabase, filters = {}, options = {}) {
+  const limit = Math.min(Math.max(Number(options.limit) || 60, 1), 100);
+  const locale = options.locale ?? getLocale();
+
+  const title = validateSearchQuery(filters.title);
+  const developer = validateSearchQuery(filters.developer);
+  const genre = validateSearchQuery(filters.genre);
+  const hardware = validateSearchQuery(filters.hardware ?? filters.console);
+
+  if (!title.valid && !developer.valid && !genre.valid && !hardware.valid) {
+    return { data: [], error: new Error('Mindestens ein Suchfeld ausfüllen') };
+  }
+
+  let query = supabase.from(TABLES.games).select(GAME_SELECT);
+
+  if (title.valid) {
+    query = query.or(buildLocalizedOrFilter(GAME_I18N.title, title.pattern));
+  }
+  if (developer.valid) {
+    query = query.ilike(GAME_STRUCT.developer, developer.pattern);
+  }
+  if (genre.valid) {
+    query = query.ilike(GAME_STRUCT.genre, genre.pattern);
+  }
+  if (hardware.valid) {
+    query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
+  }
+
+  const { data, error } = await query
+    .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })
+    .limit(limit);
+
+  if (error) return { data: [], error };
+  return { data: mergeGameRows(data ?? [], locale), error: null };
 }
 
 /**

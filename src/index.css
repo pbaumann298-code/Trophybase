@@ -73,6 +73,37 @@ body {
   display: none;
 }
 
+.site-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.site-header-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.site-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .site-header-right {
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+  }
+}
+
 #root {
   width: 100%;
   max-width: 100%;

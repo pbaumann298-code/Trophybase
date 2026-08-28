@@ -60,6 +60,18 @@ export function applyGameSeoLinks({ locale, hardware, slug, game } = {}) {
   });
 }
 
+export function applyPathCanonical(path) {
+  if (typeof document === 'undefined') return;
+  const normalized = path?.startsWith('/') ? path : `/${path || ''}`;
+  if (!normalized || normalized === '/') {
+    removeSeoLinks();
+    return;
+  }
+  const origin = getCanonicalOrigin().replace(/\/$/, '');
+  removeSeoLinks();
+  appendLink('canonical', { href: `${origin}${normalized}` });
+}
+
 export function clearGameSeoLinks() {
   removeSeoLinks();
 }

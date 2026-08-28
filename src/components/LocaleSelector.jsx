@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocale } from '../context/LocaleContext';
 import { localeOptions } from '../lib/uiStrings';
 
-function LocaleSelector({ className = '' }) {
+function LocaleSelector({ className = '', menuAlign = 'left' }) {
   const { globalLocale, setGlobalLocale, t } = useLocale();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -41,7 +41,7 @@ function LocaleSelector({ className = '' }) {
         <ul
           role="listbox"
           aria-label={t('language')}
-          className="absolute right-0 top-full mt-1 z-[60] min-w-[9rem] rounded-lg border border-zinc-800 bg-[#1a1b1c] py-1 shadow-xl"
+          className={`absolute ${menuAlign === 'right' ? 'right-0' : 'left-0'} top-full mt-1 z-[60] min-w-[9rem] rounded-lg border border-zinc-800 bg-[#1a1b1c] py-1 shadow-xl`}
         >
           {options.map((opt) => (
             <li key={opt.code} role="option" aria-selected={opt.code === globalLocale}>

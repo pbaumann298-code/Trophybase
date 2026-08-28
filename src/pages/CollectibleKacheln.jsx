@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { getYouTubeEmbedUrl } from '../utils/videoUrl';
+import YouTubeEmbed from '../components/YouTubeEmbed';
 import { useVisibility } from '../context/VisibilityContext';
 import { useGuideVideo } from '../context/GuideVideoContext';
 import { guideProgressKey } from '../lib/guideProgressStorage';
+import { buildGuideGroupTree } from '../lib/guideData';
 import Reportable from '../components/Reportable';
 
 /**
@@ -19,6 +21,7 @@ function SplitScreenGuideKacheln({
   renderNameAddon,
   emptyVideoMessage,
   groupHeaderIcon = '📍',
+  localisationHeaderIcon = '🗺️',
   groupByField = 'category_group',
   listTitle = 'Guide-Checkliste',
   hideCompleted = false,
@@ -33,6 +36,7 @@ function SplitScreenGuideKacheln({
   const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
   const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [expandedLocalisations, setExpandedLocalisations] = useState({});
   const [activeVideos, setActiveVideos] = useState({});
 
   // Fortschritt/Sichtbarkeit hängen an der guide_id, damit ein in zwei Reitern
@@ -44,27 +48,32 @@ function SplitScreenGuideKacheln({
     return getEntryState(itemKey(guideProgressKey(item))).visible;
   };
 
-  const groupedItems = itemsData.reduce((acc, item) => {
-    if (!isItemShown(item)) return acc;
-    const group =
-      item[groupByField] ||
-      (groupByField === 'chronological_group' ? item.category_group : item.chronological_group) ||
-      'Allgemein';
-    if (!acc[group]) acc[group] = [];
-    acc[group].push(item);
-    return acc;
-  }, {});
+  // Gebiets-Ebene (localisation) über den Gruppen-Kacheln. Fehlt sie, liefert
+  // buildGuideGroupTree einen Abschnitt mit leerem Namen – dann wird flach
+  // gerendert wie vor Einführung der Spalte.
+  const localisationSections = buildGuideGroupTree(itemsData.filter(isItemShown), groupByField);
+  const hasSingleLocalisation = localisationSections.length === 1;
 
-  const toggleGroup = (groupName) => {
-    setExpandedGroups((prev) => ({ ...prev, [groupName]: !prev[groupName] }));
+  const isLocalisationExpanded = (localisation) =>
+    expandedLocalisations[localisation] ?? hasSingleLocalisation;
+
+  const toggleLocalisation = (localisation) => {
+    setExpandedLocalisations((prev) => ({
+      ...prev,
+      [localisation]: !(prev[localisation] ?? hasSingleLocalisation),
+    }));
   };
 
-  const selectItemVideo = (groupName, item) => {
+  const toggleGroup = (groupKey) => {
+    setExpandedGroups((prev) => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  };
+
+  const selectItemVideo = (groupKey, item) => {
     if (!item.video_url) return;
     const embedUrl = getYouTubeEmbedUrl(item.video_url, item.timestamp, { autoplay: true });
     setActiveVideos((prev) => ({
       ...prev,
-      [groupName]: { itemId: item.id, embedUrl },
+      [groupKey]: { itemId: item.id, embedUrl },
     }));
     notifyVideoStarted();
   };
@@ -78,6 +87,256 @@ function SplitScreenGuideKacheln({
   }, [hasAnyActiveVideo, notifyVideoCleared]);
 
   useEffect(() => () => notifyVideoCleared(), [notifyVideoCleared]);
+
+  const renderGroupBox = (group) => {
+    const isExpanded = !!expandedGroups[group.key];
+    const items = group.items;
+    const activeVideo = activeVideos[group.key];
+    const activeItem = activeVideo ? items.find((i) => i.id === activeVideo.itemId) : null;
+    const embedUrl = activeVideo?.embedUrl ?? null;
+
+    if (items.length === 0) return null;
+
+    return (
+      <div
+        key={group.key}
+        className="category-box"
+        style={{
+          backgroundColor: '#1a1b1c',
+          border: '1px solid #27272a',
+          borderRadius: '16px',
+          marginBottom: '16px',
+          overflow: 'hidden',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => toggleGroup(group.key)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            color: '#00ff66',
+            margin: 0,
+            padding: '15px 20px',
+            backgroundColor: '#121314',
+            border: 'none',
+            borderBottom: isExpanded ? '1px solid #27272a' : 'none',
+            fontSize: '14px',
+            fontFamily: 'monospace',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <span>
+            {groupHeaderIcon} {group.name}
+            <span style={{ color: '#71717a', marginLeft: '8px', fontSize: '11px' }}>
+              ({items.length})
+            </span>
+          </span>
+          <span style={{ color: '#71717a', fontSize: '12px' }} aria-hidden>
+            {isExpanded ? '▲' : '▼'}
+          </span>
+        </button>
+
+        {isExpanded && (
+          <div className="guide-split guide-split--expanded">
+            <div className="guide-split__list">
+              <table className="guide-split__table">
+                <thead className="guide-split__thead">
+                  <tr
+                    style={{
+                      color: '#71717a',
+                      fontSize: '11px',
+                      textTransform: 'uppercase',
+                      fontFamily: 'monospace',
+                    }}
+                  >
+                    <th>{nameColumnHeader}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item) => {
+                    const progressKey = guideProgressKey(item);
+                    const visKey = itemKey(progressKey);
+                    const { dimmed } = getEntryState(visKey);
+                    const isCompleted = isItemCompleted(item);
+                    const displayName = getDisplayName(item);
+                    const reportKey = String(item[reportKeyField] ?? item.id ?? '');
+                    const userHidden = isHidden(visKey);
+                    const isActive = activeVideo?.itemId === item.id;
+                    const hasVideo = !!item.video_url;
+                    const rowDimmed = dimmed || isCompleted;
+
+                    return (
+                      <tr
+                        key={item.id}
+                        className="guide-split__row"
+                        style={{
+                          opacity: rowDimmed ? 0.6 : 1,
+                          backgroundColor: isActive ? 'rgba(0, 255, 102, 0.06)' : 'transparent',
+                        }}
+                      >
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {typeof toggleCompleted === 'function' && (
+                              <input
+                                type="checkbox"
+                                checked={isCompleted}
+                                onChange={() => toggleCompleted(progressKey)}
+                                style={{
+                                  accentColor: '#00ff66',
+                                  cursor: 'pointer',
+                                  width: '16px',
+                                  height: '16px',
+                                  flexShrink: 0,
+                                }}
+                                aria-label={
+                                  isCompleted ? 'Als offen markieren' : 'Als erledigt markieren'
+                                }
+                              />
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleHidden(visKey);
+                              }}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: userHidden ? '#71717a' : '#00ff66',
+                                fontSize: '14px',
+                                flexShrink: 0,
+                              }}
+                              aria-label={userHidden ? 'Eintrag einblenden' : 'Eintrag ausblenden'}
+                              title={userHidden ? 'Einblenden' : 'Ausblenden'}
+                            >
+                              {userHidden ? '👁️‍🗨️' : '👁️'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => selectItemVideo(group.key, item)}
+                              disabled={!hasVideo}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                padding: 0,
+                                cursor: hasVideo ? 'pointer' : 'default',
+                                fontSize: '13px',
+                                color: rowDimmed
+                                  ? '#71717a'
+                                  : isActive
+                                    ? '#00ff66'
+                                    : hasVideo
+                                      ? '#e4e4e7'
+                                      : '#a1a1aa',
+                                textDecoration: isCompleted ? 'line-through' : 'none',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                flexWrap: 'wrap',
+                                textAlign: 'left',
+                                fontWeight: isActive ? 'bold' : 'normal',
+                              }}
+                            >
+                              {gameId && reportKey ? (
+                                <Reportable
+                                  as="span"
+                                  source={gameId}
+                                  type={reportEntityType}
+                                  reportKey={reportKey}
+                                  field="name"
+                                >
+                                  {displayName}
+                                </Reportable>
+                              ) : (
+                                displayName
+                              )}
+                              {renderNameAddon ? renderNameAddon(item, rowDimmed) : null}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="guide-split__video">
+              {embedUrl ? (
+                <div className="guide-split__video-inner">
+                  <YouTubeEmbed
+                    key={`${group.key}-${activeVideo?.itemId || 'default'}-${embedUrl}`}
+                    src={embedUrl}
+                    title={activeItem ? getDisplayName(activeItem) : group.name}
+                  />
+                </div>
+              ) : (
+                <div
+                  style={{
+                    color: '#71717a',
+                    fontSize: '12px',
+                    textAlign: 'center',
+                    fontFamily: 'monospace',
+                    padding: '0 16px',
+                  }}
+                >
+                  {activeVideo
+                    ? emptyVideoMessage
+                    : 'Klicke auf ein Item, um das Video hier abzuspielen.'}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderLocalisationSection = (section) => {
+    if (section.itemCount === 0) return null;
+    if (!section.localisation) {
+      return (
+        <React.Fragment key="guide-section-ungrouped">
+          {section.groups.map(renderGroupBox)}
+        </React.Fragment>
+      );
+    }
+
+    const isExpanded = isLocalisationExpanded(section.localisation);
+
+    return (
+      <div key={section.localisation} className="guide-localisation">
+        <button
+          type="button"
+          className="guide-localisation__header"
+          onClick={() => toggleLocalisation(section.localisation)}
+          aria-expanded={isExpanded}
+        >
+          <span>
+            {localisationHeaderIcon} {section.localisation}
+            <span className="guide-localisation__count">
+              ({section.groups.length} · {section.itemCount})
+            </span>
+          </span>
+          <span className="guide-localisation__chevron" aria-hidden>
+            {isExpanded ? '▲' : '▼'}
+          </span>
+        </button>
+
+        {isExpanded && (
+          <div className="guide-localisation__body">{section.groups.map(renderGroupBox)}</div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className={`collectibles-tab guide-landscape-root ${embedInAccordion ? '' : ''}`} style={{ padding: '0px', color: '#fff' }}>
@@ -221,225 +480,7 @@ function SplitScreenGuideKacheln({
         </div>
       </div>
 
-      {Object.entries(groupedItems).map(([groupName, items]) => {
-        const isExpanded = !!expandedGroups[groupName];
-        const visibleItems = items.filter((item) => isItemShown(item));
-        const activeVideo = activeVideos[groupName];
-        const activeItem = activeVideo
-          ? items.find((i) => i.id === activeVideo.itemId)
-          : null;
-        const embedUrl = activeVideo?.embedUrl ?? null;
-
-        if (visibleItems.length === 0) return null;
-
-        return (
-          <div
-            key={groupName}
-            className="category-box"
-            style={{
-              backgroundColor: '#1a1b1c',
-              border: '1px solid #27272a',
-              borderRadius: '16px',
-              marginBottom: '16px',
-              overflow: 'hidden',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => toggleGroup(groupName)}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '12px',
-                color: '#00ff66',
-                margin: 0,
-                padding: '15px 20px',
-                backgroundColor: '#121314',
-                border: 'none',
-                borderBottom: isExpanded ? '1px solid #27272a' : 'none',
-                fontSize: '14px',
-                fontFamily: 'monospace',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                cursor: 'pointer',
-                textAlign: 'left',
-              }}
-            >
-              <span>
-                {groupHeaderIcon} {groupName}
-                <span style={{ color: '#71717a', marginLeft: '8px', fontSize: '11px' }}>
-                  ({visibleItems.length})
-                </span>
-              </span>
-              <span style={{ color: '#71717a', fontSize: '12px' }} aria-hidden>
-                {isExpanded ? '▲' : '▼'}
-              </span>
-            </button>
-
-            {isExpanded && (
-              <div className="guide-split guide-split--expanded">
-                <div className="guide-split__list">
-                  <table className="guide-split__table">
-                    <thead className="guide-split__thead">
-                      <tr
-                        style={{
-                          color: '#71717a',
-                          fontSize: '11px',
-                          textTransform: 'uppercase',
-                          fontFamily: 'monospace',
-                        }}
-                      >
-                        <th>{nameColumnHeader}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((item) => {
-                        if (!isItemShown(item)) return null;
-
-                        const progressKey = guideProgressKey(item);
-                        const visKey = itemKey(progressKey);
-                        const { dimmed } = getEntryState(visKey);
-                        const isCompleted = isItemCompleted(item);
-                        const displayName = getDisplayName(item);
-                        const reportKey = String(item[reportKeyField] ?? item.id ?? '');
-                        const userHidden = isHidden(visKey);
-                        const isActive = activeVideo?.itemId === item.id;
-                        const hasVideo = !!item.video_url;
-                        const rowDimmed = dimmed || isCompleted;
-
-                        return (
-                          <tr
-                            key={item.id}
-                            className="guide-split__row"
-                            style={{
-                              opacity: rowDimmed ? 0.6 : 1,
-                              backgroundColor: isActive ? 'rgba(0, 255, 102, 0.06)' : 'transparent',
-                            }}
-                          >
-                            <td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {typeof toggleCompleted === 'function' && (
-                                  <input
-                                    type="checkbox"
-                                    checked={isCompleted}
-                                    onChange={() => toggleCompleted(progressKey)}
-                                    style={{
-                                      accentColor: '#00ff66',
-                                      cursor: 'pointer',
-                                      width: '16px',
-                                      height: '16px',
-                                      flexShrink: 0,
-                                    }}
-                                    aria-label={
-                                      isCompleted ? 'Als offen markieren' : 'Als erledigt markieren'
-                                    }
-                                  />
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleHidden(visKey);
-                                  }}
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    color: userHidden ? '#71717a' : '#00ff66',
-                                    fontSize: '14px',
-                                    flexShrink: 0,
-                                  }}
-                                  aria-label={
-                                    userHidden ? 'Eintrag einblenden' : 'Eintrag ausblenden'
-                                  }
-                                  title={userHidden ? 'Einblenden' : 'Ausblenden'}
-                                >
-                                  {userHidden ? '👁️‍🗨️' : '👁️'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => selectItemVideo(groupName, item)}
-                                  disabled={!hasVideo}
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    padding: 0,
-                                    cursor: hasVideo ? 'pointer' : 'default',
-                                    fontSize: '13px',
-                                    color: rowDimmed
-                                      ? '#71717a'
-                                      : isActive
-                                        ? '#00ff66'
-                                        : hasVideo
-                                          ? '#e4e4e7'
-                                          : '#a1a1aa',
-                                    textDecoration: isCompleted ? 'line-through' : 'none',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    flexWrap: 'wrap',
-                                    textAlign: 'left',
-                                    fontWeight: isActive ? 'bold' : 'normal',
-                                  }}
-                                >
-                                  {gameId && reportKey ? (
-                                    <Reportable
-                                      as="span"
-                                      source={gameId}
-                                      type={reportEntityType}
-                                      reportKey={reportKey}
-                                      field="name"
-                                    >
-                                      {displayName}
-                                    </Reportable>
-                                  ) : (
-                                    displayName
-                                  )}
-                                  {renderNameAddon ? renderNameAddon(item, rowDimmed) : null}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="guide-split__video">
-                  {embedUrl ? (
-                    <div className="guide-split__video-inner">
-                      <iframe
-                        key={`${groupName}-${activeVideo?.itemId || 'default'}-${embedUrl}`}
-                        src={embedUrl}
-                        title={activeItem ? getDisplayName(activeItem) : groupName}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        color: '#71717a',
-                        fontSize: '12px',
-                        textAlign: 'center',
-                        fontFamily: 'monospace',
-                        padding: '0 16px',
-                      }}
-                    >
-                      {activeVideo
-                        ? emptyVideoMessage
-                        : 'Klicke auf ein Item, um das Video hier abzuspielen.'}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {localisationSections.map(renderLocalisationSection)}
     </div>
   );
 }
@@ -451,6 +492,7 @@ export function CollectibleKacheln({
   totalCount,
   groupByField = 'category_group',
   groupHeaderIcon = '📍',
+  localisationHeaderIcon = '🗺️',
   emptyVideoMessage = 'Klicke auf ein Item mit Video – der Player erscheint hier.',
   listTitle = 'Guide-Checkliste',
   hideCompleted,
@@ -471,6 +513,7 @@ export function CollectibleKacheln({
       nameColumnHeader="Sammelgegenstand"
       emptyVideoMessage={emptyVideoMessage}
       groupHeaderIcon={groupHeaderIcon}
+      localisationHeaderIcon={localisationHeaderIcon}
       groupByField={groupByField}
       listTitle={listTitle}
       hideCompleted={hideCompleted}
@@ -543,6 +586,7 @@ export function BossKacheln({
       renderNameAddon={renderTrophyBadge}
       emptyVideoMessage="Klicke auf einen Boss mit Video – der Player erscheint hier."
       groupHeaderIcon="⚔️"
+      localisationHeaderIcon="🗺️"
       groupByField="category_group"
       listTitle={listTitle}
       hideCompleted={hideCompleted}

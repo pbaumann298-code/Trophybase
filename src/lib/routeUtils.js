@@ -13,7 +13,13 @@ export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Views die auch im Wartungsmodus ohne Bypass erreichbar sind (öffentliche Inhalte). */
-export const PUBLIC_APP_VIEWS = new Set(['game_info', 'search-results']);
+export const PUBLIC_APP_VIEWS = new Set([
+  'game_info',
+  'search-results',
+  'advanced-search',
+  'impressum',
+  'datenschutz',
+]);
 
 /** Views die eingeloggte Nutzer auch im Wartungsmodus sehen dürfen. */
 export const AUTHENTICATED_APP_VIEWS = new Set(['home', 'profile']);
@@ -35,6 +41,9 @@ export function normalizePath(pathname = '') {
 /** View aus URL-Pfad (Deep Links bei F5 / Direktaufruf). */
 export function getViewFromPath(pathname = '') {
   const path = normalizePath(pathname);
+  if (path === '/impressum') return 'impressum';
+  if (path === '/datenschutz' || path === '/privacy') return 'datenschutz';
+  if (path === '/suche' || path === '/search') return 'advanced-search';
   if (path === '/profile') return 'profile';
   if (path.startsWith('/admin/qa')) return 'qa_admin';
   if (path.startsWith('/guide/')) return 'game_info';
@@ -101,11 +110,17 @@ export function resolveAppViewForSession(user, pathname) {
 export function writeAppPath(path, { replace = false } = {}) {
   if (typeof window === 'undefined') return;
   const target = path || '/';
-  if (normalizePath(window.location.pathname) === normalizePath(target)) return;
+  const qIndex = target.indexOf('?');
+  const targetPath = normalizePath(qIndex === -1 ? target : target.slice(0, qIndex));
+  const targetSearch = qIndex === -1 ? '' : target.slice(qIndex);
+  const currentPath = normalizePath(window.location.pathname);
+  const currentSearch = window.location.search;
+  if (currentPath === targetPath && currentSearch === targetSearch) return;
+  const href = `${targetPath}${targetSearch}`;
   if (replace) {
-    window.history.replaceState({}, '', target);
+    window.history.replaceState({}, '', href);
   } else {
-    window.history.pushState({}, '', target);
+    window.history.pushState({}, '', href);
   }
 }
 
@@ -115,6 +130,41 @@ export function navigateToHome() {
 
 export function navigateToProfile() {
   writeAppPath('/profile');
+}
+
+export function navigateToImpressum() {
+  writeAppPath('/impressum');
+}
+
+export function navigateToPrivacy() {
+  writeAppPath('/datenschutz');
+}
+
+const ADVANCED_SEARCH_QUERY_KEYS = ['title', 'developer', 'genre', 'console'];
+
+export function parseAdvancedSearchParams(search = '') {
+  const params = new URLSearchParams(
+    search || (typeof window !== 'undefined' ? window.location.search : ''),
+  );
+  const filters = {};
+  for (const key of ADVANCED_SEARCH_QUERY_KEYS) {
+    filters[key] = String(params.get(key) ?? '').trim();
+  }
+  return filters;
+}
+
+export function buildAdvancedSearchPath(filters = {}) {
+  const params = new URLSearchParams();
+  for (const key of ADVANCED_SEARCH_QUERY_KEYS) {
+    const value = String(filters[key] ?? '').trim();
+    if (value) params.set(key, value);
+  }
+  const qs = params.toString();
+  return qs ? `/suche?${qs}` : '/suche';
+}
+
+export function navigateToAdvancedSearch(filters = {}, { replace = false } = {}) {
+  writeAppPath(buildAdvancedSearchPath(filters), { replace });
 }
 
 export function navigateToGame(gameOrRef, { replace = false, locale = getLocale() } = {}) {

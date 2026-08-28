@@ -7,7 +7,7 @@ function VisibilityModeToggle() {
 
   return (
     <div
-      className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-[#121314] p-0.5"
+      className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-[#121314] p-0.5 flex-shrink-0"
       role="group"
       aria-label="Anzeige ausgeblendeter Einträge"
     >

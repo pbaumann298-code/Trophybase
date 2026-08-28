@@ -9,7 +9,7 @@ export const ALLOWED_ADMINS = ['master@trophybase.app'];
 /**
  * Views, die während der Wartung NIEMALS durch die Sperrseite blockiert werden.
  */
-export const MAINTENANCE_ALLOWED_VIEWS = ['login', 'social-link', 'beta'];
+export const MAINTENANCE_ALLOWED_VIEWS = ['login', 'social-link', 'beta', 'impressum', 'datenschutz'];
 
 export const MAINTENANCE_BYPASS_METADATA_KEY = 'maintenance_bypass';
 

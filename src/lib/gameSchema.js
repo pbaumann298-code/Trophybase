@@ -19,6 +19,8 @@ export const TABLES = {
   inviteKeys: 'invite_keys',
   onlineTrophiesLog: 'online_trophies_log',
   communityReports: 'community_reports',
+  contentCreators: 'content_creators',
+  gameCreatorMap: 'game_creator_map',
 };
 
 export const QA_STATUS = {
@@ -35,6 +37,17 @@ export const GAME_PLATFORM_ID = 'platform_game_id';
 
 /** FK in Kind- und User-Tabellen → games.id */
 export const GAME_FK = 'game_id';
+
+/** public.game_creator_map */
+export const GAME_CREATOR_MAP = {
+  gameId: 'game_id',
+  creatorId: 'creator_id',
+  contentType: 'content_type',
+};
+
+export const CREATOR_CONTENT_TYPE = {
+  video: 'VIDEO',
+};
 
 export const ACHIEVEMENT_PK = 'platform_achievement_id';
 
@@ -118,6 +131,8 @@ export const GUIDE_STRUCT = {
 export const GUIDE_I18N = {
   sheetType: 'sheet_type',
   itemName: 'item_name',
+  /** Übergeordnetes Gebiet (z. B. Galaxie) – bündelt mehrere *_group-Kacheln */
+  localisation: 'localisation',
   chronologicalGroup: 'chronological_group',
   categoryGroup: 'category_group',
   videoChapter: 'video_chapter',

@@ -54,6 +54,7 @@ export function mergeGuideRow(row, lang, index = 0) {
   const localId = row[GUIDE_STRUCT.localId] ?? null;
   const sheetTypes = resolveSheetTypes(row[GUIDE_I18N.sheetType]);
   const itemName = localizeJsonField(row[GUIDE_I18N.itemName], lang, FALLBACK_LANGUAGE);
+  const localisation = localizeJsonField(row[GUIDE_I18N.localisation], lang, FALLBACK_LANGUAGE);
   const chronologicalGroup = localizeJsonField(
     row[GUIDE_I18N.chronologicalGroup],
     lang,
@@ -73,6 +74,7 @@ export function mergeGuideRow(row, lang, index = 0) {
     // da ein Eintrag in mehreren Reitern stehen kann (z. B. [1, 2]).
     sheet_type: sheetTypes[0] ?? 0,
     item_name: itemName,
+    localisation,
     chronological_group: chronologicalGroup,
     category_group: categoryGroup,
     video_chapter: videoChapter,

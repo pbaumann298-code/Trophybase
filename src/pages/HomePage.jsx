@@ -3,7 +3,6 @@ import { supabase } from './supabaseClient';
 import Dashboard from '../components/Dashboard';
 import CategoryCarousel from '../components/CategoryCarousel';
 import { HOME_CATEGORIES, fetchAllHomeCategories } from '../lib/homeCategories';
-import { navigateToProfile } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
 import '../styles/home.css';
 
@@ -13,9 +12,8 @@ function HomePage({
   setSearchQuery,
   handleSearchSubmit,
   onCategorySearch,
-  sessionUser,
-  setCurrentView,
   onRequestLogin,
+  onOpenAdvancedSearch,
 }) {
   const { globalLocale, t } = useLocale();
   const [categoryGames, setCategoryGames] = useState({});
@@ -50,44 +48,39 @@ function HomePage({
         <span className="home-hero-kicker">{t('homeKicker')}</span>
         <h1 className="home-hero-title">{t('homeTitle')}</h1>
         <p className="home-hero-sub">{t('homeSub')}</p>
-        <form ref={searchFormRef} onSubmit={handleSearchSubmit} className="home-search">
-          <input
-            type="text"
-            placeholder={t('searchPlaceholder')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="home-search-input"
-            aria-label="Spielsuche"
-          />
-          <button
-            type="button"
-            className="home-search-icon"
-            aria-label="Suche starten"
-            onClick={() => searchFormRef.current?.requestSubmit()}
+        <div className="home-search-block">
+          <form ref={searchFormRef} onSubmit={handleSearchSubmit} className="home-search">
+            <input
+              type="text"
+              placeholder={t('searchPlaceholder')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="home-search-input"
+              aria-label={t('searchAria')}
+            />
+            <button
+              type="button"
+              className="home-search-icon"
+              aria-label={t('searchStartAria')}
+              onClick={() => searchFormRef.current?.requestSubmit()}
+            >
+              🔍
+            </button>
+          </form>
+          <a
+            href="/suche"
+            className="home-advanced-search"
+            onClick={(e) => {
+              e.preventDefault();
+              onOpenAdvancedSearch?.();
+            }}
           >
-            🔍
-          </button>
-        </form>
+            {t('advancedSearch')}
+          </a>
+        </div>
       </header>
 
-      {sessionUser && (
-        <Dashboard sessionUser={sessionUser} openGame={openGame} />
-      )}
-
-      {sessionUser && (
-        <div className="home-inbox-link">
-          <button
-            type="button"
-            onClick={() => {
-              setCurrentView('profile');
-              navigateToProfile();
-            }}
-            className="text-xs font-mono uppercase tracking-wider text-zinc-500 hover:text-[#00ff66] transition bg-transparent border-none cursor-pointer"
-          >
-            Postfach im Profil →
-          </button>
-        </div>
-      )}
+      <Dashboard openGame={openGame} />
 
       <div className="home-categories" role="list">
         {HOME_CATEGORIES.map((category) => (

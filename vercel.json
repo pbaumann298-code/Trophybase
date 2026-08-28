@@ -1,6 +1,21 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache" },
+        { "key": "Service-Worker-Allowed", "value": "/" }
+      ]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json" }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/admin",
@@ -11,7 +26,7 @@
       "destination": "/admin.html"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon).*)",
       "destination": "/index.html"
     }
   ]

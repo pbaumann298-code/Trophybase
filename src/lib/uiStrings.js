@@ -13,6 +13,16 @@ export const UI_STRINGS = {
     guideLanguageReset: 'Standard',
     impressum: 'Impressum',
     privacy: 'Datenschutz (DSGVO)',
+    fairUseNote:
+      'Cover, Logos und Spieltitel dienen nur der Identifikation im redaktionellen Datenbank-Kontext. TrophyBase ist nicht mit den Rechteinhabern affiliated.',
+    consentTitle: 'Hinweise zu externen Inhalten',
+    consentBody:
+      'Kein Tracking, keine Affiliate-Cookies. YouTube-Videos laden wir erst nach deiner Zustimmung (Cookies von Google).',
+    consentAllowYoutube: 'YouTube erlauben',
+    consentNecessary: 'Ablehnen',
+    consentYoutubeGate:
+      'YouTube setzt Cookies von Google. Das Video wird erst geladen, wenn du zustimmst.',
+    consentYoutubeLoad: 'YouTube-Video laden',
     dbConnected: 'Erfolgreich verbunden!',
     dbFailed: 'Fehlgeschlagen',
     dbLabel: 'DB',
@@ -25,10 +35,32 @@ export const UI_STRINGS = {
     guideLoading: 'Guide-Daten werden geladen …',
     loadingGuide: 'Guide wird geladen…',
     searchPlaceholder: 'Spieltitel, Genre oder Entwickler …',
+    advancedSearch: 'Erweiterte Suche',
+    advancedSearchHint:
+      'Kombiniere Spieltitel, Entwickler, Genre und Konsole. Leere Felder werden ignoriert.',
+    searchTitle: 'Spieltitel',
+    searchDeveloper: 'Entwickler',
+    searchGenre: 'Genre',
+    searchConsole: 'Konsole',
+    searchSubmit: 'Suchen',
+    searchReset: 'Zurücksetzen',
+    searchBack: '← Zurück zur Startseite',
+    consoleAll: 'Alle Konsolen',
+    advancedSearchEmpty: 'Bitte mindestens ein Feld ausfüllen.',
+    searchAria: 'Spielsuche',
+    searchStartAria: 'Suche starten',
     homeKicker: 'TrophyBase · Dein Guide-Hub',
     homeTitle: 'Finde deinen nächsten Platin-Run',
     homeSub:
       'Acht kuratierte Welten – vom Souls-Hardcore bis zur Familien-Platin. Wähle die Reihe, die zu deinem Gamer-Typ passt.',
+    watchlistTitle: 'Watchlist',
+    watchlistCountOne: '1 Spiel',
+    watchlistCountMany: '{n} Spiele',
+    watchlistEmpty:
+      'Noch keine Spiele auf deiner Watchlist. Markiere Spiele mit dem ☆-Symbol in den Kategorien oder auf der Spieleseite.',
+    creatorCredit:
+      'Dieser Guide nutzt Inhalte aus den wunderbaren Videos von {name}. Wenn du die Videos von {name} genauso zu schätzen weißt wie wir, lass doch bitte ein Abo da. Jede Unterstützung hilft, um noch mehr tolle Inhalte zu erstellen!',
+    creatorYoutube: 'YouTube',
   },
   en: {
     profile: 'Profile',
@@ -41,6 +73,16 @@ export const UI_STRINGS = {
     guideLanguageReset: 'Default',
     impressum: 'Legal notice',
     privacy: 'Privacy (GDPR)',
+    fairUseNote:
+      'Covers, logos and titles are used only to identify games in an editorial database. TrophyBase is not affiliated with the rights holders.',
+    consentTitle: 'External content',
+    consentBody:
+      'No tracking and no affiliate cookies. YouTube videos load only after you consent (Google cookies).',
+    consentAllowYoutube: 'Allow YouTube',
+    consentNecessary: 'Decline',
+    consentYoutubeGate:
+      'YouTube sets Google cookies. The video loads only after you consent.',
+    consentYoutubeLoad: 'Load YouTube video',
     dbConnected: 'Connected successfully!',
     dbFailed: 'Failed',
     dbLabel: 'DB',
@@ -53,10 +95,32 @@ export const UI_STRINGS = {
     guideLoading: 'Loading guide data…',
     loadingGuide: 'Loading guide…',
     searchPlaceholder: 'Game title, genre or developer…',
+    advancedSearch: 'Advanced search',
+    advancedSearchHint:
+      'Combine game title, developer, genre and console. Empty fields are ignored.',
+    searchTitle: 'Game title',
+    searchDeveloper: 'Developer',
+    searchGenre: 'Genre',
+    searchConsole: 'Console',
+    searchSubmit: 'Search',
+    searchReset: 'Reset',
+    searchBack: '← Back to home',
+    consoleAll: 'All consoles',
+    advancedSearchEmpty: 'Please fill in at least one field.',
+    searchAria: 'Game search',
+    searchStartAria: 'Start search',
     homeKicker: 'TrophyBase · Your guide hub',
     homeTitle: 'Find your next platinum run',
     homeSub:
       'Eight curated worlds — from Souls hardcore to family platinums. Pick the row that fits your play style.',
+    watchlistTitle: 'Watchlist',
+    watchlistCountOne: '1 game',
+    watchlistCountMany: '{n} games',
+    watchlistEmpty:
+      'No games on your watchlist yet. Star games in the categories or on a game page.',
+    creatorCredit:
+      'This guide uses footage from the wonderful videos by {name}. If you enjoy {name}’s videos as much as we do, please consider subscribing. Every bit of support helps create even more great content!',
+    creatorYoutube: 'YouTube',
   },
   es: {
     profile: 'Perfil',
@@ -69,6 +133,16 @@ export const UI_STRINGS = {
     guideLanguageReset: 'Predeterminado',
     impressum: 'Aviso legal',
     privacy: 'Privacidad (RGPD)',
+    fairUseNote:
+      'Carátulas, logos y títulos se usan solo para identificar juegos en una base editorial. TrophyBase no está afiliado a los titulares.',
+    consentTitle: 'Contenido externo',
+    consentBody:
+      'Sin medición de audiencia ni cookies de afiliados. Los vídeos de YouTube se cargan solo con tu consentimiento (cookies de Google).',
+    consentAllowYoutube: 'Permitir YouTube',
+    consentNecessary: 'Rechazar',
+    consentYoutubeGate:
+      'YouTube establece cookies de Google. El vídeo se carga solo con tu consentimiento.',
+    consentYoutubeLoad: 'Cargar vídeo de YouTube',
     dbConnected: '¡Conectado correctamente!',
     dbFailed: 'Error',
     dbLabel: 'BD',
@@ -81,10 +155,32 @@ export const UI_STRINGS = {
     guideLoading: 'Cargando datos de la guía…',
     loadingGuide: 'Cargando guía…',
     searchPlaceholder: 'Título, género o desarrollador…',
+    advancedSearch: 'Búsqueda avanzada',
+    advancedSearchHint:
+      'Combina título, desarrollador, género y consola. Los campos vacíos se ignoran.',
+    searchTitle: 'Título',
+    searchDeveloper: 'Desarrollador',
+    searchGenre: 'Género',
+    searchConsole: 'Consola',
+    searchSubmit: 'Buscar',
+    searchReset: 'Restablecer',
+    searchBack: '← Volver al inicio',
+    consoleAll: 'Todas las consolas',
+    advancedSearchEmpty: 'Rellena al menos un campo.',
+    searchAria: 'Búsqueda de juegos',
+    searchStartAria: 'Iniciar búsqueda',
     homeKicker: 'TrophyBase · Tu hub de guías',
     homeTitle: 'Encuentra tu próxima platino',
     homeSub:
       'Ocho categorías curadas — del hardcore Souls a platino familiar. Elige la fila que encaje contigo.',
+    watchlistTitle: 'Watchlist',
+    watchlistCountOne: '1 juego',
+    watchlistCountMany: '{n} juegos',
+    watchlistEmpty:
+      'Todavía no hay juegos en tu watchlist. Márcalos con el ☆ en las categorías o en la ficha del juego.',
+    creatorCredit:
+      'Esta guía utiliza imágenes de los vídeos de {name}. Si te gustan tanto como a nosotros, suscríbete. Cada apoyo ayuda a crear aún más contenido.',
+    creatorYoutube: 'YouTube',
   },
 };
 

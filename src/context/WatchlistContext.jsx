@@ -1,34 +1,35 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { supabase } from '../pages/supabaseClient';
-import { fetchWatchlistGameIds, toggleWatchlistGame } from '../lib/watchlistQueries';
+import {
+  LOCAL_WATCHLIST_STORAGE_KEY,
+  loadLocalWatchlistIds,
+  saveLocalWatchlistIds,
+  toggleLocalWatchlistId,
+} from '../lib/localWatchlist';
 
 const WatchlistContext = createContext(null);
 
 export function WatchlistProvider({ sessionUser, children }) {
-  const [watchlistIds, setWatchlistIds] = useState(() => new Set());
+  const [watchlistIdList, setWatchlistIdList] = useState(loadLocalWatchlistIds);
   const [version, setVersion] = useState(0);
-  const [loading, setLoading] = useState(false);
 
-  const refreshWatchlist = useCallback(async () => {
-    if (!sessionUser?.id) {
-      setWatchlistIds(new Set());
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    const { ids, error } = await fetchWatchlistGameIds(supabase, sessionUser.id);
-    if (error) {
-      console.error('watchlist load:', error.message);
-    }
-    setWatchlistIds(ids);
-    setLoading(false);
+  const applyIds = useCallback((ids) => {
+    const next = saveLocalWatchlistIds(ids);
+    setWatchlistIdList(next);
     setVersion((v) => v + 1);
-  }, [sessionUser?.id]);
+    return next;
+  }, []);
 
   useEffect(() => {
-    refreshWatchlist();
-  }, [refreshWatchlist]);
+    const onStorage = (event) => {
+      if (event.key !== LOCAL_WATCHLIST_STORAGE_KEY) return;
+      setWatchlistIdList(loadLocalWatchlistIds());
+      setVersion((v) => v + 1);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  const watchlistIds = useMemo(() => new Set(watchlistIdList), [watchlistIdList]);
 
   const isOnWatchlist = useCallback(
     (gameId) => {
@@ -38,37 +39,29 @@ export function WatchlistProvider({ sessionUser, children }) {
     [watchlistIds],
   );
 
-  const toggleWatchlist = useCallback(
-    async (gameId) => {
-      if (!sessionUser?.id) {
-        return { ok: false, needsLogin: true, error: null };
-      }
+  const toggleWatchlist = useCallback(async (gameId) => {
+    if (!gameId) {
+      return { ok: false, added: false, needsLogin: false, error: new Error('Spiel-ID fehlt') };
+    }
 
-      const id = String(gameId);
-      const onList = watchlistIds.has(id);
-      const { error } = await toggleWatchlistGame(supabase, sessionUser.id, id, onList);
-
-      if (error) {
-        return { ok: false, needsLogin: false, error };
-      }
-
-      await refreshWatchlist();
-      return { ok: true, added: !onList, needsLogin: false, error: null };
-    },
-    [sessionUser?.id, watchlistIds, refreshWatchlist],
-  );
+    const { ids, added } = toggleLocalWatchlistId(gameId);
+    setWatchlistIdList(ids);
+    setVersion((v) => v + 1);
+    return { ok: true, added, needsLogin: false, error: null };
+  }, []);
 
   const value = useMemo(
     () => ({
       watchlistIds,
+      watchlistIdList,
       version,
-      loading,
+      loading: false,
       isOnWatchlist,
       toggleWatchlist,
-      refreshWatchlist,
+      refreshWatchlist: () => applyIds(loadLocalWatchlistIds()),
       isLoggedIn: !!sessionUser?.id,
     }),
-    [watchlistIds, version, loading, isOnWatchlist, toggleWatchlist, refreshWatchlist, sessionUser?.id],
+    [watchlistIds, watchlistIdList, version, isOnWatchlist, toggleWatchlist, applyIds, sessionUser?.id],
   );
 
   return <WatchlistContext.Provider value={value}>{children}</WatchlistContext.Provider>;

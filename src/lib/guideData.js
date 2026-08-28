@@ -31,6 +31,7 @@ export function normalizeGuideEntryRow(row) {
     timestamp: String(row.timestamp ?? '').trim(),
     video_url: String(row.video_url ?? '').trim(),
     video_chapter: String(row.video_chapter ?? '').trim(),
+    localisation: String(row.localisation ?? '').trim(),
     chronological_group: String(row.chronological_group ?? row.area ?? '').trim(),
     category_group: String(row.category_group ?? row.type ?? '').trim(),
     sort_order: row.sort_order ?? null,
@@ -58,6 +59,28 @@ function chronologicalGroupKey(row) {
 }
 
 /**
+ * Gebiet über den *_group-Kacheln (z. B. Galaxie bei Astro Bot).
+ * Leerer String heißt: dieser Eintrag hat keine Gebiets-Ebene und wird ohne
+ * zusätzlichen Rahmen dargestellt.
+ */
+export function guideLocalisationKey(row) {
+  return String(row?.localisation ?? '').trim();
+}
+
+/** Trenner für zusammengesetzte Gruppenschlüssel – in Gruppennamen unmöglich. */
+const GROUP_KEY_SEPARATOR = '\u0000';
+
+export function guideGroupName(row, groupByField = 'category_group') {
+  const fallbackField =
+    groupByField === 'chronological_group' ? 'category_group' : 'chronological_group';
+  return (
+    String(row?.[groupByField] ?? '').trim() ||
+    String(row?.[fallbackField] ?? '').trim() ||
+    'Allgemein'
+  );
+}
+
+/**
  * game_guides.id ist eine UUID – die Reihenfolge steckt in sort_order
  * (aus local_id bzw. Ladereihenfolge, siehe mergeGuideRow).
  * Bosse haben ein „B_"-Präfix auf local_id („B_12"), aus dem /\d+/ die 12 zieht.
@@ -79,36 +102,64 @@ function compareGuideOrder(a, b) {
 }
 
 /**
- * Walkthrough (sheet_type 1): Kacheln nach kleinster sort_order je chronological_group.
+ * Sortiert hierarchisch über beliebig viele Gruppenebenen (z. B. localisation →
+ * chronological_group). Jede Ebene läuft nach der kleinsten sort_order ihrer
+ * Einträge, bei Gleichstand alphabetisch; innerhalb der letzten Ebene zählt die
+ * Einzel-Reihenfolge. Sind alle Schlüssel einer Ebene gleich (etwa ohne
+ * gepflegte localisation), fällt die Ebene wirkungslos heraus.
+ * @param {object[]} rows
+ * @param {((row: object) => string)[]} keyFns Von außen nach innen
  */
-export function sortChronologicalGuideRows(rows) {
-  const minGuideIdByGroup = new Map();
+function sortRowsByGroupLevels(rows, keyFns) {
+  const levelKey = (row, level) =>
+    keyFns
+      .slice(0, level + 1)
+      .map((fn) => fn(row))
+      .join(GROUP_KEY_SEPARATOR);
+
+  const minSortOrderByLevel = keyFns.map(() => new Map());
 
   for (const row of rows) {
-    const group = chronologicalGroupKey(row);
-    const guideNum = toSortNumber(row);
-    const prev = minGuideIdByGroup.get(group);
-    if (prev === undefined || guideNum < prev) {
-      minGuideIdByGroup.set(group, guideNum);
-    }
+    const sortNumber = toSortNumber(row);
+    keyFns.forEach((_, level) => {
+      const key = levelKey(row, level);
+      const prev = minSortOrderByLevel[level].get(key);
+      if (prev === undefined || sortNumber < prev) {
+        minSortOrderByLevel[level].set(key, sortNumber);
+      }
+    });
   }
 
   return [...rows].sort((a, b) => {
-    const groupA = chronologicalGroupKey(a);
-    const groupB = chronologicalGroupKey(b);
-    const minA = minGuideIdByGroup.get(groupA) ?? Infinity;
-    const minB = minGuideIdByGroup.get(groupB) ?? Infinity;
+    for (let level = 0; level < keyFns.length; level += 1) {
+      const keyA = levelKey(a, level);
+      const keyB = levelKey(b, level);
+      if (keyA === keyB) continue;
 
-    if (minA !== minB) return minA - minB;
-    if (groupA !== groupB) return groupA.localeCompare(groupB, 'de');
+      const minA = minSortOrderByLevel[level].get(keyA) ?? Infinity;
+      const minB = minSortOrderByLevel[level].get(keyB) ?? Infinity;
+      if (minA !== minB) return minA - minB;
 
+      return keyFns[level](a).localeCompare(keyFns[level](b), 'de');
+    }
     return compareGuideOrder(a, b);
   });
 }
 
-/** Sammelobjekte (sheet_type 2) – category_group, dann item_name */
+/**
+ * Walkthrough (sheet_type 1): Gebiete (localisation) nach kleinster sort_order,
+ * darin die Kacheln je chronological_group.
+ */
+export function sortChronologicalGuideRows(rows) {
+  return sortRowsByGroupLevels(rows, [guideLocalisationKey, chronologicalGroupKey]);
+}
+
+/** Sammelobjekte (sheet_type 2) – localisation, category_group, dann item_name */
 export function sortByTypeGuideRows(rows) {
   return [...rows].sort((a, b) => {
+    const localisationCmp = guideLocalisationKey(a).localeCompare(guideLocalisationKey(b), 'de');
+    if (localisationCmp !== 0) return localisationCmp;
+
     const groupCmp = String(a.category_group ?? '').localeCompare(
       String(b.category_group ?? ''),
       'de',
@@ -134,31 +185,56 @@ export function normalizeBossRow(row) {
 }
 
 /**
- * Bosse (sheet_type 3): Kacheln nach kleinster sort_order je category_group.
+ * Bosse (sheet_type 3): Gebiete (localisation), darin Kacheln je category_group.
  */
 export function sortBossRows(rows) {
-  const minBossIdByGroup = new Map();
+  return sortRowsByGroupLevels(rows, [guideLocalisationKey, bossCategoryKey]);
+}
 
-  for (const row of rows) {
-    const group = bossCategoryKey(row);
-    const bossNum = toSortNumber(row);
-    const prev = minBossIdByGroup.get(group);
-    if (prev === undefined || bossNum < prev) {
-      minBossIdByGroup.set(group, bossNum);
+/**
+ * Baut den zweistufigen Kachelbaum für die Anzeige: Gebiet (localisation) →
+ * Gruppe (chronological_group/category_group) → Einträge. Die Reihenfolge folgt
+ * den bereits sortierten Zeilen; Einträge ohne localisation landen in einem
+ * Abschnitt mit leerem Namen und werden ohne Gebiets-Rahmen gerendert.
+ * @param {object[]} rows Bereits sortiert und gefiltert
+ * @param {'chronological_group'|'category_group'} groupByField
+ */
+export function buildGuideGroupTree(rows, groupByField = 'category_group') {
+  /** @type {{ localisation: string, itemCount: number, groups: { key: string, name: string, items: object[] }[] }[]} */
+  const sections = [];
+  const sectionByLocalisation = new Map();
+
+  for (const row of rows || []) {
+    const localisation = guideLocalisationKey(row);
+    const groupName = guideGroupName(row, groupByField);
+
+    let section = sectionByLocalisation.get(localisation);
+    if (!section) {
+      section = { localisation, itemCount: 0, groups: [], groupsByName: new Map() };
+      sectionByLocalisation.set(localisation, section);
+      sections.push(section);
     }
+
+    let group = section.groupsByName.get(groupName);
+    if (!group) {
+      group = {
+        key: `${localisation}${GROUP_KEY_SEPARATOR}${groupName}`,
+        name: groupName,
+        items: [],
+      };
+      section.groupsByName.set(groupName, group);
+      section.groups.push(group);
+    }
+
+    group.items.push(row);
+    section.itemCount += 1;
   }
 
-  return [...rows].sort((a, b) => {
-    const groupA = bossCategoryKey(a);
-    const groupB = bossCategoryKey(b);
-    const minA = minBossIdByGroup.get(groupA) ?? Infinity;
-    const minB = minBossIdByGroup.get(groupB) ?? Infinity;
-
-    if (minA !== minB) return minA - minB;
-    if (groupA !== groupB) return groupA.localeCompare(groupB, 'de');
-
-    return compareGuideOrder(a, b);
-  });
+  return sections.map(({ localisation, itemCount, groups }) => ({
+    localisation,
+    itemCount,
+    groups,
+  }));
 }
 
 function assignStableIds(rows, idPrefix) {

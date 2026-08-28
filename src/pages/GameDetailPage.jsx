@@ -6,7 +6,7 @@ import GuideLanguageSelector from '../components/GuideLanguageSelector';
 import GameStatusBanners from '../components/GameStatusBanners';
 import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
 import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
-import GameDetailMetaBar from '../components/GameDetailMetaBar';
+import WatchlistButton from '../components/WatchlistButton';
 import PortraitGuideHint from '../components/PortraitGuideHint';
 import { GuideVideoProvider, useGuideVideo } from '../context/GuideVideoContext';
 import { GAME_FIELDS } from '../lib/gameSchema';
@@ -16,12 +16,12 @@ import {
   buildChronologicalGuideData,
 } from '../lib/guideData';
 import { fetchGameGuideBundle, resolveGameId } from '../lib/guideQueries';
+import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
   getGameCover,
   getGameDescription,
   getGameTitle,
   getGameUuid,
-  getRouteSlug,
 } from '../lib/gameModel';
 import { useLocale } from '../context/LocaleContext';
 import {
@@ -80,6 +80,7 @@ function GamePageContent({
     onlineTrophies: '',
   });
   const [onlineTrophyIds, setOnlineTrophyIds] = useState(() => new Set());
+  const [contentCreators, setContentCreators] = useState([]);
   const { notifyVideoCleared } = useGuideVideo();
 
   useEffect(() => {
@@ -107,6 +108,24 @@ function GamePageContent({
   useEffect(() => {
     setGuideLanguageOverride(null);
   }, [selectedGame?.id, selectedGame?.platform_game_id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCreator() {
+      if (!selectedGame) {
+        setContentCreators([]);
+        return;
+      }
+      const { data } = await fetchContentCreatorsForGame(supabase, selectedGame);
+      if (!cancelled) setContentCreators(data);
+    }
+
+    loadCreator();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGame]);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,8 +241,6 @@ function GamePageContent({
     () => getGameUuid(selectedGame) || resolveGameId(selectedGame),
     [selectedGame],
   );
-
-  const routeSlug = useMemo(() => getRouteSlug(selectedGame), [selectedGame]);
 
   const gameId = watchlistGameId;
 
@@ -445,12 +462,21 @@ function GamePageContent({
 
         <div className="flex-grow w-full min-w-0 flex flex-col justify-between h-full pt-2">
           <div>
-            <span className="text-[10px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-2 py-0.5 rounded font-mono font-bold uppercase tracking-wider">
-              Spiele Hub
-            </span>
-            <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-2 mb-6">
-              {gameTitle}
-            </h2>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <span className="text-[10px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-2 py-0.5 rounded font-mono font-bold uppercase tracking-wider">
+                  Spiele Hub
+                </span>
+                <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-2 mb-6">
+                  {gameTitle}
+                </h2>
+              </div>
+              <WatchlistButton
+                gameId={watchlistGameId}
+                variant="detail"
+                className="sm:flex-shrink-0 sm:mt-1"
+              />
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4 sm:gap-x-8 w-full max-w-xl min-w-0 text-sm border-t border-zinc-800/60 pt-4">
               <div className="flex justify-between border-b border-zinc-800/40 pb-2 sm:col-span-2">
@@ -513,14 +539,11 @@ function GamePageContent({
         </div>
       </div>
 
-      <GameDetailMetaBar
-        consoleLabel={selectedGame[GAME_FIELDS.console]}
-        gameId={watchlistGameId}
-        displayRef={routeSlug}
-        onRequestLogin={onRequestLogin}
+      <GameSeoInfobox
+        title={gameTitle}
+        description={gameDescription}
+        creators={contentCreators}
       />
-
-      <GameSeoInfobox title={gameTitle} description={gameDescription} />
 
       <section className="mt-8 w-full min-w-0">
         <GuideLanguageSelector

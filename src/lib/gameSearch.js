@@ -4,9 +4,19 @@ import {
   GAME_SEARCH_STRUCT_COLUMNS,
   GAME_SEARCH_LOCALIZED_COLUMNS,
   searchGamesByColumn,
+  searchGamesAdvanced as runAdvancedSearch,
   validateSearchQuery,
 } from './gameQueries';
 import { getLocale } from './locale';
+
+export const CONSOLE_FILTER_OPTIONS = [
+  { value: '', labelKey: 'consoleAll' },
+  { value: 'PS5', label: 'PlayStation 5' },
+  { value: 'PS4', label: 'PlayStation 4' },
+  { value: 'PS3', label: 'PlayStation 3' },
+  { value: 'PS Vita', label: 'PS Vita' },
+  { value: 'PSP', label: 'PSP' },
+];
 
 /**
  * Suche in games.spieltitel (JSONB), games.genre und games.entwickler.
@@ -62,6 +72,16 @@ export async function searchGames(supabase, query, options = {}) {
   }
 
   return { data: deduped.slice(0, limit), error: null };
+}
+
+/**
+ * Erweiterte Suche über einzelne Felder (UND).
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{ title?: string, developer?: string, genre?: string, console?: string }} filters
+ * @param {{ limit?: number, locale?: string }} [options]
+ */
+export async function searchGamesAdvanced(supabase, filters, options = {}) {
+  return runAdvancedSearch(supabase, filters, options);
 }
 
 export { getGameTitle };

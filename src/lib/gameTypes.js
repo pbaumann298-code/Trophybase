@@ -93,6 +93,7 @@
  *   1=Walkthrough, 2=Sammelobjekte, 3=Bosse. Mehrere Werte = der Eintrag stand
  *   in mehreren Excel-Reitern und wurde beim Upload zusammengefasst.
  * @property {LocalizedText} [item_name]
+ * @property {LocalizedText} [localisation] Gebiet über chronological_group/category_group
  * @property {LocalizedText} [chronological_group]
  * @property {LocalizedText} [category_group]
  * @property {LocalizedText} [video_chapter]
@@ -111,6 +112,7 @@
  * @property {number[]} sheet_types Alle Reiter des Eintrags – maßgeblich für Filter
  * @property {1|2|3|number} sheet_type Primärer Reiter (sheet_types[0]), nur Abwärtskompatibilität
  * @property {string} [item_name]
+ * @property {string} [localisation] Leer = keine Gebiets-Ebene für diesen Eintrag
  * @property {string} [chronological_group]
  * @property {string} [category_group]
  * @property {string} [video_chapter]

@@ -3,6 +3,7 @@ import { supabase } from './pages/supabaseClient';
 import Header from './components/Header';
 import HomePage from './pages/HomePage';
 import SearchResultsPage from './pages/SearchResultsPage';
+import AdvancedSearchPage from './pages/AdvancedSearchPage';
 import GameDetailPage from "./pages/GameDetailPage";
 import LoginPage from './pages/LoginPage';
 import SocialLinkPage from './pages/SocialLinkPage';
@@ -24,6 +25,9 @@ import {
   writeAppPath,
   gameGuidePath,
   parsePrettyGamePath,
+  navigateToImpressum,
+  navigateToPrivacy,
+  navigateToAdvancedSearch,
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
 import ProfilePage from './pages/ProfilePage';
@@ -38,7 +42,7 @@ import {
 } from './lib/earnedTrophyQueries';
 import { getTrophyIdKey } from './lib/trophyQueries';
 import { getGameUuid } from './lib/gameModel';
-import { applyGameSeoLinks, clearGameSeoLinks } from './lib/seoHead';
+import { applyGameSeoLinks, applyPathCanonical, clearGameSeoLinks } from './lib/seoHead';
 import {
   loadCompletedGuideItems,
   saveCompletedGuideItems,
@@ -49,9 +53,14 @@ import {
 } from './lib/trophyProgressStorage';
 import { ErrorReportProvider } from './context/ErrorReportContext';
 import { WatchlistProvider } from './context/WatchlistContext';
+import { useMediaConsent } from './context/MediaConsentContext';
+import SiteFooter from './components/SiteFooter';
+import MediaConsentBanner from './components/MediaConsentBanner';
+import { LegalNoticePage, PrivacyPage } from './pages/LegalPages';
 
 function App() {
-  const { globalLocale, t } = useLocale();
+  const { globalLocale } = useLocale();
+  const { youtube, revokeYoutube } = useMediaConsent();
   // 1. Wir schauen beim Start direkt in die URL des Browsers!
   const [currentView, setCurrentView] = useState(() => {
     const pathView = getViewFromPath(window.location.pathname);
@@ -442,6 +451,18 @@ function App() {
   };
 
   useEffect(() => {
+    if (currentView === 'impressum') {
+      applyPathCanonical('/impressum');
+      return () => clearGameSeoLinks();
+    }
+    if (currentView === 'datenschutz') {
+      applyPathCanonical('/datenschutz');
+      return () => clearGameSeoLinks();
+    }
+    if (currentView === 'advanced-search') {
+      applyPathCanonical('/suche');
+      return () => clearGameSeoLinks();
+    }
     if (currentView !== 'game_info' || !selectedGame) {
       clearGameSeoLinks();
       return undefined;
@@ -454,6 +475,27 @@ function App() {
     setCurrentView('home');
     setSelectedGame(null);
     navigateToHome();
+  }, []);
+
+  const openImpressum = useCallback(() => {
+    setCurrentView('impressum');
+    setSelectedGame(null);
+    navigateToImpressum();
+    window.scrollTo(0, 0);
+  }, []);
+
+  const openPrivacy = useCallback(() => {
+    setCurrentView('datenschutz');
+    setSelectedGame(null);
+    navigateToPrivacy();
+    window.scrollTo(0, 0);
+  }, []);
+
+  const openAdvancedSearch = useCallback(() => {
+    setCurrentView('advanced-search');
+    setSelectedGame(null);
+    navigateToAdvancedSearch();
+    window.scrollTo(0, 0);
   }, []);
 
   const maintenanceBypass = hasMaintenanceBypass(sessionUser);
@@ -477,6 +519,18 @@ function App() {
     }
     if (currentView === 'tester-setup') {
       return <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />;
+    }
+    if (currentView === 'impressum') {
+      return <LegalNoticePage onBack={goHome} />;
+    }
+    if (currentView === 'datenschutz') {
+      return (
+        <PrivacyPage
+          onBack={goHome}
+          youtubeConsent={youtube}
+          onRevokeYoutube={revokeYoutube}
+        />
+      );
     }
     return <MaintenancePage setCurrentView={setCurrentView} />;
   };
@@ -514,7 +568,15 @@ function App() {
         onLogout={handleLogout} 
       />
 
-      <main className="pb-24 flex-1 flex flex-col justify-center w-full max-w-full min-w-0 overflow-x-hidden">
+      <main
+        className={`flex-1 flex flex-col w-full max-w-full min-w-0 overflow-x-hidden ${
+          currentView === 'impressum' ||
+          currentView === 'datenschutz' ||
+          currentView === 'advanced-search'
+            ? 'justify-start'
+            : 'justify-center'
+        }`}
+      >
         
         {/* ─── WARTUNGSMODUS: login + social-link nie blockieren ─── */}
         {canRenderAppContent({
@@ -531,9 +593,8 @@ function App() {
                 setSearchQuery={setSearchQuery}
                 handleSearchSubmit={handleSearchSubmit}
                 onCategorySearch={runSearch}
-                sessionUser={sessionUser}
-                setCurrentView={setCurrentView}
                 onRequestLogin={() => setCurrentView('login')}
+                onOpenAdvancedSearch={openAdvancedSearch}
               />
             )}
 
@@ -552,6 +613,14 @@ function App() {
                 openGame={openGuide}
                 loading={loading}
                 onRequestLogin={() => setCurrentView('login')}
+              />
+            )}
+
+            {currentView === 'advanced-search' && (
+              <AdvancedSearchPage
+                openGame={openGuide}
+                onRequestLogin={() => setCurrentView('login')}
+                onBack={goHome}
               />
             )}
 
@@ -589,6 +658,14 @@ function App() {
 
             {currentView === 'login' && <LoginPage onLogin={handleLogin} />}
             {currentView === 'tester-setup' && <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />}
+            {currentView === 'impressum' && <LegalNoticePage onBack={goHome} />}
+            {currentView === 'datenschutz' && (
+              <PrivacyPage
+                onBack={goHome}
+                youtubeConsent={youtube}
+                onRevokeYoutube={revokeYoutube}
+              />
+            )}
           </>
         ) : (
           renderMaintenanceAllowedView()
@@ -596,18 +673,12 @@ function App() {
 
       </main>
 
-      <footer className="w-full max-w-full min-w-0 overflow-x-hidden bg-[#1a1b1c] border-t border-t-zinc-800/80 px-4 sm:px-6 md:px-8 py-4 flex flex-col sm:flex-row flex-wrap justify-between items-center gap-4 text-xs text-zinc-500">
-        <div className="flex flex-wrap gap-4 sm:gap-6 min-w-0">
-          <a href="/impressum" className="hover:text-zinc-300 transition">{t('impressum')}</a>
-          <a href="/datenschutz" className="hover:text-zinc-300 transition">{t('privacy')}</a>
-        </div>
-        <div className="flex items-center gap-2 font-mono text-[11px] min-w-0 max-w-full">
-          <span className={`w-2 h-2 flex-shrink-0 rounded-full ${dbOk === true ? 'bg-[#00ff66] shadow-[0_0_8px_#00ff66]' : dbOk === false ? 'bg-red-500' : 'bg-zinc-600'}`}></span>
-          <span className="truncate">
-            {t('dbLabel')}: {dbOk === null ? '…' : dbOk ? t('dbConnected') : t('dbFailed')}
-          </span>
-        </div>
-      </footer>
+      <MediaConsentBanner onOpenPrivacy={openPrivacy} />
+      <SiteFooter
+        dbOk={dbOk}
+        onOpenImpressum={openImpressum}
+        onOpenPrivacy={openPrivacy}
+      />
 
     </div>
     </WatchlistProvider>
