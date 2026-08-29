@@ -47,8 +47,7 @@ export function LegalNoticePage({ onBack }) {
   return (
     <LegalPageShell title="Impressum" onBack={onBack}>
       <p className="text-zinc-500 text-xs">
-        Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG). Gelb markierte Felder sind vor dem
-        Livegang zu ersetzen.
+        Angaben gemäß § 5 Digitale-Dienste-Gesetz (DDG).
       </p>
 
       <Section title="Anbieter">
@@ -62,11 +61,6 @@ export function LegalNoticePage({ onBack }) {
           {LEGAL.country}
         </p>
         {LEGAL.legalForm ? <p>Rechtsform: {LEGAL.legalForm}</p> : null}
-        {LEGAL.registerCourt && LEGAL.registerNumber ? (
-          <p>
-            Registergericht: {LEGAL.registerCourt}, {LEGAL.registerNumber}
-          </p>
-        ) : null}
         {LEGAL.vatId ? <p>USt-IdNr.: {LEGAL.vatId}</p> : null}
       </Section>
 
@@ -81,20 +75,47 @@ export function LegalNoticePage({ onBack }) {
             </a>
           )}
         </p>
-        {LEGAL.phone ? <p>Telefon: {LEGAL.phone}</p> : null}
+        {LEGAL.phone ? (
+          <p>
+            Telefon:{' '}
+            <a className="text-[#00ff66] hover:underline" href={`tel:${LEGAL.phone.replace(/\D/g, '')}`}>
+              {LEGAL.phone}
+            </a>
+          </p>
+        ) : null}
+      </Section>
+
+      <Section title="Registereintrag der KG">
+        <p>
+          Registergericht: {LEGAL.registerCourt}
+          <br />
+          Registernummer: {LEGAL.registerNumber}
+        </p>
+      </Section>
+
+      <Section title="Vertreten durch">
+        <p>
+          Die {LEGAL.complementaryCompany}
+          <br />
+          diese vertreten durch den Geschäftsführer: {LEGAL.managingDirector}
+        </p>
+      </Section>
+
+      <Section title="Registereintrag der GmbH">
+        <p>
+          Registergericht: {LEGAL.complementaryRegisterCourt}
+          <br />
+          Registernummer: {LEGAL.complementaryRegisterNumber}
+        </p>
       </Section>
 
       <Section title="Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV">
         <p>
           <Field value={LEGAL.responsibleMStV || LEGAL.name} />
-          {!LEGAL.responsibleMStV ? (
-            <>
-              <br />
-              <span className="text-zinc-500 text-xs">
-                (gleiche Anschrift wie oben, sofern nicht abweichend angegeben)
-              </span>
-            </>
-          ) : null}
+          <br />
+          <Field value={LEGAL.street} />
+          <br />
+          <Field value={LEGAL.zipCity} />
         </p>
       </Section>
 
@@ -134,7 +155,8 @@ export function PrivacyPage({ onBack, youtubeConsent, onRevokeYoutube }) {
           <br />
           <Field value={LEGAL.street} />
           <br />
-          <Field value={LEGAL.zipCity} />, {LEGAL.country}
+          <Field value={LEGAL.zipCity} />,{' '}
+          {LEGAL.country}
           <br />
           E-Mail: <Field value={LEGAL.email} />
         </p>
@@ -181,9 +203,11 @@ export function PrivacyPage({ onBack, youtubeConsent, onRevokeYoutube }) {
 
       <Section title="5. YouTube und sonstige Dritte">
         <p>
-          Guide-Videos werden erst nach Einwilligung als Embed geladen (privacy-enhanced:
-          youtube-nocookie.com). Dann kann Google (YouTube LLC, USA) Cookies setzen und
-          Nutzungsdaten erhalten. Rechtsgrundlage: Art. 6 Abs. 1 lit. a DSGVO, § 25 TDDDG.
+          Als Vorschau laden wir Standbilder vom YouTube-Bild-CDN (i.ytimg.com), ohne den
+          Player und ohne YouTube-Cookies. Guide-Videos selbst werden erst nach Einwilligung
+          als Embed geladen (privacy-enhanced: youtube-nocookie.com). Dann kann Google
+          (YouTube LLC, USA) Cookies setzen und Nutzungsdaten erhalten. Rechtsgrundlage:
+          Art. 6 Abs. 1 lit. a DSGVO, § 25 TDDDG.
         </p>
         <p>
           Ausgehende Links zu YouTube (ohne Embed) laden Google-Inhalte erst auf der

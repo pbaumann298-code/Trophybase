@@ -1,37 +1,35 @@
 /**
  * Angaben für Impressum (§ 5 DDG) und Datenschutz.
- * Werte in eckigen Klammern sind Platzhalter — vor dem Livegang ersetzen.
  *
- * Noch von dir auszufüllen:
- * - name, street, zipCity, email (Pflicht)
- * - phone (optional, aber empfohlen)
- * - legalForm / registerCourt / registerNumber / vatId nur wenn Firma/GmbH/USt-IdNr.
- * - responsibleMStV nur wenn abweichend vom Anbieter
- * - supervisoryAuthority = Landes-Datenschutzbehörde (nicht BfDI)
+ * supervisoryAuthority = Landes-Datenschutzbehörde (Sachsen, Sitz Dresden).
  */
 export const LEGAL = {
   siteName: 'TrophyBase.app',
   siteUrl: 'https://trophybase.app',
-  lastUpdated: '2026-08-20',
+  lastUpdated: '2026-08-29',
 
-  name: '[Vor- und Nachname bzw. vollständige Firma]',
-  street: '[Straße und Hausnummer]',
-  zipCity: '[PLZ Ort]',
+  name: 'TrophyBase GmbH & Co. KG',
+  street: 'Adolfstraße 1',
+  zipCity: '01139 Dresden',
   country: 'Deutschland',
-  email: '[E-Mail-Adresse]',
-  phone: '',
+  email: 'info@trophybase.app',
+  phone: '0172/6050475',
 
-  /** Nur bei Kapitalgesellschaften / eingetragenen Firmen */
-  legalForm: '',
-  registerCourt: '',
-  registerNumber: '',
+  legalForm: 'GmbH & Co. KG',
+  registerCourt: 'Amtsgericht Dresden',
+  registerNumber: 'HRA 12564',
   vatId: '',
 
-  /** Verantwortliche Person nach § 18 Abs. 2 MStV; leer = wie name */
-  responsibleMStV: '',
+  complementaryCompany: 'TrophyBase Verwaltungs GmbH',
+  complementaryRegisterCourt: 'Amtsgericht Dresden',
+  complementaryRegisterNumber: 'HRB 48328',
+  managingDirector: 'Philipp Baumann',
 
-  /** Zuständige Landesbehörde, nicht der BfDI (der ist nur Bund) */
-  supervisoryAuthority: '[Zuständige Datenschutz-Aufsichtsbehörde des Bundeslands]',
+  /** Verantwortliche Person nach § 18 Abs. 2 MStV */
+  responsibleMStV: 'Philipp Baumann',
+
+  supervisoryAuthority:
+    'Sächsischer Datenschutzbeauftragter, Devrientstraße 5, 01067 Dresden',
 
   hosting:
     'Vercel Inc., 440 N Barranca Ave #4133, Covina, CA 91723, USA (Auslieferung über CDN; AV-Vertrag / DPF bzw. SCC beim Anbieter prüfen)',

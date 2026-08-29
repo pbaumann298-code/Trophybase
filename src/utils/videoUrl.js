@@ -44,6 +44,37 @@ export function buildVideoUrlWithTimestamp(url, timecode) {
 }
 
 /**
+ * YouTube-Video-ID aus Watch-/Embed-/Shorts-/youtu.be-URLs.
+ * @param {string} url
+ * @returns {string|null}
+ */
+export function getYouTubeVideoId(url) {
+  const raw = String(url ?? '').trim();
+  if (!raw) return null;
+  const match = raw.match(
+    /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:embed\/|v\/|shorts\/|watch\?.*?v=))([a-zA-Z0-9_-]{11})/,
+  );
+  return match?.[1] ?? null;
+}
+
+/**
+ * Vorschaubilder ohne Embed/Cookies (i.ytimg.com).
+ * Erste URL ist die schärfste Variante; fehlende maxres-Bilder sind oft ein Mini-Platzhalter.
+ * @param {string} videoId
+ * @returns {string[]}
+ */
+export function getYouTubeThumbnailUrls(videoId) {
+  const id = String(videoId ?? '').trim();
+  if (!id) return [];
+  return [
+    `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`,
+    `https://i.ytimg.com/vi/${id}/hq720.jpg`,
+    `https://i.ytimg.com/vi/${id}/sddefault.jpg`,
+    `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+  ];
+}
+
+/**
  * YouTube-Embed-URL mit optionalem Startzeitpunkt (Sekunden).
  * @param {string} url
  * @param {string|number|null|undefined} timecode
@@ -52,17 +83,10 @@ export function buildVideoUrlWithTimestamp(url, timecode) {
 export function getYouTubeEmbedUrl(url, timecode, { autoplay = false } = {}) {
   if (!url) return null;
 
-  let embedUrl = url;
-  if (!url.includes('youtube.com/embed/')) {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    embedUrl =
-      match && match[2].length === 11
-        ? `https://www.youtube-nocookie.com/embed/${match[2]}`
-        : url;
-  } else {
-    embedUrl = url.replace('youtube.com/embed/', 'youtube-nocookie.com/embed/');
-  }
+  const videoId = getYouTubeVideoId(url);
+  let embedUrl = videoId
+    ? `https://www.youtube-nocookie.com/embed/${videoId}`
+    : String(url).replace('youtube.com/embed/', 'youtube-nocookie.com/embed/');
 
   const params = new URLSearchParams();
   const seconds = parseTimecodeToSeconds(timecode);

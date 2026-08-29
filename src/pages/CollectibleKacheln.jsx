@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { getYouTubeEmbedUrl } from '../utils/videoUrl';
-import YouTubeEmbed from '../components/YouTubeEmbed';
+import { getYouTubeEmbedUrl, getYouTubeVideoId } from '../utils/videoUrl';
+import YouTubeEmbed, { YouTubeThumb, YoutubePlayIcon } from '../components/YouTubeEmbed';
 import { useVisibility } from '../context/VisibilityContext';
 import { useGuideVideo } from '../context/GuideVideoContext';
 import { guideProgressKey } from '../lib/guideProgressStorage';
@@ -94,6 +94,8 @@ function SplitScreenGuideKacheln({
     const activeVideo = activeVideos[group.key];
     const activeItem = activeVideo ? items.find((i) => i.id === activeVideo.itemId) : null;
     const embedUrl = activeVideo?.embedUrl ?? null;
+    const previewItem = items.find((item) => item.video_url);
+    const previewVideoId = previewItem ? getYouTubeVideoId(previewItem.video_url) : null;
 
     if (items.length === 0) return null;
 
@@ -270,29 +272,37 @@ function SplitScreenGuideKacheln({
             </div>
 
             <div className="guide-split__video">
-              {embedUrl ? (
-                <div className="guide-split__video-inner">
+              <div className="guide-split__video-inner">
+                {embedUrl ? (
                   <YouTubeEmbed
                     key={`${group.key}-${activeVideo?.itemId || 'default'}-${embedUrl}`}
                     src={embedUrl}
                     title={activeItem ? getDisplayName(activeItem) : group.name}
                   />
-                </div>
-              ) : (
-                <div
-                  style={{
-                    color: '#71717a',
-                    fontSize: '12px',
-                    textAlign: 'center',
-                    fontFamily: 'monospace',
-                    padding: '0 16px',
-                  }}
-                >
-                  {activeVideo
-                    ? emptyVideoMessage
-                    : 'Klicke auf ein Item, um das Video hier abzuspielen.'}
-                </div>
-              )}
+                ) : previewVideoId ? (
+                  <button
+                    type="button"
+                    className="youtube-poster"
+                    onClick={() => selectItemVideo(group.key, previewItem)}
+                  >
+                    <YouTubeThumb videoId={previewVideoId} alt="" className="youtube-poster__thumb" />
+                    <span className="youtube-poster__play">
+                      <YoutubePlayIcon />
+                    </span>
+                    <span className="youtube-poster__hint">
+                      {activeVideo
+                        ? emptyVideoMessage
+                        : 'Klicke auf ein Item oder das Vorschaubild, um das Video zu laden.'}
+                    </span>
+                  </button>
+                ) : (
+                  <div className="youtube-consent-gate">
+                    {activeVideo
+                      ? emptyVideoMessage
+                      : 'Klicke auf ein Item, um das Video hier abzuspielen.'}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

@@ -26,6 +26,14 @@
       "destination": "/admin.html"
     },
     {
+      "source": "/intranet",
+      "destination": "/intranet.html"
+    },
+    {
+      "source": "/intranet/",
+      "destination": "/intranet.html"
+    },
+    {
       "source": "/((?!api/|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon).*)",
       "destination": "/index.html"
     }

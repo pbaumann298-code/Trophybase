@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
 import { normalizeEmail } from '../../lib/maintenanceAccess';
 
-function AdminLoginForm({ onLogin, loading, errorMessage }) {
+function AdminLoginForm({
+  onLogin,
+  loading,
+  errorMessage,
+  kicker = 'Geheimer Bereich',
+  title = 'Admin',
+  submitLabel = 'Admin-Login',
+}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -14,10 +21,10 @@ function AdminLoginForm({ onLogin, loading, errorMessage }) {
     <div className="w-full max-w-md mx-auto bg-[#1a1b1c] border border-zinc-800 rounded-2xl p-8 shadow-2xl">
       <div className="text-center mb-8">
         <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-500 mb-2">
-          Geheimer Bereich
+          {kicker}
         </p>
         <h1 className="text-xl font-bold text-white">
-          TrophyBase <span className="text-[#00ff66]">Admin</span>
+          TrophyBase <span className="text-[#00ff66]">{title}</span>
         </h1>
       </div>
 
@@ -54,7 +61,7 @@ function AdminLoginForm({ onLogin, loading, errorMessage }) {
           disabled={loading}
           className="mt-2 bg-[#00ff66] hover:bg-[#00dd55] disabled:opacity-50 text-[#121314] font-bold text-sm py-2.5 rounded-xl transition"
         >
-          {loading ? 'Anmelden…' : 'Admin-Login'}
+          {loading ? 'Anmelden…' : submitLabel}
         </button>
       </form>
     </div>

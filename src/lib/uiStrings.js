@@ -17,11 +17,11 @@ export const UI_STRINGS = {
       'Cover, Logos und Spieltitel dienen nur der Identifikation im redaktionellen Datenbank-Kontext. TrophyBase ist nicht mit den Rechteinhabern affiliated.',
     consentTitle: 'Hinweise zu externen Inhalten',
     consentBody:
-      'Kein Tracking, keine Affiliate-Cookies. YouTube-Videos laden wir erst nach deiner Zustimmung (Cookies von Google).',
+      'Kein Tracking, keine Affiliate-Cookies. YouTube-Videos laden wir erst nach deiner Zustimmung (Cookies von Google). Vorschaubilder kommen vom YouTube-Bild-CDN, ohne Player.',
     consentAllowYoutube: 'YouTube erlauben',
     consentNecessary: 'Ablehnen',
     consentYoutubeGate:
-      'YouTube setzt Cookies von Google. Das Video wird erst geladen, wenn du zustimmst.',
+      'Vorschaubild ohne Player. YouTube setzt Cookies von Google erst, wenn du das Video lädst.',
     consentYoutubeLoad: 'YouTube-Video laden',
     dbConnected: 'Erfolgreich verbunden!',
     dbFailed: 'Fehlgeschlagen',
@@ -77,11 +77,11 @@ export const UI_STRINGS = {
       'Covers, logos and titles are used only to identify games in an editorial database. TrophyBase is not affiliated with the rights holders.',
     consentTitle: 'External content',
     consentBody:
-      'No tracking and no affiliate cookies. YouTube videos load only after you consent (Google cookies).',
+      'No tracking and no affiliate cookies. YouTube videos load only after you consent (Google cookies). Preview images come from YouTube’s image CDN, without the player.',
     consentAllowYoutube: 'Allow YouTube',
     consentNecessary: 'Decline',
     consentYoutubeGate:
-      'YouTube sets Google cookies. The video loads only after you consent.',
+      'Preview image without the player. YouTube sets Google cookies only when you load the video.',
     consentYoutubeLoad: 'Load YouTube video',
     dbConnected: 'Connected successfully!',
     dbFailed: 'Failed',
@@ -137,11 +137,11 @@ export const UI_STRINGS = {
       'Carátulas, logos y títulos se usan solo para identificar juegos en una base editorial. TrophyBase no está afiliado a los titulares.',
     consentTitle: 'Contenido externo',
     consentBody:
-      'Sin medición de audiencia ni cookies de afiliados. Los vídeos de YouTube se cargan solo con tu consentimiento (cookies de Google).',
+      'Sin medición de audiencia ni cookies de afiliados. Los vídeos de YouTube se cargan solo con tu consentimiento (cookies de Google). Las miniaturas vienen del CDN de imágenes de YouTube, sin reproductor.',
     consentAllowYoutube: 'Permitir YouTube',
     consentNecessary: 'Rechazar',
     consentYoutubeGate:
-      'YouTube establece cookies de Google. El vídeo se carga solo con tu consentimiento.',
+      'Miniatura sin reproductor. YouTube establece cookies de Google solo al cargar el vídeo.',
     consentYoutubeLoad: 'Cargar vídeo de YouTube',
     dbConnected: '¡Conectado correctamente!',
     dbFailed: 'Error',

@@ -6,7 +6,7 @@ import { countryToLocale } from './shared/countryLocaleMap.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/** Dev: /api/geo-locale (Vercel-Edge-Äquivalent) + /admin → admin.html */
+/** Dev: /api/geo-locale (Vercel-Edge-Äquivalent) + /admin + /intranet */
 function devApiPlugin(env) {
   return {
     name: 'dev-api',
@@ -38,6 +38,10 @@ function devApiPlugin(env) {
           req.url = '/admin.html';
         }
 
+        if (url.pathname === '/intranet' || url.pathname === '/intranet/') {
+          req.url = '/intranet.html';
+        }
+
         next();
       });
     },
@@ -55,6 +59,7 @@ export default defineConfig(({ mode }) => {
       input: {
         main: resolve(__dirname, 'index.html'),
         admin: resolve(__dirname, 'admin.html'),
+        intranet: resolve(__dirname, 'intranet.html'),
       },
     },
   },
