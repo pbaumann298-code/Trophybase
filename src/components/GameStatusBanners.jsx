@@ -1,4 +1,3 @@
-import React from 'react';
 
 function StatusBanner({ tone, title, message }) {
   const styles =

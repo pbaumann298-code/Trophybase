@@ -1,4 +1,19 @@
+@import 'tailwindcss';
 @import './styles/guide-landscape.css';
+
+/* Quellen explizit, damit die Utility-Erkennung nicht von Heuristiken abhaengt. */
+@source './**/*.{js,jsx}';
+@source '../index.html';
+@source '../admin.html';
+@source '../intranet.html';
+
+/* Tailwind v4 setzt Buttons auf cursor:default, v3 (die bisherige CDN) auf pointer. */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
 
 :root {
   --text: #6b6375;

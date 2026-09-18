@@ -1,4 +1,3 @@
-import React from 'react';
 import { useLocale } from '../context/LocaleContext';
 import { localeOptions } from '../lib/uiStrings';
 import { resolveGuideLanguage } from '../lib/localeResolver';

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { gameGuidePath, navigateToGame } from '../lib/routeUtils';

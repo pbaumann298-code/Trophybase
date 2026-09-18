@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import {
   isBetaTester,
@@ -143,7 +143,7 @@ function BetaRegistrationPage({ sessionUser, onSessionEstablished, onComplete })
                   autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-zinc-700 w-full"
+                  className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-hidden focus:border-zinc-700 w-full"
                   placeholder="deine@email.de"
                 />
               </div>
@@ -159,7 +159,7 @@ function BetaRegistrationPage({ sessionUser, onSessionEstablished, onComplete })
                   autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-zinc-700 w-full"
+                  className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-hidden focus:border-zinc-700 w-full"
                   placeholder="Mindestens 6 Zeichen"
                 />
               </div>
@@ -221,7 +221,7 @@ function BetaRegistrationPage({ sessionUser, onSessionEstablished, onComplete })
                 autoComplete="off"
                 value={userKey}
                 onChange={(e) => setUserKey(e.target.value)}
-                className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 font-mono focus:outline-none focus:border-[#00ff66]/40 w-full"
+                className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 font-mono focus:outline-hidden focus:border-[#00ff66]/40 w-full"
                 placeholder="tester1@trophybase"
               />
             </div>

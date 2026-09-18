@@ -5,12 +5,10 @@ import {
   hardwareToUrlSegment,
   parsePrettyGamePath,
 } from './gameSlug';
+import { getGameUuid, getPlatformGameId, UUID_PATTERN } from './gameModel';
 
 /** NPWR-IDs haben das Format NPWR12345_00 (legacy platform_game_id) */
 export const NPWR_ID_PATTERN = /^NPWR\d+_\d+$/i;
-
-export const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Views die auch im Wartungsmodus ohne Bypass erreichbar sind (öffentliche Inhalte). */
 export const PUBLIC_APP_VIEWS = new Set([
@@ -39,11 +37,21 @@ export function normalizePath(pathname = '') {
 }
 
 /** View aus URL-Pfad (Deep Links bei F5 / Direktaufruf). */
-export function getViewFromPath(pathname = '') {
+export function getViewFromPath(pathname = '', search) {
   const path = normalizePath(pathname);
   if (path === '/impressum') return 'impressum';
   if (path === '/datenschutz' || path === '/privacy') return 'datenschutz';
-  if (path === '/suche' || path === '/search') return 'advanced-search';
+  if (path === '/suche' || path === '/search') {
+    const queryString =
+      search ??
+      (typeof window !== 'undefined' && normalizePath(window.location.pathname) === path
+        ? window.location.search
+        : '');
+    if (String(new URLSearchParams(queryString).get('q') ?? '').trim()) {
+      return 'search-results';
+    }
+    return 'advanced-search';
+  }
   if (path === '/profile') return 'profile';
   if (path.startsWith('/admin/qa')) return 'qa_admin';
   if (path.startsWith('/guide/')) return 'game_info';
@@ -72,8 +80,9 @@ export function gameGuidePath(gameOrRef, locale = getLocale()) {
   const pretty = buildPrettyGamePath(normalizeLocale(locale), hardware, slug);
   if (pretty) return pretty;
 
-  const fallback = gameOrRef.platform_game_id ?? gameOrRef.id ?? gameOrRef.game_id;
-  const id = String(fallback ?? '').trim();
+  // Ohne Slug bleibt die UUID: games.platform_game_id ist eine Liste mehrerer
+  // NPWRs und damit als Route mehrdeutig.
+  const id = getGameUuid(gameOrRef) || getPlatformGameId(gameOrRef);
   return id ? `/guide/${id}` : '/';
 }
 
@@ -142,6 +151,37 @@ export function navigateToPrivacy() {
 
 const ADVANCED_SEARCH_QUERY_KEYS = ['title', 'developer', 'genre', 'console'];
 
+export function parseSearchPageParam(search = '') {
+  const params = new URLSearchParams(
+    search || (typeof window !== 'undefined' ? window.location.search : ''),
+  );
+  const page = Number.parseInt(params.get('page') ?? '1', 10);
+  return Number.isFinite(page) && page > 1 ? page : 1;
+}
+
+export function parseSimpleSearchParams(search = '') {
+  const source = search || (typeof window !== 'undefined' ? window.location.search : '');
+  const params = new URLSearchParams(source);
+  return {
+    q: String(params.get('q') ?? '').trim(),
+    page: parseSearchPageParam(source),
+  };
+}
+
+export function buildSimpleSearchPath(query = '', page = 1) {
+  const q = String(query ?? '').trim();
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  const safePage = Number.parseInt(String(page), 10);
+  if (Number.isFinite(safePage) && safePage > 1) params.set('page', String(safePage));
+  const qs = params.toString();
+  return qs ? `/suche?${qs}` : '/suche';
+}
+
+export function navigateToSimpleSearch(query = '', { page = 1, replace = false } = {}) {
+  writeAppPath(buildSimpleSearchPath(query, page), { replace });
+}
+
 export function parseAdvancedSearchParams(search = '') {
   const params = new URLSearchParams(
     search || (typeof window !== 'undefined' ? window.location.search : ''),
@@ -153,22 +193,71 @@ export function parseAdvancedSearchParams(search = '') {
   return filters;
 }
 
-export function buildAdvancedSearchPath(filters = {}) {
+export function buildAdvancedSearchPath(filters = {}, page = 1) {
   const params = new URLSearchParams();
   for (const key of ADVANCED_SEARCH_QUERY_KEYS) {
     const value = String(filters[key] ?? '').trim();
     if (value) params.set(key, value);
   }
+  const safePage = Number.parseInt(String(page), 10);
+  if (Number.isFinite(safePage) && safePage > 1) params.set('page', String(safePage));
   const qs = params.toString();
   return qs ? `/suche?${qs}` : '/suche';
 }
 
-export function navigateToAdvancedSearch(filters = {}, { replace = false } = {}) {
-  writeAppPath(buildAdvancedSearchPath(filters), { replace });
+export function navigateToAdvancedSearch(filters = {}, { replace = false, page = 1 } = {}) {
+  writeAppPath(buildAdvancedSearchPath(filters, page), { replace });
 }
 
 export function navigateToGame(gameOrRef, { replace = false, locale = getLocale() } = {}) {
   writeAppPath(gameGuidePath(gameOrRef, locale), { replace });
+}
+
+/** Interne Reiter-IDs der Guide-Ansicht in fester Reihenfolge. */
+export const GUIDE_TAB_IDS = ['reiter0', 'reiter1', 'reiter2', 'reiter3'];
+
+export const DEFAULT_GUIDE_TAB = GUIDE_TAB_IDS[0];
+
+/** Sprechende URL-Slugs, damit geteilte Links lesbar bleiben (?tab=collectibles). */
+const GUIDE_TAB_SLUGS = {
+  reiter0: 'trophies',
+  reiter1: 'walkthrough',
+  reiter2: 'collectibles',
+  reiter3: 'bosses',
+};
+
+const GUIDE_TAB_ID_BY_SLUG = Object.fromEntries(
+  Object.entries(GUIDE_TAB_SLUGS).map(([tabId, slug]) => [slug, tabId]),
+);
+
+export function guideTabSlug(tabId) {
+  return GUIDE_TAB_SLUGS[tabId] ?? GUIDE_TAB_SLUGS[DEFAULT_GUIDE_TAB];
+}
+
+/** Liest ?tab=… — unbekannte Werte ergeben null, damit der Aufrufer den Default wählt. */
+export function parseGuideTabParam(search) {
+  const source =
+    search ?? (typeof window !== 'undefined' ? window.location.search : '');
+  const slug = String(new URLSearchParams(source).get('tab') ?? '')
+    .trim()
+    .toLowerCase();
+  return GUIDE_TAB_ID_BY_SLUG[slug] ?? null;
+}
+
+/** Hängt ?tab=… an einen Guide-Pfad; der Default-Reiter bleibt parameterfrei. */
+export function withGuideTabParam(path, tabId) {
+  const [pathname] = String(path ?? '').split('?');
+  if (!tabId || tabId === DEFAULT_GUIDE_TAB || !GUIDE_TAB_SLUGS[tabId]) return pathname;
+  return `${pathname}?tab=${guideTabSlug(tabId)}`;
+}
+
+/**
+ * Reiterwechsel ersetzt den History-Eintrag: Swipen soll den Zurück-Button
+ * nicht mit Dutzenden Einträgen zumüllen, Reload und geteilte Links bleiben aber korrekt.
+ */
+export function navigateToGuideTab(tabId, { replace = true } = {}) {
+  if (typeof window === 'undefined') return;
+  writeAppPath(withGuideTabParam(window.location.pathname, tabId), { replace });
 }
 
 /** Sprachwechsel auf einer Pretty-URL: nur das Locale-Segment tauschen. */

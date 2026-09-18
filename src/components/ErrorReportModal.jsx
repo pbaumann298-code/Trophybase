@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   detectContentKind,
   submitErrorReport,
@@ -32,7 +32,7 @@ function EvidencePreview({ item, onRemove }) {
   );
 }
 
-function ErrorReportModal({ draft, sessionUser, onClose, onRequestLogin }) {
+function ErrorReportModal({ draft, sessionUser, onClose }) {
   const [suggestion, setSuggestion] = useState('');
   const [evidenceItems, setEvidenceItems] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -160,7 +160,7 @@ function ErrorReportModal({ draft, sessionUser, onClose, onRequestLogin }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-lg bg-[#1a1b1c] border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden animate-fadeIn">
+      <div className="w-full max-w-lg bg-[#1a1b1c] border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 bg-[#121314]">
           <div>
             <h2 id="error-report-title" className="text-sm font-bold text-[#00ff66] font-mono uppercase tracking-wider">
@@ -229,7 +229,7 @@ function ErrorReportModal({ draft, sessionUser, onClose, onRequestLogin }) {
               onChange={(e) => setSuggestion(e.target.value)}
               rows={4}
               placeholder="z. B. korrekte Übersetzung, richtiger Eigenname, …"
-              className="w-full rounded-xl border border-zinc-700 bg-[#121314] text-sm text-zinc-200 px-3 py-2.5 focus:outline-none focus:border-[#00ff66]/50 resize-y min-h-[96px]"
+              className="w-full rounded-xl border border-zinc-700 bg-[#121314] text-sm text-zinc-200 px-3 py-2.5 focus:outline-hidden focus:border-[#00ff66]/50 resize-y min-h-[96px]"
             />
           </label>
 

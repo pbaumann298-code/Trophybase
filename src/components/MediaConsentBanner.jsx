@@ -1,4 +1,3 @@
-import React from 'react';
 import { useMediaConsent } from '../context/MediaConsentContext';
 import { useLocale } from '../context/LocaleContext';
 

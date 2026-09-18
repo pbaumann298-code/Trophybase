@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { TABLES, GAME_PK, GAME_STRUCT } from '../lib/gameSchema';
 import { fetchGameByRouteRef, updateGameLocalizedFields } from '../lib/gameQueries';

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { normalizeEmail } from '../../lib/maintenanceAccess';
 
 function AdminLoginForm({
@@ -36,7 +36,7 @@ function AdminLoginForm({
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-[#00ff66]/40"
+            className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-hidden focus:border-[#00ff66]/40"
             autoComplete="username"
           />
         </label>
@@ -47,7 +47,7 @@ function AdminLoginForm({
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-[#00ff66]/40"
+            className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-hidden focus:border-[#00ff66]/40"
             autoComplete="current-password"
           />
         </label>

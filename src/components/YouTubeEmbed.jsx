@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useMediaConsent } from '../context/MediaConsentContext';
 import { useLocale } from '../context/LocaleContext';
 import { getYouTubeThumbnailUrls, getYouTubeVideoId } from '../utils/videoUrl';

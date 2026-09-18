@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { CollectibleKacheln, BossKacheln } from './CollectibleKacheln';
 import GameSeoInfobox from '../components/GameSeoInfobox';
@@ -8,6 +8,10 @@ import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
 import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
 import WatchlistButton from '../components/WatchlistButton';
 import PortraitGuideHint from '../components/PortraitGuideHint';
+import GuideTabBar from '../components/GuideTabBar';
+import { guideTabId, guideTabPanelId } from '../lib/guideTabs';
+import { useTabNavigation } from '../hooks/useTabNavigation';
+import { useTabScrollMemory } from '../hooks/useTabScrollMemory';
 import { GuideVideoProvider, useGuideVideo } from '../context/GuideVideoContext';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import {
@@ -24,10 +28,7 @@ import {
   getGameUuid,
 } from '../lib/gameModel';
 import { useLocale } from '../context/LocaleContext';
-import {
-  fetchOnlineTrophyIdsForGame,
-  getTrophyIdKey,
-} from '../lib/trophyQueries';
+import { fetchOnlineTrophyIdsForGame } from '../lib/trophyQueries';
 import {
   fetchTrophyStatusMessages,
   fetchTrophyStatusMessagesByIds,
@@ -39,12 +40,15 @@ import {
   STATUS_MESSAGE_KEYS,
 } from '../lib/trophyStatusMessages';
 
-const TAB_BTN =
-  'px-4 sm:px-5 py-3 text-xs uppercase tracking-wider font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap';
+const TAB_META = {
+  reiter0: { icon: '🏆', labelKey: 'trophies' },
+  reiter1: { icon: '📖', labelKey: 'fullGameplay' },
+  reiter2: { icon: '📦', labelKey: 'completion' },
+  reiter3: { icon: '⚔️', labelKey: 'bosses' },
+};
 
 function GamePageContent({
   currentView,
-  setCurrentView,
   selectedGame,
   activeTrophies,
   unlockedTrophies,
@@ -62,8 +66,8 @@ function GamePageContent({
   guideItems,
   chapterItems,
   bossItems,
-  onRequestLogin,
   onNavigateHome,
+  fromSearch = false,
 }) {
   const [guideRows, setGuideRows] = useState([]);
   const [chapterRows, setChapterRows] = useState([]);
@@ -283,17 +287,54 @@ function GamePageContent({
     }
   }, [activeTab, visibleTabs, setActiveTab]);
 
-  const tabBtnClass = (tab) =>
-    `${TAB_BTN} ${
-      activeTab === tab
-        ? 'border-[#00ff66] text-white bg-zinc-800/30'
-        : 'border-transparent text-zinc-500 hover:text-zinc-300'
-    }`;
+  const tabItems = useMemo(
+    () =>
+      visibleTabs.map((id) => ({
+        id,
+        icon: TAB_META[id].icon,
+        label: t(TAB_META[id].labelKey),
+        count: tabCounts[id],
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleTabs, t, tabCounts.reiter0, tabCounts.reiter1, tabCounts.reiter2, tabCounts.reiter3],
+  );
+
+  const guideSectionRef = useRef(null);
+  const tabBarRef = useRef(null);
+  const isGuideVisible = currentView === 'game_info' && Boolean(selectedGame);
+
+  const rememberScroll = useTabScrollMemory({
+    activeTab,
+    anchorRef: tabBarRef,
+    resetKey: gameId,
+    enabled: isGuideVisible,
+  });
+
+  const handleTabChange = useCallback(
+    (nextTab) => {
+      if (nextTab === activeTab) return;
+      rememberScroll();
+      setActiveTab(nextTab);
+    },
+    [activeTab, rememberScroll, setActiveTab],
+  );
+
+  const { goToPrevTab, goToNextTab, canGoPrev, canGoNext } = useTabNavigation({
+    tabs: visibleTabs,
+    activeTab,
+    onTabChange: handleTabChange,
+    containerRef: guideSectionRef,
+    enabled: isGuideVisible,
+  });
 
   const renderTabContent = () => (
     <div className="w-full flex flex-col gap-4">
       {activeTab === 'reiter0' && (
-        <div className="animate-fadeIn">
+        <div
+          role="tabpanel"
+          id={guideTabPanelId('reiter0')}
+          aria-labelledby={guideTabId('reiter0')}
+        >
           <div className="flex justify-between items-center mb-4 px-1">
             <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">
               100% Trophäen-Checkliste
@@ -303,7 +344,7 @@ function GamePageContent({
                 type="checkbox"
                 checked={hideCompleted}
                 onChange={(e) => setHideCompleted(e.target.checked)}
-                className="rounded border-zinc-700 bg-[#121314] text-[#00ff66] focus:ring-0 w-4 h-4 cursor-pointer"
+                className="rounded-sm border-zinc-700 bg-[#121314] text-[#00ff66] focus:ring-0 w-4 h-4 cursor-pointer"
               />
               {t('hideCompleted')}
             </label>
@@ -323,7 +364,13 @@ function GamePageContent({
       )}
 
       {activeTab === 'reiter1' && (
-        <div className="w-full animate-fadeIn" key="tab-walkthrough">
+        <div
+          key="tab-walkthrough"
+          role="tabpanel"
+          id={guideTabPanelId('reiter1')}
+          aria-labelledby={guideTabId('reiter1')}
+          className="w-full"
+        >
           {chronologicalGuideData.length === 0 && !isGuideLoading ? (
             <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
               Kein Walkthrough für dieses Spiel (sheet_type 1 / chronological_group).
@@ -360,7 +407,13 @@ function GamePageContent({
       )}
 
       {activeTab === 'reiter2' && (
-        <div className="w-full animate-fadeIn" key="tab-collectibles">
+        <div
+          key="tab-collectibles"
+          role="tabpanel"
+          id={guideTabPanelId('reiter2')}
+          aria-labelledby={guideTabId('reiter2')}
+          className="w-full"
+        >
           {byTypeGuideData.length === 0 && !isGuideLoading ? (
             <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
               Keine Sammelobjekte für dieses Spiel (sheet_type 2 / category_group).
@@ -397,7 +450,13 @@ function GamePageContent({
       )}
 
       {activeTab === 'reiter3' && (
-        <div className="w-full animate-fadeIn" key="tab-bosses">
+        <div
+          key="tab-bosses"
+          role="tabpanel"
+          id={guideTabPanelId('reiter3')}
+          aria-labelledby={guideTabId('reiter3')}
+          className="w-full"
+        >
           {bossOverviewData.length === 0 && !isGuideLoading ? (
             <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
               Keine Bosse für dieses Spiel (sheet_type 3 / category_group).
@@ -434,7 +493,7 @@ function GamePageContent({
   if (currentView !== 'game_info' || !selectedGame) return null;
 
   return (
-    <div className="w-full max-w-[1400px] min-w-0 overflow-x-hidden mx-auto px-4 md:px-8 pt-6 pb-12 animate-fadeIn box-border">
+    <div className="w-full max-w-[1400px] min-w-0 overflow-x-hidden mx-auto px-4 md:px-8 pt-6 pb-12 box-border">
       <PortraitGuideHint isGuideView isVideoGuideTab={activeTab !== 'reiter0'} />
       <GameStatusBanners
         showServerShutdown={showServerShutdown}
@@ -448,7 +507,7 @@ function GamePageContent({
         onClick={onNavigateHome}
         className="text-[#00ff66] mb-6 flex items-center gap-1 text-xs uppercase tracking-wider font-bold hover:underline bg-none border-none cursor-pointer"
       >
-        {t('backDashboard')}
+        {fromSearch ? t('backToSearch') : t('backDashboard')}
       </button>
 
       <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 flex flex-col md:flex-row flex-wrap md:flex-nowrap gap-8 items-start mb-8 shadow-xl">
@@ -464,7 +523,7 @@ function GamePageContent({
           <div>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <span className="text-[10px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-2 py-0.5 rounded font-mono font-bold uppercase tracking-wider">
+                <span className="text-[10px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-2 py-0.5 rounded-sm font-mono font-bold uppercase tracking-wider">
                   Spiele Hub
                 </span>
                 <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-2 mb-6">
@@ -545,34 +604,22 @@ function GamePageContent({
         creators={contentCreators}
       />
 
-      <section className="mt-8 w-full min-w-0">
+      <section ref={guideSectionRef} className="mt-8 w-full min-w-0">
         <GuideLanguageSelector
           guideLanguageOverride={guideLanguageOverride}
           onGuideLanguageOverride={setGuideLanguageOverride}
         />
 
-        <div className="flex flex-wrap border-b border-zinc-800 mb-6 gap-2 min-w-0">
-          {tabVisibility.reiter0 && (
-            <button type="button" onClick={() => setActiveTab('reiter0')} className={tabBtnClass('reiter0')}>
-              🏆 {t('trophies')} ({tabCounts.reiter0})
-            </button>
-          )}
-          {tabVisibility.reiter1 && (
-            <button type="button" onClick={() => setActiveTab('reiter1')} className={tabBtnClass('reiter1')}>
-              📖 {t('fullGameplay')} ({tabCounts.reiter1})
-            </button>
-          )}
-          {tabVisibility.reiter2 && (
-            <button type="button" onClick={() => setActiveTab('reiter2')} className={tabBtnClass('reiter2')}>
-              📦 {t('completion')} ({tabCounts.reiter2})
-            </button>
-          )}
-          {tabVisibility.reiter3 && (
-            <button type="button" onClick={() => setActiveTab('reiter3')} className={tabBtnClass('reiter3')}>
-              ⚔️ {t('bosses')} ({tabCounts.reiter3})
-            </button>
-          )}
-        </div>
+        <GuideTabBar
+          tabs={tabItems}
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          onPrev={goToPrevTab}
+          onNext={goToNextTab}
+          canGoPrev={canGoPrev}
+          canGoNext={canGoNext}
+          anchorRef={tabBarRef}
+        />
 
         {isGuideLoading && activeTab !== 'reiter0' && (
           <p className="text-xs text-zinc-500 font-mono mb-4 animate-pulse">{t('guideLoading')}</p>

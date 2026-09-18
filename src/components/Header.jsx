@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import VisibilityModeToggle from './VisibilityModeToggle';
 import LocaleSelector from './LocaleSelector';
 import { useLocale } from '../context/LocaleContext';

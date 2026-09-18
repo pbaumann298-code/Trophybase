@@ -1,4 +1,3 @@
-import React from 'react';
 
 function TesterSetupPage({ onCreateAccount }) {
   const handleSubmit = (e) => {
@@ -37,7 +36,7 @@ function TesterSetupPage({ onCreateAccount }) {
               type="email" 
               name="newEmail" 
               required 
-              className="w-full bg-[#121314] text-zinc-200 px-4 py-2.5 rounded-xl border border-zinc-800 focus:border-zinc-700 focus:outline-none text-sm transition" 
+              className="w-full bg-[#121314] text-zinc-200 px-4 py-2.5 rounded-xl border border-zinc-800 focus:border-zinc-700 focus:outline-hidden text-sm transition" 
               placeholder="jack@fromsoft.de" 
             />
           </div>
@@ -49,7 +48,7 @@ function TesterSetupPage({ onCreateAccount }) {
               type="password" 
               name="newPassword" 
               required 
-              className="w-full bg-[#121314] text-zinc-200 px-4 py-2.5 rounded-xl border border-zinc-800 focus:border-zinc-700 focus:outline-none text-sm transition" 
+              className="w-full bg-[#121314] text-zinc-200 px-4 py-2.5 rounded-xl border border-zinc-800 focus:border-zinc-700 focus:outline-hidden text-sm transition" 
               placeholder="••••••••" 
             />
           </div>
@@ -61,7 +60,7 @@ function TesterSetupPage({ onCreateAccount }) {
               type="password" 
               name="newPasswordConfirm" 
               required 
-              className="w-full bg-[#121314] text-zinc-200 px-4 py-2.5 rounded-xl border border-zinc-800 focus:border-zinc-700 focus:outline-none text-sm transition" 
+              className="w-full bg-[#121314] text-zinc-200 px-4 py-2.5 rounded-xl border border-zinc-800 focus:border-zinc-700 focus:outline-hidden text-sm transition" 
               placeholder="••••••••" 
             />
           </div>

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
+import { getPlatformGameIds } from '../../lib/gameModel';
 import {
   formatIntranetTitles,
   intranetGameHref,
@@ -7,7 +8,7 @@ import {
 } from '../../lib/intranetQueries';
 
 const FIELD_CLASS =
-  'bg-[#121314] border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-[#00ff66]/40 w-full';
+  'bg-[#121314] border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-200 focus:outline-hidden focus:border-[#00ff66]/40 w-full';
 
 function emptyFilters() {
   return {
@@ -216,7 +217,7 @@ function IntranetCreatorSearch() {
                           </td>
                           <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.spiel_typ || '—'}</td>
                           <td className="px-3 py-2 font-mono text-zinc-600 whitespace-nowrap">
-                            {game.platform_game_id || '—'}
+                            {getPlatformGameIds(game).join(', ') || '—'}
                           </td>
                           <td className="px-3 py-2 whitespace-nowrap">
                             {href ? (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from './pages/supabaseClient';
 import Header from './components/Header';
 import HomePage from './pages/HomePage';
@@ -28,6 +28,12 @@ import {
   navigateToImpressum,
   navigateToPrivacy,
   navigateToAdvancedSearch,
+  navigateToSimpleSearch,
+  parseSimpleSearchParams,
+  parseGuideTabParam,
+  navigateToGuideTab,
+  withGuideTabParam,
+  DEFAULT_GUIDE_TAB,
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
 import ProfilePage from './pages/ProfilePage';
@@ -56,6 +62,7 @@ import { WatchlistProvider } from './context/WatchlistContext';
 import { useMediaConsent } from './context/MediaConsentContext';
 import SiteFooter from './components/SiteFooter';
 import MediaConsentBanner from './components/MediaConsentBanner';
+import GuideNotFound from './components/GuideNotFound';
 import { LegalNoticePage, PrivacyPage } from './pages/LegalPages';
 
 function App() {
@@ -68,15 +75,19 @@ function App() {
     return 'home';
   });
 
-  // Wartungs-Konfiguration
-  const [isMaintenanceMode, setIsMaintenanceMode] = useState(true);
+  // Wartungs-Konfiguration: fest verdrahtet – Abschalten erfordert derzeit ein Deployment.
+  const isMaintenanceMode = true;
 
   // 🔐 Einzigartiger State für den User
   const [sessionUser, setSessionUser] = useState(null);
 
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(() => parseSimpleSearchParams().q);
   const [searchResults, setSearchResults] = useState([]);
+  const [searchPage, setSearchPage] = useState(() => parseSimpleSearchParams().page);
   const [loading, setLoading] = useState(false);
+  const [guideReturnView, setGuideReturnView] = useState(null);
+  const [guideLoadError, setGuideLoadError] = useState(null);
+  const lastSearchQueryRef = useRef('');
   const [dbOk, setDbOk] = useState(null);
 
   const [selectedGame, setSelectedGame] = useState(null);
@@ -89,7 +100,9 @@ function App() {
   const [earnedTrophyIds, setEarnedTrophyIds] = useState(() => new Set());
   const [hideCompleted, setHideCompleted] = useState(false);
   const [completedGuideItems, setCompletedGuideItems] = useState(loadCompletedGuideItems);
-  const [activeTab, setActiveTab] = useState('reiter0');
+  const [activeTab, setActiveTab] = useState(
+    () => parseGuideTabParam(window.location.search) ?? DEFAULT_GUIDE_TAB,
+  );
 
   // Session + OAuth-Redirect nach linkIdentity (Schritt 4: maintenance_bypass setzen)
   useEffect(() => {
@@ -162,6 +175,8 @@ function App() {
 
     setCurrentView('game_info');
     setLoadingGuide(true);
+    setGuideLoadError(null);
+    setActiveTab(parseGuideTabParam(window.location.search) ?? DEFAULT_GUIDE_TAB);
 
     const localeForPage = pretty?.locale || globalLocale;
     let gameData;
@@ -185,7 +200,13 @@ function App() {
     }
 
     if (gameData) {
-      writeAppPath(gameGuidePath(gameData, localeForPage), { replace: true });
+      writeAppPath(
+        withGuideTabParam(
+          gameGuidePath(gameData, localeForPage),
+          parseGuideTabParam(window.location.search),
+        ),
+        { replace: true },
+      );
 
       setSelectedGame(gameData);
       const gameUuid = getGameUuid(gameData);
@@ -214,6 +235,10 @@ function App() {
       setGuideItems(guides);
       setBossItems(bosses);
     } else {
+      setGuideLoadError({
+        ref: pretty ? `${pretty.hardware}/${pretty.slug}` : legacyRef,
+        detail: gameError?.message ?? null,
+      });
       setSelectedGame(null);
       setActiveTrophies([]);
       setUnlockedTrophies({});
@@ -260,11 +285,30 @@ function App() {
   useEffect(() => {
     const onPopState = () => {
       const path = window.location.pathname;
-      const pathView = getViewFromPath(path);
+      const pathView = getViewFromPath(path, window.location.search);
+      setGuideReturnView(null);
 
       if (pathView === 'game_info') {
         setCurrentView('game_info');
         loadGameFromUrl(path);
+        return;
+      }
+
+      if (pathView === 'search-results') {
+        const { q, page } = parseSimpleSearchParams(window.location.search);
+        setSelectedGame(null);
+        setCurrentView('search-results');
+        setSearchQuery(q);
+        setSearchPage(page);
+        if (q && lastSearchQueryRef.current !== q) {
+          setLoading(true);
+          searchGames(supabase, q).then(({ data, error }) => {
+            if (error) console.error('Suche:', error.message);
+            lastSearchQueryRef.current = q;
+            setSearchResults(data || []);
+            setLoading(false);
+          });
+        }
         return;
       }
 
@@ -280,6 +324,12 @@ function App() {
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, [loadGameFromUrl]);
+
+  // Aktiver Guide-Reiter in der URL, damit Reload und geteilte Links ihn behalten.
+  useEffect(() => {
+    if (currentView !== 'game_info' || !selectedGame) return;
+    navigateToGuideTab(activeTab);
+  }, [activeTab, currentView, selectedGame]);
 
   const exitQaAdmin = () => {
     window.history.pushState({}, '', '/');
@@ -312,7 +362,7 @@ function App() {
   // 🛠️ FUNKTION 2: Der Klon-Prozess (Korrektur: console.log statt print!)
   const handleCreateOwnAccount = async (newEmail, newPassword) => {
     try {
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      const { error: signUpError } = await supabase.auth.signUp({
         email: newEmail,
         password: newPassword,
       });
@@ -356,20 +406,35 @@ function App() {
     setCurrentView(isMaintenanceMode ? 'login' : 'home');
   };
 
-  const runSearch = async (queryOverride) => {
+  const runSearch = async (queryOverride, { updateUrl = true, page = 1, replace = false } = {}) => {
     const q = (typeof queryOverride === 'string' ? queryOverride : searchQuery).trim();
     if (!q) return;
     if (typeof queryOverride === 'string') setSearchQuery(queryOverride);
+    setSearchPage(page > 1 ? page : 1);
     setLoading(true);
     setCurrentView('search-results');
+    if (updateUrl) navigateToSimpleSearch(q, { page, replace });
     const { data, error } = await searchGames(supabase, q);
     if (error) {
       console.error('Suche:', error.message);
     }
     setSearchResults(data || []);
+    lastSearchQueryRef.current = q;
     setLoading(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  useEffect(() => {
+    const { q, page } = parseSimpleSearchParams();
+    if (getViewFromPath(window.location.pathname, window.location.search) !== 'search-results') {
+      return undefined;
+    }
+    if (!q) return undefined;
+    runSearch(q, { updateUrl: false, page });
+    return undefined;
+    // Deep-Link / F5: Suche nur beim ersten Öffnen anstoßen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSearchSubmit = async (e) => {
     e.preventDefault();
@@ -377,9 +442,11 @@ function App() {
   };
 
   const openGuide = async (game) => {
+    setGuideReturnView(currentView);
     setSelectedGame(game);
     setCurrentView('game_info');
     setLoadingGuide(true);
+    setActiveTab(DEFAULT_GUIDE_TAB);
     setActiveTrophies([]);
     setGuideItems([]);
     setChapterItems([]);
@@ -459,6 +526,10 @@ function App() {
       applyPathCanonical('/datenschutz');
       return () => clearGameSeoLinks();
     }
+    if (currentView === 'search-results') {
+      applyPathCanonical(window.location.pathname + window.location.search);
+      return () => clearGameSeoLinks();
+    }
     if (currentView === 'advanced-search') {
       applyPathCanonical('/suche');
       return () => clearGameSeoLinks();
@@ -474,8 +545,18 @@ function App() {
   const goHome = useCallback(() => {
     setCurrentView('home');
     setSelectedGame(null);
+    setGuideReturnView(null);
     navigateToHome();
   }, []);
+
+  const goBackFromGuide = useCallback(() => {
+    if (guideReturnView) {
+      setGuideReturnView(null);
+      window.history.back();
+      return;
+    }
+    goHome();
+  }, [guideReturnView, goHome]);
 
   const openImpressum = useCallback(() => {
     setCurrentView('impressum');
@@ -555,10 +636,7 @@ function App() {
   }
 
   return (
-    <ErrorReportProvider
-      sessionUser={sessionUser}
-      onRequestLogin={() => setCurrentView('login')}
-    >
+    <ErrorReportProvider sessionUser={sessionUser}>
     <WatchlistProvider sessionUser={sessionUser}>
     <div className="min-h-screen w-full max-w-full min-w-0 overflow-x-hidden flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
       
@@ -572,7 +650,8 @@ function App() {
         className={`flex-1 flex flex-col w-full max-w-full min-w-0 overflow-x-hidden ${
           currentView === 'impressum' ||
           currentView === 'datenschutz' ||
-          currentView === 'advanced-search'
+          currentView === 'advanced-search' ||
+          currentView === 'search-results'
             ? 'justify-start'
             : 'justify-center'
         }`}
@@ -613,6 +692,13 @@ function App() {
                 openGame={openGuide}
                 loading={loading}
                 onRequestLogin={() => setCurrentView('login')}
+                page={searchPage}
+                onBack={goHome}
+                onPageChange={(nextPage) => {
+                  setSearchPage(nextPage);
+                  navigateToSimpleSearch(searchQuery, { page: nextPage, replace: true });
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
               />
             )}
 
@@ -630,10 +716,13 @@ function App() {
               </p>
             )}
 
+            {currentView === 'game_info' && !selectedGame && !loadingGuide && (
+              <GuideNotFound error={guideLoadError} onBack={goHome} />
+            )}
+
             {currentView === 'game_info' && selectedGame && (
-              <GameDetailPage 
+              <GameDetailPage
                 currentView={currentView}
-                setCurrentView={setCurrentView}
                 selectedGame={selectedGame}
                 activeTrophies={activeTrophies}
                 unlockedTrophies={unlockedTrophies}
@@ -651,8 +740,10 @@ function App() {
                 guideItems={guideItems}
                 chapterItems={chapterItems}
                 bossItems={bossItems}
-                onRequestLogin={() => setCurrentView('login')}
-                onNavigateHome={goHome}
+                onNavigateHome={goBackFromGuide}
+                fromSearch={
+                  guideReturnView === 'search-results' || guideReturnView === 'advanced-search'
+                }
               />
             )}
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 /**
  * Wiederverwendbare Accordion-Kachel für 100%-Layout (Trophäen, Guides, Bosse).
@@ -42,7 +42,7 @@ function CollapsibleSectionCard({
               {title}
             </h3>
             {badge && (
-              <span className="text-[10px] font-mono text-zinc-500 bg-zinc-800/80 border border-zinc-700 px-2 py-0.5 rounded">
+              <span className="text-[10px] font-mono text-zinc-500 bg-zinc-800/80 border border-zinc-700 px-2 py-0.5 rounded-sm">
                 {badge}
               </span>
             )}

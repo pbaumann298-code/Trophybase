@@ -1,9 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import { fetchGameByRouteRef, fetchGamesByIds, parseRouteGameRef } from '../lib/gameQueries';
-import { GAME_PK, GAME_FIELDS, GAME_PLATFORM_ID } from '../lib/gameSchema';
+import { GAME_FIELDS, GAME_PLATFORM_ID } from '../lib/gameSchema';
 import { navigateToGame } from '../lib/routeUtils';
-import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
+import {
+  getGameUuid,
+  getPlatformGameIds,
+  getRouteSlug,
+  getGameTitle,
+  getGameCover,
+} from '../lib/gameModel';
 import { useVisibility } from '../context/VisibilityContext';
 import { useWatchlist } from '../context/WatchlistContext';
 import { useLocale } from '../context/LocaleContext';
@@ -48,15 +54,13 @@ function Dashboard({ openGame }) {
         return;
       }
 
+      // Watchlist-Altdaten referenzieren Spiele mal per UUID, mal per NPWR –
+      // beides muss auf dasselbe Spiel zeigen.
       const byRef = new Map();
       for (const game of games || []) {
         const uuid = getGameUuid(game);
-        const slug = getRouteSlug(game);
-        const platformId = game[GAME_PLATFORM_ID];
-        if (uuid) byRef.set(String(uuid), game);
-        if (slug) byRef.set(String(slug), game);
-        if (platformId) byRef.set(String(platformId), game);
-        if (game[GAME_PK]) byRef.set(String(game[GAME_PK]), game);
+        if (uuid) byRef.set(uuid, game);
+        for (const npwr of getPlatformGameIds(game)) byRef.set(npwr, game);
       }
 
       const merged = ids

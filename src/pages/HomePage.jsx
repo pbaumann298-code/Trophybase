@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import Dashboard from '../components/Dashboard';
 import CategoryCarousel from '../components/CategoryCarousel';

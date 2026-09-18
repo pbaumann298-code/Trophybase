@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import Inbox from '../components/Inbox';
 import WatchlistProgressBar from '../components/WatchlistProgressBar';
@@ -28,7 +28,7 @@ function StatusBadge({ status }) {
 
   return (
     <span
-      className={`inline-flex text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border ${
+      className={`inline-flex text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-sm border ${
         styles[resolved] ?? 'bg-zinc-800/50 text-zinc-500 border-zinc-700'
       }`}
     >
@@ -221,7 +221,7 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
       <div className="bg-[#1a1b1c] border border-zinc-800 rounded-2xl p-6 sm:p-8 shadow-xl mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
           <div className="min-w-0">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#00ff66] border border-[#00ff66]/20 bg-[#00ff66]/10 px-2 py-0.5 rounded">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#00ff66] border border-[#00ff66]/20 bg-[#00ff66]/10 px-2 py-0.5 rounded-sm">
               Nutzerbereich
             </span>
             <h1 className="text-xl font-bold text-white mt-2 mb-1">Mein Profil</h1>
@@ -292,7 +292,7 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
                   onClick={() => handleOpenWatchlistGame(item)}
                   className="w-full flex items-center gap-3 p-3 rounded-xl border border-zinc-800 bg-[#121314] hover:border-[#00ff66]/30 transition text-left"
                 >
-                  <div className="w-10 h-14 flex-shrink-0 rounded overflow-hidden border border-zinc-800 bg-zinc-900">
+                  <div className="w-10 h-14 flex-shrink-0 rounded-sm overflow-hidden border border-zinc-800 bg-zinc-900">
                     {item.cover ? (
                       <img src={item.cover} alt="" className="w-full h-full object-cover" />
                     ) : (
@@ -366,7 +366,7 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
                     value={psnId}
                     onChange={(e) => setPsnId(e.target.value)}
                     placeholder="z. B. TrophyHunter_DE"
-                    className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-zinc-600 w-full font-mono"
+                    className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-hidden focus:border-zinc-600 w-full font-mono"
                     disabled={submitting || verificationStatus === PROFILE_STATUS.verifying}
                   />
                 </div>
@@ -377,7 +377,7 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
                     checked={datenschutzConsent || profile?.datenschutz_einwilligung === true}
                     onChange={(e) => setDatenschutzConsent(e.target.checked)}
                     disabled={profile?.datenschutz_einwilligung === true}
-                    className="mt-0.5 rounded border-zinc-700 bg-[#121314] text-[#00ff66] focus:ring-0 w-4 h-4 cursor-pointer flex-shrink-0"
+                    className="mt-0.5 rounded-sm border-zinc-700 bg-[#121314] text-[#00ff66] focus:ring-0 w-4 h-4 cursor-pointer flex-shrink-0"
                   />
                   <span className="text-xs text-zinc-400 leading-relaxed group-hover:text-zinc-300 transition">
                     Ich willige ein, dass TrophyBase meine PSN-ID und Trophäendaten gemäß der{' '}

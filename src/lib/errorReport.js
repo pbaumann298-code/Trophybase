@@ -113,7 +113,7 @@ export function normalizeOriginalText(markedContent, contentKind) {
  * @param {File} file
  */
 export async function uploadErrorReportEvidence(supabase, userId, file) {
-  const safeName = file.name.replace(/[^\w.\-]+/g, '_').slice(0, 80);
+  const safeName = file.name.replace(/[^\w.-]+/g, '_').slice(0, 80);
   const folder = userId || 'anonymous';
   const path = `${folder}/${Date.now()}-${safeName}`;
 

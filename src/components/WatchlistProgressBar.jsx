@@ -1,4 +1,3 @@
-import React from 'react';
 import { clampProgressPercent } from '../lib/gameSchema';
 
 function WatchlistProgressBar({ percent, className = '' }) {

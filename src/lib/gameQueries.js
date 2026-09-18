@@ -10,7 +10,7 @@ import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 import { getGameUuid, isUuid, mergeGameRecord, mergeGameRows } from './gameModel';
 import { mergeLocalizedValue } from './translationUtils';
 import { hardwareToUrlSegment } from './gameSlug';
-import { NPWR_ID_PATTERN, UUID_PATTERN } from './routeUtils';
+import { NPWR_ID_PATTERN } from './routeUtils';
 
 export const GAME_SELECT = [
   GAME_PK,
@@ -68,9 +68,6 @@ export function parseRouteGameRef(ref) {
   }
   if (NPWR_ID_PATTERN.test(id)) {
     return { valid: true, ref: id, kind: 'platform', error: null };
-  }
-  if (UUID_PATTERN.test(id)) {
-    return { valid: true, ref: id, kind: 'uuid', error: null };
   }
   return {
     valid: false,
@@ -134,6 +131,17 @@ function validateSearchColumn(column, allowed) {
   return { valid: true, column: col, error: null };
 }
 
+/**
+ * games.platform_game_id ist JSONB. Übergibt man .contains() ein JS-Array,
+ * baut supabase-js daraus ein PostgreSQL-Array-Literal (`cs.{a,b}`), woran der
+ * JSON-Parser scheitert. Als String gereicht bleibt der Wert unverändert, wir
+ * liefern also JSON-Syntax (`cs.["a"]`).
+ * @param {string[]} values
+ */
+function jsonbArrayFilter(values) {
+  return JSON.stringify(values);
+}
+
 async function fetchGameStructByRef(supabase, ref) {
   const parsed = parseRouteGameRef(ref);
   if (!parsed.valid) {
@@ -145,10 +153,10 @@ async function fetchGameStructByRef(supabase, ref) {
   if (parsed.kind === 'uuid') {
     query = query.eq(GAME_PK, parsed.ref);
   } else {
-    query = query.eq(GAME_PLATFORM_ID, parsed.ref);
+    query = query.contains(GAME_PLATFORM_ID, jsonbArrayFilter([parsed.ref]));
   }
 
-  const { data, error } = await query.maybeSingle();
+  const { data, error } = await query.limit(1).maybeSingle();
   return { data, error };
 }
 
@@ -218,9 +226,11 @@ export async function fetchGamesByIds(supabase, ids, locale = getLocale()) {
     queries.push(supabase.from(TABLES.games).select(GAME_SELECT).in(GAME_PK, uuids));
   }
   if (platformIds.length) {
-    queries.push(
-      supabase.from(TABLES.games).select(GAME_SELECT).in(GAME_PLATFORM_ID, platformIds),
-    );
+    // JSONB-Array: pro ID ein Containment-Test, .in() gibt es dafür nicht.
+    const orFilter = platformIds
+      .map((id) => `${GAME_PLATFORM_ID}.cs.["${id}"]`)
+      .join(',');
+    queries.push(supabase.from(TABLES.games).select(GAME_SELECT).or(orFilter));
   }
 
   const results = await Promise.all(queries);
@@ -244,9 +254,17 @@ export async function fetchGamesByIds(supabase, ids, locale = getLocale()) {
 /** @deprecated */
 export const fetchGamesByNpwrIds = fetchGamesByIds;
 
-/** PostgREST-or()-Filter: Wert quoten, damit Kommas/Klammern nicht umbrechen. */
+/** PostgREST-Default pro Request; darüber wird in Batches nachgeladen. */
+export const SEARCH_FETCH_BATCH = 1000;
+/** Harte Obergrenze, damit eine sehr kurze Suche den Client nicht sprengt. */
+export const SEARCH_RESULT_CAP = 5000;
+
 function quoteFilterValue(pattern) {
   return `"${String(pattern ?? '').replace(/["\\]/g, '')}"`;
+}
+
+function capSearchLimit(limit, fallback = SEARCH_RESULT_CAP) {
+  return Math.min(Math.max(Number(limit) || fallback, 1), SEARCH_RESULT_CAP);
 }
 
 /**
@@ -258,24 +276,75 @@ function buildLocalizedOrFilter(column, pattern) {
   return SUPPORTED_LOCALES.map((lang) => `${column}->>${lang}.ilike.${value}`).join(',');
 }
 
-async function searchLocalizedColumn(supabase, column, pattern, limit) {
-  const { data, error } = await supabase
-    .from(TABLES.games)
-    .select(GAME_SELECT)
-    .or(buildLocalizedOrFilter(column, pattern))
-    .limit(limit);
+/**
+ * Führt eine games-Suche aus und lädt bei Bedarf weitere Seiten nach, bis
+ * `limit` erreicht ist oder keine Zeilen mehr kommen.
+ * @param {() => object} makeQuery supabase-Query ohne limit/range
+ * @param {number} limit
+ */
+async function fetchSearchRows(makeQuery, limit) {
+  const cap = capSearchLimit(limit);
+  const all = [];
+  let from = 0;
 
-  return { data: data ?? [], error };
+  while (from < cap) {
+    const to = Math.min(from + SEARCH_FETCH_BATCH - 1, cap - 1);
+    const { data, error } = await makeQuery().range(from, to);
+    if (error) return { data: all, error };
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < to - from + 1) break;
+    from += SEARCH_FETCH_BATCH;
+  }
+
+  return { data: all, error: null };
+}
+
+async function searchLocalizedColumn(supabase, column, pattern, limit) {
+  return fetchSearchRows(
+    () =>
+      supabase.from(TABLES.games).select(GAME_SELECT).or(buildLocalizedOrFilter(column, pattern)),
+    limit,
+  );
 }
 
 async function searchStructColumn(supabase, column, pattern, limit) {
-  const { data, error } = await supabase
-    .from(TABLES.games)
-    .select(GAME_SELECT)
-    .ilike(column, pattern)
-    .limit(limit);
+  return fetchSearchRows(
+    () => supabase.from(TABLES.games).select(GAME_SELECT).ilike(column, pattern),
+    limit,
+  );
+}
 
-  return { data: data ?? [], error };
+/**
+ * Freitext über Titel, Genre und Entwickler (ODER).
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} pattern bereits validiertes ilike-Muster, z. B. %LEGO%
+ * @param {number} [limit]
+ * @param {string} [locale]
+ */
+export async function searchGamesByFreeText(
+  supabase,
+  pattern,
+  limit = SEARCH_RESULT_CAP,
+  locale = getLocale(),
+) {
+  const orFilter = [
+    buildLocalizedOrFilter(GAME_I18N.title, pattern),
+    `${GAME_STRUCT.genre}.ilike.${quoteFilterValue(pattern)}`,
+    `${GAME_STRUCT.developer}.ilike.${quoteFilterValue(pattern)}`,
+  ].join(',');
+
+  const { data, error } = await fetchSearchRows(
+    () =>
+      supabase
+        .from(TABLES.games)
+        .select(GAME_SELECT)
+        .or(orFilter)
+        .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
+    limit,
+  );
+  if (error) return { data: [], error };
+  return { data: mergeGameRows(data, locale), error: null };
 }
 
 /**
@@ -289,7 +358,7 @@ async function searchStructColumn(supabase, column, pattern, limit) {
  * @param {string} [locale]
  */
 export async function searchGamesByColumn(supabase, column, pattern, limit = 60, locale = getLocale()) {
-  const safeLimit = Math.min(Math.max(Number(limit) || 60, 1), 100);
+  const safeLimit = capSearchLimit(limit, 60);
 
   const localizedColumns = new Set(Object.values(GAME_SEARCH_LOCALIZED_COLUMNS));
   const structColumns = new Set(Object.values(GAME_SEARCH_STRUCT_COLUMNS));
@@ -319,7 +388,7 @@ export async function searchGamesByColumn(supabase, column, pattern, limit = 60,
  * @param {{ limit?: number, locale?: string }} [options]
  */
 export async function searchGamesAdvanced(supabase, filters = {}, options = {}) {
-  const limit = Math.min(Math.max(Number(options.limit) || 60, 1), 100);
+  const limit = capSearchLimit(options.limit, SEARCH_RESULT_CAP);
   const locale = options.locale ?? getLocale();
 
   const title = validateSearchQuery(filters.title);
@@ -331,24 +400,24 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
     return { data: [], error: new Error('Mindestens ein Suchfeld ausfüllen') };
   }
 
-  let query = supabase.from(TABLES.games).select(GAME_SELECT);
+  const { data, error } = await fetchSearchRows(() => {
+    let query = supabase.from(TABLES.games).select(GAME_SELECT);
 
-  if (title.valid) {
-    query = query.or(buildLocalizedOrFilter(GAME_I18N.title, title.pattern));
-  }
-  if (developer.valid) {
-    query = query.ilike(GAME_STRUCT.developer, developer.pattern);
-  }
-  if (genre.valid) {
-    query = query.ilike(GAME_STRUCT.genre, genre.pattern);
-  }
-  if (hardware.valid) {
-    query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
-  }
+    if (title.valid) {
+      query = query.or(buildLocalizedOrFilter(GAME_I18N.title, title.pattern));
+    }
+    if (developer.valid) {
+      query = query.ilike(GAME_STRUCT.developer, developer.pattern);
+    }
+    if (genre.valid) {
+      query = query.ilike(GAME_STRUCT.genre, genre.pattern);
+    }
+    if (hardware.valid) {
+      query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
+    }
 
-  const { data, error } = await query
-    .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })
-    .limit(limit);
+    return query.order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
+  }, limit);
 
   if (error) return { data: [], error };
   return { data: mergeGameRows(data ?? [], locale), error: null };

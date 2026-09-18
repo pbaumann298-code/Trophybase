@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useLocale } from '../context/LocaleContext';
 import { localeOptions } from '../lib/uiStrings';
 

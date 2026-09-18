@@ -1,4 +1,4 @@
-import { TABLES, GAME_FK, WATCHLIST, GAME_FIELDS, GAME_PK, isActiveWatchlistStatus } from './gameSchema';
+import { TABLES, GAME_FK, WATCHLIST, GAME_PK, isActiveWatchlistStatus } from './gameSchema';
 import { fetchProfile } from './profileQueries';
 import { fetchGamesByIds } from './gameQueries';
 import { getGameTitle, getGameCover } from './gameModel';

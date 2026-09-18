@@ -1,4 +1,3 @@
-import React from 'react';
 import { TRADEMARK_DISCLAIMER } from '../lib/legalConfig';
 import { useLocale } from '../context/LocaleContext';
 

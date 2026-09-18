@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { fetchCommunityReports, setReportStatus } from '../../lib/communityReportAdmin';
 import { parseReportImageUrls } from '../../lib/errorReport';
@@ -104,7 +104,7 @@ function LogRow({ report }) {
     <tr className="border-b border-zinc-800/80 hover:bg-zinc-900/30">
       <td className="py-2.5 px-3 text-xs font-mono text-zinc-500">#{report.id}</td>
       <td className="py-2.5 px-3 text-xs">
-        <span className={`inline-block px-2 py-0.5 rounded border text-[10px] font-mono uppercase ${statusColor}`}>
+        <span className={`inline-block px-2 py-0.5 rounded-sm border text-[10px] font-mono uppercase ${statusColor}`}>
           {report.status}
         </span>
       </td>

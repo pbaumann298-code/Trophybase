@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import CollapsibleSectionCard from './CollapsibleSectionCard';
 import Reportable from './Reportable';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
@@ -23,7 +23,7 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onTog
           disabled={isEarned}
           onChange={() => !isEarned && onToggle(trophyKey)}
           title={isEarned ? 'Von PSN synchronisiert' : undefined}
-          className={`rounded border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 w-4 h-4 mt-1 flex-shrink-0 ${
+          className={`rounded-sm border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 w-4 h-4 mt-1 flex-shrink-0 ${
             isEarned ? 'cursor-default opacity-70' : 'cursor-pointer'
           }`}
         />
@@ -55,17 +55,17 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onTog
               {trophy.trophy_name}
             </Reportable>
             {trophy.is_hidden && (
-              <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded font-mono uppercase">
+              <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded-sm font-mono uppercase">
                 Versteckt
               </span>
             )}
             {isEarned && (
-              <span className="text-[9px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-1.5 py-0.5 rounded font-mono uppercase">
+              <span className="text-[9px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-1.5 py-0.5 rounded-sm font-mono uppercase">
                 PSN
               </span>
             )}
             {isOnlineTrophy && (
-              <span className="text-[9px] bg-sky-500/10 text-sky-400 border border-sky-500/25 px-1.5 py-0.5 rounded font-mono uppercase">
+              <span className="text-[9px] bg-sky-500/10 text-sky-400 border border-sky-500/25 px-1.5 py-0.5 rounded-sm font-mono uppercase">
                 Online Trophäe
               </span>
             )}
@@ -84,7 +84,7 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onTog
               {trophyDesc}
             </Reportable>
           )}
-          <span className="inline-block text-[10px] text-zinc-500 font-mono uppercase mt-2 bg-zinc-800/50 px-2 py-0.5 rounded border border-zinc-800">
+          <span className="inline-block text-[10px] text-zinc-500 font-mono uppercase mt-2 bg-zinc-800/50 px-2 py-0.5 rounded-sm border border-zinc-800">
             {trophy.trophy_type || 'Bronze'}
           </span>
         </div>

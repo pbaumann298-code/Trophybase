@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { countryToLocale } from './shared/countryLocaleMap.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -52,7 +53,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
-  plugins: [react(), devApiPlugin(env)],
+  plugins: [react(), tailwindcss(), devApiPlugin(env)],
   appType: 'spa',
   build: {
     rollupOptions: {

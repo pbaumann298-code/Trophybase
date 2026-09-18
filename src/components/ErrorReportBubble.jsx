@@ -1,4 +1,3 @@
-import React from 'react';
 
 function ErrorReportBubble({ position, onOpen }) {
   if (!position) return null;

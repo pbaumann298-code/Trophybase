@@ -116,16 +116,39 @@ export function getGameUuid(game) {
   return String(game[GAME_PK] ?? game.game_id ?? '').trim();
 }
 
-export function getPlatformGameId(game) {
-  if (!game || typeof game === 'string') return '';
-  return String(game[GAME_PLATFORM_ID] ?? '').trim();
+/**
+ * games.platform_game_id ist ein JSONB-Array aller NPWR-IDs, die der Scraper
+ * diesem Spiel zugeordnet hat – die Mehrfacheinträge verhindern, dass dieselben
+ * NPWRs immer wieder abgegrast werden. In den Kindtabellen
+ * (game_achievements, game_guides) steht dagegen als Text die eine NPWR, die
+ * zum Guide gehört. Diese Funktion versteht beide Formen.
+ * @returns {string[]}
+ */
+export function getPlatformGameIds(game) {
+  if (!game || typeof game === 'string') return [];
+
+  const raw = game[GAME_PLATFORM_ID];
+  const values = Array.isArray(raw) ? raw : [raw];
+
+  return values.map((value) => String(value ?? '').trim()).filter(Boolean);
 }
 
-/** URL-Segment: Plattform-ID bevorzugt, sonst UUID */
+/**
+ * Erste NPWR-ID – reicht für Anzeige und Identität, ist aber nicht zwingend
+ * die Guide-NPWR. Für Routen die UUID verwenden.
+ */
+export function getPlatformGameId(game) {
+  return getPlatformGameIds(game)[0] ?? '';
+}
+
+/**
+ * URL-Segment: UUID bevorzugt. Die NPWR-Liste aus games ist mehrdeutig und
+ * taugt nicht als Route.
+ */
 export function getRouteSlug(gameOrId) {
   if (!gameOrId) return '';
   if (typeof gameOrId === 'string') return gameOrId.trim();
-  return getPlatformGameId(gameOrId) || getGameUuid(gameOrId);
+  return getGameUuid(gameOrId) || getPlatformGameId(gameOrId);
 }
 
 /**

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import { isAdminUser } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';

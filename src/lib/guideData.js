@@ -58,6 +58,10 @@ function chronologicalGroupKey(row) {
   return String(row.chronological_group ?? '').trim() || 'Allgemein';
 }
 
+function categoryGroupKey(row) {
+  return String(row.category_group ?? '').trim() || 'Allgemein';
+}
+
 /**
  * Gebiet über den *_group-Kacheln (z. B. Galaxie bei Astro Bot).
  * Leerer String heißt: dieser Eintrag hat keine Gebiets-Ebene und wird ohne
@@ -98,6 +102,11 @@ function toSortNumber(row) {
 function compareGuideOrder(a, b) {
   const orderCmp = toSortNumber(a) - toSortNumber(b);
   if (orderCmp !== 0) return orderCmp;
+  const localCmp = String(a?.local_id ?? '').localeCompare(String(b?.local_id ?? ''), undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+  if (localCmp !== 0) return localCmp;
   return compareTimestamp(a, b);
 }
 
@@ -147,30 +156,19 @@ function sortRowsByGroupLevels(rows, keyFns) {
 }
 
 /**
- * Walkthrough (sheet_type 1): Gebiete (localisation) nach kleinster sort_order,
- * darin die Kacheln je chronological_group.
+ * Walkthrough (sheet_type 1): Gebiete (localisation) nach kleinster local_id,
+ * darin die Kacheln je chronological_group, Einträge nach local_id.
  */
 export function sortChronologicalGuideRows(rows) {
   return sortRowsByGroupLevels(rows, [guideLocalisationKey, chronologicalGroupKey]);
 }
 
-/** Sammelobjekte (sheet_type 2) – localisation, category_group, dann item_name */
+/**
+ * Sammelobjekte (sheet_type 2): Gebiete (localisation) nach kleinster
+ * local_id, darin die Kacheln je category_group, Einträge nach local_id.
+ */
 export function sortByTypeGuideRows(rows) {
-  return [...rows].sort((a, b) => {
-    const localisationCmp = guideLocalisationKey(a).localeCompare(guideLocalisationKey(b), 'de');
-    if (localisationCmp !== 0) return localisationCmp;
-
-    const groupCmp = String(a.category_group ?? '').localeCompare(
-      String(b.category_group ?? ''),
-      'de',
-    );
-    if (groupCmp !== 0) return groupCmp;
-    return String(a.item_name ?? '').localeCompare(String(b.item_name ?? ''), 'de');
-  });
-}
-
-function bossCategoryKey(row) {
-  return String(row.category_group ?? '').trim() || 'Allgemein';
+  return sortRowsByGroupLevels(rows, [guideLocalisationKey, categoryGroupKey]);
 }
 
 export function normalizeBossRow(row) {
@@ -180,7 +178,7 @@ export function normalizeBossRow(row) {
     ...normalized,
     boss_id: normalized.boss_id ?? normalized.guide_id,
     boss_name: normalized.boss_name || normalized.item_name,
-    category_group: bossCategoryKey(normalized),
+    category_group: categoryGroupKey(normalized),
   };
 }
 
@@ -188,7 +186,7 @@ export function normalizeBossRow(row) {
  * Bosse (sheet_type 3): Gebiete (localisation), darin Kacheln je category_group.
  */
 export function sortBossRows(rows) {
-  return sortRowsByGroupLevels(rows, [guideLocalisationKey, bossCategoryKey]);
+  return sortRowsByGroupLevels(rows, [guideLocalisationKey, categoryGroupKey]);
 }
 
 /**
@@ -281,7 +279,8 @@ export function filterGuidesBySheetType(rows, sheetType) {
 }
 
 /**
- * Walkthrough (sheet_type 1): group by chronological_group · Item: item_name
+ * Walkthrough (sheet_type 1): group by chronological_group, Sortierung nach
+ * game_guides.local_id (über sort_order).
  */
 export function buildChronologicalGuideData(chapterRows) {
   const mapped = mapGuideEntryRows(chapterRows, 'walkthrough');
@@ -289,7 +288,8 @@ export function buildChronologicalGuideData(chapterRows) {
 }
 
 /**
- * Sammelobjekte (sheet_type 2): group by category_group · Item: item_name
+ * Sammelobjekte (sheet_type 2): group by category_group, Sortierung nach
+ * game_guides.local_id (über sort_order).
  */
 export function buildByTypeGuideData(guideRows) {
   const mapped = mapGuideEntryRows(guideRows, 'collectible');

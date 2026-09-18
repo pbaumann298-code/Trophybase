@@ -1,4 +1,3 @@
-import React from 'react';
 
 const SCRIPT_PHASES = [
   {
@@ -67,7 +66,7 @@ function ScriptsPanel() {
                 <h3 className="text-sm font-bold text-[#00ff66] font-mono">{block.title}</h3>
               </div>
               <span
-                className={`text-[9px] font-mono uppercase px-2 py-0.5 rounded border ${statusBadge(block.status)}`}
+                className={`text-[9px] font-mono uppercase px-2 py-0.5 rounded-sm border ${statusBadge(block.status)}`}
               >
                 {block.status === 'future' ? 'Geplant' : 'Vorbereitet'}
               </span>

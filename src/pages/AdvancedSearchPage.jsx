@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import SearchResultsPage from './SearchResultsPage';
 import { CONSOLE_FILTER_OPTIONS, searchGamesAdvanced } from '../lib/gameSearch';
@@ -6,6 +6,7 @@ import {
   getViewFromPath,
   navigateToAdvancedSearch,
   parseAdvancedSearchParams,
+  parseSearchPageParam,
 } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
 import '../styles/home.css';
@@ -25,6 +26,7 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack }) {
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [formError, setFormError] = useState(false);
+  const [page, setPage] = useState(() => parseSearchPageParam());
 
   const runSearch = async (nextFilters, { replace = true, updateUrl = true } = {}) => {
     if (!hasAnyFilter(nextFilters)) {
@@ -35,7 +37,10 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack }) {
     setFormError(false);
     setLoading(true);
     setHasSearched(true);
-    if (updateUrl) navigateToAdvancedSearch(nextFilters, { replace });
+    if (updateUrl) {
+      setPage(1);
+      navigateToAdvancedSearch(nextFilters, { replace, page: 1 });
+    }
 
     const { data, error } = await searchGamesAdvanced(supabase, nextFilters, {
       locale: globalLocale,
@@ -59,13 +64,14 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack }) {
   useEffect(() => {
     const initial = parseAdvancedSearchParams();
     if (hasAnyFilter(initial)) {
-      runSearch(initial, { replace: true });
+      runSearch(initial, { replace: true, updateUrl: false });
     }
 
     const onPop = () => {
       if (getViewFromPath(window.location.pathname) !== 'advanced-search') return;
       const next = parseAdvancedSearchParams();
       setFilters(next);
+      setPage(parseSearchPageParam());
       if (hasAnyFilter(next)) {
         runSearch(next, { updateUrl: false });
       } else {
@@ -182,6 +188,12 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack }) {
           loading={loading}
           onRequestLogin={onRequestLogin}
           compact
+          page={page}
+          onPageChange={(nextPage) => {
+            setPage(nextPage);
+            navigateToAdvancedSearch(filters, { replace: true, page: nextPage });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
         />
       )}
     </div>

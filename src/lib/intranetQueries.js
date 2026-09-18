@@ -10,6 +10,7 @@ import {
 import { validateSearchQuery } from './gameQueries';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 import { hardwareToUrlSegment, buildPrettyGamePath } from './gameSlug';
+import { getPlatformGameId } from './gameModel';
 
 export const INTRANET_GAME_LIMIT = 400;
 
@@ -65,9 +66,7 @@ export function intranetGameHref(game) {
   if (slug && hardware) {
     return buildPrettyGamePath('de', hardware, slug);
   }
-  const platformId = String(game?.[GAME_PLATFORM_ID] ?? '').trim();
-  if (platformId) return `/guide/${encodeURIComponent(platformId)}`;
-  const id = String(game?.[GAME_PK] ?? '').trim();
+  const id = String(game?.[GAME_PK] ?? '').trim() || getPlatformGameId(game);
   return id ? `/guide/${encodeURIComponent(id)}` : '';
 }
 
@@ -81,7 +80,8 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
   const title = textFilter(filters.title);
   const ecosystem = textFilter(filters.ecosystem);
   const hardware = textFilter(filters.hardware);
-  const platformId = textFilter(filters.platformGameId);
+  // JSONB-Array: nur Containment möglich, deshalb exakte NPWR statt Teilstring.
+  const platformId = String(filters.platformGameId ?? '').trim();
   const upcoming = textFilter(filters.upcomingDate);
   const developer = textFilter(filters.developer);
   const genre = textFilter(filters.genre);
@@ -96,7 +96,8 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
   if (title.valid) query = query.or(buildLocalizedOrFilter(GAME_I18N.title, title.pattern));
   if (ecosystem.valid) query = query.ilike(GAME_STRUCT.ecosystem, ecosystem.pattern);
   if (hardware.valid) query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
-  if (platformId.valid) query = query.ilike(GAME_PLATFORM_ID, platformId.pattern);
+  // JSON-Syntax als String: ein JS-Array würde zum PostgreSQL-Array-Literal.
+  if (platformId) query = query.contains(GAME_PLATFORM_ID, JSON.stringify([platformId]));
   if (year != null) query = query.eq(GAME_STRUCT.releaseYear, year);
   if (upcoming.valid) query = query.ilike(GAME_STRUCT.upcomingDate, upcoming.pattern);
   if (developer.valid) query = query.ilike(GAME_STRUCT.developer, developer.pattern);

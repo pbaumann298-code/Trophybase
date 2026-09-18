@@ -1,4 +1,3 @@
-import React from 'react';
 import { setAdminReturnFlag } from '../../lib/adminAccess';
 
 function WebsitePanel() {

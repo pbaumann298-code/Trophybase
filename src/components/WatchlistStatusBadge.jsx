@@ -1,4 +1,3 @@
-import React from 'react';
 
 const STATUS_STYLES = {
   active: 'bg-[#00ff66]/10 text-[#00ff66] border-[#00ff66]/25',
@@ -18,7 +17,7 @@ function WatchlistStatusBadge({ status }) {
 
   return (
     <span
-      className={`inline-flex items-center text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${style}`}
+      className={`inline-flex items-center text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm border ${style}`}
     >
       {label}
     </span>

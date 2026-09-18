@@ -1,13 +1,13 @@
-import { GAME_PK } from './gameSchema';
-import { getGameTitle, getRouteSlug } from './gameModel';
+import { getGameTitle } from './gameModel';
 import {
-  GAME_SEARCH_STRUCT_COLUMNS,
-  GAME_SEARCH_LOCALIZED_COLUMNS,
-  searchGamesByColumn,
+  SEARCH_RESULT_CAP,
+  searchGamesByFreeText,
   searchGamesAdvanced as runAdvancedSearch,
   validateSearchQuery,
 } from './gameQueries';
 import { getLocale } from './locale';
+
+export const SEARCH_PAGE_SIZE = 50;
 
 export const CONSOLE_FILTER_OPTIONS = [
   { value: '', labelKey: 'consoleAll' },
@@ -19,13 +19,34 @@ export const CONSOLE_FILTER_OPTIONS = [
 ];
 
 /**
+ * @param {unknown[]} items
+ * @param {number} page
+ * @param {number} [pageSize]
+ */
+export function paginateItems(items, page, pageSize = SEARCH_PAGE_SIZE) {
+  const list = Array.isArray(items) ? items : [];
+  const total = list.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
+  const safePage = Math.min(Math.max(Number(page) || 1, 1), totalPages);
+  const start = (safePage - 1) * pageSize;
+  return {
+    items: list.slice(start, start + pageSize),
+    page: safePage,
+    totalPages,
+    total,
+    pageSize,
+    showPager: total > pageSize,
+  };
+}
+
+/**
  * Suche in games.spieltitel (JSONB), games.genre und games.entwickler.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} query
  * @param {{ limit?: number, locale?: string }} [options]
  */
 export async function searchGames(supabase, query, options = {}) {
-  const limit = options.limit ?? 60;
+  const limit = options.limit ?? SEARCH_RESULT_CAP;
   const locale = options.locale ?? getLocale();
   const check = validateSearchQuery(query);
 
@@ -33,45 +54,7 @@ export async function searchGames(supabase, query, options = {}) {
     return { data: [], error: new Error(check.error) };
   }
 
-  const [titleRes, genreRes, devRes] = await Promise.all([
-    searchGamesByColumn(
-      supabase,
-      GAME_SEARCH_LOCALIZED_COLUMNS.title,
-      check.pattern,
-      limit,
-      locale,
-    ),
-    searchGamesByColumn(
-      supabase,
-      GAME_SEARCH_STRUCT_COLUMNS.genre,
-      check.pattern,
-      limit,
-      locale,
-    ),
-    searchGamesByColumn(
-      supabase,
-      GAME_SEARCH_STRUCT_COLUMNS.developer,
-      check.pattern,
-      limit,
-      locale,
-    ),
-  ]);
-
-  const error = titleRes.error ?? genreRes.error ?? devRes.error;
-  if (error) {
-    return { data: [], error };
-  }
-
-  const seen = new Set();
-  const deduped = [];
-  for (const row of [...titleRes.data, ...genreRes.data, ...devRes.data]) {
-    const id = row[GAME_PK] ?? getRouteSlug(row);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    deduped.push(row);
-  }
-
-  return { data: deduped.slice(0, limit), error: null };
+  return searchGamesByFreeText(supabase, check.pattern, limit, locale);
 }
 
 /**

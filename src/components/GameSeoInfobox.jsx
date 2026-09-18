@@ -1,4 +1,3 @@
-import React from 'react';
 import { useLocale } from '../context/LocaleContext';
 
 function YoutubeIcon() {
@@ -48,7 +47,7 @@ function GameSeoInfobox({ title, description, creator = null, creators = null })
 
       <div className="relative border-l-2 border-[#00ff66]/40 pl-5 md:pl-6">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded border border-[#00ff66]/20 bg-[#00ff66]/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66]">
+          <span className="inline-flex items-center gap-1.5 rounded-sm border border-[#00ff66]/20 bg-[#00ff66]/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66]">
             <span aria-hidden="true">◆</span> Guide-Info
           </span>
           {title && (

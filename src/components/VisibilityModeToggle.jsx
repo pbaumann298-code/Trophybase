@@ -1,4 +1,3 @@
-import React from 'react';
 import { useVisibility } from '../context/VisibilityContext';
 
 function VisibilityModeToggle() {

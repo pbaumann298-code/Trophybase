@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { LEGAL, isLegalPlaceholder } from '../lib/legalConfig';
 
 function Field({ value, fallback = '—' }) {

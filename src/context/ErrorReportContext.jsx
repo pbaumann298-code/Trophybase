@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import ErrorReportBubble from '../components/ErrorReportBubble';
 import ErrorReportModal from '../components/ErrorReportModal';
 import { metadataFromElement } from '../lib/errorReport';
@@ -13,16 +13,14 @@ function computeBubblePosition(rect) {
   return { left, top };
 }
 
-export function ErrorReportProvider({ children, sessionUser, onRequestLogin }) {
+export function ErrorReportProvider({ children, sessionUser }) {
   const [bubblePos, setBubblePos] = useState(null);
-  const [pendingElement, setPendingElement] = useState(null);
   const [markedContent, setMarkedContent] = useState('');
   const [modalDraft, setModalDraft] = useState(null);
   const pendingRef = useRef(null);
 
   const clearBubble = useCallback(() => {
     setBubblePos(null);
-    setPendingElement(null);
     setMarkedContent('');
     pendingRef.current = null;
   }, []);
@@ -88,7 +86,6 @@ export function ErrorReportProvider({ children, sessionUser, onRequestLogin }) {
     }
 
     pendingRef.current = reportable;
-    setPendingElement(reportable);
     setMarkedContent(text);
     setBubblePos(computeBubblePosition(rect));
   }, [clearBubble]);
@@ -110,7 +107,6 @@ export function ErrorReportProvider({ children, sessionUser, onRequestLogin }) {
       event.stopPropagation();
 
       pendingRef.current = reportable;
-      setPendingElement(reportable);
       setMarkedContent(
         reportable.getAttribute('src') ||
           reportable.textContent?.trim() ||
@@ -166,7 +162,6 @@ export function ErrorReportProvider({ children, sessionUser, onRequestLogin }) {
         draft={modalDraft}
         sessionUser={sessionUser}
         onClose={() => setModalDraft(null)}
-        onRequestLogin={onRequestLogin}
       />
     </ErrorReportContext.Provider>
   );

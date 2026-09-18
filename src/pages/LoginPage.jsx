@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { normalizeEmail } from '../lib/maintenanceAccess';
 
 function LoginPage({ onLogin }) {
@@ -36,7 +36,7 @@ function LoginPage({ onLogin }) {
             autoComplete="off" // ⛔ Verhindert das automatische Reinklatschen durch den Browser
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-700 w-full"
+            className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2 text-sm text-zinc-200 focus:outline-hidden focus:border-zinc-700 w-full"
             placeholder="Deine Tester-Mail eingeben"
           />
         </div>
@@ -52,7 +52,7 @@ function LoginPage({ onLogin }) {
               autoComplete="new-password" // ⛔ Blockiert zähen Passwort-Autofill
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="bg-[#121314] border border-zinc-800 rounded-xl pl-4 pr-12 py-2 text-sm text-zinc-200 focus:outline-none focus:border-zinc-700 w-full"
+              className="bg-[#121314] border border-zinc-800 rounded-xl pl-4 pr-12 py-2 text-sm text-zinc-200 focus:outline-hidden focus:border-zinc-700 w-full"
               placeholder="Passwort eingeben"
             />
             {/* Das klickbare Auge rechts im Feld */}
