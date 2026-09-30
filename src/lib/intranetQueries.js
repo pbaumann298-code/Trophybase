@@ -8,6 +8,7 @@ import {
   GAME_CREATOR_MAP,
 } from './gameSchema';
 import { validateSearchQuery } from './gameQueries';
+import { applyPipelineStatusFilters } from './gamePipelineStatus';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 import { hardwareToUrlSegment, buildPrettyGamePath } from './gameSlug';
 import { getPlatformGameId } from './gameModel';
@@ -28,6 +29,8 @@ export const INTRANET_GAME_SELECT = [
   GAME_I18N.title,
   GAME_STRUCT.slug,
 ].join(', ');
+
+const INTRANET_GAME_SELECT_WITH_COUNTS = `${INTRANET_GAME_SELECT}, game_achievements(count), game_guides(count)`;
 
 function quoteFilterValue(pattern) {
   return `"${String(pattern ?? '').replace(/["\\]/g, '')}"`;
@@ -86,28 +89,34 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
   const developer = textFilter(filters.developer);
   const genre = textFilter(filters.genre);
   const gameType = textFilter(filters.gameType);
-  const status = textFilter(filters.status);
 
   const yearRaw = String(filters.releaseYear ?? '').trim();
   const year = /^\d{4}$/.test(yearRaw) ? Number(yearRaw) : null;
 
-  let query = supabase.from(TABLES.games).select(INTRANET_GAME_SELECT, { count: 'exact' });
+  const run = (select) => {
+    let query = supabase.from(TABLES.games).select(select, { count: 'exact' });
 
-  if (title.valid) query = query.or(buildLocalizedOrFilter(GAME_I18N.title, title.pattern));
-  if (ecosystem.valid) query = query.ilike(GAME_STRUCT.ecosystem, ecosystem.pattern);
-  if (hardware.valid) query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
-  // JSON-Syntax als String: ein JS-Array würde zum PostgreSQL-Array-Literal.
-  if (platformId) query = query.contains(GAME_PLATFORM_ID, JSON.stringify([platformId]));
-  if (year != null) query = query.eq(GAME_STRUCT.releaseYear, year);
-  if (upcoming.valid) query = query.ilike(GAME_STRUCT.upcomingDate, upcoming.pattern);
-  if (developer.valid) query = query.ilike(GAME_STRUCT.developer, developer.pattern);
-  if (genre.valid) query = query.ilike(GAME_STRUCT.genre, genre.pattern);
-  if (gameType.valid) query = query.ilike(GAME_STRUCT.gameType, gameType.pattern);
-  if (status.valid) query = query.ilike(GAME_STRUCT.status, status.pattern);
+    if (title.valid) query = query.or(buildLocalizedOrFilter(GAME_I18N.title, title.pattern));
+    if (ecosystem.valid) query = query.ilike(GAME_STRUCT.ecosystem, ecosystem.pattern);
+    if (hardware.valid) query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
+    // JSON-Syntax als String: ein JS-Array würde zum PostgreSQL-Array-Literal.
+    if (platformId) query = query.contains(GAME_PLATFORM_ID, JSON.stringify([platformId]));
+    if (year != null) query = query.eq(GAME_STRUCT.releaseYear, year);
+    if (upcoming.valid) query = query.ilike(GAME_STRUCT.upcomingDate, upcoming.pattern);
+    if (developer.valid) query = query.ilike(GAME_STRUCT.developer, developer.pattern);
+    if (genre.valid) query = query.ilike(GAME_STRUCT.genre, genre.pattern);
+    if (gameType.valid) query = query.ilike(GAME_STRUCT.gameType, gameType.pattern);
+    query = applyPipelineStatusFilters(query, filters);
 
-  const { data, error, count } = await query
-    .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })
-    .limit(limit);
+    return query
+      .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })
+      .limit(limit);
+  };
+
+  let { data, error, count } = await run(INTRANET_GAME_SELECT_WITH_COUNTS);
+  if (error) {
+    ({ data, error, count } = await run(INTRANET_GAME_SELECT));
+  }
 
   if (error) return { data: [], count: 0, error };
   return { data: data ?? [], count: count ?? (data ?? []).length, error: null };

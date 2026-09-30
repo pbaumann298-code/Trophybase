@@ -75,6 +75,16 @@ export function isGuidePublished(game, lang) {
 }
 
 /**
+ * Guide ist redaktionell fertig (Vorschau für Admins) oder bereits online.
+ * @param {object|null|undefined} game
+ * @param {string} [lang]
+ */
+export function isGuideReady(game, lang = PUBLISH_LOCALE) {
+  const state = getGuidePublicationState(game, lang);
+  return state === GUIDE_PUBLICATION.PUBLISHED || state === GUIDE_PUBLICATION.DONE;
+}
+
+/**
  * Darf die Spielseite in den Suchindex?
  *
  * Zwei Bedingungen, beide müssen erfüllt sein:

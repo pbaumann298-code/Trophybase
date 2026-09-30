@@ -5,9 +5,11 @@ import AdminLoginForm from '../components/admin/AdminLoginForm';
 import CommunityReportsPanel from '../components/admin/CommunityReportsPanel';
 import ScriptsPanel from '../components/admin/ScriptsPanel';
 import WebsitePanel from '../components/admin/WebsitePanel';
+import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 
 const TABS = [
   { id: 'website', label: 'Website', icon: '🌐' },
+  { id: 'database', label: 'Datenbank', icon: '🗄' },
   { id: 'reports', label: 'Community Reports', icon: '⚑' },
   { id: 'scripts', label: 'Skripte', icon: '⚙️' },
 ];
@@ -17,7 +19,7 @@ function AdminApp() {
   const [authReady, setAuthReady] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [activeTab, setActiveTab] = useState('reports');
+  const [activeTab, setActiveTab] = useState('database');
 
   useEffect(() => {
     let cancelled = false;
@@ -133,6 +135,7 @@ function AdminApp() {
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {activeTab === 'website' && <WebsitePanel />}
+        {activeTab === 'database' && <IntranetGameSearch />}
         {activeTab === 'reports' && <CommunityReportsPanel />}
         {activeTab === 'scripts' && <ScriptsPanel />}
       </main>

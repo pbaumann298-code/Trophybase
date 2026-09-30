@@ -11,6 +11,7 @@ import TesterSetupPage from './pages/TesterSetupPage';
 import MaintenancePage from './pages/MaintenancePage';
 import BetaRegistrationPage from './pages/BetaRegistrationPage';
 import { hasMaintenanceBypass } from './lib/maintenanceAccess';
+import { isAdminUser } from './lib/adminAccess';
 import {
   handleSocialLinkRedirect,
   signInWithGatePassword,
@@ -78,8 +79,8 @@ function App() {
     return 'home';
   });
 
-  // Wartungs-Konfiguration: fest verdrahtet – Abschalten erfordert derzeit ein Deployment.
-  const isMaintenanceMode = true;
+  // Öffentliche Website: keine Baustelle. Admin loggt sich über /admin oder /intranet ein.
+  const isMaintenanceMode = false;
 
   // 🔐 Einzigartiger State für den User
   const [sessionUser, setSessionUser] = useState(null);
@@ -421,7 +422,9 @@ function App() {
     setLoading(true);
     setCurrentView('search-results');
     if (updateUrl) navigateToSimpleSearch(q, { page, replace });
-    const { data, error } = await searchGames(supabase, q);
+    const { data, error } = await searchGames(supabase, q, {
+      includeReady: isAdminUser(sessionUser),
+    });
     if (error) {
       console.error('Suche:', error.message);
     }
@@ -683,7 +686,7 @@ function App() {
                 setSearchQuery={setSearchQuery}
                 handleSearchSubmit={handleSearchSubmit}
                 onCategorySearch={runSearch}
-                onRequestLogin={() => setCurrentView('login')}
+                sessionUser={sessionUser}
                 onOpenAdvancedSearch={openAdvancedSearch}
               />
             )}
@@ -702,7 +705,6 @@ function App() {
                 searchResults={searchResults}
                 openGame={openGuide}
                 loading={loading}
-                onRequestLogin={() => setCurrentView('login')}
                 page={searchPage}
                 onBack={goHome}
                 onPageChange={(nextPage) => {
@@ -716,8 +718,8 @@ function App() {
             {currentView === 'advanced-search' && (
               <AdvancedSearchPage
                 openGame={openGuide}
-                onRequestLogin={() => setCurrentView('login')}
                 onBack={goHome}
+                includeReady={isAdminUser(sessionUser)}
               />
             )}
 

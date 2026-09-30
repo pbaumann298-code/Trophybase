@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import VisibilityModeToggle from './VisibilityModeToggle';
 import LocaleSelector from './LocaleSelector';
 import { useLocale } from '../context/LocaleContext';
-import { hasAdminReturnFlag } from '../lib/adminAccess';
-import { navigateToHome, navigateToProfile } from '../lib/routeUtils';
+import { hasAdminReturnFlag, isAdminUser } from '../lib/adminAccess';
+import { navigateToHome } from '../lib/routeUtils';
 
 function Header({ setCurrentView, sessionUser, onLogout }) {
   const { t } = useLocale();
   const [showAdminReturn, setShowAdminReturn] = useState(false);
+  const isAdmin = isAdminUser(sessionUser);
 
   useEffect(() => {
     setShowAdminReturn(hasAdminReturnFlag());
@@ -16,11 +17,6 @@ function Header({ setCurrentView, sessionUser, onLogout }) {
   const handleHomeClick = () => {
     setCurrentView('home');
     navigateToHome();
-  };
-
-  const openProfile = () => {
-    setCurrentView('profile');
-    navigateToProfile();
   };
 
   return (
@@ -38,41 +34,38 @@ function Header({ setCurrentView, sessionUser, onLogout }) {
 
       <div className="site-header-right min-w-0">
         <div className="flex items-center justify-end gap-2 flex-wrap">
-          {showAdminReturn && (
+          {isAdmin ? (
+            <a
+              href="/intranet"
+              className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-zinc-300 bg-[#121314] hover:bg-[#202122] border border-zinc-800 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline"
+            >
+              Intranet
+            </a>
+          ) : null}
+          {isAdmin || showAdminReturn ? (
             <a
               href="/admin"
-              className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/30 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap"
+              className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/30 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline"
             >
               Admin
             </a>
-          )}
+          ) : null}
           <VisibilityModeToggle />
         </div>
-        {sessionUser ? (
+        {isAdmin ? (
           <div className="flex items-center justify-end gap-2 sm:gap-3 min-w-0">
+            <span className="hidden sm:inline text-[10px] font-mono text-zinc-500 truncate max-w-[12rem]">
+              {sessionUser.email}
+            </span>
             <button
               type="button"
-              onClick={openProfile}
-              className="flex-shrink-0 text-xs font-medium text-zinc-300 bg-[#121314] hover:bg-[#202122] border border-zinc-800 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap"
-            >
-              {t('profile')}
-            </button>
-            <button
               onClick={onLogout}
               className="flex-shrink-0 text-xs font-medium text-red-400 bg-red-500/5 hover:bg-red-500/10 border border-red-900/30 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap"
             >
               {t('logout')}
             </button>
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setCurrentView('login')}
-            className="flex-shrink-0 text-xs font-medium text-zinc-300 bg-[#121314] hover:bg-[#202122] border border-zinc-800 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap"
-          >
-            {t('login')}
-          </button>
-        )}
+        ) : null}
       </div>
     </header>
   );

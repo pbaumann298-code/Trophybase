@@ -303,29 +303,44 @@ async function fetchSearchRows(makeQuery, limit) {
   return { data: all, error: null };
 }
 
-function applyPublishedGuideFilter(query) {
-  return query.filter(`${GAME_STRUCT.status}->>guide_de`, 'eq', GUIDE_PUBLICATION.PUBLISHED);
+/**
+ * Öffentliche Kataloge: nur PUBLISHED.
+ * Admin-Vorschau: FERTIG oder PUBLISHED (noch nicht der ganze 20k-Katalog).
+ * @param {object} query
+ * @param {{ includeReady?: boolean, publishedOnly?: boolean }} [catalog]
+ */
+export function applyGuideCatalogFilter(query, catalog = {}) {
+  if (catalog.includeReady) {
+    return query.or(
+      `${GAME_STRUCT.status}->>guide_de.eq.${GUIDE_PUBLICATION.DONE},` +
+        `${GAME_STRUCT.status}->>guide_de.eq.${GUIDE_PUBLICATION.PUBLISHED}`,
+    );
+  }
+  if (catalog.publishedOnly) {
+    return query.filter(`${GAME_STRUCT.status}->>guide_de`, 'eq', GUIDE_PUBLICATION.PUBLISHED);
+  }
+  return query;
 }
 
-async function searchLocalizedColumn(supabase, column, pattern, limit, publishedOnly) {
+async function searchLocalizedColumn(supabase, column, pattern, limit, catalog) {
   return fetchSearchRows(
     () => {
       let query = supabase
         .from(TABLES.games)
         .select(GAME_SELECT)
         .or(buildLocalizedOrFilter(column, pattern));
-      if (publishedOnly) query = applyPublishedGuideFilter(query);
+      query = applyGuideCatalogFilter(query, catalog);
       return query;
     },
     limit,
   );
 }
 
-async function searchStructColumn(supabase, column, pattern, limit, publishedOnly) {
+async function searchStructColumn(supabase, column, pattern, limit, catalog) {
   return fetchSearchRows(
     () => {
       let query = supabase.from(TABLES.games).select(GAME_SELECT).ilike(column, pattern);
-      if (publishedOnly) query = applyPublishedGuideFilter(query);
+      query = applyGuideCatalogFilter(query, catalog);
       return query;
     },
     limit,
@@ -344,6 +359,7 @@ export async function searchGamesByFreeText(
   pattern,
   limit = SEARCH_RESULT_CAP,
   locale = getLocale(),
+  catalog = {},
 ) {
   const orFilter = [
     buildLocalizedOrFilter(GAME_I18N.title, pattern),
@@ -353,11 +369,14 @@ export async function searchGamesByFreeText(
 
   const { data, error } = await fetchSearchRows(
     () =>
-      supabase
-        .from(TABLES.games)
-        .select(GAME_SELECT)
-        .or(orFilter)
-        .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
+      applyGuideCatalogFilter(
+        supabase
+          .from(TABLES.games)
+          .select(GAME_SELECT)
+          .or(orFilter)
+          .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
+        catalog,
+      ),
     limit,
   );
   if (error) return { data: [], error };
@@ -373,7 +392,7 @@ export async function searchGamesByFreeText(
  * @param {string} pattern
  * @param {number} [limit]
  * @param {string} [locale]
- * @param {{ publishedOnly?: boolean }} [options]
+ * @param {{ publishedOnly?: boolean, includeReady?: boolean }} [options]
  */
 export async function searchGamesByColumn(
   supabase,
@@ -400,13 +419,10 @@ export async function searchGamesByColumn(
     ? searchLocalizedColumn
     : searchStructColumn;
 
-  const { data, error } = await runSearch(
-    supabase,
-    colCheck.column,
-    pattern,
-    safeLimit,
-    Boolean(options.publishedOnly),
-  );
+  const { data, error } = await runSearch(supabase, colCheck.column, pattern, safeLimit, {
+    includeReady: Boolean(options.includeReady),
+    publishedOnly: Boolean(options.publishedOnly) && !options.includeReady,
+  });
   if (error) return { data: [], error };
 
   return { data: mergeGameRows(data, locale), error: null };
@@ -416,7 +432,7 @@ export async function searchGamesByColumn(
  * Erweiterte Suche: ausgefüllte Felder werden UND-verknüpft.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {{ title?: string, developer?: string, genre?: string, console?: string, hardware?: string }} filters
- * @param {{ limit?: number, locale?: string }} [options]
+ * @param {{ limit?: number, locale?: string, includeReady?: boolean, publishedOnly?: boolean }} [options]
  */
 export async function searchGamesAdvanced(supabase, filters = {}, options = {}) {
   const limit = capSearchLimit(options.limit, SEARCH_RESULT_CAP);
@@ -447,7 +463,10 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
       query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
     }
 
-    return query.order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
+    return applyGuideCatalogFilter(query, {
+      includeReady: Boolean(options.includeReady),
+      publishedOnly: options.includeReady ? false : options.publishedOnly !== false,
+    }).order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
   }, limit);
 
   if (error) return { data: [], error };
@@ -482,20 +501,25 @@ function capHomeLimit(limit) {
  * Startseiten-Reihe: Evergreen/Premium, nur redaktionell freigegebene Guides.
  * `orderColumn` zuerst, danach created_at als Tie-Breaker.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {{ types?: string[], orderColumn: string, limit?: number, locale?: string }} options
+ * @param {{ types?: string[], orderColumn: string, limit?: number, locale?: string, includeReady?: boolean }} options
  */
 async function fetchFeaturedHomeGames(supabase, options) {
   const types = options.types?.length ? options.types : HOME_FEATURED_GAME_TYPES;
   const limit = capHomeLimit(options.limit);
   const locale = options.locale ?? getLocale();
   const orderColumn = options.orderColumn;
+  const catalog = {
+    includeReady: Boolean(options.includeReady),
+    publishedOnly: !options.includeReady,
+  };
 
   const run = (column) =>
-    applyPublishedGuideFilter(
+    applyGuideCatalogFilter(
       supabase
         .from(TABLES.games)
         .select(GAME_SELECT)
         .in(GAME_STRUCT.gameType, types),
+      catalog,
     )
       .order(column, { ascending: false, nullsFirst: false })
       .order(GAME_STRUCT.createdAt, { ascending: false })
@@ -513,29 +537,32 @@ async function fetchFeaturedHomeGames(supabase, options) {
  * Beliebt: meistaufgerufene Evergreen-/Premium-Guides (games.views).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {number} [limit]
- * @param {string} [locale]
+ * @param {boolean} [includeReady]
  */
-export async function fetchPopularGames(supabase, limit = 12, locale = getLocale()) {
+export async function fetchPopularGames(supabase, limit = 12, locale = getLocale(), includeReady = false) {
   return fetchFeaturedHomeGames(supabase, {
     types: HOME_FEATURED_GAME_TYPES,
     orderColumn: GAME_STRUCT.views,
     limit,
     locale,
+    includeReady,
   });
 }
 
 /**
- * Neue Guides: jüngste freigegebene Evergreen-/Premium-Guides.
+ * Neue Guides: jüngste Evergreen-/Premium-Guides (PUBLISHED, als Admin auch FERTIG).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {number} [limit]
  * @param {string} [locale]
+ * @param {boolean} [includeReady]
  */
-export async function fetchNewGuideGames(supabase, limit = 12, locale = getLocale()) {
+export async function fetchNewGuideGames(supabase, limit = 12, locale = getLocale(), includeReady = false) {
   return fetchFeaturedHomeGames(supabase, {
     types: HOME_FEATURED_GAME_TYPES,
     orderColumn: GAME_STRUCT.createdAt,
     limit,
     locale,
+    includeReady,
   });
 }
 

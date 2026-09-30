@@ -7,6 +7,13 @@ import {
   intranetGameHref,
   searchIntranetGames,
 } from '../../lib/intranetQueries';
+import {
+  PIPELINE_PRESETS,
+  PIPELINE_STATUS_KEYS,
+  embedCount,
+  formatPipelineStatus,
+  pipelineStatusValue,
+} from '../../lib/gamePipelineStatus';
 
 const FIELD_CLASS =
   'bg-[#121314] border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-200 focus:outline-hidden focus:border-[#00ff66]/40 w-full';
@@ -22,7 +29,9 @@ function emptyFilters() {
     developer: '',
     genre: '',
     gameType: '',
-    status: '',
+    preset: '',
+    statusKey: '',
+    statusValue: '',
   };
 }
 
@@ -93,8 +102,8 @@ function IntranetGameSearch() {
         <h2 className="text-lg font-bold text-white mb-1">Spiele</h2>
         <p className="text-sm text-zinc-500 max-w-3xl leading-relaxed">
           Komplette <span className="text-zinc-400 font-mono">games</span>-Tabelle, ohne Filter
-          nach Veröffentlichung. Leere Felder werden ignoriert. Ohne jedes Feld: bis zu{' '}
-          {INTRANET_GAME_LIMIT} Einträge.
+          nach Veröffentlichung. Pipeline-Status kommt aus <span className="font-mono">games.status</span>.
+          Leere Felder werden ignoriert. Ohne jedes Feld: bis zu {INTRANET_GAME_LIMIT} Einträge.
         </p>
       </div>
 
@@ -111,7 +120,60 @@ function IntranetGameSearch() {
         <Field id="in-dev" label="entwickler" value={filters.developer} onChange={updateField('developer')} />
         <Field id="in-genre" label="genre" value={filters.genre} onChange={updateField('genre')} />
         <Field id="in-type" label="spiel_typ" value={filters.gameType} onChange={updateField('gameType')} />
-        <Field id="in-status" label="status" value={filters.status} onChange={updateField('status')} />
+
+        <label className="flex flex-col gap-1.5 min-w-0 sm:col-span-2 lg:col-span-3">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
+            Pipeline hängt
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {PIPELINE_PRESETS.filter((preset) => preset.id).map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                title={preset.hint}
+                onClick={() =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    preset: prev.preset === preset.id ? '' : preset.id,
+                  }))
+                }
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider border ${
+                  filters.preset === preset.id
+                    ? 'border-[#00ff66]/40 bg-[#00ff66]/10 text-[#00ff66]'
+                    : 'border-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </label>
+
+        <label className="flex flex-col gap-1.5 min-w-0">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
+            status-schlüssel
+          </span>
+          <select
+            id="in-status-key"
+            value={filters.statusKey}
+            onChange={updateField('statusKey')}
+            className={FIELD_CLASS}
+          >
+            <option value="">Alle Schlüssel</option>
+            {PIPELINE_STATUS_KEYS.map((entry) => (
+              <option key={entry.key} value={entry.key}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Field
+          id="in-status-val"
+          label="status-wert"
+          value={filters.statusValue}
+          onChange={updateField('statusValue')}
+          placeholder="DISCOVERED, PROCESSED, FERTIG…"
+        />
 
         <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap gap-2 pt-1">
           <button
@@ -157,6 +219,12 @@ function IntranetGameSearch() {
                 <th className="px-3 py-2.5 font-medium">entwickler</th>
                 <th className="px-3 py-2.5 font-medium">genre</th>
                 <th className="px-3 py-2.5 font-medium">spiel_typ</th>
+                <th className="px-3 py-2.5 font-medium">discovery</th>
+                <th className="px-3 py-2.5 font-medium">trophies</th>
+                <th className="px-3 py-2.5 font-medium">guides</th>
+                <th className="px-3 py-2.5 font-medium">guide_de</th>
+                <th className="px-3 py-2.5 font-medium">#Troph</th>
+                <th className="px-3 py-2.5 font-medium">#Guide</th>
                 <th className="px-3 py-2.5 font-medium">status</th>
                 <th className="px-3 py-2.5 font-medium"></th>
               </tr>
@@ -175,9 +243,27 @@ function IntranetGameSearch() {
                     <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.entwickler || '—'}</td>
                     <td className="px-3 py-2 text-zinc-400 max-w-[12rem]">{game.genre || '—'}</td>
                     <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.spiel_typ || '—'}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-[#00ff66]/90">
-                        {game.status || '—'}
+                    <td className="px-3 py-2 font-mono text-[10px] text-zinc-400 whitespace-nowrap">
+                      {pipelineStatusValue(game.status, 'discovery') || '—'}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[10px] text-zinc-400 whitespace-nowrap">
+                      {pipelineStatusValue(game.status, 'trophies') || '—'}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[10px] text-zinc-400 whitespace-nowrap">
+                      {pipelineStatusValue(game.status, 'guides') || '—'}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[10px] text-amber-300/90 whitespace-nowrap">
+                      {pipelineStatusValue(game.status, 'guide_de') || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
+                      {embedCount(game.game_achievements) ?? '—'}
+                    </td>
+                    <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
+                      {embedCount(game.game_guides) ?? '—'}
+                    </td>
+                    <td className="px-3 py-2 max-w-[22rem]">
+                      <span className="text-[10px] font-mono tracking-wide text-[#00ff66]/90 break-words">
+                        {formatPipelineStatus(game.status)}
                       </span>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">

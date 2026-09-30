@@ -19,7 +19,9 @@ function WebsitePanel() {
       <div className="rounded-2xl border border-zinc-800 bg-[#1a1b1c] p-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
         <div>
           <p className="text-sm text-zinc-300 font-mono">https://www.trophybase.app/</p>
-          <p className="text-xs text-zinc-500 mt-1">Gleicher Supabase-Login · Wartungsmodus wird umgangen (Admin)</p>
+          <p className="text-xs text-zinc-500 mt-1">
+            Gleicher Supabase-Login. Als Admin siehst du FERTIG-Guides; Besucher nur PUBLISHED.
+          </p>
         </div>
         <button
           type="button"
@@ -31,8 +33,9 @@ function WebsitePanel() {
       </div>
 
       <div className="rounded-xl border border-zinc-800/80 bg-[#121314] p-4 text-xs text-zinc-500">
-        Tipp: Nach dem Öffnen kannst du Guides und Trophäen live prüfen, während du Meldungen
-        in einem zweiten Tab bearbeitest.
+        Tipp: Unter „Datenbank“ filterst du die komplette games-Tabelle nach Pipeline-Status
+        (z. B. hängt nach Discovery). Nach dem Öffnen der Website kannst du Guides live
+        prüfen, während du Meldungen in einem zweiten Tab bearbeitest.
       </div>
     </div>
   );

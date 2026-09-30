@@ -3,6 +3,7 @@ import { supabase } from './supabaseClient';
 import Dashboard from '../components/Dashboard';
 import CategoryCarousel from '../components/CategoryCarousel';
 import { HOME_CATEGORIES, fetchAllHomeCategories } from '../lib/homeCategories';
+import { isAdminUser } from '../lib/adminAccess';
 import { useLocale } from '../context/LocaleContext';
 import '../styles/home.css';
 
@@ -14,11 +15,13 @@ function HomePage({
   onCategorySearch,
   onRequestLogin,
   onOpenAdvancedSearch,
+  sessionUser = null,
 }) {
   const { globalLocale, t } = useLocale();
   const [categoryGames, setCategoryGames] = useState({});
   const [loading, setLoading] = useState(true);
   const searchFormRef = useRef(null);
+  const includeReady = isAdminUser(sessionUser);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,7 +29,7 @@ function HomePage({
     async function load() {
       setLoading(true);
       try {
-        const byId = await fetchAllHomeCategories(supabase, globalLocale);
+        const byId = await fetchAllHomeCategories(supabase, globalLocale, includeReady);
         if (!cancelled) setCategoryGames(byId);
       } catch (err) {
         console.error('Startseite: Kategorien konnten nicht geladen werden:', err);
@@ -40,7 +43,7 @@ function HomePage({
     return () => {
       cancelled = true;
     };
-  }, [globalLocale]);
+  }, [globalLocale, includeReady]);
 
   return (
     <div className="home-landing w-full min-w-0 overflow-x-hidden box-border">
@@ -48,6 +51,11 @@ function HomePage({
         <span className="home-hero-kicker">{t('homeKicker')}</span>
         <h1 className="home-hero-title">{t('homeTitle')}</h1>
         <p className="home-hero-sub">{t('homeSub')}</p>
+        {includeReady ? (
+          <p className="mt-3 text-xs font-mono text-amber-400/90">
+            Admin-Vorschau: FERTIG-Guides. Besucher sehen nur PUBLISHED.
+          </p>
+        ) : null}
         <div className="home-search-block">
           <form ref={searchFormRef} onSubmit={handleSearchSubmit} className="home-search">
             <input

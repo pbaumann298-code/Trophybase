@@ -19,7 +19,7 @@ function hasAnyFilter(filters) {
   return Object.values(filters).some((value) => String(value ?? '').trim());
 }
 
-function AdvancedSearchPage({ openGame, onRequestLogin, onBack }) {
+function AdvancedSearchPage({ openGame, onRequestLogin, onBack, includeReady = false }) {
   const { t, globalLocale } = useLocale();
   const [filters, setFilters] = useState(() => parseAdvancedSearchParams());
   const [results, setResults] = useState([]);
@@ -44,6 +44,7 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack }) {
 
     const { data, error } = await searchGamesAdvanced(supabase, nextFilters, {
       locale: globalLocale,
+      includeReady,
     });
     if (error) {
       console.error('Erweiterte Suche:', error.message);

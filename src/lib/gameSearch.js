@@ -54,14 +54,18 @@ export async function searchGames(supabase, query, options = {}) {
     return { data: [], error: new Error(check.error) };
   }
 
-  return searchGamesByFreeText(supabase, check.pattern, limit, locale);
+  const catalog = options.includeReady
+    ? { includeReady: true }
+    : { publishedOnly: options.publishedOnly !== false };
+
+  return searchGamesByFreeText(supabase, check.pattern, limit, locale, catalog);
 }
 
 /**
  * Erweiterte Suche über einzelne Felder (UND).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {{ title?: string, developer?: string, genre?: string, console?: string }} filters
- * @param {{ limit?: number, locale?: string }} [options]
+ * @param {{ limit?: number, locale?: string, includeReady?: boolean, publishedOnly?: boolean }} [options]
  */
 export async function searchGamesAdvanced(supabase, filters, options = {}) {
   return runAdvancedSearch(supabase, filters, options);
