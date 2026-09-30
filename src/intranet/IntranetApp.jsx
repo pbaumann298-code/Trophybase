@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
-import { isAdminUser } from '../lib/adminAccess';
+import { getSessionOrTimeout, isAdminUser } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch';
@@ -21,7 +21,7 @@ function IntranetApp() {
     let cancelled = false;
 
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await getSessionOrTimeout(supabase);
       if (!cancelled) {
         setSessionUser(session?.user ?? null);
         setAuthReady(true);
@@ -85,6 +85,16 @@ function IntranetApp() {
           title="Intranet"
           submitLabel="Anmelden"
         />
+        <p className="mt-6 text-xs text-zinc-500 text-center max-w-md leading-relaxed">
+          Auf dem Handy diese Adresse speichern:{' '}
+          <span className="font-mono text-zinc-400">trophybase.app/intranet.html</span>
+        </p>
+        <a
+          href="/"
+          className="mt-4 text-[10px] font-mono uppercase tracking-wider text-zinc-600 hover:text-zinc-400 no-underline"
+        >
+          Zur Website
+        </a>
         <p className="mt-8 text-[10px] text-zinc-600 font-mono uppercase tracking-widest">
           noindex · nofollow
         </p>
@@ -107,7 +117,7 @@ function IntranetApp() {
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono text-zinc-500 hidden sm:inline">{sessionUser.email}</span>
             <a
-              href="/admin"
+              href="/admin.html"
               className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-400 hover:text-[#00ff66] hover:border-[#00ff66]/40 no-underline"
             >
               Admin

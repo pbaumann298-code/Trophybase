@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
-import { isAdminUser } from '../lib/adminAccess';
+import { getSessionOrTimeout, isAdminUser } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
 import CommunityReportsPanel from '../components/admin/CommunityReportsPanel';
 import ScriptsPanel from '../components/admin/ScriptsPanel';
@@ -25,7 +25,7 @@ function AdminApp() {
     let cancelled = false;
 
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await getSessionOrTimeout(supabase);
       if (!cancelled) {
         setSessionUser(session?.user ?? null);
         setAuthReady(true);
@@ -83,6 +83,16 @@ function AdminApp() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
         <AdminLoginForm onLogin={handleLogin} loading={loginLoading} errorMessage={loginError} />
+        <p className="mt-6 text-xs text-zinc-500 text-center max-w-md leading-relaxed">
+          Direktlink:{' '}
+          <span className="font-mono text-zinc-400">trophybase.app/admin.html</span>
+        </p>
+        <a
+          href="/intranet.html"
+          className="mt-4 text-[10px] font-mono uppercase tracking-wider text-zinc-600 hover:text-zinc-400 no-underline"
+        >
+          Zum Intranet
+        </a>
         <p className="mt-8 text-[10px] text-zinc-600 font-mono uppercase tracking-widest">
           noindex · nofollow
         </p>

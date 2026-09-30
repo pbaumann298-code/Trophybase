@@ -6,6 +6,7 @@ import {
   parsePrettyGamePath,
 } from './gameSlug';
 import { getGameUuid, getPlatformGameId, UUID_PATTERN } from './gameModel';
+import { isGuidePublished, PUBLISH_LOCALE } from './guidePublication';
 
 /** NPWR-IDs haben das Format NPWR12345_00 (legacy platform_game_id) */
 export const NPWR_ID_PATTERN = /^NPWR\d+_\d+$/i;
@@ -62,10 +63,8 @@ export function getViewFromPath(pathname = '', search) {
 }
 
 /**
- * Pretty-URL wenn slug + Konsole da sind: /de/ps5/astro-bot
- * sonst Legacy /guide/{platform_game_id|uuid}.
- * @param {object|string|null|undefined} gameOrRef
- * @param {string} [locale]
+ * Pretty-URL nur für veröffentlichte Guides (statische HTML-Seite).
+ * Unveröffentlichte Admin-Vorschau bleibt /guide/{uuid} in der SPA.
  */
 export function gameGuidePath(gameOrRef, locale = getLocale()) {
   if (!gameOrRef) return '/';
@@ -75,14 +74,15 @@ export function gameGuidePath(gameOrRef, locale = getLocale()) {
     return id ? `/guide/${id}` : '/';
   }
 
-  const slug = String(gameOrRef.slug ?? '').trim();
-  const hardware = hardwareToUrlSegment(gameOrRef.hardware);
-  const pretty = buildPrettyGamePath(normalizeLocale(locale), hardware, slug);
-  if (pretty) return pretty;
-
-  // Ohne Slug bleibt die UUID: games.platform_game_id ist eine Liste mehrerer
-  // NPWRs und damit als Route mehrdeutig.
   const id = getGameUuid(gameOrRef) || getPlatformGameId(gameOrRef);
+  const published = isGuidePublished(gameOrRef, PUBLISH_LOCALE);
+  if (published) {
+    const slug = String(gameOrRef.slug ?? '').trim();
+    const hardware = hardwareToUrlSegment(gameOrRef.hardware);
+    const pretty = buildPrettyGamePath(normalizeLocale(locale), hardware, slug);
+    if (pretty) return pretty;
+  }
+
   return id ? `/guide/${id}` : '/';
 }
 

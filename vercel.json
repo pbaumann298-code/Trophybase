@@ -14,6 +14,22 @@
       "headers": [
         { "key": "Content-Type", "value": "application/manifest+json" }
       ]
+    },
+    {
+      "source": "/intranet",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/intranet.html",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/admin",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/admin.html",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
     }
   ],
   "rewrites": [
@@ -34,7 +50,19 @@
       "destination": "/intranet.html"
     },
     {
-      "source": "/((?!api/|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon).*)",
+      "source": "/sitemap.xml",
+      "destination": "/api/sitemap"
+    },
+    {
+      "source": "/sitemap-:locale.xml",
+      "destination": "/api/sitemap?locale=:locale"
+    },
+    {
+      "source": "/:locale(de|en|es)/:hardware(ps5|ps4|ps3|psvita|psp)/:slug",
+      "destination": "/api/guide?locale=:locale&hardware=:hardware&slug=:slug"
+    },
+    {
+      "source": "/((?!api/|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt|sitemap).*)",
       "destination": "/index.html"
     }
   ]

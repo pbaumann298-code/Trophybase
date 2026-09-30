@@ -1,5 +1,6 @@
 import { TABLES, GAME_PK, GAME_STRUCT } from './gameSchema';
 import { normalizeLocale } from './locale';
+import { ensureGameSlug, warmPublishedGuidePages } from './publishSeo';
 
 /**
  * Freigabe-Zustände eines Guides in games.status.
@@ -111,7 +112,7 @@ export function isGameIndexable(game) {
  * @param {string} gameUuid games.id
  * @param {string} lang
  * @param {boolean} published
- * @returns {Promise<{ status: Record<string, unknown>|null, error: unknown }>}
+ * @returns {Promise<{ status: Record<string, unknown>|null, slug?: string|null, hardware?: string|null, error: unknown }>}
  */
 export async function setGuidePublished(supabase, gameUuid, lang, published) {
   const uuid = String(gameUuid ?? '').trim();
@@ -130,7 +131,7 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
 
   const { data: current, error: readError } = await supabase
     .from(TABLES.games)
-    .select(GAME_STRUCT.status)
+    .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.slug}, ${GAME_STRUCT.hardware}`)
     .eq(GAME_PK, uuid)
     .maybeSingle();
 
@@ -146,10 +147,28 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
     .from(TABLES.games)
     .update({ [GAME_STRUCT.status]: nextStatus })
     .eq(GAME_PK, uuid)
-    .select(GAME_STRUCT.status)
+    .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.slug}, ${GAME_STRUCT.hardware}`)
     .maybeSingle();
 
   if (error) return { status: null, error };
 
-  return { status: parseStatusMap(data?.[GAME_STRUCT.status]), error: null };
+  let slug = String(data?.[GAME_STRUCT.slug] ?? current?.[GAME_STRUCT.slug] ?? '').trim() || null;
+  const hardware = data?.[GAME_STRUCT.hardware] ?? current?.[GAME_STRUCT.hardware] ?? null;
+
+  if (published && !slug) {
+    const ensured = await ensureGameSlug(supabase, uuid);
+    if (!ensured.error) slug = ensured.slug;
+  }
+
+  if (published && slug) {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    warmPublishedGuidePages({ origin, hardware, slug });
+  }
+
+  return {
+    status: parseStatusMap(data?.[GAME_STRUCT.status]),
+    slug,
+    hardware,
+    error: null,
+  };
 }

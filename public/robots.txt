@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /intranet
+Disallow: /intranet.html
+Disallow: /admin
+Disallow: /admin.html
+
+Sitemap: https://trophybase.app/sitemap.xml

@@ -29,7 +29,7 @@ function GuidePublishButton({ user, game, gameUuid, guideLang, onPublishedChange
   const handleClick = async () => {
     setHint('');
     setBusy(true);
-    const { status, error } = await setGuidePublished(
+    const { status, slug, error } = await setGuidePublished(
       supabase,
       gameUuid,
       PUBLISH_LOCALE,
@@ -47,7 +47,7 @@ function GuidePublishButton({ user, game, gameUuid, guideLang, onPublishedChange
       return;
     }
 
-    onPublishedChange?.(status);
+    onPublishedChange?.(status, { slug });
     setHintTone('ok');
     setHint(published ? `${LANG_LABEL} wieder offline.` : `${LANG_LABEL} ist online.`);
     window.setTimeout(() => setHint(''), 2600);

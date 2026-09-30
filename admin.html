@@ -12,5 +12,23 @@
   <body class="bg-[#0a0b0c] w-full max-w-full overflow-x-hidden">
     <div id="admin-root"></div>
     <script type="module" src="/src/admin/main.jsx"></script>
+    <script>
+      (function () {
+        addEventListener('load', function () {
+          setTimeout(function () {
+            var root = document.getElementById('admin-root');
+            if (!root || root.children.length > 0) return;
+            var box = document.createElement('div');
+            box.style.cssText =
+              'font:16px/1.6 system-ui,sans-serif;color:#e4e4e7;max-width:34rem;' +
+              'margin:15vh auto;padding:0 1.5rem;text-align:center';
+            box.innerHTML =
+              '<h1 style="font-size:1.25rem;margin:0 0 .75rem">Admin konnte nicht starten</h1>' +
+              '<p style="margin:0;color:#a1a1aa">Bitte später erneut versuchen oder trophybase.app/admin.html direkt öffnen.</p>';
+            root.appendChild(box);
+          }, 2500);
+        });
+      })();
+    </script>
   </body>
 </html>

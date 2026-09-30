@@ -10,8 +10,6 @@ import {
 import { validateSearchQuery } from './gameQueries';
 import { applyPipelineStatusFilters } from './gamePipelineStatus';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
-import { hardwareToUrlSegment, buildPrettyGamePath } from './gameSlug';
-import { getPlatformGameId } from './gameModel';
 
 export const INTRANET_GAME_LIMIT = 400;
 
@@ -64,12 +62,7 @@ export function formatIntranetTitles(spieltitel) {
 }
 
 export function intranetGameHref(game) {
-  const slug = String(game?.slug ?? '').trim();
-  const hardware = hardwareToUrlSegment(game?.[GAME_STRUCT.hardware]);
-  if (slug && hardware) {
-    return buildPrettyGamePath('de', hardware, slug);
-  }
-  const id = String(game?.[GAME_PK] ?? '').trim() || getPlatformGameId(game);
+  const id = String(game?.[GAME_PK] ?? '').trim();
   return id ? `/guide/${encodeURIComponent(id)}` : '';
 }
 

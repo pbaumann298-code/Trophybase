@@ -280,7 +280,11 @@ function GamePageContent({
 
   const gameForPublication = useMemo(() => {
     if (!publicationOverride || publicationOverride.uuid !== gameUuid) return selectedGame;
-    return { ...selectedGame, [GAME_STRUCT.status]: publicationOverride.status };
+    return {
+      ...selectedGame,
+      [GAME_STRUCT.status]: publicationOverride.status,
+      slug: publicationOverride.slug || selectedGame.slug,
+    };
   }, [selectedGame, publicationOverride, gameUuid]);
 
   const isAdmin = isAdminUser(sessionUser);
@@ -581,8 +585,12 @@ function GamePageContent({
                   game={gameForPublication}
                   gameUuid={gameUuid}
                   guideLang={effectiveGuideLang}
-                  onPublishedChange={(status) =>
-                    setPublicationOverride({ uuid: gameUuid, status })
+                  onPublishedChange={(status, extra) =>
+                    setPublicationOverride({
+                      uuid: gameUuid,
+                      status,
+                      slug: extra?.slug ?? null,
+                    })
                   }
                 />
               </div>

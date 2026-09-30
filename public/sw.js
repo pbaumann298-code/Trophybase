@@ -3,7 +3,7 @@
  * Navigations → Network, fallback /offline.html
  * Supabase / API → Network Only (keine Trophäenstände im Cache)
  */
-const CACHE_VERSION = 'tb-static-v2';
+const CACHE_VERSION = 'tb-static-v3';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [
@@ -40,6 +40,18 @@ self.addEventListener('activate', (event) => {
       .then(() => self.clients.claim()),
   );
 });
+
+function isStaffApp(url) {
+  const path = url.pathname;
+  return (
+    path === '/intranet' ||
+    path === '/intranet/' ||
+    path === '/intranet.html' ||
+    path === '/admin' ||
+    path === '/admin/' ||
+    path === '/admin.html'
+  );
+}
 
 function isDatabaseRequest(url) {
   const host = url.hostname;
@@ -103,6 +115,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
   if (url.pathname === '/sw.js') return;
+  if (isStaffApp(url)) return;
 
   if (isDatabaseRequest(url)) {
     event.respondWith(networkOnly(request));

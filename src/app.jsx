@@ -11,7 +11,7 @@ import TesterSetupPage from './pages/TesterSetupPage';
 import MaintenancePage from './pages/MaintenancePage';
 import BetaRegistrationPage from './pages/BetaRegistrationPage';
 import { hasMaintenanceBypass } from './lib/maintenanceAccess';
-import { isAdminUser } from './lib/adminAccess';
+import { isAdminUser, staffAppHtmlForPath } from './lib/adminAccess';
 import {
   handleSocialLinkRedirect,
   signInWithGatePassword,
@@ -72,6 +72,12 @@ import { LegalNoticePage, PrivacyPage } from './pages/LegalPages';
 function App() {
   const { globalLocale } = useLocale();
   const { youtube, revokeYoutube } = useMediaConsent();
+  const staffAppHtml = staffAppHtmlForPath(window.location.pathname);
+
+  useEffect(() => {
+    if (staffAppHtml) window.location.replace(staffAppHtml);
+  }, [staffAppHtml]);
+
   // 1. Wir schauen beim Start direkt in die URL des Browsers!
   const [currentView, setCurrentView] = useState(() => {
     const pathView = getViewFromPath(window.location.pathname);
@@ -595,6 +601,14 @@ function App() {
 
   const maintenanceBypass = hasMaintenanceBypass(sessionUser);
   const isQaAdminView = currentView === 'qa_admin';
+
+  if (staffAppHtml) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-zinc-500 text-sm font-mono px-4 text-center">
+        Weiterleitung zur Anmeldung…
+      </div>
+    );
+  }
 
   const renderMaintenanceAllowedView = () => {
     if (currentView === 'beta') {

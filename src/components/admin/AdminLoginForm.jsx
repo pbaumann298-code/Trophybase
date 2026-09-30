@@ -38,6 +38,9 @@ function AdminLoginForm({
             onChange={(e) => setEmail(e.target.value)}
             className="bg-[#121314] border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-hidden focus:border-[#00ff66]/40"
             autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
           />
         </label>
         <label className="flex flex-col gap-1.5">
