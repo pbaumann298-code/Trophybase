@@ -32,6 +32,9 @@ export function normalizeGuideEntryRow(row) {
     video_url: String(row.video_url ?? '').trim(),
     video_chapter: String(row.video_chapter ?? '').trim(),
     localisation: String(row.localisation ?? '').trim(),
+    localisation_sheets: resolveSheetTypes(
+      row.localisation_sheets ?? row.localisation_sheet,
+    ),
     chronological_group: String(row.chronological_group ?? row.area ?? '').trim(),
     category_group: String(row.category_group ?? row.type ?? '').trim(),
     sort_order: row.sort_order ?? null,
@@ -54,21 +57,48 @@ function compareTimestamp(a, b) {
   return String(a?.timestamp ?? '').localeCompare(String(b?.timestamp ?? ''));
 }
 
-function chronologicalGroupKey(row) {
-  return String(row.chronological_group ?? '').trim() || 'Allgemein';
-}
-
-function categoryGroupKey(row) {
-  return String(row.category_group ?? '').trim() || 'Allgemein';
-}
-
 /**
  * Gebiet über den *_group-Kacheln (z. B. Galaxie bei Astro Bot).
  * Leerer String heißt: dieser Eintrag hat keine Gebiets-Ebene und wird ohne
  * zusätzlichen Rahmen dargestellt.
+ *
+ * Ob localisation in diesem Reiter gilt, entscheidet localisation_sheets –
+ * analog zu sheet_type. applyLocalisationForSheet setzt den String deshalb
+ * vor dem Gruppieren bereits auf leer, wenn der Reiter nicht gemeint ist.
  */
 export function guideLocalisationKey(row) {
   return String(row?.localisation ?? '').trim();
+}
+
+/**
+ * localisation für genau einen Excel-Reiter. Ohne localisation_sheet
+ * (Altbestand) gilt das Gebiet nur im Walkthrough und bei den Bossen, nicht
+ * bei den Sammelobjekten – sonst rutscht die Galaxie aus Reiter 1 nach Reiter 2.
+ * @param {object|null|undefined} row
+ * @param {number} sheetType GUIDE_SHEET_TYPE.*
+ */
+export function localisationForSheet(row, sheetType) {
+  const text = String(row?.localisation ?? '').trim();
+  if (!text) return '';
+
+  const wanted = Number(sheetType);
+  const sheets = Array.isArray(row?.localisation_sheets)
+    ? row.localisation_sheets
+    : resolveSheetTypes(row?.localisation_sheet);
+
+  if (sheets.length > 0) {
+    return sheets.includes(wanted) ? text : '';
+  }
+
+  if (wanted === GUIDE_SHEET_TYPE.COLLECTIBLES) return '';
+  return text;
+}
+
+function applyLocalisationForSheet(rows, sheetType) {
+  return (rows || []).map((row) => ({
+    ...row,
+    localisation: localisationForSheet(row, sheetType),
+  }));
 }
 
 /** Trenner für zusammengesetzte Gruppenschlüssel – in Gruppennamen unmöglich. */
@@ -82,6 +112,12 @@ export function guideGroupName(row, groupByField = 'category_group') {
     String(row?.[fallbackField] ?? '').trim() ||
     'Allgemein'
   );
+}
+
+/** Sortier-Schlüssel der Gruppenebene – identisch zu dem, was buildGuideGroupTree
+ * als Kachelnamen verwendet, damit Sortierung und Gruppierung nicht auseinanderlaufen. */
+function groupNameKeyFn(groupByField) {
+  return (row) => guideGroupName(row, groupByField);
 }
 
 /**
@@ -160,7 +196,10 @@ function sortRowsByGroupLevels(rows, keyFns) {
  * darin die Kacheln je chronological_group, Einträge nach local_id.
  */
 export function sortChronologicalGuideRows(rows) {
-  return sortRowsByGroupLevels(rows, [guideLocalisationKey, chronologicalGroupKey]);
+  return sortRowsByGroupLevels(rows, [
+    guideLocalisationKey,
+    groupNameKeyFn('chronological_group'),
+  ]);
 }
 
 /**
@@ -168,7 +207,7 @@ export function sortChronologicalGuideRows(rows) {
  * local_id, darin die Kacheln je category_group, Einträge nach local_id.
  */
 export function sortByTypeGuideRows(rows) {
-  return sortRowsByGroupLevels(rows, [guideLocalisationKey, categoryGroupKey]);
+  return sortRowsByGroupLevels(rows, [guideLocalisationKey, groupNameKeyFn('category_group')]);
 }
 
 export function normalizeBossRow(row) {
@@ -178,15 +217,16 @@ export function normalizeBossRow(row) {
     ...normalized,
     boss_id: normalized.boss_id ?? normalized.guide_id,
     boss_name: normalized.boss_name || normalized.item_name,
-    category_group: categoryGroupKey(normalized),
   };
 }
 
 /**
- * Bosse (sheet_type 3): Gebiete (localisation), darin Kacheln je category_group.
+ * Bosse (sheet_type 3): Gebiete (localisation), darin eine Kachel je Boss
+ * (chronological_group). Ältere Datensätze tragen den Boss-Namen in
+ * category_group – guideGroupName fällt darauf zurück.
  */
 export function sortBossRows(rows) {
-  return sortRowsByGroupLevels(rows, [guideLocalisationKey, categoryGroupKey]);
+  return sortRowsByGroupLevels(rows, [guideLocalisationKey, groupNameKeyFn('chronological_group')]);
 }
 
 /**
@@ -283,22 +323,32 @@ export function filterGuidesBySheetType(rows, sheetType) {
  * game_guides.local_id (über sort_order).
  */
 export function buildChronologicalGuideData(chapterRows) {
-  const mapped = mapGuideEntryRows(chapterRows, 'walkthrough');
+  const mapped = applyLocalisationForSheet(
+    mapGuideEntryRows(chapterRows, 'walkthrough'),
+    GUIDE_SHEET_TYPE.WALKTHROUGH,
+  );
   return sortChronologicalGuideRows(mapped);
 }
 
 /**
  * Sammelobjekte (sheet_type 2): group by category_group, Sortierung nach
- * game_guides.local_id (über sort_order).
+ * game_guides.local_id (über sort_order). localisation nur, wenn
+ * localisation_sheet den Reiter 2 enthält.
  */
 export function buildByTypeGuideData(guideRows) {
-  const mapped = mapGuideEntryRows(guideRows, 'collectible');
+  const mapped = applyLocalisationForSheet(
+    mapGuideEntryRows(guideRows, 'collectible'),
+    GUIDE_SHEET_TYPE.COLLECTIBLES,
+  );
   return sortByTypeGuideRows(mapped);
 }
 
-/** Bosse (sheet_type 3): group by category_group · Item: item_name / boss_name */
+/** Bosse (sheet_type 3): group by chronological_group · Item: item_name / boss_name */
 export function buildBossOverviewData(bossRows) {
-  const normalized = (bossRows || []).map(normalizeBossRow).filter(Boolean);
+  const normalized = applyLocalisationForSheet(
+    (bossRows || []).map(normalizeBossRow).filter(Boolean),
+    GUIDE_SHEET_TYPE.BOSSES,
+  );
   return mapBossRows(sortBossRows(normalized));
 }
 

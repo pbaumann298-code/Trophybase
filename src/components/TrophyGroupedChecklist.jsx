@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import CollapsibleSectionCard from './CollapsibleSectionCard';
 import Reportable from './Reportable';
+import TrophyArtwork from './TrophyArtwork';
+import TrophyTypeIcon from './TrophyTypeIcon';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
 import { getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
 
@@ -27,19 +29,15 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onTog
             isEarned ? 'cursor-default opacity-70' : 'cursor-pointer'
           }`}
         />
-        {trophy.icon_url && (
-          <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0">
-            <Reportable
-              as="img"
-              source={gameId}
-              type="trophy"
-              reportKey={trophyKey}
-              field="icon_url"
-              src={trophy.icon_url}
-              className="w-full h-full object-cover"
-            />
-          </div>
-        )}
+        <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0">
+          <TrophyArtwork
+            trophy={trophy}
+            gameId={gameId}
+            reportKey={trophyKey}
+            size={48}
+            reportable
+          />
+        </div>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Reportable
@@ -84,8 +82,8 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onTog
               {trophyDesc}
             </Reportable>
           )}
-          <span className="inline-block text-[10px] text-zinc-500 font-mono uppercase mt-2 bg-zinc-800/50 px-2 py-0.5 rounded-sm border border-zinc-800">
-            {trophy.trophy_type || 'Bronze'}
+          <span className="inline-flex items-center mt-2">
+            <TrophyTypeIcon type={trophy.trophy_type} size={22} />
           </span>
         </div>
       </div>
@@ -143,7 +141,7 @@ function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, onlin
   }
 
   return (
-    <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-1">
+    <div className="flex flex-col gap-3">
       {visible.map((t, idx) => {
         const key = getTrophyIdKey(t) || idx;
         const isEarned = earnedTrophyIds?.has?.(key) ?? false;

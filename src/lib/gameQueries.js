@@ -4,7 +4,9 @@ import {
   GAME_PLATFORM_ID,
   GAME_STRUCT,
   GAME_I18N,
+  HOME_FEATURED_GAME_TYPES,
 } from './gameSchema';
+import { GUIDE_PUBLICATION } from './guidePublication';
 import { getLocale } from './locale';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 import { getGameUuid, isUuid, mergeGameRecord, mergeGameRows } from './gameModel';
@@ -37,6 +39,7 @@ export const GAME_SELECT = [
   GAME_STRUCT.originalLocale,
   GAME_STRUCT.createdAt,
   GAME_STRUCT.slug,
+  GAME_STRUCT.isIndexable,
   GAME_I18N.title,
   GAME_I18N.coverUrl,
   GAME_I18N.description,
@@ -300,17 +303,31 @@ async function fetchSearchRows(makeQuery, limit) {
   return { data: all, error: null };
 }
 
-async function searchLocalizedColumn(supabase, column, pattern, limit) {
+function applyPublishedGuideFilter(query) {
+  return query.filter(`${GAME_STRUCT.status}->>guide_de`, 'eq', GUIDE_PUBLICATION.PUBLISHED);
+}
+
+async function searchLocalizedColumn(supabase, column, pattern, limit, publishedOnly) {
   return fetchSearchRows(
-    () =>
-      supabase.from(TABLES.games).select(GAME_SELECT).or(buildLocalizedOrFilter(column, pattern)),
+    () => {
+      let query = supabase
+        .from(TABLES.games)
+        .select(GAME_SELECT)
+        .or(buildLocalizedOrFilter(column, pattern));
+      if (publishedOnly) query = applyPublishedGuideFilter(query);
+      return query;
+    },
     limit,
   );
 }
 
-async function searchStructColumn(supabase, column, pattern, limit) {
+async function searchStructColumn(supabase, column, pattern, limit, publishedOnly) {
   return fetchSearchRows(
-    () => supabase.from(TABLES.games).select(GAME_SELECT).ilike(column, pattern),
+    () => {
+      let query = supabase.from(TABLES.games).select(GAME_SELECT).ilike(column, pattern);
+      if (publishedOnly) query = applyPublishedGuideFilter(query);
+      return query;
+    },
     limit,
   );
 }
@@ -356,8 +373,16 @@ export async function searchGamesByFreeText(
  * @param {string} pattern
  * @param {number} [limit]
  * @param {string} [locale]
+ * @param {{ publishedOnly?: boolean }} [options]
  */
-export async function searchGamesByColumn(supabase, column, pattern, limit = 60, locale = getLocale()) {
+export async function searchGamesByColumn(
+  supabase,
+  column,
+  pattern,
+  limit = 60,
+  locale = getLocale(),
+  options = {},
+) {
   const safeLimit = capSearchLimit(limit, 60);
 
   const localizedColumns = new Set(Object.values(GAME_SEARCH_LOCALIZED_COLUMNS));
@@ -375,7 +400,13 @@ export async function searchGamesByColumn(supabase, column, pattern, limit = 60,
     ? searchLocalizedColumn
     : searchStructColumn;
 
-  const { data, error } = await runSearch(supabase, colCheck.column, pattern, safeLimit);
+  const { data, error } = await runSearch(
+    supabase,
+    colCheck.column,
+    pattern,
+    safeLimit,
+    Boolean(options.publishedOnly),
+  );
   if (error) return { data: [], error };
 
   return { data: mergeGameRows(data, locale), error: null };
@@ -441,6 +472,106 @@ export async function fetchRecentGames(supabase, limit = 12, locale = getLocale(
   if (error) return { data: [], error };
 
   return { data: mergeGameRows(data ?? [], locale), error: null };
+}
+
+function capHomeLimit(limit) {
+  return Math.min(Math.max(Number(limit) || 12, 1), 50);
+}
+
+/**
+ * Startseiten-Reihe: Evergreen/Premium, nur redaktionell freigegebene Guides.
+ * `orderColumn` zuerst, danach created_at als Tie-Breaker.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{ types?: string[], orderColumn: string, limit?: number, locale?: string }} options
+ */
+async function fetchFeaturedHomeGames(supabase, options) {
+  const types = options.types?.length ? options.types : HOME_FEATURED_GAME_TYPES;
+  const limit = capHomeLimit(options.limit);
+  const locale = options.locale ?? getLocale();
+  const orderColumn = options.orderColumn;
+
+  const run = (column) =>
+    applyPublishedGuideFilter(
+      supabase
+        .from(TABLES.games)
+        .select(GAME_SELECT)
+        .in(GAME_STRUCT.gameType, types),
+    )
+      .order(column, { ascending: false, nullsFirst: false })
+      .order(GAME_STRUCT.createdAt, { ascending: false })
+      .limit(limit);
+
+  let { data, error } = await run(orderColumn);
+  if (error && orderColumn === GAME_STRUCT.views) {
+    ({ data, error } = await run(GAME_STRUCT.createdAt));
+  }
+  if (error) return { data: [], error };
+  return { data: mergeGameRows(data ?? [], locale), error: null };
+}
+
+/**
+ * Beliebt: meistaufgerufene Evergreen-/Premium-Guides (games.views).
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {number} [limit]
+ * @param {string} [locale]
+ */
+export async function fetchPopularGames(supabase, limit = 12, locale = getLocale()) {
+  return fetchFeaturedHomeGames(supabase, {
+    types: HOME_FEATURED_GAME_TYPES,
+    orderColumn: GAME_STRUCT.views,
+    limit,
+    locale,
+  });
+}
+
+/**
+ * Neue Guides: jüngste freigegebene Evergreen-/Premium-Guides.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {number} [limit]
+ * @param {string} [locale]
+ */
+export async function fetchNewGuideGames(supabase, limit = 12, locale = getLocale()) {
+  return fetchFeaturedHomeGames(supabase, {
+    types: HOME_FEATURED_GAME_TYPES,
+    orderColumn: GAME_STRUCT.createdAt,
+    limit,
+    locale,
+  });
+}
+
+const VIEWED_SESSION_PREFIX = 'tb_viewed:';
+
+/**
+ * Zählt einen Guide-Aufruf. Pro Browser-Tab-Session nur einmal, damit
+ * React-Strict-Mode nicht doppelt zählt. Fehlt die Spalte oder die RPC,
+ * schluckt der Aufruf den Fehler – die Seite bleibt nutzbar.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {unknown} gameUuid
+ */
+export async function incrementGameViews(supabase, gameUuid) {
+  const uuid = String(gameUuid ?? '').trim();
+  if (!uuid || !isUuid(uuid)) return;
+
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const key = `${VIEWED_SESSION_PREFIX}${uuid}`;
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    }
+  } catch {
+    // sessionStorage kann in restriktiven Browsern fehlen
+  }
+
+  const { error } = await supabase.rpc('increment_game_views', { game_uuid: uuid });
+  if (error) {
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem(`${VIEWED_SESSION_PREFIX}${uuid}`);
+      }
+    } catch {
+      // ignore
+    }
+  }
 }
 
 /**

@@ -38,3 +38,21 @@ export function saveCompletedGuideItems(items) {
     /* Speicher voll oder nicht verfügbar */
   }
 }
+
+const HIDE_COMPLETED_STORAGE_KEY = 'tb_hide_completed';
+
+export function loadHideCompleted() {
+  try {
+    return localStorage.getItem(HIDE_COMPLETED_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveHideCompleted(hidden) {
+  try {
+    localStorage.setItem(HIDE_COMPLETED_STORAGE_KEY, hidden ? '1' : '0');
+  } catch {
+    /* Speicher voll oder nicht verfügbar */
+  }
+}

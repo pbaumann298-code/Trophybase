@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { getYouTubeEmbedUrl, getYouTubeVideoId } from '../utils/videoUrl';
 import YouTubeEmbed, { YouTubeThumb, YoutubePlayIcon } from '../components/YouTubeEmbed';
 import { useVisibility } from '../context/VisibilityContext';
@@ -6,6 +6,147 @@ import { useGuideVideo } from '../context/GuideVideoContext';
 import { guideProgressKey } from '../lib/guideProgressStorage';
 import { buildGuideGroupTree } from '../lib/guideData';
 import Reportable from '../components/Reportable';
+import TrophyArtwork from '../components/TrophyArtwork';
+
+/**
+ * Verknüpfung Guide-Eintrag → Trophäe.
+ *
+ * game_guides.trophy_id trägt die platform_achievement_id der Trophäe, zu der
+ * ein Sammelgegenstand oder Boss gehört. Bisher lag die Verbindung nur in der
+ * Datenbank; hier wird daraus das Trophäenbild in der Zeile plus ein
+ * ausklappbarer Langtipp.
+ *
+ * @param {Map<string, object>} trophyById Schlüssel: platform_achievement_id
+ */
+function useTrophyRowExtras(trophyById) {
+  const [expanded, setExpanded] = useState(() => new Set());
+
+  const toggle = useCallback((id) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const trophyFor = useCallback(
+    (item) => {
+      if (!trophyById || trophyById.size === 0) return null;
+      const key = String(item?.trophy_id ?? '').trim();
+      return key ? trophyById.get(key) ?? null : null;
+    },
+    [trophyById],
+  );
+
+  return useMemo(() => {
+    /** Das Trophäenbild sitzt im Namens-Button, darf also nicht klickbar sein. */
+    const renderTrophyArt = (trophy, size = 20) => {
+      if (!trophy) return null;
+      const name = String(trophy.trophy_name ?? '').trim();
+      return (
+        <TrophyArtwork
+          trophy={trophy}
+          size={size}
+          className="rounded-sm"
+          title={name ? `Trophäe: ${name}` : 'Zugehörige Trophäe'}
+        />
+      );
+    };
+
+    const renderNameAddon = (item) => renderTrophyArt(trophyFor(item));
+
+    /**
+     * Gruppenkachel (z. B. „Waffe“ / „Jägerwerkzeuge“): Icon nur, wenn alle
+     * verknüpften Einträge auf dieselbe Trophäe zeigen. Gemischte Gruppen
+     * (Bosse) bleiben ohne Header-Bild – dort sitzt das Icon an der Zeile.
+     */
+    const renderGroupAddon = (items) => {
+      const trophies = (items ?? []).map(trophyFor).filter(Boolean);
+      if (trophies.length === 0) return null;
+      const ids = new Set(
+        trophies.map((trophy) =>
+          String(trophy.platform_achievement_id ?? trophy.trophy_id ?? '').trim(),
+        ),
+      );
+      if (ids.size !== 1) return null;
+      return renderTrophyArt(trophies[0], 22);
+    };
+
+    const renderRowAction = (item) => {
+      const trophy = trophyFor(item);
+      const tip = String(trophy?.guide_tip_long ?? '').trim();
+      if (!tip) return null;
+
+      const isOpen = expanded.has(item.id);
+      return (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            toggle(item.id);
+          }}
+          aria-expanded={isOpen}
+          aria-label={isOpen ? 'Trophäen-Tipp einklappen' : 'Trophäen-Tipp ausklappen'}
+          title={isOpen ? 'Tipp einklappen' : 'Tipp ausklappen'}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: '0 2px',
+            cursor: 'pointer',
+            color: isOpen ? '#00ff66' : '#a1a1aa',
+            fontSize: '11px',
+            lineHeight: 1,
+            flexShrink: 0,
+            transform: isOpen ? 'rotate(180deg)' : 'none',
+            transition: 'transform 150ms ease',
+          }}
+        >
+          ▼
+        </button>
+      );
+    };
+
+    const renderRowDetail = (item) => {
+      if (!expanded.has(item.id)) return null;
+      const trophy = trophyFor(item);
+      const tip = String(trophy?.guide_tip_long ?? '').trim();
+      if (!tip) return null;
+
+      const name = String(trophy.trophy_name ?? '').trim();
+      return (
+        <div
+          style={{
+            marginLeft: '26px',
+            padding: '6px 10px',
+            borderLeft: '2px solid rgba(0, 255, 102, 0.3)',
+            backgroundColor: 'rgba(9, 9, 11, 0.5)',
+            borderRadius: '0 6px 6px 0',
+            fontSize: '11px',
+            lineHeight: 1.6,
+            color: '#a1a1aa',
+          }}
+        >
+          {name && (
+            <span
+              style={{
+                color: '#00ff66',
+                fontFamily: 'monospace',
+                fontWeight: 'bold',
+                marginRight: '6px',
+              }}
+            >
+              {name}:
+            </span>
+          )}
+          {tip}
+        </div>
+      );
+    };
+
+    return { renderNameAddon, renderGroupAddon, renderRowAction, renderRowDetail };
+  }, [trophyFor, expanded, toggle]);
+}
 
 /**
  * Generisches 40/60 Split-Screen-Layout.
@@ -19,6 +160,12 @@ function SplitScreenGuideKacheln({
   getDisplayName,
   nameColumnHeader,
   renderNameAddon,
+  /** Icon auf der Gruppenkachel, wenn die ganze Gruppe eine Trophäe teilt. */
+  renderGroupAddon,
+  /** Interaktives Element neben dem Namen – gehört NICHT in den Namens-Button. */
+  renderRowAction,
+  /** Aufklappbarer Block unter der Zeile. */
+  renderRowDetail,
   emptyVideoMessage,
   groupHeaderIcon = '📍',
   localisationHeaderIcon = '🗺️',
@@ -48,9 +195,9 @@ function SplitScreenGuideKacheln({
     return getEntryState(itemKey(guideProgressKey(item))).visible;
   };
 
-  // Gebiets-Ebene (localisation) über den Gruppen-Kacheln. Fehlt sie, liefert
-  // buildGuideGroupTree einen Abschnitt mit leerem Namen – dann wird flach
-  // gerendert wie vor Einführung der Spalte.
+  // Gebiets-Ebene (localisation) über den Gruppen-Kacheln. Fehlt sie – oder
+  // gilt sie in diesem Reiter nicht – liefert buildGuideGroupTree einen
+  // Abschnitt mit leerem Namen; dann wird flach gerendert.
   const localisationSections = buildGuideGroupTree(itemsData.filter(isItemShown), groupByField);
   const hasSingleLocalisation = localisationSections.length === 1;
 
@@ -134,11 +281,10 @@ function SplitScreenGuideKacheln({
             textAlign: 'left',
           }}
         >
-          <span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
             {groupHeaderIcon} {group.name}
-            <span style={{ color: '#71717a', marginLeft: '8px', fontSize: '11px' }}>
-              ({items.length})
-            </span>
+            {renderGroupAddon ? renderGroupAddon(items) : null}
+            <span style={{ color: '#71717a', fontSize: '11px' }}>({items.length})</span>
           </span>
           <span style={{ color: '#71717a', fontSize: '12px' }} aria-hidden>
             {isExpanded ? '▲' : '▼'}
@@ -184,6 +330,7 @@ function SplitScreenGuideKacheln({
                         }}
                       >
                         <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {typeof toggleCompleted === 'function' && (
                               <input
@@ -262,6 +409,9 @@ function SplitScreenGuideKacheln({
                               )}
                               {renderNameAddon ? renderNameAddon(item, rowDimmed) : null}
                             </button>
+                            {renderRowAction ? renderRowAction(item, rowDimmed) : null}
+                          </div>
+                          {renderRowDetail ? renderRowDetail(item, rowDimmed) : null}
                           </div>
                         </td>
                       </tr>
@@ -512,7 +662,11 @@ export function CollectibleKacheln({
   embedInAccordion = false,
   gameId = '',
   reportEntityType = 'guide_item',
+  trophyById,
 }) {
+  const { renderNameAddon, renderGroupAddon, renderRowAction, renderRowDetail } =
+    useTrophyRowExtras(trophyById);
+
   return (
     <SplitScreenGuideKacheln
       itemsData={collectiblesData}
@@ -521,6 +675,10 @@ export function CollectibleKacheln({
       totalCount={totalCount}
       getDisplayName={(item) => item.item_name}
       nameColumnHeader="Sammelgegenstand"
+      renderNameAddon={renderNameAddon}
+      renderGroupAddon={renderGroupAddon}
+      renderRowAction={renderRowAction}
+      renderRowDetail={renderRowDetail}
       emptyVideoMessage={emptyVideoMessage}
       groupHeaderIcon={groupHeaderIcon}
       localisationHeaderIcon={localisationHeaderIcon}
@@ -550,18 +708,20 @@ export function BossKacheln({
   toggleCompleted,
   embedInAccordion = false,
   gameId = '',
+  trophyById,
 }) {
+  const trophyExtras = useTrophyRowExtras(trophyById);
+
+  // Liegt eine verknüpfte Trophäe vor, gewinnt ihr Bild. Ohne trophy_id bleibt
+  // nur die allgemeine Marke „hier gibt es eine Trophäe".
   const renderTrophyBadge = (item, dimmed) => {
-    const hasTrophy =
-      Boolean(item.trophy_id) || item.is_trophy_relevant === 'Ja';
-    if (!hasTrophy) return null;
+    const artwork = trophyExtras.renderNameAddon(item, dimmed);
+    if (artwork) return artwork;
+
+    if (item.is_trophy_relevant !== 'Ja') return null;
     return (
       <span
-        title={
-          item.trophy_id
-            ? `Trophäen-Referenz: ${item.trophy_id}`
-            : 'Dieser Boss liefert direkt eine Trophäe'
-        }
+        title="Dieser Boss liefert direkt eine Trophäe"
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -594,10 +754,13 @@ export function BossKacheln({
       getDisplayName={(item) => item.item_name || item.boss_name}
       nameColumnHeader="Bossgegner"
       renderNameAddon={renderTrophyBadge}
+      renderGroupAddon={trophyExtras.renderGroupAddon}
+      renderRowAction={trophyExtras.renderRowAction}
+      renderRowDetail={trophyExtras.renderRowDetail}
       emptyVideoMessage="Klicke auf einen Boss mit Video – der Player erscheint hier."
       groupHeaderIcon="⚔️"
       localisationHeaderIcon="🗺️"
-      groupByField="category_group"
+      groupByField="chronological_group"
       listTitle={listTitle}
       hideCompleted={hideCompleted}
       setHideCompleted={setHideCompleted}

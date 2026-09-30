@@ -3,7 +3,8 @@ import { getGameTitle, getRouteSlug } from './gameModel';
 import {
   GAME_SEARCH_STRUCT_COLUMNS,
   GAME_SEARCH_LOCALIZED_COLUMNS,
-  fetchRecentGames,
+  fetchNewGuideGames,
+  fetchPopularGames,
   searchGamesByColumn,
 } from './gameQueries';
 import { getLocale } from './locale';
@@ -35,6 +36,8 @@ async function runQueries(queries) {
   return rows;
 }
 
+const HOME_SEARCH_OPTIONS = { publishedOnly: true };
+
 function titleLike(supabase, pattern, locale) {
   if (!pattern) return Promise.resolve({ data: [], error: new Error('Suchmuster fehlt') });
   return searchGamesByColumn(
@@ -43,6 +46,7 @@ function titleLike(supabase, pattern, locale) {
     pattern,
     LIMIT,
     locale,
+    HOME_SEARCH_OPTIONS,
   );
 }
 
@@ -54,6 +58,7 @@ function devLike(supabase, pattern, locale) {
     pattern,
     LIMIT,
     locale,
+    HOME_SEARCH_OPTIONS,
   );
 }
 
@@ -65,24 +70,39 @@ function genreLike(supabase, pattern, locale) {
     pattern,
     LIMIT,
     locale,
+    HOME_SEARCH_OPTIONS,
   );
 }
 
 /**
- * Die 8 psychologischen Startseiten-Kategorien (Netflix-Prinzip).
+ * Kuratierte Startseiten-Reihen (Netflix-Prinzip).
  */
 export const HOME_CATEGORIES = [
   {
     id: 'beliebt',
     emoji: '🔥',
     title: 'Beliebt',
-    searchTerm: 'Elden Ring',
-    tagline: 'Die meisterwarteten & meistgesuchten Guides',
+    tagline: 'Die meistaufgerufenen Evergreen- & Premium-Guides',
     accent: '#ff6b35',
     fetch: async (supabase, locale = getLocale()) => {
-      const { data, error } = await fetchRecentGames(supabase, LIMIT, locale);
+      const { data, error } = await fetchPopularGames(supabase, LIMIT, locale);
       if (error) {
         console.error('Kategorie beliebt:', error.message);
+        return [];
+      }
+      return dedupeGames(data || [], locale);
+    },
+  },
+  {
+    id: 'neu',
+    emoji: '✨',
+    title: 'Neue Guides',
+    tagline: 'Frisch in der Datenbank – nur Evergreen & Premium',
+    accent: '#a3e635',
+    fetch: async (supabase, locale = getLocale()) => {
+      const { data, error } = await fetchNewGuideGames(supabase, LIMIT, locale);
+      if (error) {
+        console.error('Kategorie neu:', error.message);
         return [];
       }
       return dedupeGames(data || [], locale);
@@ -223,29 +243,30 @@ export const HOME_CATEGORIES = [
     },
   },
   {
-    id: 'halloffame',
-    emoji: '🏆',
-    title: 'Die Hall of Fame',
-    searchTerm: 'Monster Hunter',
-    tagline: 'Die härtesten Platin-Trophäen – nur für die Elite',
-    accent: '#ef4444',
+    id: 'godofwar',
+    emoji: '⚔️',
+    title: 'God of War',
+    searchTerm: 'God of War',
+    tagline: 'Von den griechischen Mythen bis nach Midgard',
+    accent: '#c4a35a',
     fetch: async (supabase, locale = getLocale()) => {
       const rows = await runQueries([
-        titleLike(supabase, '%Rainbow Six Siege%', locale),
-        titleLike(supabase, '%Call of Duty%', locale),
-        titleLike(supabase, '%Battlefield%', locale),
-        titleLike(supabase, '%Destiny%', locale),
-        titleLike(supabase, '%Warframe%', locale),
-        titleLike(supabase, '%Monster Hunter%', locale),
-        titleLike(supabase, '%Street Fighter%', locale),
-        titleLike(supabase, '%Tekken%', locale),
-        titleLike(supabase, '%Gran Turismo%', locale),
-        titleLike(supabase, '%NBA 2K%', locale),
-        titleLike(supabase, '%FIFA%', locale),
-        titleLike(supabase, '%EA Sports FC%', locale),
-        titleLike(supabase, '%Nioh%', locale),
-        titleLike(supabase, '%Elden Ring%', locale),
-        titleLike(supabase, '%Bloodborne%', locale),
+        titleLike(supabase, '%God of War%', locale),
+      ]);
+      return dedupeGames(rows, locale).slice(0, LIMIT);
+    },
+  },
+  {
+    id: 'tombraider',
+    emoji: '🏹',
+    title: 'Tomb Raider',
+    searchTerm: 'Tomb Raider',
+    tagline: 'Laras Abenteuer – von den Klassikern bis zum Reboot',
+    accent: '#14b8a6',
+    fetch: async (supabase, locale = getLocale()) => {
+      const rows = await runQueries([
+        titleLike(supabase, '%Tomb Raider%', locale),
+        titleLike(supabase, '%Lara Croft%', locale),
       ]);
       return dedupeGames(rows, locale).slice(0, LIMIT);
     },

@@ -3,7 +3,6 @@ import { DEFAULT_LOCALE, normalizeLocale } from './locale';
 
 export const STATUS_MESSAGE_KEYS = {
   SERVER_SHUTDOWN: 'server_shutdown',
-  COMING_SOON_BANNER: 'coming_soon_banner',
 };
 
 /** Fallback-Texte, falls Supabase-Eintrag fehlt */
@@ -13,15 +12,9 @@ export const STATUS_MESSAGE_FALLBACKS = {
     en: 'Warning: The servers for this game have been shut down. The platinum trophy can no longer be earned through regular means!',
     es: 'Atención: Los servidores de este juego han sido cerrados. ¡El trofeo de platino ya no se puede obtener de forma regular!',
   },
-  [STATUS_MESSAGE_KEYS.COMING_SOON_BANNER]: {
-    de: 'Coming Soon: Die Trophäenübersicht ist vollständig, die detaillierten Guide-Abschnitte werden noch erstellt.',
-    en: 'Coming Soon: The trophy overview is complete; detailed guide sections are still being created.',
-    es: 'Próximamente: El resumen de trofeos está completo; las secciones detalladas de la guía aún se están creando.',
-  },
 };
 
 export const SERVER_OFFLINE_VALUES = ['OFFLINE', 'SERVER_TOT', 'TOT'];
-export const GAME_STATUS_COMING_SOON = 'COMING_SOON';
 
 /** trophy_status_messages.id – Cover-Hinweise auf der Spieldetailseite */
 export const STATUS_MESSAGE_IDS = {
@@ -86,12 +79,6 @@ export function hasOnlineTrophiesFlag(game) {
   const raw = game?.[GAME_STRUCT.hasOnlineTrophies];
   if (raw === true) return true;
   return String(raw ?? '').trim().toUpperCase() === 'TRUE';
-}
-
-/** @param {Record<string, unknown>|null|undefined} game */
-export function isComingSoonStatus(game) {
-  const status = normalizeGameFlag(game?.[GAME_STRUCT.status]);
-  return status === GAME_STATUS_COMING_SOON;
 }
 
 /**

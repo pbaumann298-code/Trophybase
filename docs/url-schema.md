@@ -76,22 +76,21 @@ dieselbe Sache:
 
 | Signal | Feld / Tabelle | Fundstelle |
 |---|---|---|
-| Redaktionsstatus | `games.status` (z. B. `COMING_SOON`) | `GAME_STRUCT.status` in `src/lib/gameSchema.js`; Banner: `isComingSoonStatus` in `src/lib/trophyStatusMessages.js` |
+| Redaktionelle Freigabe | `games.status ->> 'guide_de'` (`FERTIG` / `PUBLISHED`) | `isGuidePublished` in `src/lib/guidePublication.js`; gesetzt über den Admin-Button `GuidePublishButton` |
+| Indexierbarkeit | `games.is_indexable` | `GAME_STRUCT.isIndexable`; steuert `noindex` in `src/lib/seoHead.js` |
 | Trophäenzahl | `games.anzahl_trophaeen` | `GAME_STRUCT.trophyCount`; wird mit `GAME_SELECT` geladen, in der UI nicht als Filter genutzt |
 | Fortschritt | `games.fortschritt` | `GAME_STRUCT.progress`; wird geladen, **nirgends** in der UI ausgewertet |
 | Trophäenliste | Zeilen in `game_achievements` | `TABLES.achievements`; `fetchAchievementsForGame` in `src/lib/achievementQueries.js` |
 | Guide-Text | Zeilen in `game_guides` (Walkthrough, Sammelobjekte, Bosse) | `TABLES.guides`; `fetchGuidesForGame` / `fetchGameGuideBundle` in `src/lib/guideQueries.js` |
 | Status-Erklärung | `games.status_explanation_localized` | `GAME_I18N.statusExplanation`; nach dem Merge als String `status_explanation` |
 
-**Empfehlung für später:** Den Slug setzen, sobald **mindestens eine Zeile in
-`game_guides` existiert.** Begründung: `game_achievements` und
+**Umgesetzt:** Der Slug entsteht bei der redaktionellen Freigabe, also sobald
+`status ->> 'guide_de'` auf `PUBLISHED` springt (Trigger `games_slug_on_publish`
+in `supabase/games_guide_publication.sql`). Begründung: `game_achievements` und
 `anzahl_trophaeen` gehören zum PSN-Katalog — das trifft auf den Großteil der
-42.000 Zeilen zu, nicht nur auf fertige Guides. `status = COMING_SOON` heißt
-im Frontend ausdrücklich „Trophäen da, Guide-Abschnitte noch nicht“.
-`fortschritt` hat keine ausgewertete Semantik. `game_guides` ist der
-redaktionelle Inhalt (Walkthrough / Sammelobjekte / Bosse) und entspricht den
-paar hundert fertigen Guides. Katalog-Zeilen ohne Guide-Zeilen behalten
-`slug = null`.
+42.000 Zeilen zu, nicht nur auf fertige Guides. `fortschritt` hat keine
+ausgewertete Semantik. Damit bekommen nur Seiten einen Slug, die es auch
+wirklich gibt; alles andere behält `slug = null`.
 
 ## Kollisionen
 

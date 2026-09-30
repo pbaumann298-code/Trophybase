@@ -49,9 +49,12 @@ import {
 import { getTrophyIdKey } from './lib/trophyQueries';
 import { getGameUuid } from './lib/gameModel';
 import { applyGameSeoLinks, applyPathCanonical, clearGameSeoLinks } from './lib/seoHead';
+import { isGameIndexable } from './lib/guidePublication';
 import {
   loadCompletedGuideItems,
+  loadHideCompleted,
   saveCompletedGuideItems,
+  saveHideCompleted,
 } from './lib/guideProgressStorage';
 import {
   mergeUnlockedTrophies,
@@ -98,11 +101,15 @@ function App() {
   const [loadingGuide, setLoadingGuide] = useState(false);
   const [unlockedTrophies, setUnlockedTrophies] = useState({});
   const [earnedTrophyIds, setEarnedTrophyIds] = useState(() => new Set());
-  const [hideCompleted, setHideCompleted] = useState(false);
+  const [hideCompleted, setHideCompleted] = useState(loadHideCompleted);
   const [completedGuideItems, setCompletedGuideItems] = useState(loadCompletedGuideItems);
   const [activeTab, setActiveTab] = useState(
     () => parseGuideTabParam(window.location.search) ?? DEFAULT_GUIDE_TAB,
   );
+
+  useEffect(() => {
+    saveHideCompleted(hideCompleted);
+  }, [hideCompleted]);
 
   // Session + OAuth-Redirect nach linkIdentity (Schritt 4: maintenance_bypass setzen)
   useEffect(() => {
@@ -538,7 +545,11 @@ function App() {
       clearGameSeoLinks();
       return undefined;
     }
-    applyGameSeoLinks({ locale: globalLocale, game: selectedGame });
+    applyGameSeoLinks({
+      locale: globalLocale,
+      game: selectedGame,
+      noIndex: !isGameIndexable(selectedGame),
+    });
     return () => clearGameSeoLinks();
   }, [currentView, selectedGame, globalLocale]);
 
@@ -723,6 +734,7 @@ function App() {
             {currentView === 'game_info' && selectedGame && (
               <GameDetailPage
                 currentView={currentView}
+                sessionUser={sessionUser}
                 selectedGame={selectedGame}
                 activeTrophies={activeTrophies}
                 unlockedTrophies={unlockedTrophies}

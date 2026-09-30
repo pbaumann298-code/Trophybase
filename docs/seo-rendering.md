@@ -97,12 +97,14 @@ die gibt es sinnvoll aber erst mit Next.js (Abschnitt 3).*
 Nach `vite build` läuft ein zusätzliches Node-Skript (z. B. `scripts/prerender.mjs`),
 das folgendes tut:
 
-1. **Supabase abfragen — gefiltert auf veröffentlichungsreife Guides.**
-   Kriterium (vor dem ersten Lauf festlegen und im Skript hart kodieren), z. B.
-   `status` ungleich leer / ungleich `COMING_SOON`, oder „es existiert mindestens eine
-   Zeile in `game_guides` bzw. `game_achievements`". Die 42.000 Stammdaten-Zeilen
-   ohne Inhalt werden **nicht** angefasst. `src/lib/gameQueries.js`, `gameModel.js`
-   und `gameSchema.js` laufen unverändert in Node.
+1. **Supabase abfragen — gefiltert auf freigegebene, indexierbare Guides.**
+   Kriterium: `status ->> 'guide_de' = 'PUBLISHED'` **und** `is_indexable = true`.
+   Das ist dasselbe Paar, das im Frontend über Sichtbarkeit und `noindex`
+   entscheidet — Quickwins (`spiel_typ = 'Quickwin'`) sind online, aber bewusst
+   nicht indexierbar und gehören deshalb nicht in die Sitemap. Die 42.000
+   Stammdaten-Zeilen ohne Inhalt werden **nicht** angefasst.
+   `src/lib/gameQueries.js`, `gameModel.js` und `gameSchema.js` laufen
+   unverändert in Node.
 2. **Pro fertigem Guide eine HTML-Datei schreiben**, zum Start nur `de`:
    `dist/de/ps5/elden-ring/index.html`. Weitere Sprachen erst, wenn Übersetzungen
    tatsächlich existieren.

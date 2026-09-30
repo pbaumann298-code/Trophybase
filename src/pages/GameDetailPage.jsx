@@ -7,19 +7,23 @@ import GameStatusBanners from '../components/GameStatusBanners';
 import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
 import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
 import WatchlistButton from '../components/WatchlistButton';
+import GuidePublishButton from '../components/GuidePublishButton';
 import PortraitGuideHint from '../components/PortraitGuideHint';
 import GuideTabBar from '../components/GuideTabBar';
 import { guideTabId, guideTabPanelId } from '../lib/guideTabs';
 import { useTabNavigation } from '../hooks/useTabNavigation';
 import { useTabScrollMemory } from '../hooks/useTabScrollMemory';
 import { GuideVideoProvider, useGuideVideo } from '../context/GuideVideoContext';
-import { GAME_FIELDS } from '../lib/gameSchema';
+import { GAME_FIELDS, GAME_STRUCT } from '../lib/gameSchema';
 import {
   buildBossOverviewData,
   buildByTypeGuideData,
   buildChronologicalGuideData,
 } from '../lib/guideData';
-import { fetchGameGuideBundle, resolveGameId } from '../lib/guideQueries';
+import { incrementGameViews } from '../lib/gameQueries';
+import { fetchGameGuideBundle, resolveGameId, resolveGuideLanguage } from '../lib/guideQueries';
+import { isAdminUser } from '../lib/adminAccess';
+import { isGuidePublished, PUBLISH_LOCALE } from '../lib/guidePublication';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
   getGameCover,
@@ -33,7 +37,6 @@ import {
   fetchTrophyStatusMessages,
   fetchTrophyStatusMessagesByIds,
   hasOnlineTrophiesFlag,
-  isComingSoonStatus,
   isServerDead,
   isServerOffline,
   STATUS_MESSAGE_IDS,
@@ -68,6 +71,7 @@ function GamePageContent({
   bossItems,
   onNavigateHome,
   fromSearch = false,
+  sessionUser = null,
 }) {
   const [guideRows, setGuideRows] = useState([]);
   const [chapterRows, setChapterRows] = useState([]);
@@ -77,7 +81,6 @@ function GamePageContent({
   const [guideLanguageOverride, setGuideLanguageOverride] = useState(null);
   const [statusMessages, setStatusMessages] = useState({
     [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN]: '',
-    [STATUS_MESSAGE_KEYS.COMING_SOON_BANNER]: '',
   });
   const [coverStatusMessages, setCoverStatusMessages] = useState({
     serverDead: '',
@@ -85,6 +88,9 @@ function GamePageContent({
   });
   const [onlineTrophyIds, setOnlineTrophyIds] = useState(() => new Set());
   const [contentCreators, setContentCreators] = useState([]);
+  // Nach dem Freigeben sofort umschalten, ohne das Spiel neu zu laden. Die UUID
+  // hängt mit dran, damit der Wert beim Spielwechsel nicht fälschlich greift.
+  const [publicationOverride, setPublicationOverride] = useState(null);
   const { notifyVideoCleared } = useGuideVideo();
 
   useEffect(() => {
@@ -114,6 +120,12 @@ function GamePageContent({
   }, [selectedGame?.id, selectedGame?.platform_game_id]);
 
   useEffect(() => {
+    const uuid = getGameUuid(selectedGame);
+    if (!uuid) return;
+    incrementGameViews(supabase, uuid);
+  }, [selectedGame?.id]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadCreator() {
@@ -137,7 +149,7 @@ function GamePageContent({
     async function loadStatusMessages() {
       const { messages } = await fetchTrophyStatusMessages(
         supabase,
-        [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN, STATUS_MESSAGE_KEYS.COMING_SOON_BANNER],
+        [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN],
         globalLocale,
       );
       if (!cancelled) setStatusMessages(messages);
@@ -241,12 +253,41 @@ function GamePageContent({
 
   const bossOverviewData = useMemo(() => buildBossOverviewData(bossRows), [bossRows]);
 
+  /**
+   * Nachschlagewerk für game_guides.trophy_id → Trophäe. Die Trophäen sind für
+   * Reiter 0 sowieso schon geladen, es braucht also keine zweite Abfrage.
+   */
+  const trophyById = useMemo(() => {
+    const map = new Map();
+    for (const trophy of activeTrophies ?? []) {
+      const key = String(trophy?.platform_achievement_id ?? trophy?.trophy_id ?? '').trim();
+      if (key) map.set(key, trophy);
+    }
+    return map;
+  }, [activeTrophies]);
+
   const watchlistGameId = useMemo(
     () => getGameUuid(selectedGame) || resolveGameId(selectedGame),
     [selectedGame],
   );
 
   const gameId = watchlistGameId;
+
+  const gameUuid = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
+
+  /** Sprache des angezeigten Guides – entscheidet, ob der Freigabe-Button erscheint. */
+  const effectiveGuideLang = resolveGuideLanguage(globalLocale, guideLanguageOverride);
+
+  const gameForPublication = useMemo(() => {
+    if (!publicationOverride || publicationOverride.uuid !== gameUuid) return selectedGame;
+    return { ...selectedGame, [GAME_STRUCT.status]: publicationOverride.status };
+  }, [selectedGame, publicationOverride, gameUuid]);
+
+  const isAdmin = isAdminUser(sessionUser);
+  /** Ein Schalter für alle Sprachen: guide_de. EN/ES folgen später über die DB. */
+  const guidePublished = isGuidePublished(gameForPublication, PUBLISH_LOCALE);
+  /** Admins sehen den Guide als Vorschau, Besucher erst nach der Freigabe. */
+  const canSeeGuides = guidePublished || isAdmin;
 
   const isGuideLoading = guidesLoading || loadingGuide;
 
@@ -255,7 +296,6 @@ function GamePageContent({
   const gameDescription = getGameDescription(selectedGame, globalLocale);
 
   const showServerShutdown = isServerOffline(selectedGame);
-  const showComingSoon = isComingSoonStatus(selectedGame);
   const showCoverServerDead = isServerDead(selectedGame);
   const showCoverOnlineNote = hasOnlineTrophiesFlag(selectedGame);
 
@@ -269,12 +309,15 @@ function GamePageContent({
   const tabVisibility = useMemo(
     () => ({
       reiter0: true,
-      reiter1: isGuideLoading || tabCounts.reiter1 > 0,
-      reiter2: isGuideLoading || tabCounts.reiter2 > 0,
-      reiter3: isGuideLoading || tabCounts.reiter3 > 0,
+      reiter1: canSeeGuides && (isGuideLoading || tabCounts.reiter1 > 0),
+      reiter2: canSeeGuides && (isGuideLoading || tabCounts.reiter2 > 0),
+      reiter3: canSeeGuides && (isGuideLoading || tabCounts.reiter3 > 0),
     }),
-    [isGuideLoading, tabCounts.reiter1, tabCounts.reiter2, tabCounts.reiter3],
+    [canSeeGuides, isGuideLoading, tabCounts.reiter1, tabCounts.reiter2, tabCounts.reiter3],
   );
+
+  const hasGuideContent =
+    tabCounts.reiter1 > 0 || tabCounts.reiter2 > 0 || tabCounts.reiter3 > 0;
 
   const visibleTabs = useMemo(
     () => ['reiter0', 'reiter1', 'reiter2', 'reiter3'].filter((tab) => tabVisibility[tab]),
@@ -391,6 +434,7 @@ function GamePageContent({
                 progressPercent={progressPercent}
                 completedCount={completedCount}
                 totalCount={activeTrophies.length}
+                trophyById={trophyById}
                 groupByField="chronological_group"
                 groupHeaderIcon="📍"
                 listTitle="Walkthrough"
@@ -434,6 +478,7 @@ function GamePageContent({
                 progressPercent={progressPercent}
                 completedCount={completedCount}
                 totalCount={activeTrophies.length}
+                trophyById={trophyById}
                 groupByField="category_group"
                 groupHeaderIcon="📦"
                 listTitle="Sammelobjekte"
@@ -459,13 +504,13 @@ function GamePageContent({
         >
           {bossOverviewData.length === 0 && !isGuideLoading ? (
             <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-              Keine Bosse für dieses Spiel (sheet_type 3 / category_group).
+              Keine Bosse für dieses Spiel (sheet_type 3 / chronological_group).
             </p>
           ) : (
             <CollapsibleSectionCard
               sectionId="guide-bosses"
               title="Bosse"
-              subtitle="Nach Kategorien"
+              subtitle="Nach Gebieten"
               badge={`${bossOverviewData.length} Bosse`}
               defaultOpen
               accent="purple"
@@ -476,6 +521,7 @@ function GamePageContent({
                 progressPercent={progressPercent}
                 completedCount={completedCount}
                 totalCount={activeTrophies.length}
+                trophyById={trophyById}
                 listTitle="Bosse"
                 hideCompleted={hideCompleted}
                 setHideCompleted={setHideCompleted}
@@ -497,9 +543,7 @@ function GamePageContent({
       <PortraitGuideHint isGuideView isVideoGuideTab={activeTab !== 'reiter0'} />
       <GameStatusBanners
         showServerShutdown={showServerShutdown}
-        showComingSoon={showComingSoon}
         serverMessage={statusMessages[STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN]}
-        comingSoonMessage={statusMessages[STATUS_MESSAGE_KEYS.COMING_SOON_BANNER]}
       />
 
       <button
@@ -530,11 +574,18 @@ function GamePageContent({
                   {gameTitle}
                 </h2>
               </div>
-              <WatchlistButton
-                gameId={watchlistGameId}
-                variant="detail"
-                className="sm:flex-shrink-0 sm:mt-1"
-              />
+              <div className="flex flex-col items-stretch sm:items-end gap-2 sm:flex-shrink-0 sm:mt-1">
+                <WatchlistButton gameId={watchlistGameId} variant="detail" />
+                <GuidePublishButton
+                  user={sessionUser}
+                  game={gameForPublication}
+                  gameUuid={gameUuid}
+                  guideLang={effectiveGuideLang}
+                  onPublishedChange={(status) =>
+                    setPublicationOverride({ uuid: gameUuid, status })
+                  }
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4 sm:gap-x-8 w-full max-w-xl min-w-0 text-sm border-t border-zinc-800/60 pt-4">
@@ -609,6 +660,20 @@ function GamePageContent({
           guideLanguageOverride={guideLanguageOverride}
           onGuideLanguageOverride={setGuideLanguageOverride}
         />
+
+        {isAdmin && !guidePublished && hasGuideContent && (
+          <p className="text-xs text-amber-400 font-mono mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
+            Vorschau: Dieser Guide ist noch nicht freigegeben ({PUBLISH_LOCALE.toUpperCase()}) und
+            für Besucher unsichtbar.
+          </p>
+        )}
+
+        {!canSeeGuides && hasGuideContent && (
+          <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
+            Der Guide zu diesem Spiel wird derzeit redaktionell geprüft und ist noch nicht
+            freigegeben.
+          </p>
+        )}
 
         <GuideTabBar
           tabs={tabItems}

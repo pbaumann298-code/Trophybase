@@ -18,5 +18,50 @@
   <body class="bg-slate-950 w-full max-w-full overflow-x-hidden">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      /* Scheitert das Modul beim Laden, bleibt #root leer und die Seite waere
+         nur eine leere Flaeche ohne jeden Hinweis. Dann Klartext zeigen. */
+      (function () {
+        var ersterFehler = null;
+        addEventListener(
+          'error',
+          function (e) {
+            ersterFehler = ersterFehler || (e.error && e.error.message) || e.message;
+          },
+          true,
+        );
+        addEventListener('unhandledrejection', function (e) {
+          ersterFehler = ersterFehler || String((e.reason && e.reason.message) || e.reason);
+        });
+        addEventListener('load', function () {
+          setTimeout(function () {
+            var root = document.getElementById('root');
+            if (!root || root.children.length > 0) return;
+            var box = document.createElement('div');
+            box.style.cssText =
+              'font:16px/1.6 system-ui,sans-serif;color:#e4e4e7;max-width:34rem;' +
+              'margin:15vh auto;padding:0 1.5rem;text-align:center';
+            var titel = document.createElement('h1');
+            titel.style.cssText = 'font-size:1.25rem;margin:0 0 .75rem';
+            titel.textContent = 'TrophyBase konnte nicht starten';
+            var text = document.createElement('p');
+            text.style.cssText = 'margin:0 0 1rem;color:#a1a1aa';
+            text.textContent =
+              'Die Anwendung wurde nicht vollstaendig ausgeliefert. Bitte versuche es spaeter erneut.';
+            box.appendChild(titel);
+            box.appendChild(text);
+            if (ersterFehler) {
+              var details = document.createElement('p');
+              details.style.cssText =
+                'font:13px ui-monospace,monospace;color:#f87171;background:#1a1b1c;' +
+                'border:1px solid #3f3f46;border-radius:.5rem;padding:.75rem;word-break:break-word';
+              details.textContent = ersterFehler;
+              box.appendChild(details);
+            }
+            root.appendChild(box);
+          }, 1500);
+        });
+      })();
+    </script>
   </body>
 </html>

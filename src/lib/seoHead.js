@@ -2,6 +2,7 @@ import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from '../../shared/countryLocaleMap
 import { buildPrettyGamePath, hardwareToUrlSegment } from './gameSlug';
 
 const SEO_ATTR = 'data-tb-seo';
+const ROBOTS_ATTR = 'data-tb-robots';
 const SITE_ORIGIN = 'https://trophybase.app';
 
 function getCanonicalOrigin() {
@@ -17,6 +18,31 @@ function removeSeoLinks() {
   document.querySelectorAll(`link[${SEO_ATTR}]`).forEach((el) => el.remove());
 }
 
+function removeRobotsMeta() {
+  if (typeof document === 'undefined') return;
+  document.querySelectorAll(`meta[${ROBOTS_ATTR}]`).forEach((el) => el.remove());
+}
+
+/**
+ * `noindex, follow`: die Seite selbst gehört nicht in den Index, ihre Links
+ * dürfen aber weiter verfolgt werden.
+ *
+ * Betrifft zwei Fälle: noch nicht freigegebene Guides (halbleere Seiten) und
+ * redaktionell ausgenommene Spiele (is_indexable = false, z. B. Quickwins –
+ * die sind online und über die Suche auffindbar, nur nicht über Google).
+ */
+function applyRobotsNoIndex(noIndex) {
+  if (typeof document === 'undefined') return;
+  removeRobotsMeta();
+  if (!noIndex) return;
+
+  const el = document.createElement('meta');
+  el.setAttribute(ROBOTS_ATTR, 'true');
+  el.name = 'robots';
+  el.content = 'noindex, follow';
+  document.head.appendChild(el);
+}
+
 function appendLink(rel, extra) {
   const el = document.createElement('link');
   el.setAttribute(SEO_ATTR, 'true');
@@ -30,10 +56,15 @@ function appendLink(rel, extra) {
 /**
  * canonical zeigt strikt auf die aufgerufene Sprach-URL.
  * hreflang listet de/en/es plus x-default (en).
- * @param {{ locale: string, hardware?: string, slug?: string, game?: object }} opts
+ *
+ * Der robots-Tag wird vor allem anderen gesetzt: Spiele ohne Slug bekommen
+ * keine canonical-Links, brauchen aber trotzdem ihr noindex.
+ * @param {{ locale: string, hardware?: string, slug?: string, game?: object, noIndex?: boolean }} opts
  */
-export function applyGameSeoLinks({ locale, hardware, slug, game } = {}) {
+export function applyGameSeoLinks({ locale, hardware, slug, game, noIndex = false } = {}) {
   if (typeof document === 'undefined') return;
+
+  applyRobotsNoIndex(noIndex);
 
   const hw = hardware || hardwareToUrlSegment(game?.hardware);
   const gameSlug = slug || String(game?.slug ?? '').trim();
@@ -74,6 +105,7 @@ export function applyPathCanonical(path) {
 
 export function clearGameSeoLinks() {
   removeSeoLinks();
+  removeRobotsMeta();
 }
 
 export { SITE_ORIGIN, getCanonicalOrigin };

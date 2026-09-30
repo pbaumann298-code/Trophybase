@@ -55,6 +55,9 @@ export function mergeGuideRow(row, lang, index = 0) {
   const sheetTypes = resolveSheetTypes(row[GUIDE_I18N.sheetType]);
   const itemName = localizeJsonField(row[GUIDE_I18N.itemName], lang, FALLBACK_LANGUAGE);
   const localisation = localizeJsonField(row[GUIDE_I18N.localisation], lang, FALLBACK_LANGUAGE);
+  const localisationSheets = resolveSheetTypes(
+    row[GUIDE_I18N.localisationSheet] ?? row.localisation_sheets,
+  );
   const chronologicalGroup = localizeJsonField(
     row[GUIDE_I18N.chronologicalGroup],
     lang,
@@ -75,6 +78,7 @@ export function mergeGuideRow(row, lang, index = 0) {
     sheet_type: sheetTypes[0] ?? 0,
     item_name: itemName,
     localisation,
+    localisation_sheets: localisationSheets,
     chronological_group: chronologicalGroup,
     category_group: categoryGroup,
     video_chapter: videoChapter,

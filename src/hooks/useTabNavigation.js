@@ -66,8 +66,9 @@ export function useTabNavigation({
   enabled = true,
 }) {
   const activeIndex = tabs.indexOf(activeTab);
-  const canGoPrev = activeIndex > 0;
-  const canGoNext = activeIndex >= 0 && activeIndex < tabs.length - 1;
+  const canWrap = tabs.length > 1;
+  const canGoPrev = canWrap && activeIndex >= 0;
+  const canGoNext = canWrap && activeIndex >= 0;
 
   // Listener werden einmal registriert und lesen den aktuellen Stand aus der Ref.
   const stateRef = useRef({ tabs, activeIndex, onTabChange });
@@ -78,8 +79,8 @@ export function useTabNavigation({
 
   const shiftTab = useCallback((offset) => {
     const { tabs: currentTabs, activeIndex: index, onTabChange: change } = stateRef.current;
-    if (index < 0) return false;
-    const nextIndex = Math.min(Math.max(index + offset, 0), currentTabs.length - 1);
+    if (index < 0 || currentTabs.length < 2) return false;
+    const nextIndex = (index + offset + currentTabs.length) % currentTabs.length;
     if (nextIndex === index) return false;
     change(currentTabs[nextIndex]);
     return true;

@@ -65,7 +65,7 @@ export const UI_STRINGS = {
     homeKicker: 'TrophyBase · Dein Guide-Hub',
     homeTitle: 'Finde deinen nächsten Platin-Run',
     homeSub:
-      'Acht kuratierte Welten – vom Souls-Hardcore bis zur Familien-Platin. Wähle die Reihe, die zu deinem Gamer-Typ passt.',
+      'Kuratierte Reihen – vom Souls-Hardcore bis zur Familien-Platin. Wähle die Reihe, die zu deinem Gamer-Typ passt.',
     watchlistTitle: 'Watchlist',
     watchlistCountOne: '1 Spiel',
     watchlistCountMany: '{n} Spiele',
@@ -138,7 +138,7 @@ export const UI_STRINGS = {
     homeKicker: 'TrophyBase · Your guide hub',
     homeTitle: 'Find your next platinum run',
     homeSub:
-      'Eight curated worlds — from Souls hardcore to family platinums. Pick the row that fits your play style.',
+      'Curated rows — from Souls hardcore to family platinums. Pick the series that fits your play style.',
     watchlistTitle: 'Watchlist',
     watchlistCountOne: '1 game',
     watchlistCountMany: '{n} games',
@@ -211,7 +211,7 @@ export const UI_STRINGS = {
     homeKicker: 'TrophyBase · Tu hub de guías',
     homeTitle: 'Encuentra tu próxima platino',
     homeSub:
-      'Ocho categorías curadas — del hardcore Souls a platino familiar. Elige la fila que encaje contigo.',
+      'Filas curadas — del hardcore Souls a platino familiar. Elige la saga que encaje contigo.',
     watchlistTitle: 'Watchlist',
     watchlistCountOne: '1 juego',
     watchlistCountMany: '{n} juegos',

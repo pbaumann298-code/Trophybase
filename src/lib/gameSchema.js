@@ -80,7 +80,22 @@ export const GAME_STRUCT = {
   originalLocale: 'original_locale',
   createdAt: 'created_at',
   slug: 'slug',
+  /** false = darf nicht in den Suchindex (z. B. Quickwins, nur über die Suche auffindbar) */
+  isIndexable: 'is_indexable',
+  /** Guide-Seitenaufrufe; Startseite „Beliebt“ sortiert danach */
+  views: 'views',
 };
+
+/** Werte von games.spiel_typ */
+export const GAME_TYPE = {
+  QUICKWIN: 'Quickwin',
+  EVERGREEN: 'Evergreen',
+  PREMIUM: 'Premium',
+  STANDARD: 'Standard',
+};
+
+/** Startseiten-Reihen, die nur redaktionelle Guides zeigen (keine Quickwins). */
+export const HOME_FEATURED_GAME_TYPES = [GAME_TYPE.EVERGREEN, GAME_TYPE.PREMIUM];
 
 /** JSONB-Sprachmaps auf public.games */
 export const GAME_I18N = {
@@ -112,6 +127,11 @@ export const ACHIEVEMENT_I18N = {
   iconUrl: 'icon_url',
   rarity: 'global_seltenheit',
   guideTip: 'guide_tip',
+  /**
+   * Ausführliche Fassung des Tipps. Spaltenname mit Bindestrichen und
+   * Grossbuchstaben – in SQL/PostgREST zwingend in Anführungszeichen setzen.
+   */
+  guideTipLong: 'Guide-Tip-lang',
   aiTranslation: 'ai_translation',
 };
 
@@ -133,6 +153,12 @@ export const GUIDE_I18N = {
   itemName: 'item_name',
   /** Übergeordnetes Gebiet (z. B. Galaxie) – bündelt mehrere *_group-Kacheln */
   localisation: 'localisation',
+  /**
+   * JSONB-Array wie sheet_type: in welchen Excel-Reitern localisation gilt
+   * (1 Walkthrough, 2 Sammelobjekte, 3 Bosse). Trophäen sind Reiter 0 und
+   * stehen in game_achievements, nicht hier.
+   */
+  localisationSheet: 'localisation_sheet',
   chronologicalGroup: 'chronological_group',
   categoryGroup: 'category_group',
   videoChapter: 'video_chapter',

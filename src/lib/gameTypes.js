@@ -17,6 +17,7 @@
  * @property {string} [entwickler]
  * @property {string} [genre]
  * @property {string} [spiel_typ]
+ * @property {number} [views]
  * @property {string} [fortschritt]
  * @property {string} [status]
  * @property {string} [server_status]
@@ -94,6 +95,7 @@
  *   in mehreren Excel-Reitern und wurde beim Upload zusammengefasst.
  * @property {LocalizedText} [item_name]
  * @property {LocalizedText} [localisation] Gebiet über chronological_group/category_group
+ * @property {number[]} [localisation_sheet] JSONB-Array der Reiter, in denen localisation gilt (1/2/3)
  * @property {LocalizedText} [chronological_group]
  * @property {LocalizedText} [category_group]
  * @property {LocalizedText} [video_chapter]
@@ -113,6 +115,7 @@
  * @property {1|2|3|number} sheet_type Primärer Reiter (sheet_types[0]), nur Abwärtskompatibilität
  * @property {string} [item_name]
  * @property {string} [localisation] Leer = keine Gebiets-Ebene für diesen Eintrag
+ * @property {number[]} [localisation_sheets] Reiter, in denen localisation gilt
  * @property {string} [chronological_group]
  * @property {string} [category_group]
  * @property {string} [video_chapter]

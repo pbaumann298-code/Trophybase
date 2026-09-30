@@ -71,6 +71,12 @@ export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LA
   const namePick = pickLocalized(row[ACHIEVEMENT_I18N.name], locale, fallbackLocale);
   const trophy_desc = localizeJsonField(row[ACHIEVEMENT_I18N.desc], locale, fallbackLocale);
   const guide_tip = localizeJsonField(row[ACHIEVEMENT_I18N.guideTip], locale, fallbackLocale);
+  // Spalte ist noch leer; pickLocalized verträgt Sprachmap und reinen Text.
+  const guide_tip_long = localizeJsonField(
+    row[ACHIEVEMENT_I18N.guideTipLong],
+    locale,
+    fallbackLocale,
+  );
   const icon_url = localizeJsonField(row[ACHIEVEMENT_I18N.iconUrl], locale, fallbackLocale);
   const rarity = localizeJsonField(row[ACHIEVEMENT_I18N.rarity], locale, fallbackLocale);
 
@@ -83,6 +89,7 @@ export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LA
     trophy_desc,
     trophy_description: trophy_desc,
     guide_tip,
+    guide_tip_long,
     icon_url,
     global_seltenheit: rarity,
     rarity_percent: parsePercentValue(rarity),
