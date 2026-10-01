@@ -461,6 +461,7 @@ function App() {
     setGuideReturnView(currentView);
     setSelectedGame(game);
     setCurrentView('game_info');
+    window.scrollTo(0, 0);
     setLoadingGuide(true);
     setActiveTab(DEFAULT_GUIDE_TAB);
     setActiveTrophies([]);

@@ -1,42 +1,28 @@
 import { SUPPORTED_LOCALES } from '../shared/countryLocaleMap.js';
 import { GAME_STRUCT } from '../src/lib/gameSchema.js';
 import { hardwareToUrlSegment, buildPrettyGamePath } from '../src/lib/gameSlug.js';
-import { isGuidePublished } from '../src/lib/guidePublication.js';
+import { GUIDE_PUBLICATION, isGuidePublished } from '../src/lib/guidePublication.js';
 import { getPublicSupabase, publicOrigin } from './publicSupabase.js';
 import { parseSitemapLocale } from './prettyPath.js';
 import { escapeHtml } from './escapeHtml.js';
 
-const PAGE_SIZE = 1000;
+const SITEMAP_URL_CAP = 5000;
 
 function xmlWrap(body) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n${body}`;
 }
 
 async function loadIndexablePublishedGames(supabase) {
-  const rows = [];
-  let from = 0;
+  const { data, error } = await supabase
+    .from('games')
+    .select(`slug, hardware, ${GAME_STRUCT.createdAt}, ${GAME_STRUCT.status}`)
+    .not('slug', 'is', null)
+    .filter(`${GAME_STRUCT.status}->>guide_de`, 'eq', GUIDE_PUBLICATION.PUBLISHED)
+    .or(`${GAME_STRUCT.isIndexable}.is.null,${GAME_STRUCT.isIndexable}.eq.true`)
+    .limit(SITEMAP_URL_CAP);
 
-  while (from < 200000) {
-    const to = from + PAGE_SIZE - 1;
-    const { data, error } = await supabase
-      .from('games')
-      .select(
-        `id, slug, hardware, ${GAME_STRUCT.isIndexable}, ${GAME_STRUCT.createdAt}, ${GAME_STRUCT.status}`,
-      )
-      .not('slug', 'is', null)
-      .range(from, to);
-
-    if (error) throw error;
-    const batch = data ?? [];
-    rows.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return rows.filter((row) => {
-    if (!row?.slug || !hardwareToUrlSegment(row.hardware)) return false;
-    return row[GAME_STRUCT.isIndexable] !== false;
-  });
+  if (error) throw error;
+  return (data ?? []).filter((row) => row?.slug && hardwareToUrlSegment(row.hardware));
 }
 
 function gamesForLocale(games, locale) {

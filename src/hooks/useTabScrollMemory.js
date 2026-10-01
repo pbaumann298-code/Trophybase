@@ -71,8 +71,13 @@ export function useTabScrollMemory({ activeTab, anchorRef, resetKey, enabled = t
     resetKeyRef.current = resetKey;
 
     if (previousKey !== resetKey) {
-      // Anderes Spiel: altes Gedächtnis verwerfen und diesen Wechsel nicht anfassen.
+      // Anderes Spiel: Tab-Gedächtnis verwerfen und an den Seitenanfang.
+      // Sonst bleibt man unten bei „Ähnliche Spiele“, weil die SPA nicht neu lädt.
       positionsRef.current.clear();
+      restoringRef.current = false;
+      if (enabled) {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      }
       return undefined;
     }
     if (!enabled || previousTab === activeTab) return undefined;
