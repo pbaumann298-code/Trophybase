@@ -1,4 +1,4 @@
-import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
+import { DEFAULT_LOCALE } from '../../shared/countryLocaleMap.js';
 import { hardwareToUrlSegment, buildPrettyGamePath } from './gameSlug';
 
 export async function ensureGameSlug(supabase, gameUuid) {
@@ -8,16 +8,17 @@ export async function ensureGameSlug(supabase, gameUuid) {
   return { slug: slug || null, error: null };
 }
 
-export async function warmPublishedGuidePages({ origin, hardware, slug }) {
+export async function warmPublishedGuidePages({ origin, hardware, slug, locales }) {
   const hw = hardwareToUrlSegment(hardware);
   const base = String(origin || (typeof window !== 'undefined' ? window.location.origin : '')).replace(
     /\/$/,
     '',
   );
   if (!hw || !slug || !base) return;
+  const langs = Array.isArray(locales) && locales.length > 0 ? locales : [DEFAULT_LOCALE];
 
   await Promise.all(
-    SUPPORTED_LOCALES.map((locale) => {
+    langs.map((locale) => {
       const path = buildPrettyGamePath(locale, hw, slug);
       return path ? fetch(`${base}${path}`, { method: 'GET', cache: 'reload' }).catch(() => {}) : null;
     }),

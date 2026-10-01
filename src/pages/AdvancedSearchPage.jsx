@@ -189,6 +189,7 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack, includeReady = f
           loading={loading}
           onRequestLogin={onRequestLogin}
           compact
+          isAdmin={includeReady}
           page={page}
           onPageChange={(nextPage) => {
             setPage(nextPage);

@@ -3,11 +3,14 @@ import { supabase } from './supabaseClient';
 import { CollectibleKacheln, BossKacheln } from './CollectibleKacheln';
 import GameSeoInfobox from '../components/GameSeoInfobox';
 import GuideLanguageSelector from '../components/GuideLanguageSelector';
+import GuideBreadcrumb from '../components/GuideBreadcrumb';
+import RelatedGuides from '../components/RelatedGuides';
 import GameStatusBanners from '../components/GameStatusBanners';
 import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
 import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
 import WatchlistButton from '../components/WatchlistButton';
 import GuidePublishButton from '../components/GuidePublishButton';
+import GuideOnlineBadge from '../components/GuideOnlineBadge';
 import PortraitGuideHint from '../components/PortraitGuideHint';
 import GuideTabBar from '../components/GuideTabBar';
 import { guideTabId, guideTabPanelId } from '../lib/guideTabs';
@@ -21,6 +24,7 @@ import {
   buildChronologicalGuideData,
 } from '../lib/guideData';
 import { incrementGameViews } from '../lib/gameQueries';
+import { loadRelatedGuides } from '../lib/relatedGames';
 import { fetchGameGuideBundle, resolveGameId, resolveGuideLanguage } from '../lib/guideQueries';
 import { isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished, PUBLISH_LOCALE } from '../lib/guidePublication';
@@ -32,6 +36,7 @@ import {
   getGameUuid,
 } from '../lib/gameModel';
 import { useLocale } from '../context/LocaleContext';
+import { contentLocalesForGame, DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
 import { fetchOnlineTrophyIdsForGame } from '../lib/trophyQueries';
 import {
   fetchTrophyStatusMessages,
@@ -70,6 +75,8 @@ function GamePageContent({
   chapterItems,
   bossItems,
   onNavigateHome,
+  onGoHome,
+  openGame,
   fromSearch = false,
   sessionUser = null,
 }) {
@@ -77,7 +84,7 @@ function GamePageContent({
   const [chapterRows, setChapterRows] = useState([]);
   const [bossRows, setBossRows] = useState([]);
   const [guidesLoading, setGuidesLoading] = useState(false);
-  const { globalLocale, t } = useLocale();
+  const { globalLocale, t, setAvailableLocales } = useLocale();
   const [guideLanguageOverride, setGuideLanguageOverride] = useState(null);
   const [statusMessages, setStatusMessages] = useState({
     [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN]: '',
@@ -88,6 +95,7 @@ function GamePageContent({
   });
   const [onlineTrophyIds, setOnlineTrophyIds] = useState(() => new Set());
   const [contentCreators, setContentCreators] = useState([]);
+  const [relatedGuides, setRelatedGuides] = useState({ creatorGames: [], similarGames: [] });
   // Nach dem Freigeben sofort umschalten, ohne das Spiel neu zu laden. Die UUID
   // hängt mit dran, damit der Wert beim Spielwechsel nicht fälschlich greift.
   const [publicationOverride, setPublicationOverride] = useState(null);
@@ -288,10 +296,48 @@ function GamePageContent({
   }, [selectedGame, publicationOverride, gameUuid]);
 
   const isAdmin = isAdminUser(sessionUser);
-  /** Ein Schalter für alle Sprachen: guide_de. EN/ES folgen später über die DB. */
+  /** Sichtbarkeit der Guide-Reiter hängt an der DE-Freigabe; andere Sprachen brauchen eigene guide_* PUBLISHED. */
   const guidePublished = isGuidePublished(gameForPublication, PUBLISH_LOCALE);
   /** Admins sehen den Guide als Vorschau, Besucher erst nach der Freigabe. */
   const canSeeGuides = guidePublished || isAdmin;
+  const contentLocales = useMemo(
+    () => contentLocalesForGame(gameForPublication, { includeReady: isAdmin }),
+    [gameForPublication, isAdmin],
+  );
+
+  useEffect(() => {
+    setAvailableLocales(contentLocales);
+  }, [contentLocales, setAvailableLocales]);
+
+  useEffect(() => {
+    return () => setAvailableLocales(DEFAULT_AVAILABLE_LOCALES);
+  }, [setAvailableLocales]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRelated() {
+      if (!selectedGame) {
+        setRelatedGuides({ creatorGames: [], similarGames: [] });
+        return;
+      }
+      const result = await loadRelatedGuides(supabase, selectedGame, {
+        locale: globalLocale,
+        includeReady: isAdmin,
+      });
+      if (!cancelled) {
+        setRelatedGuides({
+          creatorGames: result.creatorGames,
+          similarGames: result.similarGames,
+        });
+      }
+    }
+
+    loadRelated();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGame, globalLocale, isAdmin]);
 
   const isGuideLoading = guidesLoading || loadingGuide;
 
@@ -544,6 +590,7 @@ function GamePageContent({
 
   return (
     <div className="w-full max-w-[1400px] min-w-0 overflow-x-hidden mx-auto px-4 md:px-8 pt-6 pb-12 box-border">
+      <GuideBreadcrumb game={selectedGame} title={gameTitle} onHome={onGoHome || onNavigateHome} />
       <PortraitGuideHint isGuideView isVideoGuideTab={activeTab !== 'reiter0'} />
       <GameStatusBanners
         showServerShutdown={showServerShutdown}
@@ -559,12 +606,15 @@ function GamePageContent({
       </button>
 
       <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 flex flex-col md:flex-row flex-wrap md:flex-nowrap gap-8 items-start mb-8 shadow-xl">
-        <div className="w-full md:w-64 aspect-[3/4] rounded-xl overflow-hidden shadow-2xl border border-zinc-800 bg-[#121314] flex-shrink-0">
+        <div className="relative w-full md:w-64 aspect-[3/4] rounded-xl overflow-hidden shadow-2xl border border-zinc-800 bg-[#121314] flex-shrink-0">
           <img
             src={gameCover}
             className="w-full h-full object-cover"
             alt="Game Cover"
           />
+          <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none">
+            <GuideOnlineBadge game={gameForPublication} visible={isAdmin} size="md" />
+          </div>
         </div>
 
         <div className="flex-grow w-full min-w-0 flex flex-col justify-between h-full pt-2">
@@ -667,6 +717,7 @@ function GamePageContent({
         <GuideLanguageSelector
           guideLanguageOverride={guideLanguageOverride}
           onGuideLanguageOverride={setGuideLanguageOverride}
+          locales={contentLocales}
         />
 
         {isAdmin && !guidePublished && hasGuideContent && (
@@ -700,6 +751,13 @@ function GamePageContent({
 
         {renderTabContent()}
       </section>
+
+      <RelatedGuides
+        creatorName={contentCreators[0]?.channelName || ''}
+        creatorGames={relatedGuides.creatorGames}
+        similarGames={relatedGuides.similarGames}
+        openGame={openGame}
+      />
     </div>
   );
 }

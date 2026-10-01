@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocale } from '../context/LocaleContext';
 import { localeOptions } from '../lib/uiStrings';
+import { DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
 
 function LocaleSelector({ className = '', menuAlign = 'left' }) {
-  const { globalLocale, setGlobalLocale, t } = useLocale();
+  const { globalLocale, setGlobalLocale, availableLocales, t } = useLocale();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
 
-  const options = localeOptions();
+  const options = localeOptions(availableLocales ?? DEFAULT_AVAILABLE_LOCALES);
   const active = options.find((o) => o.code === globalLocale) ?? options[0];
 
   useEffect(() => {
@@ -19,6 +20,8 @@ function LocaleSelector({ className = '', menuAlign = 'left' }) {
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
+
+  if (options.length < 2 || !active) return null;
 
   return (
     <div ref={rootRef} className={`relative ${className}`}>

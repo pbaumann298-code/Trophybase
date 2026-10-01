@@ -17,6 +17,7 @@ import {
 import { parsePrettyGamePath } from '../lib/gameSlug';
 import { syncPathLocale } from '../lib/routeUtils';
 import { t } from '../lib/uiStrings';
+import { DEFAULT_AVAILABLE_LOCALES, coerceToAvailableLocale } from '../lib/contentLocales';
 
 const LocaleContext = createContext(null);
 
@@ -31,6 +32,9 @@ export function LocaleProvider({ children }) {
     }
     return getLocale();
   });
+  const [availableLocales, setAvailableLocales] = useState(DEFAULT_AVAILABLE_LOCALES);
+
+  const displayLocale = coerceToAvailableLocale(globalLocale, availableLocales);
 
   useEffect(() => {
     if (getPersistedLocale()) return undefined;
@@ -53,11 +57,12 @@ export function LocaleProvider({ children }) {
   const setGlobalLocale = useCallback((next) => {
     const normalized = persistLocale(next);
     setGlobalLocaleState(normalized);
-    syncPathLocale(normalized);
+    const pathLocale = coerceToAvailableLocale(normalized, availableLocales);
+    syncPathLocale(pathLocale);
     if (typeof document !== 'undefined') {
-      document.documentElement.lang = normalized;
+      document.documentElement.lang = pathLocale;
     }
-  }, []);
+  }, [availableLocales]);
 
   useEffect(() => {
     const onLocaleChange = (event) => {
@@ -77,21 +82,33 @@ export function LocaleProvider({ children }) {
     window.addEventListener(LOCALE_CHANGE_EVENT, onLocaleChange);
     window.addEventListener('storage', onStorage);
     if (typeof document !== 'undefined') {
-      document.documentElement.lang = globalLocale;
+      document.documentElement.lang = displayLocale;
     }
     return () => {
       window.removeEventListener(LOCALE_CHANGE_EVENT, onLocaleChange);
       window.removeEventListener('storage', onStorage);
     };
-  }, [globalLocale]);
+  }, [displayLocale]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const pretty = parsePrettyGamePath(window.location.pathname);
+    if (!pretty) return;
+    if (!availableLocales.includes(pretty.locale)) {
+      syncPathLocale(displayLocale);
+    }
+  }, [availableLocales, displayLocale]);
 
   const value = useMemo(
     () => ({
-      globalLocale,
+      globalLocale: displayLocale,
+      persistedLocale: globalLocale,
+      availableLocales,
+      setAvailableLocales,
       setGlobalLocale,
-      t: (key) => t(globalLocale, key),
+      t: (key) => t(displayLocale, key),
     }),
-    [globalLocale, setGlobalLocale],
+    [displayLocale, globalLocale, availableLocales, setGlobalLocale],
   );
 
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;

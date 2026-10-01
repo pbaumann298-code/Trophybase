@@ -54,11 +54,11 @@
       "destination": "/api/sitemap"
     },
     {
-      "source": "/sitemap-:locale.xml",
+      "source": "/sitemap-:locale(ja|en|fr|es|de|it|nl|pt|ru|ko|zh-hant|zh-hans|fi|sv).xml",
       "destination": "/api/sitemap?locale=:locale"
     },
     {
-      "source": "/:locale(de|en|es)/:hardware(ps5|ps4|ps3|psvita|psp)/:slug",
+      "source": "/:locale(ja|en|fr|es|de|it|nl|pt|ru|ko|zh-hant|zh-hans|fi|sv)/:hardware(ps5|ps4|ps3|psvita|psp)/:slug",
       "destination": "/api/guide?locale=:locale&hardware=:hardware&slug=:slug"
     },
     {

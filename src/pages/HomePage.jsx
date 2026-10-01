@@ -100,6 +100,7 @@ function HomePage({
             loading={loading}
             onCategorySearch={onCategorySearch}
             onRequestLogin={onRequestLogin}
+            isAdmin={includeReady}
           />
         ))}
       </div>

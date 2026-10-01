@@ -3,5 +3,12 @@ Disallow: /intranet
 Disallow: /intranet.html
 Disallow: /admin
 Disallow: /admin.html
+Disallow: /suche
+Disallow: /search
+Disallow: /profile
+Disallow: /beta
+Disallow: /guide/
+Disallow: /login
+Disallow: /api/
 
 Sitemap: https://trophybase.app/sitemap.xml

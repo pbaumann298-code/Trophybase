@@ -49,7 +49,7 @@ import {
 } from './lib/earnedTrophyQueries';
 import { getTrophyIdKey } from './lib/trophyQueries';
 import { getGameUuid } from './lib/gameModel';
-import { applyGameSeoLinks, applyPathCanonical, clearGameSeoLinks } from './lib/seoHead';
+import { applyGameSeoLinks, applyHomeSeo, applyPathCanonical, clearGameSeoLinks } from './lib/seoHead';
 import { isGameIndexable } from './lib/guidePublication';
 import {
   loadCompletedGuideItems,
@@ -192,7 +192,7 @@ function App() {
     setGuideLoadError(null);
     setActiveTab(parseGuideTabParam(window.location.search) ?? DEFAULT_GUIDE_TAB);
 
-    const localeForPage = pretty?.locale || globalLocale;
+    const localeForPage = globalLocale;
     let gameData;
     let gameError;
 
@@ -534,6 +534,10 @@ function App() {
   };
 
   useEffect(() => {
+    if (currentView === 'home') {
+      applyHomeSeo();
+      return () => clearGameSeoLinks();
+    }
     if (currentView === 'impressum') {
       applyPathCanonical('/impressum');
       return () => clearGameSeoLinks();
@@ -543,11 +547,11 @@ function App() {
       return () => clearGameSeoLinks();
     }
     if (currentView === 'search-results') {
-      applyPathCanonical(window.location.pathname + window.location.search);
+      applyPathCanonical(window.location.pathname + window.location.search, { noIndex: true });
       return () => clearGameSeoLinks();
     }
     if (currentView === 'advanced-search') {
-      applyPathCanonical('/suche');
+      applyPathCanonical('/suche', { noIndex: true });
       return () => clearGameSeoLinks();
     }
     if (currentView !== 'game_info' || !selectedGame) {
@@ -721,6 +725,7 @@ function App() {
                 loading={loading}
                 page={searchPage}
                 onBack={goHome}
+                isAdmin={isAdminUser(sessionUser)}
                 onPageChange={(nextPage) => {
                   setSearchPage(nextPage);
                   navigateToSimpleSearch(searchQuery, { page: nextPage, replace: true });
@@ -769,6 +774,8 @@ function App() {
                 chapterItems={chapterItems}
                 bossItems={bossItems}
                 onNavigateHome={goBackFromGuide}
+                onGoHome={goHome}
+                openGame={openGuide}
                 fromSearch={
                   guideReturnView === 'search-results' || guideReturnView === 'advanced-search'
                 }

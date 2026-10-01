@@ -3,6 +3,22 @@ import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 /** Erlaubte Konsolen-Segmente in /:locale/:hardware/:slug */
 export const URL_HARDWARE_SEGMENTS = ['ps5', 'ps4', 'ps3', 'psvita', 'psp'];
 
+const HARDWARE_LABELS = {
+  ps5: 'PS5',
+  ps4: 'PS4',
+  ps3: 'PS3',
+  psvita: 'PS Vita',
+  psp: 'PSP',
+};
+
+/** Anzeigename für Breadcrumbs und Schema.org gamePlatform. */
+export function hardwareLabel(hardware) {
+  const segment = hardwareToUrlSegment(hardware);
+  if (segment && HARDWARE_LABELS[segment]) return HARDWARE_LABELS[segment];
+  const raw = String(hardware ?? '').trim();
+  return raw || '';
+}
+
 const HARDWARE_RANK = {
   ps5: 5,
   ps4: 4,

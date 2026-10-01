@@ -15,9 +15,9 @@ export const GUIDE_PUBLICATION = {
 };
 
 /**
- * Redaktionell freigegeben wird ausschliesslich Deutsch. EN/ES bekommen ihre
- * eigenen guide_<lang>-Schlüssel später direkt über die Datenbank – bis dahin
- * hängt die Sichtbarkeit aller Sprachen an guide_de.
+ * Redaktionell freigegeben wird vorerst nur Deutsch. Andere Sprachen (EN, ES, …)
+ * brauchen einen eigenen status.guide_<lang> = PUBLISHED, sonst erscheinen sie
+ * nicht im Sprachwähler und nicht in Sitemap/Hreflang.
  */
 export const PUBLISH_LOCALE = 'de';
 
@@ -162,7 +162,7 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
 
   if (published && slug) {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    warmPublishedGuidePages({ origin, hardware, slug });
+    warmPublishedGuidePages({ origin, hardware, slug, locales: [normalizeLocale(lang)] });
   }
 
   return {

@@ -7,6 +7,7 @@ import {
 } from './gameSlug';
 import { getGameUuid, getPlatformGameId, UUID_PATTERN } from './gameModel';
 import { isGuidePublished, PUBLISH_LOCALE } from './guidePublication';
+import { coerceToAvailableLocale, contentLocalesForGame } from './contentLocales';
 
 /** NPWR-IDs haben das Format NPWR12345_00 (legacy platform_game_id) */
 export const NPWR_ID_PATTERN = /^NPWR\d+_\d+$/i;
@@ -79,7 +80,8 @@ export function gameGuidePath(gameOrRef, locale = getLocale()) {
   if (published) {
     const slug = String(gameOrRef.slug ?? '').trim();
     const hardware = hardwareToUrlSegment(gameOrRef.hardware);
-    const pretty = buildPrettyGamePath(normalizeLocale(locale), hardware, slug);
+    const pathLocale = coerceToAvailableLocale(locale, contentLocalesForGame(gameOrRef));
+    const pretty = buildPrettyGamePath(pathLocale, hardware, slug);
     if (pretty) return pretty;
   }
 

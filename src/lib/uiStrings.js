@@ -62,6 +62,11 @@ export const UI_STRINGS = {
     searchNextPage: 'Nächste Seite',
     searchPageStatus: 'Seite {page} von {total}',
     backToSearch: '← Zurück zur Suche',
+    breadcrumbNav: 'Brotkrumen',
+    breadcrumbHome: 'Startseite',
+    moreFromCreator: 'Weitere Guides von {name}',
+    moreFromCreators: 'Weitere Guides der Creator',
+    similarGuides: 'Ähnliche Guides',
     homeKicker: 'TrophyBase · Dein Guide-Hub',
     homeTitle: 'Finde deinen nächsten Platin-Run',
     homeSub:
@@ -135,6 +140,11 @@ export const UI_STRINGS = {
     searchNextPage: 'Next page',
     searchPageStatus: 'Page {page} of {total}',
     backToSearch: '← Back to search',
+    breadcrumbNav: 'Breadcrumb',
+    breadcrumbHome: 'Home',
+    moreFromCreator: 'More guides by {name}',
+    moreFromCreators: 'More guides by these creators',
+    similarGuides: 'Similar guides',
     homeKicker: 'TrophyBase · Your guide hub',
     homeTitle: 'Find your next platinum run',
     homeSub:
@@ -208,6 +218,11 @@ export const UI_STRINGS = {
     searchNextPage: 'Página siguiente',
     searchPageStatus: 'Página {page} de {total}',
     backToSearch: '← Volver a la búsqueda',
+    breadcrumbNav: 'Migas de pan',
+    breadcrumbHome: 'Inicio',
+    moreFromCreator: 'Más guías de {name}',
+    moreFromCreators: 'Más guías de estos creadores',
+    similarGuides: 'Guías similares',
     homeKicker: 'TrophyBase · Tu hub de guías',
     homeTitle: 'Encuentra tu próxima platino',
     homeSub:
@@ -224,19 +239,32 @@ export const UI_STRINGS = {
 };
 
 export const LOCALE_META = {
-  de: { label: 'Deutsch', flag: '🇩🇪', short: 'DE' },
+  ja: { label: '日本語', flag: '🇯🇵', short: 'JA' },
   en: { label: 'English', flag: '🇬🇧', short: 'EN' },
+  fr: { label: 'Français', flag: '🇫🇷', short: 'FR' },
   es: { label: 'Español', flag: '🇪🇸', short: 'ES' },
+  de: { label: 'Deutsch', flag: '🇩🇪', short: 'DE' },
+  it: { label: 'Italiano', flag: '🇮🇹', short: 'IT' },
+  nl: { label: 'Nederlands', flag: '🇳🇱', short: 'NL' },
+  pt: { label: 'Português', flag: '🇵🇹', short: 'PT' },
+  ru: { label: 'Русский', flag: '🇷🇺', short: 'RU' },
+  ko: { label: '한국어', flag: '🇰🇷', short: 'KO' },
+  'zh-hant': { label: '繁體中文', flag: '🇹🇼', short: 'ZH' },
+  'zh-hans': { label: '简体中文', flag: '🇨🇳', short: 'ZH' },
+  fi: { label: 'Suomi', flag: '🇫🇮', short: 'FI' },
+  sv: { label: 'Svenska', flag: '🇸🇪', short: 'SV' },
 };
 
 export function t(locale, key) {
-  const loc = UI_STRINGS[locale] ? locale : 'en';
-  return UI_STRINGS[loc][key] ?? UI_STRINGS.en[key] ?? key;
+  const loc = UI_STRINGS[locale] ? locale : 'de';
+  return UI_STRINGS[loc][key] ?? UI_STRINGS.de[key] ?? UI_STRINGS.en?.[key] ?? key;
 }
 
-export function localeOptions() {
-  return SUPPORTED_LOCALES.map((code) => ({
-    code,
-    ...LOCALE_META[code],
-  }));
+export function localeOptions(codes = SUPPORTED_LOCALES) {
+  return codes
+    .filter((code) => LOCALE_META[code])
+    .map((code) => ({
+      code,
+      ...LOCALE_META[code],
+    }));
 }

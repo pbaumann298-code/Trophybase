@@ -5,11 +5,14 @@ import { resolveGuideLanguage } from '../lib/localeResolver';
 function GuideLanguageSelector({
   guideLanguageOverride,
   onGuideLanguageOverride,
+  locales,
   className = '',
 }) {
   const { globalLocale, t } = useLocale();
-  const options = localeOptions();
+  const options = localeOptions(locales ?? [globalLocale]);
   const effective = resolveGuideLanguage(globalLocale, guideLanguageOverride);
+
+  if (options.length < 2) return null;
 
   return (
     <div

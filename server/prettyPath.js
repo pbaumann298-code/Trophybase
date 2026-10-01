@@ -1,12 +1,16 @@
-import { SUPPORTED_LOCALES } from '../shared/countryLocaleMap.js';
+import { LOCALE_PATH_PATTERN, SUPPORTED_LOCALES } from '../shared/countryLocaleMap.js';
 import { URL_HARDWARE_SEGMENTS } from '../src/lib/gameSlug.js';
 
-const PRETTY_PATH = /^\/(de|en|es)\/(ps5|ps4|ps3|psvita|psp)\/([a-z0-9]+(?:-[a-z0-9]+)*)$/;
+const hardwareGroup = URL_HARDWARE_SEGMENTS.join('|');
+const PRETTY_PATH = new RegExp(
+  `^/(${LOCALE_PATH_PATTERN})/(${hardwareGroup})/([a-z0-9]+(?:-[a-z0-9]+)*)$`,
+);
+const SITEMAP_FILE = new RegExp(`^/sitemap-(${LOCALE_PATH_PATTERN})\\.xml$`);
 
 export function parsePrettyGuidePath(pathname = '') {
   const path = String(pathname || '').split('?')[0];
   const trimmed = path.endsWith('/') && path.length > 1 ? path.slice(0, -1) : path;
-  const match = PRETTY_PATH.exec(trimmed);
+  const match = PRETTY_PATH.exec(trimmed.toLowerCase());
   if (!match) return null;
   const locale = match[1];
   const hardware = match[2];
@@ -19,9 +23,13 @@ export function parsePrettyGuidePath(pathname = '') {
 export function parseSitemapLocale(pathname = '', search = '') {
   const path = String(pathname || '').split('?')[0];
   if (path === '/sitemap.xml') return { kind: 'index', locale: null };
-  const file = /^\/sitemap-(de|en|es)\.xml$/.exec(path);
-  if (file) return { kind: 'locale', locale: file[1] };
-  const fromQuery = new URLSearchParams(search).get('locale');
+  const file = SITEMAP_FILE.exec(path.toLowerCase());
+  if (file && SUPPORTED_LOCALES.includes(file[1])) {
+    return { kind: 'locale', locale: file[1] };
+  }
+  const fromQuery = String(new URLSearchParams(search).get('locale') ?? '')
+    .trim()
+    .toLowerCase();
   if (fromQuery && SUPPORTED_LOCALES.includes(fromQuery)) {
     return { kind: 'locale', locale: fromQuery };
   }

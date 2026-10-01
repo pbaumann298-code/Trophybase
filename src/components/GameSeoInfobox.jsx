@@ -17,7 +17,23 @@ function GameSeoInfobox({ title, description, creator = null, creators = null })
   const list = (Array.isArray(creators) ? creators : [creator]).filter(Boolean);
   const names = [...new Set(list.map((item) => String(item.channelName ?? '').trim()).filter(Boolean))];
   const withYoutube = list.filter((item) => String(item.youtubeUrl ?? '').trim());
-  const andWord = globalLocale === 'es' ? 'y' : globalLocale === 'de' ? 'und' : 'and';
+  const AND_WORD = {
+    ja: 'と',
+    en: 'and',
+    fr: 'et',
+    es: 'y',
+    de: 'und',
+    it: 'e',
+    nl: 'en',
+    pt: 'e',
+    ru: 'и',
+    ko: '및',
+    'zh-hant': '和',
+    'zh-hans': '和',
+    fi: 'ja',
+    sv: 'och',
+  };
+  const andWord = AND_WORD[globalLocale] ?? 'and';
   const nameLabel =
     names.length <= 1
       ? names[0] || ''

@@ -1,6 +1,7 @@
 import { SUPPORTED_LOCALES } from '../shared/countryLocaleMap.js';
 import { GAME_STRUCT } from '../src/lib/gameSchema.js';
 import { hardwareToUrlSegment, buildPrettyGamePath } from '../src/lib/gameSlug.js';
+import { isGuidePublished } from '../src/lib/guidePublication.js';
 import { getPublicSupabase, publicOrigin } from './publicSupabase.js';
 import { parseSitemapLocale } from './prettyPath.js';
 import { escapeHtml } from './escapeHtml.js';
@@ -19,7 +20,9 @@ async function loadIndexablePublishedGames(supabase) {
     const to = from + PAGE_SIZE - 1;
     const { data, error } = await supabase
       .from('games')
-      .select(`id, slug, hardware, ${GAME_STRUCT.isIndexable}, ${GAME_STRUCT.createdAt}`)
+      .select(
+        `id, slug, hardware, ${GAME_STRUCT.isIndexable}, ${GAME_STRUCT.createdAt}, ${GAME_STRUCT.status}`,
+      )
       .not('slug', 'is', null)
       .range(from, to);
 
@@ -34,6 +37,10 @@ async function loadIndexablePublishedGames(supabase) {
     if (!row?.slug || !hardwareToUrlSegment(row.hardware)) return false;
     return row[GAME_STRUCT.isIndexable] !== false;
   });
+}
+
+function gamesForLocale(games, locale) {
+  return games.filter((game) => isGuidePublished(game, locale));
 }
 
 function urlset(origin, locale, games) {
@@ -61,8 +68,8 @@ function urlset(origin, locale, games) {
   );
 }
 
-function sitemapIndex(origin) {
-  const items = SUPPORTED_LOCALES.map(
+function sitemapIndex(origin, locales) {
+  const items = locales.map(
     (locale) =>
       `  <sitemap>\n    <loc>${escapeHtml(`${origin}/sitemap-${locale}.xml`)}</loc>\n  </sitemap>`,
   ).join('\n');
@@ -76,17 +83,24 @@ export async function handleSitemapRequest(requestUrl) {
   const origin = publicOrigin(requestUrl);
   const headers = {
     'Content-Type': 'application/xml; charset=utf-8',
-    'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+    'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=604800',
   };
 
   try {
-    if (parsed.kind === 'index') {
-      return new Response(sitemapIndex(origin), { status: 200, headers });
-    }
-
     const supabase = getPublicSupabase();
     const games = await loadIndexablePublishedGames(supabase);
-    return new Response(urlset(origin, parsed.locale, games), { status: 200, headers });
+    const localesWithUrls = SUPPORTED_LOCALES.filter(
+      (locale) => gamesForLocale(games, locale).length > 0,
+    );
+
+    if (parsed.kind === 'index') {
+      return new Response(sitemapIndex(origin, localesWithUrls), { status: 200, headers });
+    }
+
+    return new Response(urlset(origin, parsed.locale, gamesForLocale(games, parsed.locale)), {
+      status: 200,
+      headers,
+    });
   } catch (error) {
     const message = escapeHtml(error?.message ?? 'Sitemap fehlgeschlagen');
     return new Response(xmlWrap(`<error>${message}</error>`), {

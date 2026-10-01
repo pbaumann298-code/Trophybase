@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import WatchlistButton from '../components/WatchlistButton';
+import GuideOnlineBadge from '../components/GuideOnlineBadge';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
 import { paginateItems } from '../lib/gameSearch';
@@ -22,6 +23,7 @@ function SearchResultsPage({
   page = 1,
   onPageChange,
   onBack,
+  isAdmin = false,
 }) {
   const { globalLocale, t } = useLocale();
   const paged = paginateItems(searchResults, page);
@@ -131,12 +133,14 @@ function SearchResultsPage({
                           </span>
                         )}
                       </h4>
-                      <WatchlistButton
-                        gameId={watchlistId}
-                        onRequestLogin={onRequestLogin}
-                        size="md"
-                        className="flex-shrink-0"
-                      />
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <GuideOnlineBadge game={g} visible={isAdmin} size="md" />
+                        <WatchlistButton
+                          gameId={watchlistId}
+                          onRequestLogin={onRequestLogin}
+                          size="md"
+                        />
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-4 pt-4 border-t border-zinc-800/60 text-xs min-w-0 w-full">

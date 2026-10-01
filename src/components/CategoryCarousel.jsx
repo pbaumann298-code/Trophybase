@@ -4,11 +4,20 @@ import { GAME_FIELDS } from '../lib/gameSchema';
 import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
 import WatchlistButton from './WatchlistButton';
+import GuideOnlineBadge from './GuideOnlineBadge';
 
 const TILE_CLASS =
   'home-carousel-tile flex-shrink-0 snap-start w-[9.5rem] sm:w-44 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-none';
 
-function CategoryCarousel({ category, games, openGame, loading, onCategorySearch, onRequestLogin }) {
+function CategoryCarousel({
+  category,
+  games,
+  openGame,
+  loading,
+  onCategorySearch,
+  onRequestLogin,
+  isAdmin = false,
+}) {
   const { globalLocale } = useLocale();
   const trackRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -63,8 +72,12 @@ function CategoryCarousel({ category, games, openGame, loading, onCategorySearch
             ) : (
               <div className="home-tile-cover home-tile-cover--empty">🎮</div>
             )}
+            <div className="home-tile-online">
+              <GuideOnlineBadge game={g} visible={isAdmin} size="sm" />
+            </div>
             <div className="home-tile-watchlist">
-              <WatchlistButton gameId={watchlistGameId} onRequestLogin={onRequestLogin} size="sm" />            </div>
+              <WatchlistButton gameId={watchlistGameId} onRequestLogin={onRequestLogin} size="sm" />
+            </div>
             <div className="home-tile-shine" aria-hidden />
           </div>
           <div className="home-tile-meta">

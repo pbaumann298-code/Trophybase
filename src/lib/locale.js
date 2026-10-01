@@ -17,7 +17,7 @@ export function normalizeLocale(value) {
   return sharedNormalizeLocale(value);
 }
 
-/** Liefert de/en/es nur wenn der Browser eine unterstützte Sprache meldet. */
+/** Liefert eine unterstützte Sprache nur wenn der Browser sie explizit sendet. */
 export function detectExplicitBrowserLanguage() {
   if (typeof navigator === 'undefined') return null;
 
@@ -27,8 +27,8 @@ export function detectExplicitBrowserLanguage() {
 
   for (const entry of candidates) {
     if (!entry) continue;
-    const code = entry.split('-')[0].toLowerCase();
-    if (SUPPORTED_LOCALES.includes(code)) return code;
+    const normalized = normalizeLocale(entry);
+    if (SUPPORTED_LOCALES.includes(normalized)) return normalized;
   }
 
   return null;
@@ -40,7 +40,7 @@ export function detectBrowserLanguage() {
 }
 
 /**
- * Erster Besuch ohne Cookie: Browser (wenn unterstützt) → Geo-IP → en
+ * Erster Besuch ohne Cookie: Browser (wenn unterstützt) → Geo-IP → de
  * @returns {Promise<string>}
  */
 export async function resolveAutoLocale() {
@@ -111,7 +111,7 @@ export function bootstrapGlobalLocale() {
   return bootstrapGlobalLocaleSync();
 }
 
-/** Cookie > localStorage > Browser > en */
+/** Cookie > localStorage > Browser > de */
 export function getLocale() {
   const persisted = getPersistedLocale();
   if (persisted) return persisted;
