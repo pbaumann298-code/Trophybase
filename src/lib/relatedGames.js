@@ -4,10 +4,11 @@ import {
   GAME_STRUCT,
   GAME_TYPE,
   GAME_CREATOR_MAP,
-} from './gameSchema';
-import { GAME_SELECT, applyGuideCatalogFilter } from './gameQueries';
-import { getGameUuid, mergeGameRows } from './gameModel';
-import { fetchContentCreatorsForGame } from './contentCreators';
+} from './gameSchema.js';
+import { getGameSelect, applyGuideCatalogFilter } from './gameQueries.js';
+import { getGameUuid, mergeGameRows } from './gameModel.js';
+import { fetchContentCreatorsForGame } from './contentCreators.js';
+import { publicStudioCredits } from './studioCredits.js';
 
 export const SIMILAR_GAMES_MIN = 4;
 const RELATED_LIMIT = 8;
@@ -22,7 +23,7 @@ async function loadGamesByIds(supabase, gameIds, locale, includeReady, limit) {
   if (!ids.length) return [];
 
   const { data, error } = await applyGuideCatalogFilter(
-    supabase.from(TABLES.games).select(GAME_SELECT).in(GAME_PK, ids),
+    supabase.from(TABLES.games).select(getGameSelect()).in(GAME_PK, ids),
     catalogOf(includeReady),
   )
     .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
@@ -57,7 +58,7 @@ export async function fetchCreatorOtherGames(
 }
 
 /**
- * Ähnliche Guides (Genre, sonst Entwickler). Die Liste bleibt leer, bis
+ * Ähnliche Guides (Genre, sonst Studio). Die Liste bleibt leer, bis
  * mindestens SIMILAR_GAMES_MIN Treffer da sind.
  */
 export async function fetchSimilarGames(supabase, { game, locale, includeReady = false }) {
@@ -65,15 +66,16 @@ export async function fetchSimilarGames(supabase, { game, locale, includeReady =
   if (!exclude) return [];
 
   const genre = String(game?.[GAME_STRUCT.genre] ?? '').trim();
-  const developer = String(game?.[GAME_STRUCT.developer] ?? '').trim();
-  if (!genre && !developer) return [];
+  const studio = publicStudioCredits(game).studio;
+  const studioQuery = studio.length >= 3 ? studio : '';
+  if (!genre && !studioQuery) return [];
 
   const catalog = catalogOf(includeReady);
 
   async function byExact(column, value) {
     if (!value) return [];
     const { data, error } = await applyGuideCatalogFilter(
-      supabase.from(TABLES.games).select(GAME_SELECT).eq(column, value).neq(GAME_PK, exclude),
+      supabase.from(TABLES.games).select(getGameSelect()).eq(column, value).neq(GAME_PK, exclude),
       catalog,
     )
       .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
@@ -84,14 +86,29 @@ export async function fetchSimilarGames(supabase, { game, locale, includeReady =
     return mergeGameRows(data ?? [], locale);
   }
 
-  const [byGenre, byDeveloper] = await Promise.all([
+  async function byStudio(column, value) {
+    if (!value) return [];
+    const { data, error } = await applyGuideCatalogFilter(
+      supabase.from(TABLES.games).select(getGameSelect()).ilike(column, `%${value}%`).neq(GAME_PK, exclude),
+      catalog,
+    )
+      .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
+      .order(GAME_STRUCT.createdAt, { ascending: false })
+      .limit(SIMILAR_FETCH);
+
+    if (error) return [];
+    return mergeGameRows(data ?? [], locale);
+  }
+
+  const [byGenre, byDeveloper, byPublisher] = await Promise.all([
     byExact(GAME_STRUCT.genre, genre),
-    byExact(GAME_STRUCT.developer, developer),
+    byStudio(GAME_STRUCT.developer, studioQuery),
+    byStudio(GAME_STRUCT.publisher, studioQuery),
   ]);
 
   const seen = new Set([exclude]);
   const merged = [];
-  for (const row of [...byGenre, ...byDeveloper]) {
+  for (const row of [...byGenre, ...byDeveloper, ...byPublisher]) {
     const id = getGameUuid(row);
     if (!id || seen.has(id)) continue;
     seen.add(id);

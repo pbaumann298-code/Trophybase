@@ -1,10 +1,10 @@
-import { getLocaleCookie, setLocaleCookie, LOCALE_COOKIE_KEY } from './localeCookies';
+import { getLocaleCookie, setLocaleCookie, LOCALE_COOKIE_KEY } from './localeCookies.js';
 import {
   DEFAULT_LOCALE as SHARED_DEFAULT,
   SUPPORTED_LOCALES as SHARED_SUPPORTED,
   normalizeLocale as sharedNormalizeLocale,
 } from '../../shared/countryLocaleMap.js';
-import { fetchGeoLocale } from './geoLocale';
+import { fetchGeoLocale } from './geoLocale.js';
 
 export const SUPPORTED_LOCALES = SHARED_SUPPORTED;
 export const DEFAULT_LOCALE = SHARED_DEFAULT;

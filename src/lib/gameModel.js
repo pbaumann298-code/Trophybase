@@ -7,13 +7,13 @@ import {
   ACHIEVEMENT_STRUCT,
   ACHIEVEMENT_I18N,
   FALLBACK_LANGUAGE,
-} from './gameSchema';
+} from './gameSchema.js';
 import {
   localizeJsonField,
   parsePercentValue,
   pickLocalized,
   PRIMARY_LANGUAGE,
-} from './translationUtils';
+} from './translationUtils.js';
 
 /**
  * Mergt eine games-Zeile (JSONB-Sprachmaps) zu einem flachen UI-Objekt.
@@ -79,6 +79,11 @@ export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LA
   );
   const icon_url = localizeJsonField(row[ACHIEVEMENT_I18N.iconUrl], locale, fallbackLocale);
   const rarity = localizeJsonField(row[ACHIEVEMENT_I18N.rarity], locale, fallbackLocale);
+  const spielname = localizeJsonField(
+    row[ACHIEVEMENT_I18N.groupName] ?? row.Spielname ?? row.spiel_name,
+    locale,
+    fallbackLocale,
+  );
 
   return {
     ...row,
@@ -91,6 +96,8 @@ export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LA
     guide_tip,
     guide_tip_long,
     icon_url,
+    spielname,
+    Spielname: spielname,
     global_seltenheit: rarity,
     rarity_percent: parsePercentValue(rarity),
     trophy_type: row[ACHIEVEMENT_STRUCT.trophyType] ?? '',

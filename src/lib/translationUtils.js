@@ -1,4 +1,4 @@
-import { FALLBACK_LANGUAGE } from './gameSchema';
+import { FALLBACK_LANGUAGE } from './gameSchema.js';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 
 /** Primärsprache der Redaktion – vor FALLBACK_LANGUAGE in der Fallback-Kette. */

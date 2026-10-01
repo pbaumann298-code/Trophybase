@@ -1,4 +1,4 @@
-import { TABLES } from './gameSchema';
+import { TABLES } from './gameSchema.js';
 
 export const BETA_TESTER_ROLE = 'beta_tester';
 

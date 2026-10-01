@@ -1,13 +1,13 @@
-import { resolveViewForSession } from './trophyBaseAuth';
-import { getLocale, normalizeLocale } from './locale';
+import { resolveViewForSession } from './trophyBaseAuth.js';
+import { getLocale, normalizeLocale } from './locale.js';
 import {
   buildPrettyGamePath,
   hardwareToUrlSegment,
   parsePrettyGamePath,
-} from './gameSlug';
-import { getGameUuid, getPlatformGameId, UUID_PATTERN } from './gameModel';
-import { isGuidePublished, PUBLISH_LOCALE } from './guidePublication';
-import { coerceToAvailableLocale, contentLocalesForGame } from './contentLocales';
+} from './gameSlug.js';
+import { getGameUuid, getPlatformGameId, UUID_PATTERN } from './gameModel.js';
+import { isGuidePublished, PUBLISH_LOCALE } from './guidePublication.js';
+import { coerceToAvailableLocale, contentLocalesForGame } from './contentLocales.js';
 
 /** NPWR-IDs haben das Format NPWR12345_00 (legacy platform_game_id) */
 export const NPWR_ID_PATTERN = /^NPWR\d+_\d+$/i;

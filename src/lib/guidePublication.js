@@ -1,6 +1,6 @@
-import { TABLES, GAME_PK, GAME_STRUCT } from './gameSchema';
-import { normalizeLocale } from './locale';
-import { ensureGameSlug, warmPublishedGuidePages } from './publishSeo';
+import { TABLES, GAME_PK, GAME_STRUCT } from './gameSchema.js';
+import { normalizeLocale } from './locale.js';
+import { ensureGameSlug, warmPublishedGuidePages } from './publishSeo.js';
 
 /**
  * Freigabe-Zustände eines Guides in games.status.

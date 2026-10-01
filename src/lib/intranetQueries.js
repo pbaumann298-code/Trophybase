@@ -21,6 +21,7 @@ export const INTRANET_GAME_SELECT = [
   GAME_STRUCT.releaseYear,
   GAME_STRUCT.upcomingDate,
   GAME_STRUCT.developer,
+  GAME_STRUCT.publisher,
   GAME_STRUCT.genre,
   GAME_STRUCT.gameType,
   GAME_STRUCT.status,
@@ -96,7 +97,14 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
     if (platformId) query = query.contains(GAME_PLATFORM_ID, JSON.stringify([platformId]));
     if (year != null) query = query.eq(GAME_STRUCT.releaseYear, year);
     if (upcoming.valid) query = query.ilike(GAME_STRUCT.upcomingDate, upcoming.pattern);
-    if (developer.valid) query = query.ilike(GAME_STRUCT.developer, developer.pattern);
+    if (developer.valid) {
+      query = query.or(
+        [
+          `${GAME_STRUCT.developer}.ilike.${quoteFilterValue(developer.pattern)}`,
+          `${GAME_STRUCT.publisher}.ilike.${quoteFilterValue(developer.pattern)}`,
+        ].join(','),
+      );
+    }
     if (genre.valid) query = query.ilike(GAME_STRUCT.genre, genre.pattern);
     if (gameType.valid) query = query.ilike(GAME_STRUCT.gameType, gameType.pattern);
     query = applyPipelineStatusFilters(query, filters);
@@ -109,6 +117,15 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
   let { data, error, count } = await run(INTRANET_GAME_SELECT_WITH_COUNTS);
   if (error) {
     ({ data, error, count } = await run(INTRANET_GAME_SELECT));
+  }
+  if (error) {
+    const withoutPublisher = INTRANET_GAME_SELECT.split(', ')
+      .filter((column) => column !== GAME_STRUCT.publisher)
+      .join(', ');
+    ({ data, error, count } = await run(`${withoutPublisher}, game_achievements(count), game_guides(count)`));
+    if (error) {
+      ({ data, error, count } = await run(withoutPublisher));
+    }
   }
 
   if (error) return { data: [], count: 0, error };

@@ -5,14 +5,14 @@ import {
   GAME_STRUCT,
   GAME_I18N,
   HOME_FEATURED_GAME_TYPES,
-} from './gameSchema';
-import { GUIDE_PUBLICATION } from './guidePublication';
-import { getLocale } from './locale';
+} from './gameSchema.js';
+import { GUIDE_PUBLICATION } from './guidePublication.js';
+import { getLocale } from './locale.js';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
-import { getGameUuid, isUuid, mergeGameRecord, mergeGameRows } from './gameModel';
-import { mergeLocalizedValue } from './translationUtils';
-import { hardwareToUrlSegment } from './gameSlug';
-import { NPWR_ID_PATTERN } from './routeUtils';
+import { getGameUuid, isUuid, mergeGameRecord, mergeGameRows } from './gameModel.js';
+import { mergeLocalizedValue } from './translationUtils.js';
+import { hardwareToUrlSegment } from './gameSlug.js';
+import { NPWR_ID_PATTERN } from './routeUtils.js';
 
 export const GAME_SELECT = [
   GAME_PK,
@@ -23,6 +23,7 @@ export const GAME_SELECT = [
   GAME_STRUCT.releaseYear,
   GAME_STRUCT.upcomingDate,
   GAME_STRUCT.developer,
+  GAME_STRUCT.publisher,
   GAME_STRUCT.genre,
   GAME_STRUCT.gameType,
   GAME_STRUCT.progress,
@@ -46,6 +47,44 @@ export const GAME_SELECT = [
   GAME_I18N.statusExplanation,
 ].join(', ');
 
+const GAME_SELECT_NO_PUBLISHER = GAME_SELECT.split(', ')
+  .filter((column) => column !== GAME_STRUCT.publisher)
+  .join(', ');
+
+let activeGameSelect = GAME_SELECT;
+
+export function getGameSelect() {
+  return activeGameSelect;
+}
+
+function hasPublisherColumn() {
+  return activeGameSelect.includes(GAME_STRUCT.publisher);
+}
+
+function demoteMissingPublisher(error) {
+  if (!hasPublisherColumn()) return false;
+  const code = String(error?.code ?? '');
+  const message = String(error?.message ?? '').toLowerCase();
+  const missing =
+    code === '42703' ||
+    code === 'PGRST204' ||
+    (message.includes('publisher') &&
+      (message.includes('does not exist') ||
+        message.includes('schema cache') ||
+        message.includes('column')));
+  if (!missing) return false;
+  activeGameSelect = GAME_SELECT_NO_PUBLISHER;
+  return true;
+}
+
+async function runSelect(build) {
+  let result = await build();
+  if (result?.error && demoteMissingPublisher(result.error)) {
+    result = await build();
+  }
+  return result;
+}
+
 /** Lokalisierte Suchspalten (JSONB-Sprachmaps auf games) */
 export const GAME_SEARCH_LOCALIZED_COLUMNS = {
   title: GAME_I18N.title,
@@ -55,6 +94,7 @@ export const GAME_SEARCH_LOCALIZED_COLUMNS = {
 export const GAME_SEARCH_STRUCT_COLUMNS = {
   genre: GAME_STRUCT.genre,
   developer: GAME_STRUCT.developer,
+  publisher: GAME_STRUCT.publisher,
   hardware: GAME_STRUCT.hardware,
 };
 
@@ -151,15 +191,15 @@ async function fetchGameStructByRef(supabase, ref) {
     return { data: null, error: new Error(parsed.error) };
   }
 
-  let query = supabase.from(TABLES.games).select(GAME_SELECT);
-
-  if (parsed.kind === 'uuid') {
-    query = query.eq(GAME_PK, parsed.ref);
-  } else {
-    query = query.contains(GAME_PLATFORM_ID, jsonbArrayFilter([parsed.ref]));
-  }
-
-  const { data, error } = await query.limit(1).maybeSingle();
+  const { data, error } = await runSelect(() => {
+    let query = supabase.from(TABLES.games).select(getGameSelect());
+    if (parsed.kind === 'uuid') {
+      query = query.eq(GAME_PK, parsed.ref);
+    } else {
+      query = query.contains(GAME_PLATFORM_ID, jsonbArrayFilter([parsed.ref]));
+    }
+    return query.limit(1).maybeSingle();
+  });
   return { data, error };
 }
 
@@ -177,11 +217,13 @@ export async function fetchGameBySlug(supabase, hardware, slug, locale = getLoca
     return { data: null, error: new Error('Pretty-URL unvollständig') };
   }
 
-  const { data, error } = await supabase
-    .from(TABLES.games)
-    .select(GAME_SELECT)
-    .eq(GAME_STRUCT.slug, wantedSlug)
-    .limit(20);
+  const { data, error } = await runSelect(() =>
+    supabase
+      .from(TABLES.games)
+      .select(getGameSelect())
+      .eq(GAME_STRUCT.slug, wantedSlug)
+      .limit(20),
+  );
 
   if (error) return { data: null, error };
 
@@ -224,20 +266,26 @@ export async function fetchGamesByIds(supabase, ids, locale = getLocale()) {
   const uuids = check.ids.filter((id) => isUuid(id));
   const platformIds = check.ids.filter((id) => !isUuid(id));
 
-  const queries = [];
-  if (uuids.length) {
-    queries.push(supabase.from(TABLES.games).select(GAME_SELECT).in(GAME_PK, uuids));
-  }
-  if (platformIds.length) {
-    // JSONB-Array: pro ID ein Containment-Test, .in() gibt es dafür nicht.
-    const orFilter = platformIds
-      .map((id) => `${GAME_PLATFORM_ID}.cs.["${id}"]`)
-      .join(',');
-    queries.push(supabase.from(TABLES.games).select(GAME_SELECT).or(orFilter));
-  }
+  const run = () => {
+    const queries = [];
+    if (uuids.length) {
+      queries.push(supabase.from(TABLES.games).select(getGameSelect()).in(GAME_PK, uuids));
+    }
+    if (platformIds.length) {
+      const orFilter = platformIds
+        .map((id) => `${GAME_PLATFORM_ID}.cs.["${id}"]`)
+        .join(',');
+      queries.push(supabase.from(TABLES.games).select(getGameSelect()).or(orFilter));
+    }
+    return Promise.all(queries);
+  };
 
-  const results = await Promise.all(queries);
-  const error = results.find((r) => r.error)?.error;
+  let results = await run();
+  let error = results.find((r) => r.error)?.error;
+  if (error && demoteMissingPublisher(error)) {
+    results = await run();
+    error = results.find((r) => r.error)?.error;
+  }
   if (error) return { data: [], error };
 
   const rows = [];
@@ -286,21 +334,29 @@ function buildLocalizedOrFilter(column, pattern) {
  * @param {number} limit
  */
 async function fetchSearchRows(makeQuery, limit) {
-  const cap = capSearchLimit(limit);
-  const all = [];
-  let from = 0;
+  const run = async () => {
+    const cap = capSearchLimit(limit);
+    const all = [];
+    let from = 0;
 
-  while (from < cap) {
-    const to = Math.min(from + SEARCH_FETCH_BATCH - 1, cap - 1);
-    const { data, error } = await makeQuery().range(from, to);
-    if (error) return { data: all, error };
-    const rows = data ?? [];
-    all.push(...rows);
-    if (rows.length < to - from + 1) break;
-    from += SEARCH_FETCH_BATCH;
+    while (from < cap) {
+      const to = Math.min(from + SEARCH_FETCH_BATCH - 1, cap - 1);
+      const { data, error } = await makeQuery().range(from, to);
+      if (error) return { data: all, error };
+      const rows = data ?? [];
+      all.push(...rows);
+      if (rows.length < to - from + 1) break;
+      from += SEARCH_FETCH_BATCH;
+    }
+
+    return { data: all, error: null };
+  };
+
+  let result = await run();
+  if (result.error && demoteMissingPublisher(result.error)) {
+    result = await run();
   }
-
-  return { data: all, error: null };
+  return result;
 }
 
 /**
@@ -327,7 +383,7 @@ async function searchLocalizedColumn(supabase, column, pattern, limit, catalog) 
     () => {
       let query = supabase
         .from(TABLES.games)
-        .select(GAME_SELECT)
+        .select(getGameSelect())
         .or(buildLocalizedOrFilter(column, pattern));
       query = applyGuideCatalogFilter(query, catalog);
       return query;
@@ -339,7 +395,7 @@ async function searchLocalizedColumn(supabase, column, pattern, limit, catalog) 
 async function searchStructColumn(supabase, column, pattern, limit, catalog) {
   return fetchSearchRows(
     () => {
-      let query = supabase.from(TABLES.games).select(GAME_SELECT).ilike(column, pattern);
+      let query = supabase.from(TABLES.games).select(getGameSelect()).ilike(column, pattern);
       query = applyGuideCatalogFilter(query, catalog);
       return query;
     },
@@ -348,7 +404,7 @@ async function searchStructColumn(supabase, column, pattern, limit, catalog) {
 }
 
 /**
- * Freitext über Titel, Genre und Entwickler (ODER).
+ * Freitext über Titel, Genre, Studio und Publisher (ODER).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} pattern bereits validiertes ilike-Muster, z. B. %LEGO%
  * @param {number} [limit]
@@ -361,22 +417,25 @@ export async function searchGamesByFreeText(
   locale = getLocale(),
   catalog = {},
 ) {
-  const orFilter = [
-    buildLocalizedOrFilter(GAME_I18N.title, pattern),
-    `${GAME_STRUCT.genre}.ilike.${quoteFilterValue(pattern)}`,
-    `${GAME_STRUCT.developer}.ilike.${quoteFilterValue(pattern)}`,
-  ].join(',');
-
   const { data, error } = await fetchSearchRows(
-    () =>
-      applyGuideCatalogFilter(
+    () => {
+      const orFilter = [
+        buildLocalizedOrFilter(GAME_I18N.title, pattern),
+        `${GAME_STRUCT.genre}.ilike.${quoteFilterValue(pattern)}`,
+        `${GAME_STRUCT.developer}.ilike.${quoteFilterValue(pattern)}`,
+      ];
+      if (hasPublisherColumn()) {
+        orFilter.push(`${GAME_STRUCT.publisher}.ilike.${quoteFilterValue(pattern)}`);
+      }
+      return applyGuideCatalogFilter(
         supabase
           .from(TABLES.games)
-          .select(GAME_SELECT)
-          .or(orFilter)
+          .select(getGameSelect())
+          .or(orFilter.join(','))
           .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
         catalog,
-      ),
+      );
+    },
     limit,
   );
   if (error) return { data: [], error };
@@ -385,7 +444,7 @@ export async function searchGamesByFreeText(
 
 /**
  * Sucht in einer JSONB-Sprachmap (spieltitel->>de …) oder einer skalaren
- * Textspalte (genre, entwickler). Die Spalte muss in einer der beiden
+ * Textspalte (genre, entwickler, publisher). Die Spalte muss in einer der beiden
  * Allowlists stehen, damit kein beliebiger Filter durchgereicht wird.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} column
@@ -448,13 +507,17 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
   }
 
   const { data, error } = await fetchSearchRows(() => {
-    let query = supabase.from(TABLES.games).select(GAME_SELECT);
+    let query = supabase.from(TABLES.games).select(getGameSelect());
 
     if (title.valid) {
       query = query.or(buildLocalizedOrFilter(GAME_I18N.title, title.pattern));
     }
     if (developer.valid) {
-      query = query.ilike(GAME_STRUCT.developer, developer.pattern);
+      const studioOr = [`${GAME_STRUCT.developer}.ilike.${quoteFilterValue(developer.pattern)}`];
+      if (hasPublisherColumn()) {
+        studioOr.push(`${GAME_STRUCT.publisher}.ilike.${quoteFilterValue(developer.pattern)}`);
+      }
+      query = studioOr.length > 1 ? query.or(studioOr.join(',')) : query.ilike(GAME_STRUCT.developer, developer.pattern);
     }
     if (genre.valid) {
       query = query.ilike(GAME_STRUCT.genre, genre.pattern);
@@ -481,12 +544,14 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
 export async function fetchRecentGames(supabase, limit = 12, locale = getLocale()) {
   const safeLimit = Math.min(Math.max(Number(limit) || 12, 1), 50);
 
-  const { data, error } = await supabase
-    .from(TABLES.games)
-    .select(GAME_SELECT)
-    .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })
-    .order(GAME_STRUCT.createdAt, { ascending: false })
-    .limit(safeLimit);
+  const { data, error } = await runSelect(() =>
+    supabase
+      .from(TABLES.games)
+      .select(getGameSelect())
+      .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })
+      .order(GAME_STRUCT.createdAt, { ascending: false })
+      .limit(safeLimit),
+  );
 
   if (error) return { data: [], error };
 
@@ -517,7 +582,7 @@ async function fetchFeaturedHomeGames(supabase, options) {
     applyGuideCatalogFilter(
       supabase
         .from(TABLES.games)
-        .select(GAME_SELECT)
+        .select(getGameSelect())
         .in(GAME_STRUCT.gameType, types),
       catalog,
     )
@@ -526,6 +591,9 @@ async function fetchFeaturedHomeGames(supabase, options) {
       .limit(limit);
 
   let { data, error } = await run(orderColumn);
+  if (error && demoteMissingPublisher(error)) {
+    ({ data, error } = await run(orderColumn));
+  }
   if (error && orderColumn === GAME_STRUCT.views) {
     ({ data, error } = await run(GAME_STRUCT.createdAt));
   }

@@ -1,5 +1,5 @@
 import { DEFAULT_LOCALE } from '../../shared/countryLocaleMap.js';
-import { hardwareToUrlSegment, buildPrettyGamePath } from './gameSlug';
+import { hardwareToUrlSegment, buildPrettyGamePath } from './gameSlug.js';
 
 export async function ensureGameSlug(supabase, gameUuid) {
   const { data, error } = await supabase.rpc('tb_ensure_game_slug', { p_id: gameUuid });

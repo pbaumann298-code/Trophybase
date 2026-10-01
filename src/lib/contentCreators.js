@@ -3,8 +3,8 @@ import {
   GAME_FK,
   GAME_CREATOR_MAP,
   CREATOR_CONTENT_TYPE,
-} from './gameSchema';
-import { getGameUuid } from './gameModel';
+} from './gameSchema.js';
+import { getGameUuid } from './gameModel.js';
 
 const CREATOR_SELECT = 'id, channel_name, youtube_url';
 

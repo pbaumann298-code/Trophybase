@@ -3,6 +3,7 @@ import WatchlistButton from '../components/WatchlistButton';
 import GuideOnlineBadge from '../components/GuideOnlineBadge';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
+import { publicStudioCredits } from '../lib/studioCredits';
 import { paginateItems } from '../lib/gameSearch';
 import { gameGuidePath } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
@@ -100,6 +101,7 @@ function SearchResultsPage({
               const title = getGameTitle(g, globalLocale);
               const cover = getGameCover(g, globalLocale);
               const href = gameGuidePath(g, globalLocale);
+              const credits = publicStudioCredits(g);
               return (
                 <a
                   key={watchlistId || i}
@@ -170,10 +172,10 @@ function SearchResultsPage({
                       </div>
                       <div>
                         <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
-                          Entwickler
+                          {t('studioLabel')}
                         </span>
                         <span className="text-zinc-300 font-medium truncate block">
-                          {g[GAME_FIELDS.developer] || '—'}
+                          {credits.studio || '—'}
                         </span>
                       </div>
                     </div>

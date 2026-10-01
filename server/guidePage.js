@@ -167,7 +167,7 @@ function renderHtml({
 
   const robots = noIndex ? 'noindex, follow' : 'index, follow';
   const year = game[GAME_STRUCT.releaseYear] ? String(game[GAME_STRUCT.releaseYear]) : '';
-  const developer = String(game[GAME_STRUCT.developer] ?? '').trim();
+  const studioLine = [seo.studio, seo.publisher].filter(Boolean).join(' · ');
   const creatorHeading = relatedHeading('creator', creatorName, locale);
   const similarHeading = relatedHeading('similar', '', locale);
 
@@ -220,7 +220,7 @@ function renderHtml({
       <article>
         ${breadcrumbHtml({ origin, hardware, genre, title })}
         <h1>${escapeHtml(title)}</h1>
-        <p class="meta">${escapeHtml([hardware.toUpperCase(), year, developer].filter(Boolean).join(' · '))}</p>
+        <p class="meta">${escapeHtml([hardware.toUpperCase(), year, studioLine].filter(Boolean).join(' · '))}</p>
         ${paragraphsHtml(description)}
         ${listSection('Trophäen', trophyItems)}
         ${listSection('Walkthrough', walkthrough)}
@@ -259,26 +259,34 @@ export async function handleGuideRequest(requestUrl) {
 
   try {
     const supabase = getPublicSupabase();
-    const { data: rows, error } = await supabase
+    const guideColumns = [
+      GAME_PK,
+      GAME_STRUCT.hardware,
+      GAME_STRUCT.slug,
+      GAME_STRUCT.releaseYear,
+      GAME_STRUCT.developer,
+      GAME_STRUCT.publisher,
+      GAME_STRUCT.genre,
+      GAME_STRUCT.gameType,
+      GAME_STRUCT.status,
+      GAME_STRUCT.isIndexable,
+      GAME_I18N.title,
+      GAME_I18N.description,
+      GAME_I18N.coverUrl,
+    ];
+    let { data: rows, error } = await supabase
       .from(TABLES.games)
-      .select(
-        [
-          GAME_PK,
-          GAME_STRUCT.hardware,
-          GAME_STRUCT.slug,
-          GAME_STRUCT.releaseYear,
-          GAME_STRUCT.developer,
-          GAME_STRUCT.genre,
-          GAME_STRUCT.gameType,
-          GAME_STRUCT.status,
-          GAME_STRUCT.isIndexable,
-          GAME_I18N.title,
-          GAME_I18N.description,
-          GAME_I18N.coverUrl,
-        ].join(', '),
-      )
+      .select(guideColumns.join(', '))
       .eq(GAME_STRUCT.slug, pretty.slug)
       .limit(20);
+
+    if (error && String(error.message ?? '').toLowerCase().includes('publisher')) {
+      ({ data: rows, error } = await supabase
+        .from(TABLES.games)
+        .select(guideColumns.filter((column) => column !== GAME_STRUCT.publisher).join(', '))
+        .eq(GAME_STRUCT.slug, pretty.slug)
+        .limit(20));
+    }
 
     if (error) throw error;
 

@@ -15,6 +15,7 @@
  * @property {number} [release_jahr]
  * @property {string} [upcoming_date]
  * @property {string} [entwickler]
+ * @property {string} [publisher]
  * @property {string} [genre]
  * @property {string} [spiel_typ]
  * @property {number} [views]

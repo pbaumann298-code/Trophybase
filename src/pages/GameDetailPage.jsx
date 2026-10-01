@@ -18,6 +18,7 @@ import { useTabNavigation } from '../hooks/useTabNavigation';
 import { useTabScrollMemory } from '../hooks/useTabScrollMemory';
 import { GuideVideoProvider, useGuideVideo } from '../context/GuideVideoContext';
 import { GAME_FIELDS, GAME_STRUCT } from '../lib/gameSchema';
+import { publicStudioCredits } from '../lib/studioCredits';
 import {
   buildBossOverviewData,
   buildByTypeGuideData,
@@ -282,6 +283,7 @@ function GamePageContent({
   const gameId = watchlistGameId;
 
   const gameUuid = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
+  const studioCredits = useMemo(() => publicStudioCredits(selectedGame), [selectedGame]);
 
   /** Sprache des angezeigten Guides – entscheidet, ob der Freigabe-Button erscheint. */
   const effectiveGuideLang = resolveGuideLanguage(globalLocale, guideLanguageOverride);
@@ -666,11 +668,19 @@ function GamePageContent({
                 </span>
               </div>
               <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
-                <span className="text-zinc-500 font-mono text-xs uppercase">Entwickler</span>
+                <span className="text-zinc-500 font-mono text-xs uppercase">{t('studioLabel')}</span>
                 <span className="text-zinc-200 font-medium">
-                  {selectedGame[GAME_FIELDS.developer] || '—'}
+                  {studioCredits.studio || '—'}
                 </span>
               </div>
+              {studioCredits.publisher ? (
+                <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
+                  <span className="text-zinc-500 font-mono text-xs uppercase">{t('publisherLabel')}</span>
+                  <span className="text-zinc-200 font-medium">
+                    {studioCredits.publisher}
+                  </span>
+                </div>
+              ) : null}
 
               {showCoverServerDead && coverStatusMessages.serverDead && (
                 <div className="col-span-2 pt-2">

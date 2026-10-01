@@ -1,5 +1,5 @@
 import { GAME_PK } from './gameSchema';
-import { getGameTitle, getRouteSlug } from './gameModel';
+import { getGameTitle, getRouteSlug, mergeGameRows } from './gameModel';
 import {
   GAME_SEARCH_STRUCT_COLUMNS,
   GAME_SEARCH_LOCALIZED_COLUMNS,
@@ -76,6 +76,71 @@ function genreLike(supabase, pattern, locale, includeReady) {
   );
 }
 
+function emptyRails() {
+  return Object.fromEntries(HOME_CATEGORIES.map((cat) => [cat.id, []]));
+}
+
+function isMissingHomeRailsRpc(error) {
+  const code = String(error?.code ?? '');
+  const message = String(error?.message ?? '').toLowerCase();
+  return (
+    code === 'PGRST202' ||
+    code === '42883' ||
+    message.includes('tb_get_home_rails') ||
+    message.includes('could not find the function')
+  );
+}
+
+/**
+ * Eine RPC statt ~60 ilike-Suchen. Admin/Besucher entscheidet die Funktion
+ * am JWT, nicht am Client-Flag.
+ * @returns {Promise<Record<string, object[]>|null>} null = RPC fehlt, Legacy nutzen
+ */
+async function fetchHomeRailsViaRpc(supabase, locale) {
+  const { data, error } = await supabase.rpc('tb_get_home_rails');
+  if (error) {
+    if (isMissingHomeRailsRpc(error)) return null;
+    console.error('Startseite tb_get_home_rails:', error.message);
+    return emptyRails();
+  }
+
+  const byId = emptyRails();
+  const grouped = new Map();
+  for (const row of data ?? []) {
+    const railId = String(row?.rail_id ?? '');
+    if (!railId || !Object.prototype.hasOwnProperty.call(byId, railId)) continue;
+    const game = row?.game && typeof row.game === 'object' ? row.game : null;
+    if (!game) continue;
+    const list = grouped.get(railId) ?? [];
+    list.push({ pos: Number(row.sort_pos) || 0, game });
+    grouped.set(railId, list);
+  }
+
+  for (const [railId, items] of grouped) {
+    items.sort((a, b) => a.pos - b.pos);
+    byId[railId] = mergeGameRows(
+      items.map((item) => item.game),
+      locale,
+    );
+  }
+  return byId;
+}
+
+async function fetchHomeRailsLegacy(supabase, locale, includeReady) {
+  const entries = await Promise.all(
+    HOME_CATEGORIES.map(async (cat) => {
+      try {
+        const games = await cat.fetch(supabase, locale, includeReady);
+        return [cat.id, games];
+      } catch (err) {
+        console.error(`Kategorie ${cat.id}:`, err);
+        return [cat.id, []];
+      }
+    }),
+  );
+  return Object.fromEntries(entries);
+}
+
 /**
  * Kuratierte Startseiten-Reihen (Netflix-Prinzip).
  */
@@ -134,6 +199,22 @@ export const HOME_CATEGORIES = [
     },
   },
   {
+    id: 'openworld',
+    emoji: '🗺️',
+    title: 'Open World',
+    searchTerm: 'Open World',
+    tagline: 'Große Sandboxen – erkunden, abhaken, versinken',
+    accent: '#34d399',
+    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
+      const rows = await runQueries([
+        genreLike(supabase, '%Open World%', locale, includeReady),
+        genreLike(supabase, '%Open-World%', locale, includeReady),
+        titleLike(supabase, '%Open World%', locale, includeReady),
+      ]);
+      return dedupeGames(rows, locale).slice(0, LIMIT);
+    },
+  },
+  {
     id: 'ubisoft',
     emoji: '🦅',
     title: 'Ubisoft-Welten',
@@ -167,7 +248,6 @@ export const HOME_CATEGORIES = [
         titleLike(supabase, '%Red Dead%', locale, includeReady),
         titleLike(supabase, '%Bully%', locale, includeReady),
         titleLike(supabase, '%Max Payne%', locale, includeReady),
-        titleLike(supabase, '%Lies of P%', locale, includeReady),
       ]);
       return dedupeGames(rows, locale).slice(0, LIMIT);
     },
@@ -278,19 +358,10 @@ export const HOME_CATEGORIES = [
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} [locale]
- * @param {boolean} [includeReady] Admin-Vorschau: FERTIG-Guides mit anzeigen
+ * @param {boolean} [includeReady] nur Legacy-Fallback; die RPC liest das JWT
  */
 export async function fetchAllHomeCategories(supabase, locale = getLocale(), includeReady = false) {
-  const entries = await Promise.all(
-    HOME_CATEGORIES.map(async (cat) => {
-      try {
-        const games = await cat.fetch(supabase, locale, includeReady);
-        return [cat.id, games];
-      } catch (err) {
-        console.error(`Kategorie ${cat.id}:`, err);
-        return [cat.id, []];
-      }
-    }),
-  );
-  return Object.fromEntries(entries);
+  const viaRpc = await fetchHomeRailsViaRpc(supabase, locale);
+  if (viaRpc) return viaRpc;
+  return fetchHomeRailsLegacy(supabase, locale, includeReady);
 }

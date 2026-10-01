@@ -1,4 +1,4 @@
-import { isBetaTester } from './betaAccess';
+import { isBetaTester } from './betaAccess.js';
 
 /** Temporäre Einlass-Accounts (Schritt 1: Passwort-Login) */
 export const GATE_ACCOUNTS = ['tester@trophybase.app', 'creator@trophybase.app'];

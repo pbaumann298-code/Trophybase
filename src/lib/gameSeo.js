@@ -1,8 +1,9 @@
 import { DEFAULT_LOCALE, hreflangOf } from '../../shared/countryLocaleMap.js';
-import { GAME_STRUCT } from './gameSchema';
-import { getGameCover, getGameDescription, getGameTitle } from './gameModel';
-import { buildPrettyGamePath, hardwareLabel, hardwareToUrlSegment } from './gameSlug';
-import { contentLocalesForGame } from './contentLocales';
+import { GAME_STRUCT } from './gameSchema.js';
+import { publicStudioCredits } from './studioCredits.js';
+import { getGameCover, getGameDescription, getGameTitle } from './gameModel.js';
+import { buildPrettyGamePath, hardwareLabel, hardwareToUrlSegment } from './gameSlug.js';
+import { contentLocalesForGame } from './contentLocales.js';
 
 export const SITE_NAME = 'TrophyBase.app';
 export const HOME_META_TITLE = 'TrophyBase.app – Trophäen-Guides für PlayStation';
@@ -68,7 +69,7 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
   const description = clipMetaText(rawDescription);
   const cover = absoluteUrl(base, getGameCover(game, canonicalLocale));
   const year = game?.[GAME_STRUCT.releaseYear] ? String(game[GAME_STRUCT.releaseYear]) : '';
-  const developer = String(game?.[GAME_STRUCT.developer] ?? '').trim();
+  const credits = publicStudioCredits(game);
   const genre = String(game?.[GAME_STRUCT.genre] ?? '').trim();
   const platform = hardwareLabel(game?.hardware || hw);
   const pageTitle = `${title} – TrophyBase`;
@@ -82,7 +83,10 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
     inLanguage: hreflangOf(canonicalLocale),
     gamePlatform: platform || undefined,
     genre: genre || undefined,
-    author: developer ? { '@type': 'Organization', name: developer } : undefined,
+    developer: credits.studio ? { '@type': 'Organization', name: credits.studio } : undefined,
+    publisher: credits.publisher
+      ? { '@type': 'Organization', name: credits.publisher }
+      : undefined,
     datePublished: year || undefined,
   };
 
@@ -144,6 +148,8 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
     canonicalLocale,
     jsonLd,
     ogLocale: ogLocaleOf(canonicalLocale),
+    studio: credits.studio,
+    publisher: credits.publisher,
   };
 }
 

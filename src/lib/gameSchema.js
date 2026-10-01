@@ -64,6 +64,8 @@ export const GAME_STRUCT = {
   releaseYear: 'release_jahr',
   upcomingDate: 'upcoming_date',
   developer: 'entwickler',
+  /** IGDB-Publisher, getrennt vom Hauptstudio */
+  publisher: 'publisher',
   genre: 'genre',
   gameType: 'spiel_typ',
   progress: 'fortschritt',
@@ -84,6 +86,28 @@ export const GAME_STRUCT = {
   isIndexable: 'is_indexable',
   /** Guide-Seitenaufrufe; Startseite „Beliebt“ sortiert danach */
   views: 'views',
+  /** Stimmungstags (Allowlist), z. B. soulslike, open_world */
+  homeTags: 'home_tags',
+  /** true = Modell darf home_tags nicht überschreiben */
+  homeTagsLocked: 'home_tags_locked',
+};
+
+/** Allowlist-Slugs für games.home_tags (muss mit home_tag_defs übereinstimmen). */
+export const HOME_TAGS = {
+  SOULSLIKE: 'soulslike',
+  OPEN_WORLD: 'open_world',
+  FAMILY: 'family',
+  INDIE: 'indie',
+  RACING: 'racing',
+};
+
+/** Tag-Slug → Startseiten-Reihe. Studios/Franchises haben keine Tags. */
+export const HOME_TAG_RAILS = {
+  [HOME_TAGS.SOULSLIKE]: 'souls',
+  [HOME_TAGS.OPEN_WORLD]: 'openworld',
+  [HOME_TAGS.FAMILY]: 'family',
+  [HOME_TAGS.INDIE]: 'indie',
+  [HOME_TAGS.RACING]: 'racing',
 };
 
 /** Werte von games.spiel_typ */
@@ -127,6 +151,8 @@ export const ACHIEVEMENT_I18N = {
   iconUrl: 'icon_url',
   rarity: 'global_seltenheit',
   guideTip: 'guide_tip',
+  /** Sony trophyGroupName (Hauptspiel + DLC), JSONB-Sprachmap */
+  groupName: 'spielname',
   /**
    * Ausführliche Fassung des Tipps. Spaltenname mit Bindestrichen und
    * Grossbuchstaben – in SQL/PostgREST zwingend in Anführungszeichen setzen.
@@ -264,6 +290,7 @@ export const GAME_FIELDS = {
   genre: 'genre',
   year: 'release_jahr',
   developer: 'entwickler',
+  publisher: 'publisher',
   status: 'status',
   serverStatus: 'server_status',
   hasOnlineTrophies: 'has_online_trophies',

@@ -14,7 +14,7 @@ import {
   isGateAccount,
   normalizeEmail,
   hasLinkedSocialIdentity,
-} from './maintenanceAccess';
+} from './maintenanceAccess.js';
 
 /** @typedef {'discord' | 'google' | 'apple' | 'facebook'} OAuthProvider */
 

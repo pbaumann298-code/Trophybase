@@ -40,7 +40,7 @@ export function paginateItems(items, page, pageSize = SEARCH_PAGE_SIZE) {
 }
 
 /**
- * Suche in games.spieltitel (JSONB), games.genre und games.entwickler.
+ * Suche in games.spieltitel (JSONB), games.genre, games.entwickler und games.publisher.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} query
  * @param {{ limit?: number, locale?: string }} [options]

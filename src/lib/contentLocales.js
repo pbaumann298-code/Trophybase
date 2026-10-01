@@ -1,5 +1,5 @@
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
-import { isGuidePublished, isGuideReady } from './guidePublication';
+import { isGuidePublished, isGuideReady } from './guidePublication.js';
 
 export const DEFAULT_AVAILABLE_LOCALES = [DEFAULT_LOCALE];
 

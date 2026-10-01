@@ -117,7 +117,7 @@ function IntranetGameSearch() {
         <Field id="in-npwr" label="platform_game_id" value={filters.platformGameId} onChange={updateField('platformGameId')} placeholder="NPWR…" />
         <Field id="in-year" label="release_jahr" value={filters.releaseYear} onChange={updateField('releaseYear')} placeholder="2015" />
         <Field id="in-up" label="upcoming_date" value={filters.upcomingDate} onChange={updateField('upcomingDate')} />
-        <Field id="in-dev" label="entwickler" value={filters.developer} onChange={updateField('developer')} />
+        <Field id="in-dev" label="entwickler / publisher" value={filters.developer} onChange={updateField('developer')} />
         <Field id="in-genre" label="genre" value={filters.genre} onChange={updateField('genre')} />
         <Field id="in-type" label="spiel_typ" value={filters.gameType} onChange={updateField('gameType')} />
 
@@ -217,6 +217,7 @@ function IntranetGameSearch() {
                 <th className="px-3 py-2.5 font-medium">release_jahr</th>
                 <th className="px-3 py-2.5 font-medium">upcoming_date</th>
                 <th className="px-3 py-2.5 font-medium">entwickler</th>
+                <th className="px-3 py-2.5 font-medium">publisher</th>
                 <th className="px-3 py-2.5 font-medium">genre</th>
                 <th className="px-3 py-2.5 font-medium">spiel_typ</th>
                 <th className="px-3 py-2.5 font-medium">discovery</th>
@@ -241,6 +242,7 @@ function IntranetGameSearch() {
                     <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{game.release_jahr || '—'}</td>
                     <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.upcoming_date || '—'}</td>
                     <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.entwickler || '—'}</td>
+                    <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.publisher || '—'}</td>
                     <td className="px-3 py-2 text-zinc-400 max-w-[12rem]">{game.genre || '—'}</td>
                     <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.spiel_typ || '—'}</td>
                     <td className="px-3 py-2 font-mono text-[10px] text-zinc-400 whitespace-nowrap">
