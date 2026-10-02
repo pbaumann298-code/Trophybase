@@ -1,9 +1,31 @@
-import { useEffect, useState } from 'react';
+import { Component, useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import { getSessionOrTimeout, isAdminUser } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch';
+
+class IntranetErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { message: '' };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { message: error?.message || 'Anzeige fehlgeschlagen.' };
+  }
+
+  render() {
+    if (this.state.message) {
+      return (
+        <div className="rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-5 text-sm text-red-300">
+          {this.state.message}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const TABS = [
   { id: 'games', label: 'Spiele', icon: '🎮' },
@@ -152,8 +174,10 @@ function IntranetApp() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        {activeTab === 'games' && <IntranetGameSearch />}
-        {activeTab === 'creators' && <IntranetCreatorSearch />}
+        <IntranetErrorBoundary>
+          {activeTab === 'games' && <IntranetGameSearch />}
+          {activeTab === 'creators' && <IntranetCreatorSearch />}
+        </IntranetErrorBoundary>
       </main>
     </div>
   );

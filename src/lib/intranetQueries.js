@@ -146,6 +146,18 @@ function normalizeCreatorRow(row) {
   };
 }
 
+async function fetchRowsByIds(supabase, table, select, column, ids, chunkSize = 120) {
+  const unique = [...new Set((ids ?? []).filter(Boolean))];
+  const rows = [];
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    const { data, error } = await supabase.from(table).select(select).in(column, chunk);
+    if (error) return { data: [], error };
+    rows.push(...(data ?? []));
+  }
+  return { data: rows, error: null };
+}
+
 /**
  * Creator → gemappte Spiele. Leere Filter laden alle Creator mit ihren Spielen.
  */
@@ -234,10 +246,13 @@ export async function searchIntranetCreators(supabase, filters = {}) {
     creators = creators.filter((creator) => mappedSet.has(creator.id));
   }
 
-  const { data: games, error: gamesError } = await supabase
-    .from(TABLES.games)
-    .select(INTRANET_GAME_SELECT)
-    .in(GAME_PK, gameIds);
+  const { data: games, error: gamesError } = await fetchRowsByIds(
+    supabase,
+    TABLES.games,
+    INTRANET_GAME_SELECT,
+    GAME_PK,
+    gameIds,
+  );
 
   if (gamesError) return { data: [], error: gamesError };
 

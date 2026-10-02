@@ -97,13 +97,13 @@ function CategoryCarousel({
     <section className="home-category w-full min-w-0 max-w-full" aria-labelledby={`cat-${category.id}`}>
       <header className="home-category-header">
         <div className="home-category-heading min-w-0">
-          {category.searchTerm && onCategorySearch ? (
+          {(category.search || category.searchTerm) && onCategorySearch ? (
             <button
               type="button"
               id={`cat-${category.id}`}
               className="home-category-title home-category-title--clickable"
-              onClick={() => onCategorySearch(category.searchTerm)}
-              title={`Alle Spiele zu „${category.searchTerm}“ suchen`}
+              onClick={() => onCategorySearch(category.title)}
+              title={`Alle Spiele zu „${category.title}“ anzeigen`}
             >
               <span className="home-category-emoji" aria-hidden>
                 {category.emoji}

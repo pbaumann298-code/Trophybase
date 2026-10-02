@@ -11,11 +11,11 @@
 --      den ganzen Katalog, als Besucher nur PUBLISHED – beides ist unnoetig
 --      viele Roundtrips nach Frankfurt.
 --
--- SOLL: Eine Funktion liefert alle Reihen auf einmal. Zuerst nur
---      PUBLISHED (bzw. FERTIG+PUBLISHED fuer Admins), danach Sortierung in
---      die Rails. Neue Freigaben und Aufrufe sind beim naechsten Laden da.
---      Keine Snapshot-Tabelle – bei wenigen hundert sichtbaren Guides reicht
---      Live-SQL, Netflix cached dasselbe nur wegen Millionen Titeln.
+-- SOLL: Eine Funktion liefert alle Reihen auf einmal.
+--   Beliebt / Neu: Evergreen & Premium.
+--   Souls: Tag soulslike ODER FromSoftware.
+--   Open World / Familie / Indie / Racing: nur home_tags.
+--   Ubisoft / Rockstar: entwickler oder publisher, keine Quickwins, keine Titel-Ratespiele.
 --
 -- Nach dem Ausfuehren: Website hart neu laden. Ohne diese Funktion bleibt
 -- die alte Mehrfach-Suche als Fallback aktiv.
@@ -93,8 +93,9 @@ as $$
       g.spieltitel,
       g.cover_url,
       (g.spiel_typ in ('Evergreen', 'Premium')) as featured,
+      coalesce(g.spiel_typ, '') <> 'Quickwin' as not_quickwin,
       lower(coalesce(g.entwickler, '')) as entwickler_l,
-      lower(coalesce(g.genre, '')) as genre_l,
+      lower(coalesce(to_jsonb(g) ->> 'publisher', '')) as publisher_l,
       (
         select lower(string_agg(e.value, ' '))
         from jsonb_each_text(coalesce(g.spieltitel, '{}'::jsonb)) e
@@ -124,107 +125,44 @@ as $$
         c.spieltitel,
         c.cover_url
       ) as payload,
-      -- Themenreihen: Tag gewinnt, solange home_tags leer sind gilt der alte ilike.
+      -- Soulslike-Tag oder FromSoftware (Entwickler/Publisher). Keine Titel-Ratespiele.
       (
-        'soulslike' = any(c.home_tags)
-        or (
-          cardinality(c.home_tags) = 0
-          and (
-            c.genre_l like '%soulslike%'
-            or c.genre_l like '%souls%'
-            or c.entwickler_l like '%fromsoftware%'
-            or c.titles like '%elden ring%'
-            or c.titles like '%dark souls%'
-            or c.titles like '%sekiro%'
-            or c.titles like '%bloodborne%'
-            or c.titles like '%wuchang%'
-            or c.titles like '%lies of p%'
-            or c.titles like '%nioh%'
-          )
+        c.not_quickwin
+        and (
+          'soulslike' = any(c.home_tags)
+          or c.entwickler_l like '%fromsoftware%'
+          or c.publisher_l like '%fromsoftware%'
         )
       ) as rail_souls,
       (
-        'open_world' = any(c.home_tags)
-        or (
-          cardinality(c.home_tags) = 0
-          and (
-            c.genre_l like '%open world%'
-            or c.genre_l like '%open-world%'
-            or c.titles like '%open world%'
-          )
-        )
+        c.not_quickwin
+        and 'open_world' = any(c.home_tags)
       ) as rail_openworld,
       (
-        c.entwickler_l like '%ubisoft%'
-        or c.titles like '%assassin%'
-        or c.titles like '%far cry%'
-        or c.titles like '%watch dogs%'
-        or c.titles like '%ghost recon%'
-        or c.titles like '%rainbow six%'
+        c.not_quickwin
+        and (
+          c.entwickler_l like '%ubisoft%'
+          or c.publisher_l like '%ubisoft%'
+        )
       ) as rail_ubisoft,
       (
-        c.entwickler_l like '%rockstar%'
-        or c.titles like '%grand theft auto%'
-        or c.titles like '%gta%'
-        or c.titles like '%red dead%'
-        or c.titles like '%bully%'
-        or c.titles like '%max payne%'
+        c.not_quickwin
+        and (
+          c.entwickler_l like '%rockstar%'
+          or c.publisher_l like '%rockstar%'
+        )
       ) as rail_rockstar,
       (
-        'family' = any(c.home_tags)
-        or (
-          cardinality(c.home_tags) = 0
-          and (
-            c.genre_l like '%familie%'
-            or c.genre_l like '%kinder%'
-            or c.genre_l like '%party%'
-            or c.titles like '%astro bot%'
-            or c.titles like '%spongebob%'
-            or c.titles like '%lego%'
-            or c.titles like '%sackboy%'
-            or c.titles like '%ratchet%'
-            or c.titles like '%littlebigplanet%'
-            or c.titles like '%crash bandicoot%'
-            or c.titles like '%disney%'
-          )
-        )
+        c.not_quickwin
+        and 'family' = any(c.home_tags)
       ) as rail_family,
       (
-        'indie' = any(c.home_tags)
-        or (
-          cardinality(c.home_tags) = 0
-          and (
-            c.genre_l like '%indie%'
-            or c.titles like '%hollow knight%'
-            or c.titles like '%hades%'
-            or c.titles like '%stray%'
-            or c.titles like '%celeste%'
-            or c.titles like '%stardew%'
-            or c.titles like '%cuphead%'
-            or c.titles like '%ori%'
-            or c.titles like '%shovel knight%'
-            or c.titles like '%dead cells%'
-          )
-        )
+        c.not_quickwin
+        and 'indie' = any(c.home_tags)
       ) as rail_indie,
       (
-        'racing' = any(c.home_tags)
-        or (
-          cardinality(c.home_tags) = 0
-          and (
-            c.genre_l like '%renn%'
-            or c.genre_l like '%racing%'
-            or c.genre_l like '%sport%'
-            or c.titles like '%gran turismo%'
-            or c.titles like '%need for speed%'
-            or c.titles like '%f1%'
-            or c.titles like '%dirt%'
-            or c.titles like '%wrc%'
-            or c.titles like '%asphalt%'
-            or c.titles like '%burnout%'
-            or c.titles like '%driveclub%'
-          )
-        )
+        c.not_quickwin
+        and 'racing' = any(c.home_tags)
       ) as rail_racing,
       (c.titles like '%god of war%') as rail_godofwar,
       (

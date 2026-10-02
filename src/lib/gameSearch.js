@@ -5,6 +5,7 @@ import {
   searchGamesAdvanced as runAdvancedSearch,
   validateSearchQuery,
 } from './gameQueries';
+import { findHomeCategoryForQuery, searchHomeCategory } from './homeCategories';
 import { getLocale } from './locale';
 
 export const SEARCH_PAGE_SIZE = 50;
@@ -57,6 +58,11 @@ export async function searchGames(supabase, query, options = {}) {
   const catalog = options.includeReady
     ? { includeReady: true }
     : { publishedOnly: options.publishedOnly !== false };
+
+  const rail = findHomeCategoryForQuery(check.query);
+  if (rail?.search) {
+    return searchHomeCategory(supabase, rail, locale, Boolean(options.includeReady), limit);
+  }
 
   return searchGamesByFreeText(supabase, check.pattern, limit, locale, catalog);
 }

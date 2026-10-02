@@ -430,6 +430,7 @@ function App() {
     if (updateUrl) navigateToSimpleSearch(q, { page, replace });
     const { data, error } = await searchGames(supabase, q, {
       includeReady: isAdminUser(sessionUser),
+      locale: globalLocale,
     });
     if (error) {
       console.error('Suche:', error.message);

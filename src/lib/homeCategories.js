@@ -1,11 +1,13 @@
-import { GAME_PK } from './gameSchema';
+import { GAME_PK, GAME_TYPE, HOME_TAGS } from './gameSchema';
 import { getGameTitle, getRouteSlug, mergeGameRows } from './gameModel';
 import {
-  GAME_SEARCH_STRUCT_COLUMNS,
-  GAME_SEARCH_LOCALIZED_COLUMNS,
+  SEARCH_RESULT_CAP,
   fetchNewGuideGames,
   fetchPopularGames,
   searchGamesByColumn,
+  searchGamesByHomeTag,
+  searchGamesByStudio,
+  GAME_SEARCH_LOCALIZED_COLUMNS,
 } from './gameQueries';
 import { getLocale } from './locale';
 
@@ -40,40 +42,28 @@ function catalogOptions(includeReady) {
   return includeReady ? { includeReady: true } : { publishedOnly: true };
 }
 
-function titleLike(supabase, pattern, locale, includeReady) {
+function withoutQuickwins(games) {
+  return (games ?? []).filter(
+    (game) => String(game?.spiel_typ ?? '').trim() !== GAME_TYPE.QUICKWIN,
+  );
+}
+
+function titleLike(supabase, pattern, locale, includeReady, limit = LIMIT) {
   if (!pattern) return Promise.resolve({ data: [], error: new Error('Suchmuster fehlt') });
   return searchGamesByColumn(
     supabase,
     GAME_SEARCH_LOCALIZED_COLUMNS.title,
     pattern,
-    LIMIT,
+    limit,
     locale,
     catalogOptions(includeReady),
   );
 }
 
-function devLike(supabase, pattern, locale, includeReady) {
-  if (!pattern) return Promise.resolve({ data: [], error: new Error('Suchmuster fehlt') });
-  return searchGamesByColumn(
-    supabase,
-    GAME_SEARCH_STRUCT_COLUMNS.developer,
-    pattern,
-    LIMIT,
-    locale,
-    catalogOptions(includeReady),
-  );
-}
-
-function genreLike(supabase, pattern, locale, includeReady) {
-  if (!pattern) return Promise.resolve({ data: [], error: new Error('Suchmuster fehlt') });
-  return searchGamesByColumn(
-    supabase,
-    GAME_SEARCH_STRUCT_COLUMNS.genre,
-    pattern,
-    LIMIT,
-    locale,
-    catalogOptions(includeReady),
-  );
+async function mergeRailRows(queries, locale, { dropQuickwins = false, limit = LIMIT } = {}) {
+  const rows = await runQueries(queries);
+  const unique = dedupeGames(dropQuickwins ? withoutQuickwins(rows) : rows, locale);
+  return unique.slice(0, limit);
 }
 
 function emptyRails() {
@@ -143,6 +133,7 @@ async function fetchHomeRailsLegacy(supabase, locale, includeReady) {
 
 /**
  * Kuratierte Startseiten-Reihen (Netflix-Prinzip).
+ * search.kind: tag | studio | souls | titles — derselbe Filter gilt für Schiene und Klick.
  */
 export const HOME_CATEGORIES = [
   {
@@ -179,181 +170,237 @@ export const HOME_CATEGORIES = [
     id: 'souls',
     emoji: '💀',
     title: 'Souls / Soulslike',
-    searchTerm: 'Souls',
-    tagline: 'Für die Hardcore-Fraktion – Elden Ring, Wuchang & Co.',
+    searchMatch: /^(souls(\s*\/\s*soulslike)?|soulslike)$/i,
+    search: { kind: 'souls' },
+    tagline: 'FromSoftware und alles mit Tag soulslike',
     accent: '#a855f7',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const rows = await runQueries([
-        genreLike(supabase, '%Soulslike%', locale, includeReady),
-        genreLike(supabase, '%Souls%', locale, includeReady),
-        devLike(supabase, '%FromSoftware%', locale, includeReady),
-        titleLike(supabase, '%Elden Ring%', locale, includeReady),
-        titleLike(supabase, '%Dark Souls%', locale, includeReady),
-        titleLike(supabase, '%Sekiro%', locale, includeReady),
-        titleLike(supabase, '%Bloodborne%', locale, includeReady),
-        titleLike(supabase, '%Wuchang%', locale, includeReady),
-        titleLike(supabase, '%Lies of P%', locale, includeReady),
-        titleLike(supabase, '%Nioh%', locale, includeReady),
-      ]);
-      return dedupeGames(rows, locale).slice(0, LIMIT);
-    },
+    fetch: (supabase, locale, includeReady) =>
+      fetchCategoryList({ search: { kind: 'souls' } }, supabase, locale, includeReady, LIMIT),
   },
   {
     id: 'openworld',
     emoji: '🗺️',
     title: 'Open World',
-    searchTerm: 'Open World',
-    tagline: 'Große Sandboxen – erkunden, abhaken, versinken',
+    searchMatch: /^(open[_\s-]?world)$/i,
+    search: { kind: 'tag', tag: HOME_TAGS.OPEN_WORLD },
+    tagline: 'Große Sandboxen – kuratiert über den Open-World-Tag',
     accent: '#34d399',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const rows = await runQueries([
-        genreLike(supabase, '%Open World%', locale, includeReady),
-        genreLike(supabase, '%Open-World%', locale, includeReady),
-        titleLike(supabase, '%Open World%', locale, includeReady),
-      ]);
-      return dedupeGames(rows, locale).slice(0, LIMIT);
-    },
+    fetch: (supabase, locale, includeReady) =>
+      fetchCategoryList(
+        { search: { kind: 'tag', tag: HOME_TAGS.OPEN_WORLD } },
+        supabase,
+        locale,
+        includeReady,
+        LIMIT,
+      ),
   },
   {
     id: 'ubisoft',
     emoji: '🦅',
     title: 'Ubisoft-Welten',
-    searchTerm: 'Ubisoft',
-    tagline: 'Open-World-Suchtis & Komplettierer',
+    searchMatch: /^(ubisoft([- ]welten)?)$/i,
+    search: { kind: 'studio', studio: 'Ubisoft', dropQuickwins: true },
+    tagline: 'Nur Entwickler/Publisher Ubisoft – keine Quickwins',
     accent: '#38bdf8',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const rows = await runQueries([
-        devLike(supabase, '%Ubisoft%', locale, includeReady),
-        titleLike(supabase, '%Assassin%', locale, includeReady),
-        titleLike(supabase, '%Far Cry%', locale, includeReady),
-        titleLike(supabase, '%Watch Dogs%', locale, includeReady),
-        titleLike(supabase, '%Ghost Recon%', locale, includeReady),
-        titleLike(supabase, '%Rainbow Six%', locale, includeReady),
-      ]);
-      return dedupeGames(rows, locale).slice(0, LIMIT);
-    },
+    fetch: (supabase, locale, includeReady) =>
+      fetchCategoryList(
+        { search: { kind: 'studio', studio: 'Ubisoft', dropQuickwins: true } },
+        supabase,
+        locale,
+        includeReady,
+        LIMIT,
+      ),
   },
   {
     id: 'rockstar',
     emoji: '⭐️',
     title: 'Rockstar Games',
-    searchTerm: 'Rockstar',
-    tagline: 'Legendär schwere & zeitaufwendige Meilensteine',
+    searchMatch: /^(rockstar(\s+games)?)$/i,
+    search: { kind: 'studio', studio: 'Rockstar', dropQuickwins: true },
+    tagline: 'Entwickler oder Publisher Rockstar',
     accent: '#facc15',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const rows = await runQueries([
-        devLike(supabase, '%Rockstar%', locale, includeReady),
-        titleLike(supabase, '%Grand Theft Auto%', locale, includeReady),
-        titleLike(supabase, '%GTA%', locale, includeReady),
-        titleLike(supabase, '%Red Dead%', locale, includeReady),
-        titleLike(supabase, '%Bully%', locale, includeReady),
-        titleLike(supabase, '%Max Payne%', locale, includeReady),
-      ]);
-      return dedupeGames(rows, locale).slice(0, LIMIT);
-    },
+    fetch: (supabase, locale, includeReady) =>
+      fetchCategoryList(
+        { search: { kind: 'studio', studio: 'Rockstar', dropQuickwins: true } },
+        supabase,
+        locale,
+        includeReady,
+        LIMIT,
+      ),
   },
   {
     id: 'family',
     emoji: '🧸',
     title: 'Familienspaß & Easy Platin',
-    searchTerm: 'LEGO',
-    tagline: 'Kinder- & Familienspiele – entspannt zum Ziel',
+    searchMatch: /^(familienspa[sß].*|easy platin)$/i,
+    search: { kind: 'tag', tag: HOME_TAGS.FAMILY },
+    tagline: 'Sobald der Family-Tag gesetzt ist',
     accent: '#4ade80',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const rows = await runQueries([
-        genreLike(supabase, '%Familie%', locale, includeReady),
-        genreLike(supabase, '%Kinder%', locale, includeReady),
-        genreLike(supabase, '%Party%', locale, includeReady),
-        titleLike(supabase, '%Astro Bot%', locale, includeReady),
-        titleLike(supabase, '%SpongeBob%', locale, includeReady),
-        titleLike(supabase, '%LEGO%', locale, includeReady),
-        titleLike(supabase, '%Lego%', locale, includeReady),
-        titleLike(supabase, '%Sackboy%', locale, includeReady),
-        titleLike(supabase, '%Ratchet%', locale, includeReady),
-        titleLike(supabase, '%LittleBigPlanet%', locale, includeReady),
-        titleLike(supabase, '%Crash Bandicoot%', locale, includeReady),
-        titleLike(supabase, '%Disney%', locale, includeReady),
-      ]);
-      return dedupeGames(rows, locale).slice(0, LIMIT);
-    },
+    fetch: (supabase, locale, includeReady) =>
+      fetchCategoryList(
+        { search: { kind: 'tag', tag: HOME_TAGS.FAMILY } },
+        supabase,
+        locale,
+        includeReady,
+        LIMIT,
+      ),
   },
   {
     id: 'indie',
     emoji: '🕹️',
     title: 'Indie-Perlen',
-    searchTerm: 'Hollow Knight',
-    tagline: 'Treue Nischen-Communities – Hollow Knight, Hades, Stray',
+    searchMatch: /^(indie([- ]perlen)?)$/i,
+    search: { kind: 'tag', tag: HOME_TAGS.INDIE },
+    tagline: 'Sobald der Indie-Tag gesetzt ist',
     accent: '#f472b6',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const rows = await runQueries([
-        genreLike(supabase, '%Indie%', locale, includeReady),
-        titleLike(supabase, '%Hollow Knight%', locale, includeReady),
-        titleLike(supabase, '%Hades%', locale, includeReady),
-        titleLike(supabase, '%Stray%', locale, includeReady),
-        titleLike(supabase, '%Celeste%', locale, includeReady),
-        titleLike(supabase, '%Stardew%', locale, includeReady),
-        titleLike(supabase, '%Cuphead%', locale, includeReady),
-        titleLike(supabase, '%Ori%', locale, includeReady),
-        titleLike(supabase, '%Shovel Knight%', locale, includeReady),
-        titleLike(supabase, '%Dead Cells%', locale, includeReady),
-      ]);
-      return dedupeGames(rows, locale).slice(0, LIMIT);
-    },
+    fetch: (supabase, locale, includeReady) =>
+      fetchCategoryList(
+        { search: { kind: 'tag', tag: HOME_TAGS.INDIE } },
+        supabase,
+        locale,
+        includeReady,
+        LIMIT,
+      ),
   },
   {
     id: 'racing',
     emoji: '⏱️',
     title: 'Highspeed & Asphalt',
-    searchTerm: 'Gran Turismo',
-    tagline: 'Rennspiele & skill-basierte Sport-Trophäen',
+    searchMatch: /^(highspeed.*|asphalt|racing)$/i,
+    search: { kind: 'tag', tag: HOME_TAGS.RACING },
+    tagline: 'Sobald der Racing-Tag gesetzt ist',
     accent: '#22d3ee',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const rows = await runQueries([
-        genreLike(supabase, '%Renn%', locale, includeReady),
-        genreLike(supabase, '%Racing%', locale, includeReady),
-        genreLike(supabase, '%Sport%', locale, includeReady),
-        titleLike(supabase, '%Gran Turismo%', locale, includeReady),
-        titleLike(supabase, '%Need for Speed%', locale, includeReady),
-        titleLike(supabase, '%F1%', locale, includeReady),
-        titleLike(supabase, '%Dirt%', locale, includeReady),
-        titleLike(supabase, '%WRC%', locale, includeReady),
-        titleLike(supabase, '%Asphalt%', locale, includeReady),
-        titleLike(supabase, '%Burnout%', locale, includeReady),
-        titleLike(supabase, '%Driveclub%', locale, includeReady),
-      ]);
-      return dedupeGames(rows, locale).slice(0, LIMIT);
-    },
+    fetch: (supabase, locale, includeReady) =>
+      fetchCategoryList(
+        { search: { kind: 'tag', tag: HOME_TAGS.RACING } },
+        supabase,
+        locale,
+        includeReady,
+        LIMIT,
+      ),
   },
   {
     id: 'godofwar',
     emoji: '⚔️',
     title: 'God of War',
-    searchTerm: 'God of War',
+    searchMatch: /^god of war$/i,
+    search: { kind: 'titles', titles: ['%God of War%'] },
     tagline: 'Von den griechischen Mythen bis nach Midgard',
     accent: '#c4a35a',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const rows = await runQueries([
-        titleLike(supabase, '%God of War%', locale, includeReady),
-      ]);
-      return dedupeGames(rows, locale).slice(0, LIMIT);
-    },
+    fetch: (supabase, locale, includeReady) =>
+      fetchCategoryList(
+        { search: { kind: 'titles', titles: ['%God of War%'] } },
+        supabase,
+        locale,
+        includeReady,
+        LIMIT,
+      ),
   },
   {
     id: 'tombraider',
     emoji: '🏹',
     title: 'Tomb Raider',
-    searchTerm: 'Tomb Raider',
+    searchMatch: /^tomb raider$/i,
+    search: { kind: 'titles', titles: ['%Tomb Raider%', '%Lara Croft%'] },
     tagline: 'Laras Abenteuer – von den Klassikern bis zum Reboot',
     accent: '#14b8a6',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const rows = await runQueries([
-        titleLike(supabase, '%Tomb Raider%', locale, includeReady),
-        titleLike(supabase, '%Lara Croft%', locale, includeReady),
-      ]);
-      return dedupeGames(rows, locale).slice(0, LIMIT);
-    },
+    fetch: (supabase, locale, includeReady) =>
+      fetchCategoryList(
+        { search: { kind: 'titles', titles: ['%Tomb Raider%', '%Lara Croft%'] } },
+        supabase,
+        locale,
+        includeReady,
+        LIMIT,
+      ),
   },
 ];
+
+async function fetchCategoryList(category, supabase, locale, includeReady, limit) {
+  const { data, error } = await searchHomeCategory(supabase, category, locale, includeReady, limit);
+  if (error) {
+    console.error(`Kategorie ${category.search?.kind}:`, error.message);
+    return [];
+  }
+  return data;
+}
+
+/**
+ * Dieselbe Menge wie die Startseiten-Schiene, ohne das 12er-Limit.
+ */
+export async function searchHomeCategory(
+  supabase,
+  category,
+  locale = getLocale(),
+  includeReady = false,
+  limit = SEARCH_RESULT_CAP,
+) {
+  const spec = category?.search;
+  if (!spec) return { data: [], error: null };
+
+  const opts = catalogOptions(includeReady);
+  const fetchLimit = Math.max(Number(limit) || SEARCH_RESULT_CAP, 1);
+
+  if (spec.kind === 'tag') {
+    const { data, error } = await searchGamesByHomeTag(
+      supabase,
+      spec.tag,
+      fetchLimit,
+      locale,
+      opts,
+    );
+    if (error) return { data: [], error };
+    return { data: withoutQuickwins(data).slice(0, fetchLimit), error: null };
+  }
+
+  if (spec.kind === 'studio') {
+    const { data, error } = await searchGamesByStudio(
+      supabase,
+      spec.studio,
+      fetchLimit,
+      locale,
+      opts,
+    );
+    if (error) return { data: [], error };
+    const rows = spec.dropQuickwins ? withoutQuickwins(data) : data;
+    return { data: rows.slice(0, fetchLimit), error: null };
+  }
+
+  if (spec.kind === 'souls') {
+    const rows = await mergeRailRows(
+      [
+        searchGamesByHomeTag(supabase, HOME_TAGS.SOULSLIKE, fetchLimit, locale, opts),
+        searchGamesByStudio(supabase, 'FromSoftware', fetchLimit, locale, opts),
+      ],
+      locale,
+      { dropQuickwins: true, limit: fetchLimit },
+    );
+    return { data: rows, error: null };
+  }
+
+  if (spec.kind === 'titles') {
+    const rows = await mergeRailRows(
+      (spec.titles ?? []).map((pattern) =>
+        titleLike(supabase, pattern, locale, includeReady, fetchLimit),
+      ),
+      locale,
+      { dropQuickwins: false, limit: fetchLimit },
+    );
+    return { data: rows, error: null };
+  }
+
+  return { data: [], error: null };
+}
+
+export function findHomeCategoryForQuery(query) {
+  const q = String(query ?? '').trim();
+  if (!q) return null;
+  return (
+    HOME_CATEGORIES.find((cat) => {
+      if (cat.searchMatch?.test(q)) return true;
+      return cat.search && cat.title.toLowerCase() === q.toLowerCase();
+    }) ?? null
+  );
+}
 
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase

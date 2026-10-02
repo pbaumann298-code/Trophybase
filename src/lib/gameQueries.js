@@ -41,6 +41,7 @@ export const GAME_SELECT = [
   GAME_STRUCT.createdAt,
   GAME_STRUCT.slug,
   GAME_STRUCT.isIndexable,
+  GAME_STRUCT.homeTags,
   GAME_I18N.title,
   GAME_I18N.coverUrl,
   GAME_I18N.description,
@@ -49,6 +50,16 @@ export const GAME_SELECT = [
 
 const GAME_SELECT_NO_PUBLISHER = GAME_SELECT.split(', ')
   .filter((column) => column !== GAME_STRUCT.publisher)
+  .join(', ');
+
+const GAME_SELECT_NO_HOME_TAGS = GAME_SELECT.split(', ')
+  .filter((column) => column !== GAME_STRUCT.homeTags)
+  .join(', ');
+
+const GAME_SELECT_MINIMAL = GAME_SELECT.split(', ')
+  .filter(
+    (column) => column !== GAME_STRUCT.publisher && column !== GAME_STRUCT.homeTags,
+  )
   .join(', ');
 
 let activeGameSelect = GAME_SELECT;
@@ -61,25 +72,39 @@ function hasPublisherColumn() {
   return activeGameSelect.includes(GAME_STRUCT.publisher);
 }
 
-function demoteMissingPublisher(error) {
-  if (!hasPublisherColumn()) return false;
+function demoteMissingColumn(error, column, nextSelect) {
+  if (!activeGameSelect.includes(column)) return false;
   const code = String(error?.code ?? '');
   const message = String(error?.message ?? '').toLowerCase();
   const missing =
     code === '42703' ||
     code === 'PGRST204' ||
-    (message.includes('publisher') &&
+    (message.includes(column) &&
       (message.includes('does not exist') ||
         message.includes('schema cache') ||
         message.includes('column')));
   if (!missing) return false;
-  activeGameSelect = GAME_SELECT_NO_PUBLISHER;
+  activeGameSelect = nextSelect;
   return true;
+}
+
+function demoteMissingPublisher(error) {
+  const next = activeGameSelect.includes(GAME_STRUCT.homeTags)
+    ? GAME_SELECT_NO_PUBLISHER
+    : GAME_SELECT_MINIMAL;
+  return demoteMissingColumn(error, GAME_STRUCT.publisher, next);
+}
+
+function demoteMissingHomeTags(error) {
+  const next = activeGameSelect.includes(GAME_STRUCT.publisher)
+    ? GAME_SELECT_NO_HOME_TAGS
+    : GAME_SELECT_MINIMAL;
+  return demoteMissingColumn(error, GAME_STRUCT.homeTags, next);
 }
 
 async function runSelect(build) {
   let result = await build();
-  if (result?.error && demoteMissingPublisher(result.error)) {
+  if (result?.error && (demoteMissingPublisher(result.error) || demoteMissingHomeTags(result.error))) {
     result = await build();
   }
   return result;
@@ -353,7 +378,7 @@ async function fetchSearchRows(makeQuery, limit) {
   };
 
   let result = await run();
-  if (result.error && demoteMissingPublisher(result.error)) {
+  if (result.error && (demoteMissingPublisher(result.error) || demoteMissingHomeTags(result.error))) {
     result = await run();
   }
   return result;
@@ -484,6 +509,86 @@ export async function searchGamesByColumn(
   });
   if (error) return { data: [], error };
 
+  return { data: mergeGameRows(data, locale), error: null };
+}
+
+/**
+ * Startseiten-Tags: games.home_tags ist text[], Containment wie bei NPWR-Arrays.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} tag Allowlist-Slug, z. B. open_world
+ */
+export async function searchGamesByHomeTag(
+  supabase,
+  tag,
+  limit = SEARCH_RESULT_CAP,
+  locale = getLocale(),
+  options = {},
+) {
+  const slug = String(tag ?? '').trim().toLowerCase();
+  if (!slug) return { data: [], error: new Error('home_tags-Slug fehlt') };
+
+  const { data, error } = await fetchSearchRows(
+    () => {
+      let query = supabase
+        .from(TABLES.games)
+        .select(getGameSelect())
+        .contains(GAME_STRUCT.homeTags, [slug])
+        .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
+      return applyGuideCatalogFilter(query, {
+        includeReady: Boolean(options.includeReady),
+        publishedOnly: Boolean(options.publishedOnly) && !options.includeReady,
+      });
+    },
+    capSearchLimit(limit),
+  );
+  if (error) return { data: [], error };
+  return { data: mergeGameRows(data, locale), error: null };
+}
+
+/**
+ * Studio in entwickler oder publisher (Rockstar sitzt oft nur im Publisher).
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} pattern bereits validiertes ilike-Muster
+ */
+export async function searchGamesByStudio(
+  supabase,
+  pattern,
+  limit = SEARCH_RESULT_CAP,
+  locale = getLocale(),
+  options = {},
+) {
+  const check = validateSearchQuery(String(pattern ?? '').replace(/%/g, ''));
+  if (!check.valid) return { data: [], error: new Error(check.error) };
+  const like = check.pattern;
+  const catalog = {
+    includeReady: Boolean(options.includeReady),
+    publishedOnly: Boolean(options.publishedOnly) && !options.includeReady,
+  };
+
+  const run = (withPublisher) =>
+    fetchSearchRows(
+      () => {
+        const parts = [`${GAME_STRUCT.developer}.ilike.${quoteFilterValue(like)}`];
+        if (withPublisher) {
+          parts.push(`${GAME_STRUCT.publisher}.ilike.${quoteFilterValue(like)}`);
+        }
+        return applyGuideCatalogFilter(
+          supabase
+            .from(TABLES.games)
+            .select(getGameSelect())
+            .or(parts.join(','))
+            .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
+          catalog,
+        );
+      },
+      capSearchLimit(limit),
+    );
+
+  let { data, error } = await run(hasPublisherColumn());
+  if (error && demoteMissingPublisher(error)) {
+    ({ data, error } = await run(false));
+  }
+  if (error) return { data: [], error };
   return { data: mergeGameRows(data, locale), error: null };
 }
 
