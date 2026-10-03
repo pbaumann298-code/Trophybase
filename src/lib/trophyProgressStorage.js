@@ -5,9 +5,13 @@
 
 const STORAGE_PREFIX = 'tb_unlocked_trophies:';
 
-function storageKey(gameId) {
+export function unlockedTrophyStorageKey(gameId) {
   const id = String(gameId ?? '').trim();
   return id ? `${STORAGE_PREFIX}${id}` : '';
+}
+
+function storageKey(gameId) {
+  return unlockedTrophyStorageKey(gameId);
 }
 
 function compactUnlockedMap(items, earnedIds) {

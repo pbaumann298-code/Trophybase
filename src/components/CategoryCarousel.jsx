@@ -48,7 +48,7 @@ function CategoryCarousel({
 
   const renderTile = (g, index) => {
     const routeSlug = getRouteSlug(g);
-    const watchlistGameId = getGameUuid(g) || routeSlug;
+    const watchlistGameId = getGameUuid(g);
     const title = getGameTitle(g, globalLocale);
     const cover = getGameCover(g, globalLocale);
     const consoleLabel = g[GAME_FIELDS.console] ?? '';

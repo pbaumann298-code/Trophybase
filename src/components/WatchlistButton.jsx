@@ -32,8 +32,12 @@ function WatchlistButton({
 
     setHint('');
     setBusy(true);
-    const result = await toggleWatchlist(gameId);
-    setBusy(false);
+    let result;
+    try {
+      result = await toggleWatchlist(gameId);
+    } finally {
+      setBusy(false);
+    }
 
     if (result.error) {
       setHint(result.error.message || 'Watchlist konnte nicht aktualisiert werden.');

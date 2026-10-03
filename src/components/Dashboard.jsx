@@ -13,6 +13,7 @@ import {
 import { useVisibility } from '../context/VisibilityContext';
 import { useWatchlist } from '../context/WatchlistContext';
 import { useLocale } from '../context/LocaleContext';
+import { canonicalizeWatchlistIds, watchlistIdsEqual } from '../lib/localWatchlist';
 
 function Dashboard({ openGame }) {
   const { globalLocale, t } = useLocale();
@@ -20,7 +21,7 @@ function Dashboard({ openGame }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { toggleHidden, isHidden, getEntryState, gameKey } = useVisibility();
-  const { watchlistIdList, version } = useWatchlist();
+  const { watchlistIdList, version, replaceWatchlistIds } = useWatchlist();
 
   useEffect(() => {
     let cancelled = false;
@@ -29,6 +30,13 @@ function Dashboard({ openGame }) {
       const ids = watchlistIdList.filter((id) => parseRouteGameRef(id).valid);
       if (ids.length === 0) {
         if (!cancelled) {
+          if (watchlistIdList.length > 0) {
+            try {
+              replaceWatchlistIds([]);
+            } catch {
+              /* Quota – Slugs bleiben bis zum nächsten erfolgreichen Schreibversuch */
+            }
+          }
           setItems([]);
           setError(null);
           setLoading(false);
@@ -63,17 +71,31 @@ function Dashboard({ openGame }) {
         for (const npwr of getPlatformGameIds(game)) byRef.set(npwr, game);
       }
 
-      const merged = ids
-        .map((id) => {
-          const game = byRef.get(id) ?? null;
-          if (!game) return null;
-          return {
-            gameUuid: getGameUuid(game) || id,
-            routeSlug: getRouteSlug(game) || id,
-            game,
-          };
-        })
-        .filter(Boolean);
+      const seenGames = new Set();
+      const merged = [];
+      for (const id of ids) {
+        const game = byRef.get(id);
+        if (!game) continue;
+        const gameUuid = getGameUuid(game) || id;
+        if (seenGames.has(gameUuid)) continue;
+        seenGames.add(gameUuid);
+        merged.push({
+          gameUuid,
+          routeSlug: getRouteSlug(game) || id,
+          game,
+        });
+      }
+
+      const canonical = canonicalizeWatchlistIds(watchlistIdList, (id) =>
+        getGameUuid(byRef.get(id)),
+      );
+      if (!watchlistIdsEqual(canonical, watchlistIdList)) {
+        try {
+          replaceWatchlistIds(canonical);
+        } catch {
+          /* Quota – Anzeige nutzt trotzdem die aufgelösten Spiele */
+        }
+      }
 
       setItems(merged);
       setLoading(false);
@@ -83,7 +105,7 @@ function Dashboard({ openGame }) {
     return () => {
       cancelled = true;
     };
-  }, [watchlistIdList, version, globalLocale]);
+  }, [watchlistIdList, version, globalLocale, replaceWatchlistIds]);
 
   const handleOpenGame = async (item) => {
     if (item.game) {

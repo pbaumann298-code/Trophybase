@@ -13,7 +13,9 @@ export const COMPLETED_ITEMS_STORAGE_KEY = 'tb_completed_guide_items';
 export const HIDDEN_IDS_STORAGE_KEY = 'tb_hidden_ids';
 
 const MIGRATION_STORAGE_KEY = 'tb_guide_key_migration';
-const MIGRATION_VERSION = '2';
+/** 2 = Reiter-Präfixe entfernt. 3 = Legacy-Blob in Spiel-Shards aufgeteilt (oder leer). */
+const PREFIX_MIGRATION_VERSION = '2';
+const SHARD_MIGRATION_VERSION = '3';
 
 /** Präfixe aus assignStableIds / mapGuideRows / mapBossRows */
 const TAB_PREFIX_PATTERN = /^(?:walkthrough|collectible|boss|guide-s\d+)-/;
@@ -89,15 +91,33 @@ let alreadyRun = false;
  * aufgerufen, weil der Sichtbarkeits-Store bereits beim Modul-Import
  * initialisiert wird.
  */
+function prefixMigrationDone() {
+  const version = localStorage.getItem(MIGRATION_STORAGE_KEY);
+  return version === PREFIX_MIGRATION_VERSION || version === SHARD_MIGRATION_VERSION;
+}
+
+/**
+ * Legacy-Blob `tb_completed_guide_items` ist leer bzw. wurde in
+ * `tb_guide_progress:{gameId}` übernommen.
+ */
+export function noteLegacyGuideProgressDrained() {
+  try {
+    localStorage.removeItem(COMPLETED_ITEMS_STORAGE_KEY);
+    localStorage.setItem(MIGRATION_STORAGE_KEY, SHARD_MIGRATION_VERSION);
+  } catch {
+    /* Speicher voll oder nicht verfügbar */
+  }
+}
+
 export function runGuideKeyMigration() {
   if (alreadyRun) return;
   alreadyRun = true;
 
   try {
-    if (localStorage.getItem(MIGRATION_STORAGE_KEY) === MIGRATION_VERSION) return;
+    if (prefixMigrationDone()) return;
     migrateCompletedItems();
     migrateHiddenIds();
-    localStorage.setItem(MIGRATION_STORAGE_KEY, MIGRATION_VERSION);
+    localStorage.setItem(MIGRATION_STORAGE_KEY, PREFIX_MIGRATION_VERSION);
   } catch {
     /* Kein localStorage (SSR o. Ä.) – nächster Start versucht es erneut */
   }

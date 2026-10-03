@@ -3,6 +3,8 @@ import { HIDDEN_IDS_STORAGE_KEY, runGuideKeyMigration } from './guideKeyMigratio
 const HIDDEN_IDS_KEY = HIDDEN_IDS_STORAGE_KEY;
 const DISPLAY_MODE_KEY = 'tb_hidden_display_mode';
 
+export const DISPLAY_MODE_STORAGE_KEY = DISPLAY_MODE_KEY;
+
 export const VISIBILITY_MODE = {
   /** Ausgeblendete Einträge bleiben sichtbar, aber ausgegraut */
   DIM: 'dim',
@@ -31,7 +33,11 @@ function readHiddenIds() {
 }
 
 function writeHiddenIds(set) {
-  localStorage.setItem(HIDDEN_IDS_KEY, JSON.stringify([...set]));
+  try {
+    localStorage.setItem(HIDDEN_IDS_KEY, JSON.stringify([...set]));
+  } catch {
+    /* Speicher voll oder nicht verfügbar */
+  }
 }
 
 export function loadDisplayMode() {
@@ -44,7 +50,11 @@ export function loadDisplayMode() {
 }
 
 export function saveDisplayMode(mode) {
-  localStorage.setItem(DISPLAY_MODE_KEY, mode);
+  try {
+    localStorage.setItem(DISPLAY_MODE_KEY, mode);
+  } catch {
+    /* Speicher voll oder nicht verfügbar */
+  }
 }
 
 export function createVisibilityStore() {
@@ -88,6 +98,11 @@ export function createVisibilityStore() {
     },
     getSnapshot() {
       return { displayMode, hiddenCount: hiddenIds.size };
+    },
+    reloadFromStorage() {
+      hiddenIds = readHiddenIds();
+      displayMode = loadDisplayMode();
+      notify();
     },
   };
 }

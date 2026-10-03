@@ -97,7 +97,8 @@ function SearchResultsPage({
           {renderPager()}
           <div className="flex flex-col gap-4">
             {paged.items.map((g, i) => {
-              const watchlistId = getGameUuid(g) || getRouteSlug(g);
+              const gameUuid = getGameUuid(g);
+              const watchlistId = gameUuid || getRouteSlug(g);
               const title = getGameTitle(g, globalLocale);
               const cover = getGameCover(g, globalLocale);
               const href = gameGuidePath(g, globalLocale);
@@ -138,7 +139,7 @@ function SearchResultsPage({
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <GuideOnlineBadge game={g} visible={isAdmin} size="md" />
                         <WatchlistButton
-                          gameId={watchlistId}
+                          gameId={gameUuid}
                           onRequestLogin={onRequestLogin}
                           size="md"
                         />

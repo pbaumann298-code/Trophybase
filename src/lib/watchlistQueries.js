@@ -30,6 +30,29 @@ export async function fetchWatchlistGameIds(supabase, userId) {
 }
 
 /**
+ * Legt die Zeile nur an, wenn sie fehlt. Bestehenden progress_percent nicht zurücksetzen.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} userId
+ * @param {string} gameId games.id (UUID)
+ */
+export async function ensureGameOnWatchlist(supabase, userId, gameId) {
+  if (!userId || !gameId) {
+    return { data: null, error: new Error('Anmeldung und Spiel-ID erforderlich') };
+  }
+
+  const { data: existing, error: readError } = await supabase
+    .from(TABLES.watchlist)
+    .select('id')
+    .eq('user_id', userId)
+    .eq(GAME_FK, gameId)
+    .maybeSingle();
+
+  if (readError) return { data: null, error: readError };
+  if (existing) return { data: existing, error: null };
+  return addGameToWatchlist(supabase, userId, gameId);
+}
+
+/**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} userId
  * @param {string} gameId games.id (UUID)

@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { HIDDEN_IDS_STORAGE_KEY } from '../lib/guideKeyMigration';
 import {
+  DISPLAY_MODE_STORAGE_KEY,
   VISIBILITY_MODE,
   createVisibilityStore,
   gameVisibilityKey,
@@ -20,6 +22,15 @@ export function VisibilityProvider({ children }) {
       }),
     [],
   );
+
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key !== HIDDEN_IDS_STORAGE_KEY && event.key !== DISPLAY_MODE_STORAGE_KEY) return;
+      store.reloadFromStorage();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const value = useMemo(
     () => ({

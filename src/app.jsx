@@ -52,14 +52,18 @@ import { getGameUuid } from './lib/gameModel';
 import { applyGameSeoLinks, applyHomeSeo, applyPathCanonical, clearGameSeoLinks } from './lib/seoHead';
 import { isGameIndexable } from './lib/guidePublication';
 import {
-  loadCompletedGuideItems,
+  claimCompletedGuideItems,
+  collectGuideProgressIds,
+  guideProgressStorageKey,
   loadHideCompleted,
+  readCompletedGuideItems,
   saveCompletedGuideItems,
   saveHideCompleted,
 } from './lib/guideProgressStorage';
 import {
   mergeUnlockedTrophies,
   saveUnlockedTrophies,
+  unlockedTrophyStorageKey,
 } from './lib/trophyProgressStorage';
 import { ErrorReportProvider } from './context/ErrorReportContext';
 import { WatchlistProvider } from './context/WatchlistContext';
@@ -109,7 +113,7 @@ function App() {
   const [unlockedTrophies, setUnlockedTrophies] = useState({});
   const [earnedTrophyIds, setEarnedTrophyIds] = useState(() => new Set());
   const [hideCompleted, setHideCompleted] = useState(loadHideCompleted);
-  const [completedGuideItems, setCompletedGuideItems] = useState(loadCompletedGuideItems);
+  const [completedGuideItems, setCompletedGuideItems] = useState({});
   const [activeTab, setActiveTab] = useState(
     () => parseGuideTabParam(window.location.search) ?? DEFAULT_GUIDE_TAB,
   );
@@ -248,7 +252,14 @@ function App() {
       setChapterItems(chapters);
       setGuideItems(guides);
       setBossItems(bosses);
+      setCompletedGuideItems(
+        claimCompletedGuideItems(
+          gameUuid,
+          collectGuideProgressIds(chapters, guides, bosses),
+        ),
+      );
     } else {
+      setCompletedGuideItems({});
       setGuideLoadError({
         ref: pretty ? `${pretty.hardware}/${pretty.slug}` : legacyRef,
         detail: gameError?.message ?? null,
@@ -496,6 +507,12 @@ function App() {
       setChapterItems(chapters);
       setGuideItems(guides);
       setBossItems(bosses);
+      setCompletedGuideItems(
+        claimCompletedGuideItems(
+          gameUuid,
+          collectGuideProgressIds(chapters, guides, bosses),
+        ),
+      );
     }
     setLoadingGuide(false);
   };
@@ -512,13 +529,32 @@ function App() {
   };
 
   const toggleGuideItemCompleted = (id) => {
+    const gameUuid = getGameUuid(selectedGame);
     setCompletedGuideItems((prev) => {
       const next = { ...prev, [id]: !prev[id] };
       if (!next[id]) delete next[id];
-      saveCompletedGuideItems(next);
+      saveCompletedGuideItems(gameUuid, next);
       return next;
     });
   };
+
+  useEffect(() => {
+    const gameUuid = getGameUuid(selectedGame);
+    if (!gameUuid) return undefined;
+
+    const onStorage = (event) => {
+      if (event.key === guideProgressStorageKey(gameUuid)) {
+        setCompletedGuideItems(readCompletedGuideItems(gameUuid));
+        return;
+      }
+      if (event.key === unlockedTrophyStorageKey(gameUuid)) {
+        setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedTrophyIds));
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [selectedGame, earnedTrophyIds]);
 
   const completedCount = useMemo(() => {
     const earned = countEarnedInList(activeTrophies, earnedTrophyIds);

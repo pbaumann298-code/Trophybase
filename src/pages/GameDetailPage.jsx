@@ -275,10 +275,7 @@ function GamePageContent({
     return map;
   }, [activeTrophies]);
 
-  const watchlistGameId = useMemo(
-    () => getGameUuid(selectedGame) || resolveGameId(selectedGame),
-    [selectedGame],
-  );
+  const watchlistGameId = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
 
   const gameId = watchlistGameId;
 

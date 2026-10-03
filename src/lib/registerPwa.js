@@ -1,8 +1,15 @@
-/** Registriert den Service Worker nur im Production-Build. */
+/** Persistent Storage anfragen und Service Worker nur im Production-Build registrieren. */
 
 export function registerPwa() {
-  if (!import.meta.env.PROD) return;
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  if (typeof window === 'undefined' || !import.meta.env.PROD) return;
+
+  if (navigator.storage?.persist) {
+    navigator.storage.persist().catch(() => {
+      /* Browser lehnt persist() ab oder API unvollständig */
+    });
+  }
+
+  if (!('serviceWorker' in navigator)) return;
 
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((err) => {

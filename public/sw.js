@@ -94,7 +94,8 @@ async function networkOnly(request) {
 async function navigationFallback(request) {
   try {
     const response = await fetch(request);
-    if (response && response.ok) return response;
+    // 404/500 durchreichen – nur echter Netzwerkabbruch gilt als offline.
+    if (response) return response;
   } catch {
     /* offline */
   }
