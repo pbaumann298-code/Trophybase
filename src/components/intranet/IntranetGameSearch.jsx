@@ -1,19 +1,8 @@
 import { useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
-import { getPlatformGameIds } from '../../lib/gameModel';
-import {
-  INTRANET_GAME_LIMIT,
-  formatIntranetTitles,
-  intranetGameHref,
-  searchIntranetGames,
-} from '../../lib/intranetQueries';
-import {
-  PIPELINE_PRESETS,
-  PIPELINE_STATUS_KEYS,
-  embedCount,
-  formatPipelineStatus,
-  pipelineStatusValue,
-} from '../../lib/gamePipelineStatus';
+import { INTRANET_GAME_LIMIT, searchIntranetGames } from '../../lib/intranetQueries';
+import { PIPELINE_PRESETS, PIPELINE_STATUS_KEYS } from '../../lib/gamePipelineStatus';
+import IntranetGameTable from './IntranetGameTable';
 
 const FIELD_CLASS =
   'bg-[#121314] border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-200 focus:outline-hidden focus:border-[#00ff66]/40 w-full';
@@ -54,7 +43,7 @@ function Field({ id, label, value, onChange, placeholder = '', type = 'text' }) 
   );
 }
 
-function IntranetGameSearch() {
+function IntranetGameSearch({ sessionUser }) {
   const [filters, setFilters] = useState(emptyFilters);
   const [results, setResults] = useState([]);
   const [count, setCount] = useState(0);
@@ -102,8 +91,8 @@ function IntranetGameSearch() {
         <h2 className="text-lg font-bold text-white mb-1">Spiele</h2>
         <p className="text-sm text-zinc-500 max-w-3xl leading-relaxed">
           Komplette <span className="text-zinc-400 font-mono">games</span>-Tabelle, ohne Filter
-          nach Veröffentlichung. Pipeline-Status kommt aus <span className="font-mono">games.status</span>.
-          Leere Felder werden ignoriert. Ohne jedes Feld: bis zu {INTRANET_GAME_LIMIT} Einträge.
+          nach Veröffentlichung. Spieltyp und einzelne Status-Werte lassen sich direkt in der
+          Zeile ändern. Leere Felder werden ignoriert. Ohne jedes Feld: bis zu {INTRANET_GAME_LIMIT} Einträge.
         </p>
       </div>
 
@@ -206,88 +195,15 @@ function IntranetGameSearch() {
       )}
 
       {hasSearched && results.length > 0 && (
-        <div className="overflow-x-auto rounded-2xl border border-zinc-800">
-          <table className="min-w-full text-left text-xs">
-            <thead className="bg-[#121314] text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-              <tr>
-                <th className="px-3 py-2.5 font-medium">spieltitel</th>
-                <th className="px-3 py-2.5 font-medium">ecosystem</th>
-                <th className="px-3 py-2.5 font-medium">hardware</th>
-                <th className="px-3 py-2.5 font-medium">platform_game_id</th>
-                <th className="px-3 py-2.5 font-medium">release_jahr</th>
-                <th className="px-3 py-2.5 font-medium">upcoming_date</th>
-                <th className="px-3 py-2.5 font-medium">entwickler</th>
-                <th className="px-3 py-2.5 font-medium">publisher</th>
-                <th className="px-3 py-2.5 font-medium">genre</th>
-                <th className="px-3 py-2.5 font-medium">spiel_typ</th>
-                <th className="px-3 py-2.5 font-medium">discovery</th>
-                <th className="px-3 py-2.5 font-medium">trophies</th>
-                <th className="px-3 py-2.5 font-medium">guides</th>
-                <th className="px-3 py-2.5 font-medium">guide_de</th>
-                <th className="px-3 py-2.5 font-medium">#Troph</th>
-                <th className="px-3 py-2.5 font-medium">#Guide</th>
-                <th className="px-3 py-2.5 font-medium">status</th>
-                <th className="px-3 py-2.5 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.map((game) => {
-                const href = intranetGameHref(game);
-                return (
-                  <tr key={game.id} className="border-t border-zinc-800/80 odd:bg-[#1a1b1c] even:bg-[#161718]">
-                    <td className="px-3 py-2 text-zinc-200 max-w-[18rem]">{formatIntranetTitles(game.spieltitel)}</td>
-                    <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.ecosystem || '—'}</td>
-                    <td className="px-3 py-2 text-sky-300 whitespace-nowrap">{game.hardware || '—'}</td>
-                    <td className="px-3 py-2 font-mono text-zinc-500 whitespace-nowrap">{getPlatformGameIds(game).join(', ') || '—'}</td>
-                    <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{game.release_jahr || '—'}</td>
-                    <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.upcoming_date || '—'}</td>
-                    <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.entwickler || '—'}</td>
-                    <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.publisher || '—'}</td>
-                    <td className="px-3 py-2 text-zinc-400 max-w-[12rem]">{game.genre || '—'}</td>
-                    <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.spiel_typ || '—'}</td>
-                    <td className="px-3 py-2 font-mono text-[10px] text-zinc-400 whitespace-nowrap">
-                      {pipelineStatusValue(game.status, 'discovery') || '—'}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-[10px] text-zinc-400 whitespace-nowrap">
-                      {pipelineStatusValue(game.status, 'trophies') || '—'}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-[10px] text-zinc-400 whitespace-nowrap">
-                      {pipelineStatusValue(game.status, 'guides') || '—'}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-[10px] text-amber-300/90 whitespace-nowrap">
-                      {pipelineStatusValue(game.status, 'guide_de') || '—'}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
-                      {embedCount(game.game_achievements) ?? '—'}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
-                      {embedCount(game.game_guides) ?? '—'}
-                    </td>
-                    <td className="px-3 py-2 max-w-[22rem]">
-                      <span className="text-[10px] font-mono tracking-wide text-[#00ff66]/90 break-words">
-                        {formatPipelineStatus(game.status)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {href ? (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[10px] font-bold uppercase tracking-wider text-[#00ff66] hover:underline"
-                        >
-                          Öffnen
-                        </a>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <IntranetGameTable
+          games={results}
+          sessionUser={sessionUser}
+          onGamePatch={(gameId, partial) => {
+            setResults((prev) => prev.map((game) => (
+              game.id === gameId ? { ...game, ...partial } : game
+            )));
+          }}
+        />
       )}
 
       {hasSearched && !loading && results.length === 0 && !errorMessage && (

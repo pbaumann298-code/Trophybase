@@ -132,6 +132,34 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
   return { data: data ?? [], count: count ?? (data ?? []).length, error: null };
 }
 
+/**
+ * Lädt Intranet-Zeilen für bekannte Spiel-UUIDs, ohne Veröffentlichungsfilter.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string[]} ids
+ */
+export async function fetchIntranetGamesByIds(supabase, ids) {
+  const unique = [...new Set((ids ?? []).map((id) => String(id ?? '').trim()).filter(Boolean))];
+  if (!unique.length) return { data: [], error: null };
+
+  let result = await fetchRowsByIds(
+    supabase,
+    TABLES.games,
+    INTRANET_GAME_SELECT_WITH_COUNTS,
+    GAME_PK,
+    unique,
+  );
+  if (result.error) {
+    result = await fetchRowsByIds(supabase, TABLES.games, INTRANET_GAME_SELECT, GAME_PK, unique);
+  }
+  if (result.error) return { data: [], error: result.error };
+
+  const byId = new Map((result.data ?? []).map((game) => [game[GAME_PK], game]));
+  return {
+    data: unique.map((id) => byId.get(id)).filter(Boolean),
+    error: null,
+  };
+}
+
 const CREATOR_SELECT = 'id, channel_name, youtube_url';
 
 function normalizeCreatorRow(row) {

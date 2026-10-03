@@ -4,6 +4,8 @@ import { getSessionOrTimeout, isAdminUser } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch';
+import IntranetFollowups from '../components/intranet/IntranetFollowups';
+import { useAdminFollowups } from '../hooks/useAdminFollowups';
 
 class IntranetErrorBoundary extends Component {
   constructor(props) {
@@ -29,6 +31,7 @@ class IntranetErrorBoundary extends Component {
 
 const TABS = [
   { id: 'games', label: 'Spiele', icon: '🎮' },
+  { id: 'followups', label: 'Wiedervorlage', icon: '⚑' },
   { id: 'creators', label: 'Creator', icon: '▶' },
 ];
 
@@ -38,6 +41,7 @@ function IntranetApp() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState('games');
+  const followups = useAdminFollowups(sessionUser?.id);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,6 +172,11 @@ function IntranetApp() {
             >
               <span aria-hidden>{tab.icon}</span>
               {tab.label}
+              {tab.id === 'followups' && followups.length > 0 ? (
+                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
+                  {followups.length}
+                </span>
+              ) : null}
             </button>
           ))}
         </nav>
@@ -175,7 +184,8 @@ function IntranetApp() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <IntranetErrorBoundary>
-          {activeTab === 'games' && <IntranetGameSearch />}
+          {activeTab === 'games' && <IntranetGameSearch sessionUser={sessionUser} />}
+          {activeTab === 'followups' && <IntranetFollowups sessionUser={sessionUser} />}
           {activeTab === 'creators' && <IntranetCreatorSearch />}
         </IntranetErrorBoundary>
       </main>

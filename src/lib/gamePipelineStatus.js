@@ -60,13 +60,33 @@ export function pipelineStatusValue(value, key) {
  * @param {unknown} value
  */
 export function formatPipelineStatus(value) {
-  const map = parseStatusMap(value);
-  const parts = PIPELINE_STATUS_KEYS.map(({ key }) => {
-    const raw = map[key];
-    if (raw == null || raw === '') return null;
-    return `${key}=${String(raw).trim()}`;
-  }).filter(Boolean);
+  const parts = listPipelineStatusEntries(value).map(({ key, value: raw }) => `${key}=${raw}`);
   return parts.length > 0 ? parts.join(' · ') : '—';
+}
+
+/**
+ * Alle gesetzten Status-Schlüssel, bekannte Pipeline-Keys zuerst.
+ * @param {unknown} value
+ * @returns {{ key: string, value: string }[]}
+ */
+export function listPipelineStatusEntries(value) {
+  const map = parseStatusMap(value);
+  const known = new Set(PIPELINE_STATUS_KEYS.map((entry) => entry.key));
+  const entries = [];
+
+  for (const { key } of PIPELINE_STATUS_KEYS) {
+    const raw = map[key];
+    if (raw == null || String(raw).trim() === '') continue;
+    entries.push({ key, value: String(raw).trim() });
+  }
+
+  for (const [key, raw] of Object.entries(map)) {
+    if (known.has(key)) continue;
+    if (raw == null || String(raw).trim() === '') continue;
+    entries.push({ key, value: String(raw).trim() });
+  }
+
+  return entries;
 }
 
 function applyStatusEq(query, key, value) {

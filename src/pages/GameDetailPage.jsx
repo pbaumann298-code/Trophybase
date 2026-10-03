@@ -10,6 +10,7 @@ import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
 import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
 import WatchlistButton from '../components/WatchlistButton';
 import GuidePublishButton from '../components/GuidePublishButton';
+import AdminFollowupButton from '../components/AdminFollowupButton';
 import GuideOnlineBadge from '../components/GuideOnlineBadge';
 import PortraitGuideHint from '../components/PortraitGuideHint';
 import GuideTabBar from '../components/GuideTabBar';
@@ -642,6 +643,7 @@ function GamePageContent({
                     })
                   }
                 />
+                <AdminFollowupButton user={sessionUser} gameId={gameUuid} title={gameTitle} />
               </div>
             </div>
 

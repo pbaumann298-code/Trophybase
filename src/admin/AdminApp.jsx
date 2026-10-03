@@ -145,7 +145,7 @@ function AdminApp() {
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {activeTab === 'website' && <WebsitePanel />}
-        {activeTab === 'database' && <IntranetGameSearch />}
+        {activeTab === 'database' && <IntranetGameSearch sessionUser={sessionUser} />}
         {activeTab === 'reports' && <CommunityReportsPanel />}
         {activeTab === 'scripts' && <ScriptsPanel />}
       </main>
