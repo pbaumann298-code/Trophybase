@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import { isAdminUser } from '../lib/adminAccess';
 import { GAME_STRUCT, GAME_TYPE } from '../lib/gameSchema';
 import { setIntranetGameType } from '../lib/intranetGameEdits';
+import { fetchHomeTagDefs, orderHomeTags, readHomeTags, setEditorialHomeTags } from '../lib/homeTagDefs';
+import HomeTagChecks from './HomeTagChecks';
 import {
   canPublishLocale,
   isGuidePublished,
@@ -37,14 +39,39 @@ function GuidePublishButton({
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState('');
   const [hintTone, setHintTone] = useState('ok');
-  const [typePrompt, setTypePrompt] = useState(false);
+  const [publishPrompt, setPublishPrompt] = useState(false);
+  const [tagDefs, setTagDefs] = useState([]);
+  const [selectedType, setSelectedType] = useState('');
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [tagsLoaded, setTagsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!publishPrompt) return undefined;
+    let cancelled = false;
+    setTagsLoaded(false);
+    fetchHomeTagDefs(supabase).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        setHintTone('error');
+        setHint(error.message || 'home_tag_defs konnten nicht geladen werden.');
+        setTagDefs([]);
+        setTagsLoaded(false);
+        return;
+      }
+      setTagDefs(data);
+      setTagsLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [publishPrompt]);
 
   if (!isAdminUser(user) || !gameUuid || !canPublishLocale(guideLang)) return null;
 
   const published = isGuidePublished(game, PUBLISH_LOCALE);
   const knownType = GAME_TYPES.includes(currentGameType(game));
 
-  const publish = async (gameType) => {
+  const publish = async ({ gameType = null, homeTags = null } = {}) => {
     setHint('');
     setBusy(true);
 
@@ -59,6 +86,18 @@ function GuidePublishButton({
       }
       savedType = saved.gameType;
       onGameTypeChange?.(savedType);
+    }
+
+    let savedTags = null;
+    if (Array.isArray(homeTags)) {
+      const saved = await setEditorialHomeTags(supabase, gameUuid, homeTags, tagDefs);
+      if (saved.error) {
+        setBusy(false);
+        setHintTone('error');
+        setHint(saved.error.message || 'Home-Tags konnten nicht gespeichert werden.');
+        return;
+      }
+      savedTags = saved.homeTags;
     }
 
     const { status, slug, error } = await setGuidePublished(
@@ -79,23 +118,35 @@ function GuidePublishButton({
       return;
     }
 
-    setTypePrompt(false);
-    onPublishedChange?.(status, { slug, gameType: savedType });
+    setPublishPrompt(false);
+    onPublishedChange?.(status, { slug, gameType: savedType, homeTags: savedTags });
     setHintTone('ok');
     setHint(published ? `${LANG_LABEL} wieder offline.` : `${LANG_LABEL} ist online.`);
     window.setTimeout(() => setHint(''), 2600);
   };
 
   const handleClick = () => {
-    if (!published && !knownType) {
-      setTypePrompt(true);
+    if (published) {
+      publish();
       return;
     }
-    publish(null);
+    setSelectedType(knownType ? currentGameType(game) : '');
+    setSelectedTags(readHomeTags(game));
+    setPublishPrompt(true);
   };
 
-  const handleTypeChoice = (gameType) => {
-    publish(gameType);
+  const handleConfirmPublish = () => {
+    const typeToSave = knownType ? null : selectedType;
+    if (!knownType && !GAME_TYPES.includes(selectedType)) return;
+    publish({ gameType: typeToSave, homeTags: orderHomeTags(tagDefs, selectedTags) });
+  };
+
+  const toggleTag = (slug) => {
+    setSelectedTags((current) => (
+      current.includes(slug)
+        ? current.filter((value) => value !== slug)
+        : [...current, slug]
+    ));
   };
 
   return (
@@ -130,7 +181,7 @@ function GuidePublishButton({
           {hint}
         </span>
       )}
-      {typePrompt && (
+      {publishPrompt && (
         <div
           className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4"
           role="dialog"
@@ -139,33 +190,68 @@ function GuidePublishButton({
         >
           <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-[#1a1b1c] p-5 shadow-2xl">
             <h2 id="publish-type-title" className="text-sm font-bold text-white">
-              Spieltyp fehlt
+              {knownType ? 'Home-Tags' : 'Spieltyp fehlt'}
             </h2>
             <p className="mt-2 text-xs leading-relaxed text-zinc-400">
-              Vor der Freigabe Quickwin, Evergreen, Premium oder Standard wählen.
-              Ohne Typ bleibt die Guide-Logik der Seite unklar.
+              {knownType
+                ? 'Tags aus home_tag_defs anhaken. Mehrere sind erlaubt. Ohne Haken bleibt das Spiel aus den Themenreihen.'
+                : 'Vor der Freigabe einen Spieltyp setzen. Die Home-Tags darunter kannst du gleich mit anhaken.'}
             </p>
-            <div className="mt-4 flex flex-col gap-2">
-              {GAME_TYPES.map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => handleTypeChoice(type)}
-                  className="rounded-xl border border-zinc-700 px-3 py-2.5 text-left text-xs font-mono font-bold uppercase tracking-wider text-zinc-200 hover:border-[#00ff66]/40 hover:text-[#00ff66] disabled:opacity-50"
-                >
-                  {type}
-                </button>
-              ))}
+            {knownType ? (
+              <p className="mt-3 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                Spieltyp: <span className="text-zinc-200">{currentGameType(game)}</span>
+              </p>
+            ) : (
+              <div className="mt-4 flex flex-col gap-2">
+                {GAME_TYPES.map((type) => {
+                  const selected = type === selectedType;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setSelectedType(type)}
+                      className={`rounded-xl border px-3 py-2.5 text-left text-xs font-mono font-bold uppercase tracking-wider disabled:opacity-50 ${
+                        selected
+                          ? 'border-[#00ff66]/40 bg-[#00ff66]/10 text-[#00ff66]'
+                          : 'border-zinc-700 text-zinc-200 hover:border-[#00ff66]/40 hover:text-[#00ff66]'
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="mt-4 max-h-64 overflow-y-auto border-t border-zinc-800 pt-3">
+              <p className="mb-2 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
+                home_tag_defs
+              </p>
+              <HomeTagChecks
+                defs={tagDefs}
+                selected={selectedTags}
+                disabled={busy}
+                onToggle={toggleTag}
+              />
             </div>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setTypePrompt(false)}
-              className="mt-3 text-[10px] font-mono uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
-            >
-              Abbrechen
-            </button>
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setPublishPrompt(false)}
+                className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                disabled={busy || !tagsLoaded || (!knownType && !GAME_TYPES.includes(selectedType))}
+                onClick={handleConfirmPublish}
+                className="rounded-xl bg-[#00ff66] px-4 py-2 text-[10px] font-mono font-bold uppercase tracking-wider text-[#121314] disabled:opacity-50"
+              >
+                {busy ? 'Speichert…' : `${LANG_LABEL} freigeben`}
+              </button>
+            </div>
           </div>
         </div>
       )}

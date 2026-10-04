@@ -297,6 +297,9 @@ function GamePageContent({
       ...(publicationOverride.gameType
         ? { [GAME_STRUCT.gameType]: publicationOverride.gameType }
         : {}),
+      ...(Array.isArray(publicationOverride.homeTags)
+        ? { [GAME_STRUCT.homeTags]: publicationOverride.homeTags }
+        : {}),
     };
   }, [selectedGame, publicationOverride, gameUuid]);
 
@@ -646,6 +649,7 @@ function GamePageContent({
                       status: prev?.uuid === gameUuid ? prev.status : undefined,
                       slug: prev?.uuid === gameUuid ? prev.slug : null,
                       gameType,
+                      homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
                     }))
                   }
                   onPublishedChange={(status, extra) =>
@@ -654,6 +658,9 @@ function GamePageContent({
                       status,
                       slug: extra?.slug ?? null,
                       gameType: extra?.gameType || (prev?.uuid === gameUuid ? prev.gameType : null),
+                      homeTags: Array.isArray(extra?.homeTags)
+                        ? extra.homeTags
+                        : (prev?.uuid === gameUuid ? prev.homeTags : undefined),
                     }))
                   }
                 />

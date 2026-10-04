@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { getPlatformGameIds } from '../../lib/gameModel';
 import { GAME_TYPE } from '../../lib/gameSchema';
@@ -9,6 +9,8 @@ import {
   pipelineStatusValue,
 } from '../../lib/gamePipelineStatus';
 import { removeIntranetStatusKey, setIntranetGameType } from '../../lib/intranetGameEdits';
+import { fetchHomeTagDefs, orderHomeTags, readHomeTags, setEditorialHomeTags } from '../../lib/homeTagDefs';
+import HomeTagChecks from '../HomeTagChecks';
 import { toggleAdminFollowup } from '../../lib/adminFollowups';
 import { useAdminFollowups } from '../../hooks/useAdminFollowups';
 
@@ -87,6 +89,23 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
   const followedIds = new Set(followups.map((entry) => entry.id));
   const [busyKey, setBusyKey] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [tagDefs, setTagDefs] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchHomeTagDefs(supabase).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        setErrorMessage(error.message || 'home_tag_defs konnten nicht geladen werden.');
+        setTagDefs([]);
+        return;
+      }
+      setTagDefs(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const patch = (gameId, partial) => {
     onGamePatch?.(gameId, partial);
@@ -103,6 +122,24 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
       return;
     }
     patch(game.id, { spiel_typ: saved });
+  };
+
+  const handleTags = async (game, slug) => {
+    const current = readHomeTags(game);
+    const next = current.includes(slug)
+      ? current.filter((value) => value !== slug)
+      : [...current, slug];
+    const ordered = orderHomeTags(tagDefs, next);
+    const key = `${game.id}:tags`;
+    setBusyKey(key);
+    setErrorMessage('');
+    const { homeTags, error } = await setEditorialHomeTags(supabase, game.id, ordered, tagDefs);
+    setBusyKey('');
+    if (error) {
+      setErrorMessage(error.message || 'Home-Tags konnten nicht gespeichert werden.');
+      return;
+    }
+    patch(game.id, { home_tags: homeTags, home_tags_locked: true });
   };
 
   const handleRemoveStatus = async (game, statusKey, value) => {
@@ -158,6 +195,7 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
               <th className="px-3 py-2.5 font-medium">publisher</th>
               <th className="px-3 py-2.5 font-medium">genre</th>
               <th className="px-3 py-2.5 font-medium">spiel_typ</th>
+              <th className="px-3 py-2.5 font-medium">home_tags</th>
               <th className="px-3 py-2.5 font-medium">discovery</th>
               <th className="px-3 py-2.5 font-medium">trophies</th>
               <th className="px-3 py-2.5 font-medium">guides</th>
@@ -197,6 +235,15 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
                       game={game}
                       busy={busyKey === `${game.id}:type`}
                       onSelect={(gameType) => handleType(game, gameType)}
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <HomeTagChecks
+                      defs={tagDefs}
+                      selected={readHomeTags(game)}
+                      disabled={busyKey === `${game.id}:tags`}
+                      onToggle={(slug) => handleTags(game, slug)}
+                      wrap
                     />
                   </td>
                   {STATUS_COLUMNS.map((column) => {

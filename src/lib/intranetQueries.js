@@ -28,6 +28,7 @@ export const INTRANET_GAME_SELECT = [
   GAME_STRUCT.publisher,
   GAME_STRUCT.genre,
   GAME_STRUCT.gameType,
+  GAME_STRUCT.homeTags,
   GAME_STRUCT.status,
   GAME_I18N.title,
   GAME_STRUCT.slug,

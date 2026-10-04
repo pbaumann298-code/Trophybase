@@ -94,8 +94,9 @@ function IntranetGameSearch({ sessionUser }) {
         <h2 className="text-lg font-bold text-white mb-1">Spiele</h2>
         <p className="text-sm text-zinc-500 max-w-3xl leading-relaxed">
           Komplette <span className="text-zinc-400 font-mono">games</span>-Tabelle, ohne Filter
-          nach Veröffentlichung. Spieltyp und einzelne Status-Werte lassen sich direkt in der
-          Zeile ändern. Leere Felder werden ignoriert. Ohne jedes Feld: bis zu {INTRANET_GAME_LIMIT} Einträge.
+          nach Veröffentlichung. Spieltyp, Home-Tags und einzelne Status-Werte lassen sich direkt
+          in der Zeile ändern. Die Tags kommen aus <span className="text-zinc-400 font-mono">home_tag_defs</span>.
+          Leere Felder werden ignoriert. Ohne jedes Feld: bis zu {INTRANET_GAME_LIMIT} Einträge.
         </p>
       </div>
 
