@@ -82,24 +82,24 @@ function GameSeoInfobox({ title, description, creator = null, creators = null })
         )}
 
         {(credit || withYoutube.length > 0) && (
-          <div className={`${paragraphs.length > 0 ? 'mt-5 pt-5 border-t border-zinc-800/80' : ''} space-y-3`}>
+          <div className={paragraphs.length > 0 ? 'mt-5 pt-5 border-t border-zinc-800/80' : ''}>
             {credit ? (
               <p className="text-sm leading-relaxed text-red-400/90">{credit}</p>
             ) : null}
             {withYoutube.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
+              <div className={`flex flex-wrap gap-2 ${credit ? 'mt-4' : ''}`}>
                 {withYoutube.map((item) => (
                   <a
                     key={item.id || item.youtubeUrl}
                     href={item.youtubeUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#ff0000] hover:bg-[#e00000] text-white text-xs font-bold uppercase tracking-wider px-4 py-2.5 transition"
+                    className="inline-flex items-center gap-3 rounded-xl bg-[#ff0000] hover:bg-[#e00000] text-white text-xs font-bold uppercase tracking-wider px-4 py-2.5 transition"
                   >
                     <YoutubeIcon />
-                    {t('creatorYoutube')}
+                    <span>{t('creatorYoutube')}</span>
                     {item.channelName ? (
-                      <span className="normal-case tracking-normal font-semibold opacity-95">
+                      <span className="ml-1.5 normal-case tracking-normal font-semibold opacity-95">
                         {item.channelName}
                       </span>
                     ) : null}

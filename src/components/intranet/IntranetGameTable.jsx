@@ -178,7 +178,15 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
                   <td className="px-3 py-2 text-zinc-200 max-w-[18rem]">{formatIntranetTitles(game.spieltitel)}</td>
                   <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.ecosystem || '—'}</td>
                   <td className="px-3 py-2 text-sky-300 whitespace-nowrap">{game.hardware || '—'}</td>
-                  <td className="px-3 py-2 font-mono text-zinc-500 whitespace-nowrap">{getPlatformGameIds(game).join(', ') || '—'}</td>
+                  <td className="px-3 py-2 font-mono text-[10px] text-zinc-500">
+                    {getPlatformGameIds(game).length > 0 ? (
+                      <div className="flex flex-col gap-0.5">
+                        {getPlatformGameIds(game).map((id) => (
+                          <span key={id} className="whitespace-nowrap">{id}</span>
+                        ))}
+                      </div>
+                    ) : '—'}
+                  </td>
                   <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{game.release_jahr || '—'}</td>
                   <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.upcoming_date || '—'}</td>
                   <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.entwickler || '—'}</td>

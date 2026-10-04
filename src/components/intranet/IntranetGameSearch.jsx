@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
-import { INTRANET_GAME_LIMIT, searchIntranetGames } from '../../lib/intranetQueries';
+import { GAME_TYPE } from '../../lib/gameSchema';
+import { INTRANET_GAME_LIMIT, INTRANET_GAME_TYPE_EMPTY, searchIntranetGames } from '../../lib/intranetQueries';
 import { PIPELINE_PRESETS, PIPELINE_STATUS_KEYS } from '../../lib/gamePipelineStatus';
 import IntranetGameTable from './IntranetGameTable';
 
@@ -108,7 +109,23 @@ function IntranetGameSearch({ sessionUser }) {
         <Field id="in-up" label="upcoming_date" value={filters.upcomingDate} onChange={updateField('upcomingDate')} />
         <Field id="in-dev" label="entwickler / publisher" value={filters.developer} onChange={updateField('developer')} />
         <Field id="in-genre" label="genre" value={filters.genre} onChange={updateField('genre')} />
-        <Field id="in-type" label="spiel_typ" value={filters.gameType} onChange={updateField('gameType')} />
+        <label className="flex flex-col gap-1.5 min-w-0">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
+            spiel_typ
+          </span>
+          <select
+            id="in-type"
+            value={filters.gameType}
+            onChange={updateField('gameType')}
+            className={FIELD_CLASS}
+          >
+            <option value="">Alle Typen</option>
+            {Object.values(GAME_TYPE).map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+            <option value={INTRANET_GAME_TYPE_EMPTY}>Leer</option>
+          </select>
+        </label>
 
         <label className="flex flex-col gap-1.5 min-w-0 sm:col-span-2 lg:col-span-3">
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">

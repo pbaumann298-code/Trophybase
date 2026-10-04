@@ -6,12 +6,16 @@ import {
   GAME_I18N,
   GAME_FK,
   GAME_CREATOR_MAP,
+  GAME_TYPE,
 } from './gameSchema';
 import { validateSearchQuery } from './gameQueries';
 import { applyPipelineStatusFilters } from './gamePipelineStatus';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 
 export const INTRANET_GAME_LIMIT = 400;
+
+/** Filterwert für spiel_typ null oder leer. */
+export const INTRANET_GAME_TYPE_EMPTY = 'empty';
 
 export const INTRANET_GAME_SELECT = [
   GAME_PK,
@@ -82,7 +86,7 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
   const upcoming = textFilter(filters.upcomingDate);
   const developer = textFilter(filters.developer);
   const genre = textFilter(filters.genre);
-  const gameType = textFilter(filters.gameType);
+  const gameType = String(filters.gameType ?? '').trim();
 
   const yearRaw = String(filters.releaseYear ?? '').trim();
   const year = /^\d{4}$/.test(yearRaw) ? Number(yearRaw) : null;
@@ -106,7 +110,11 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
       );
     }
     if (genre.valid) query = query.ilike(GAME_STRUCT.genre, genre.pattern);
-    if (gameType.valid) query = query.ilike(GAME_STRUCT.gameType, gameType.pattern);
+    if (gameType === INTRANET_GAME_TYPE_EMPTY) {
+      query = query.or(`${GAME_STRUCT.gameType}.is.null,${GAME_STRUCT.gameType}.eq.""`);
+    } else if (Object.values(GAME_TYPE).includes(gameType)) {
+      query = query.eq(GAME_STRUCT.gameType, gameType);
+    }
     query = applyPipelineStatusFilters(query, filters);
 
     return query

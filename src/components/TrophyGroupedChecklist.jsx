@@ -197,7 +197,6 @@ function TrophyGroupedChecklist({
         <CollapsibleSectionCard
           sectionId="trophies-main"
           title={mainGameTitle}
-          subtitle="Hauptspiel-Trophäen"
           badge={`${mainProgress}/${mainGame.length} freigeschaltet`}
           defaultOpen
           accent="green"
@@ -226,7 +225,6 @@ function TrophyGroupedChecklist({
             key={dlc.gruppe}
             sectionId={`trophies-dlc-${dlc.gruppe}`}
             title={dlc.title}
-            subtitle={`DLC · Gruppe ${dlc.gruppe}`}
             badge={`${dlcProgress}/${dlc.trophies.length} · ${dlc.trophies.length} Trophäen`}
             defaultOpen={false}
             accent="purple"

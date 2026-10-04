@@ -79,7 +79,7 @@ export const UI_STRINGS = {
     watchlistEmpty:
       'Noch keine Spiele auf deiner Watchlist. Markiere Spiele mit dem ☆-Symbol in den Kategorien oder auf der Spieleseite.',
     creatorCredit:
-      'Dieser Guide nutzt Inhalte aus den wunderbaren Videos von {name}. Wenn du die Videos von {name} genauso zu schätzen weißt wie wir, lass doch bitte ein Abo da. Jede Unterstützung hilft, um noch mehr tolle Inhalte zu erstellen!',
+      'Dieser Guide nutzt Inhalte aus den Videos von {name}. Wenn du die Videos von {name} genauso zu schätzen weißt wie wir, lass doch bitte ein Abo da. Jede Unterstützung hilft, um noch mehr tolle Inhalte zu erstellen!',
     creatorYoutube: 'YouTube',
   },
   en: {

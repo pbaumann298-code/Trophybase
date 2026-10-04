@@ -227,8 +227,14 @@ function IntranetCreatorSearch() {
                             </span>
                           </td>
                           <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.spiel_typ || '—'}</td>
-                          <td className="px-3 py-2 font-mono text-zinc-600 whitespace-nowrap">
-                            {getPlatformGameIds(game).join(', ') || '—'}
+                          <td className="px-3 py-2 font-mono text-[10px] text-zinc-600">
+                            {getPlatformGameIds(game).length > 0 ? (
+                              <div className="flex flex-col gap-0.5">
+                                {getPlatformGameIds(game).map((id) => (
+                                  <span key={id} className="whitespace-nowrap">{id}</span>
+                                ))}
+                              </div>
+                            ) : '—'}
                           </td>
                           <td className="px-3 py-2 whitespace-nowrap">
                             {href ? (

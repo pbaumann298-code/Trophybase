@@ -290,8 +290,13 @@ function GamePageContent({
     if (!publicationOverride || publicationOverride.uuid !== gameUuid) return selectedGame;
     return {
       ...selectedGame,
-      [GAME_STRUCT.status]: publicationOverride.status,
+      ...(publicationOverride.status != null
+        ? { [GAME_STRUCT.status]: publicationOverride.status }
+        : {}),
       slug: publicationOverride.slug || selectedGame.slug,
+      ...(publicationOverride.gameType
+        ? { [GAME_STRUCT.gameType]: publicationOverride.gameType }
+        : {}),
     };
   }, [selectedGame, publicationOverride, gameUuid]);
 
@@ -451,7 +456,7 @@ function GamePageContent({
             onlineTrophyIds={onlineTrophyIds}
             hideCompleted={hideCompleted}
             onToggle={toggleTrophy}
-            mainGameTitle={`Hauptspiel · ${gameTitle}`}
+            mainGameTitle={gameTitle || 'Hauptspiel'}
           />
         </div>
       )}
@@ -635,12 +640,21 @@ function GamePageContent({
                   game={gameForPublication}
                   gameUuid={gameUuid}
                   guideLang={effectiveGuideLang}
+                  onGameTypeChange={(gameType) =>
+                    setPublicationOverride((prev) => ({
+                      uuid: gameUuid,
+                      status: prev?.uuid === gameUuid ? prev.status : undefined,
+                      slug: prev?.uuid === gameUuid ? prev.slug : null,
+                      gameType,
+                    }))
+                  }
                   onPublishedChange={(status, extra) =>
-                    setPublicationOverride({
+                    setPublicationOverride((prev) => ({
                       uuid: gameUuid,
                       status,
                       slug: extra?.slug ?? null,
-                    })
+                      gameType: extra?.gameType || (prev?.uuid === gameUuid ? prev.gameType : null),
+                    }))
                   }
                 />
                 <AdminFollowupButton user={sessionUser} gameId={gameUuid} title={gameTitle} />
