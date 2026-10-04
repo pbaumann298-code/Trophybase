@@ -8,8 +8,6 @@ import {
   searchIntranetCreators,
 } from '../../lib/intranetQueries';
 
-const CREATOR_GAMES_SHOWN = 80;
-
 const FIELD_CLASS =
   'bg-[#121314] border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-200 focus:outline-hidden focus:border-[#00ff66]/40 w-full';
 
@@ -210,7 +208,7 @@ function IntranetCreatorSearch() {
                     </tr>
                   </thead>
                   <tbody>
-                    {creator.games.slice(0, CREATOR_GAMES_SHOWN).map((game) => {
+                    {creator.games.map((game) => {
                       const href = intranetGameHref(game);
                       return (
                         <tr key={`${creator.id}-${game.id}-${game.contentType}`} className="border-t border-zinc-800/80">
@@ -253,11 +251,6 @@ function IntranetCreatorSearch() {
                     })}
                   </tbody>
                 </table>
-                {creator.games.length > CREATOR_GAMES_SHOWN ? (
-                  <p className="px-5 py-3 text-[11px] font-mono text-zinc-500">
-                    {creator.games.length - CREATOR_GAMES_SHOWN} weitere Spiele nicht angezeigt.
-                  </p>
-                ) : null}
               </div>
             )}
           </article>
