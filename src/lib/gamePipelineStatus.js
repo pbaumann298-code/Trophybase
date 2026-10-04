@@ -100,16 +100,33 @@ function applyStatusMissing(query, key) {
 }
 
 /**
+ * „ist nicht“ schließt den Wert aus und behält Zeilen, in denen der Schlüssel fehlt.
+ * `neq` allein würde NULL verwerfen.
+ */
+function applyStatusNeq(query, key, value) {
+  const wanted = String(value ?? '').trim();
+  if (!wanted) return query;
+  return query.filter(statusFilterColumn(key), 'isdistinct', wanted);
+}
+
+export const STATUS_FILTER_MODES = [
+  { id: 'eq', label: 'ist' },
+  { id: 'neq', label: 'ist nicht' },
+  { id: 'missing', label: 'fehlt' },
+];
+
+/**
  * Filter auf einzelne JSONB-Schlüssel. Presets und freie Key/Value-Paare
  * werden UND-verknüpft.
  * @param {object} query supabase-Query
- * @param {{ preset?: string, statusKey?: string, statusValue?: string }} filters
+ * @param {{ preset?: string, statusKey?: string, statusValue?: string, statusMode?: string }} filters
  */
 export function applyPipelineStatusFilters(query, filters = {}) {
   let next = query;
   const preset = String(filters.preset ?? '').trim();
   const statusKey = String(filters.statusKey ?? '').trim();
   const statusValue = String(filters.statusValue ?? '').trim();
+  const statusMode = String(filters.statusMode ?? 'eq').trim() || 'eq';
 
   if (preset === 'stuck_discovery') {
     next = applyStatusEq(next, 'discovery', 'DISCOVERED');
@@ -124,7 +141,11 @@ export function applyPipelineStatusFilters(query, filters = {}) {
     next = applyStatusEq(next, 'guide_de', 'PUBLISHED');
   }
 
-  if (statusKey && statusValue) {
+  if (statusKey && statusMode === 'missing') {
+    next = applyStatusMissing(next, statusKey);
+  } else if (statusKey && statusValue && statusMode === 'neq') {
+    next = applyStatusNeq(next, statusKey, statusValue);
+  } else if (statusKey && statusValue) {
     next = applyStatusEq(next, statusKey, statusValue);
   }
 

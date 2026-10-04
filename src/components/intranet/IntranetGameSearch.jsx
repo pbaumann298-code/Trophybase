@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { GAME_TYPE } from '../../lib/gameSchema';
 import { INTRANET_GAME_LIMIT, INTRANET_GAME_TYPE_EMPTY, searchIntranetGames } from '../../lib/intranetQueries';
-import { PIPELINE_PRESETS, PIPELINE_STATUS_KEYS } from '../../lib/gamePipelineStatus';
+import { PIPELINE_PRESETS, PIPELINE_STATUS_KEYS, STATUS_FILTER_MODES } from '../../lib/gamePipelineStatus';
 import IntranetGameTable from './IntranetGameTable';
 
 const FIELD_CLASS =
@@ -21,13 +21,14 @@ function emptyFilters() {
     gameType: '',
     preset: '',
     statusKey: '',
+    statusMode: 'eq',
     statusValue: '',
   };
 }
 
-function Field({ id, label, value, onChange, placeholder = '', type = 'text' }) {
+function Field({ id, label, value, onChange, placeholder = '', type = 'text', disabled = false }) {
   return (
-    <label className="flex flex-col gap-1.5 min-w-0">
+    <label className={`flex flex-col gap-1.5 min-w-0 ${disabled ? 'opacity-50' : ''}`}>
       <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
         {label}
       </span>
@@ -38,6 +39,7 @@ function Field({ id, label, value, onChange, placeholder = '', type = 'text' }) 
         onChange={onChange}
         placeholder={placeholder}
         autoComplete="off"
+        disabled={disabled}
         className={FIELD_CLASS}
       />
     </label>
@@ -173,12 +175,30 @@ function IntranetGameSearch({ sessionUser }) {
             ))}
           </select>
         </label>
+        <label className="flex flex-col gap-1.5 min-w-0">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
+            status-vergleich
+          </span>
+          <select
+            id="in-status-mode"
+            value={filters.statusMode}
+            onChange={updateField('statusMode')}
+            className={FIELD_CLASS}
+          >
+            {STATUS_FILTER_MODES.map((mode) => (
+              <option key={mode.id} value={mode.id}>
+                {mode.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <Field
           id="in-status-val"
           label="status-wert"
           value={filters.statusValue}
           onChange={updateField('statusValue')}
-          placeholder="DISCOVERED, PROCESSED, FERTIG…"
+          placeholder={filters.statusMode === 'missing' ? 'wird bei „fehlt“ ignoriert' : 'DISCOVERED, PROCESSED, FERTIG…'}
+          disabled={filters.statusMode === 'missing'}
         />
 
         <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap gap-2 pt-1">
