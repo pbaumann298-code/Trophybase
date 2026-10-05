@@ -30,7 +30,7 @@ import { loadRelatedGuides } from '../lib/relatedGames';
 import { fetchGameGuideBundle, resolveGameId, resolveGuideLanguage } from '../lib/guideQueries';
 import { isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished, PUBLISH_LOCALE } from '../lib/guidePublication';
-import { clearIntranetCover } from '../lib/intranetGameEdits';
+import { clearIntranetCover, setIntranetIgdbCover } from '../lib/intranetGameEdits';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
   getGameCover,
@@ -102,9 +102,11 @@ function GamePageContent({
   // Nach dem Freigeben sofort umschalten, ohne das Spiel neu zu laden. Die UUID
   // hängt mit dran, damit der Wert beim Spielwechsel nicht fälschlich greift.
   const [publicationOverride, setPublicationOverride] = useState(null);
-  const [coverCleared, setCoverCleared] = useState(false);
+  const [coverOverride, setCoverOverride] = useState(null);
   const [coverBusy, setCoverBusy] = useState(false);
   const [coverError, setCoverError] = useState('');
+  const [igdbPrompt, setIgdbPrompt] = useState(false);
+  const [igdbLink, setIgdbLink] = useState('');
   const { notifyVideoCleared } = useGuideVideo();
 
   useEffect(() => {
@@ -131,8 +133,10 @@ function GamePageContent({
 
   useEffect(() => {
     setGuideLanguageOverride(null);
-    setCoverCleared(false);
+    setCoverOverride(null);
     setCoverError('');
+    setIgdbPrompt(false);
+    setIgdbLink('');
   }, [selectedGame?.id, selectedGame?.platform_game_id]);
 
   useEffect(() => {
@@ -356,7 +360,17 @@ function GamePageContent({
   const isGuideLoading = guidesLoading || loadingGuide;
 
   const gameTitle = getGameTitle(selectedGame, globalLocale);
-  const gameCover = coverCleared ? '' : getGameCover(selectedGame, globalLocale);
+  const gameCover = coverOverride === null ? getGameCover(selectedGame, globalLocale) : coverOverride;
+
+  const rememberCoverStatus = (status) => {
+    setPublicationOverride((prev) => ({
+      uuid: gameUuid,
+      status,
+      slug: prev?.uuid === gameUuid ? prev.slug : null,
+      gameType: prev?.uuid === gameUuid ? prev.gameType : null,
+      homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
+    }));
+  };
 
   const handleClearCover = async () => {
     if (!gameUuid || coverBusy) return;
@@ -371,14 +385,26 @@ function GamePageContent({
       setCoverError(error.message || 'Cover konnte nicht gelöscht werden.');
       return;
     }
-    setCoverCleared(true);
-    setPublicationOverride((prev) => ({
-      uuid: gameUuid,
-      status,
-      slug: prev?.uuid === gameUuid ? prev.slug : null,
-      gameType: prev?.uuid === gameUuid ? prev.gameType : null,
-      homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
-    }));
+    setCoverOverride('');
+    rememberCoverStatus(status);
+  };
+
+  const handleSaveIgdbLink = async (event) => {
+    event.preventDefault();
+    if (!gameUuid || coverBusy) return;
+
+    setCoverBusy(true);
+    setCoverError('');
+    const { coverUrl, status, error } = await setIntranetIgdbCover(supabase, gameUuid, igdbLink);
+    setCoverBusy(false);
+    if (error) {
+      setCoverError(error.message || 'IGDB-Link konnte nicht gespeichert werden.');
+      return;
+    }
+    setCoverOverride(coverUrl);
+    setIgdbPrompt(false);
+    setIgdbLink('');
+    rememberCoverStatus(status);
   };
   const gameDescription = getGameDescription(selectedGame, globalLocale);
 
@@ -658,23 +684,91 @@ function GamePageContent({
           <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none">
             <GuideOnlineBadge game={gameForPublication} visible={isAdmin} size="md" />
           </div>
-          {isAdmin && gameCover ? (
-            <button
-              type="button"
-              onClick={handleClearCover}
-              disabled={coverBusy}
-              title="Cover löschen und status.igdb entfernen"
-              className="absolute top-2.5 right-2.5 z-10 rounded-lg border border-red-500/40 bg-black/75 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-red-300 hover:bg-red-500/20 disabled:opacity-50"
-            >
-              {coverBusy ? '…' : 'Löschen'}
-            </button>
+          {isAdmin ? (
+            <div className="absolute top-2.5 right-2.5 z-10 flex flex-col items-end gap-1">
+              {gameCover ? (
+                <button
+                  type="button"
+                  onClick={handleClearCover}
+                  disabled={coverBusy}
+                  title="Cover löschen und status.igdb entfernen"
+                  className="rounded-lg border border-red-500/40 bg-black/75 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+                >
+                  {coverBusy ? '…' : 'Löschen'}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setCoverError('');
+                  setIgdbPrompt(true);
+                }}
+                disabled={coverBusy}
+                title="Neuen IGDB-Bildlink als Cover setzen"
+                className="rounded-lg border border-[#00ff66]/40 bg-black/75 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-[#00ff66] hover:bg-[#00ff66]/15 disabled:opacity-50"
+              >
+                IGDB-Link
+              </button>
+            </div>
           ) : null}
-          {coverError ? (
+          {coverError && !igdbPrompt ? (
             <p className="absolute inset-x-2 bottom-2 z-10 rounded-lg bg-black/80 px-2 py-1 text-[10px] font-mono text-red-300">
               {coverError}
             </p>
           ) : null}
         </div>
+        {igdbPrompt ? (
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="igdb-link-title"
+          >
+            <form
+              onSubmit={handleSaveIgdbLink}
+              className="w-full max-w-md rounded-2xl border border-zinc-700 bg-[#1a1b1c] p-5 shadow-2xl"
+            >
+              <h2 id="igdb-link-title" className="text-sm font-bold text-white">
+                Neuer IGDB-Link
+              </h2>
+              <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+                Bildlink von images.igdb.com einfügen. Der ersetzt das Cover und hält den IGDB-Status auf erledigt, damit der nächste Lauf ihn nicht wieder überschreibt.
+              </p>
+              <input
+                type="text"
+                inputMode="url"
+                value={igdbLink}
+                onChange={(event) => setIgdbLink(event.target.value)}
+                placeholder="https://images.igdb.com/igdb/image/upload/…"
+                autoFocus
+                className="mt-4 w-full rounded-xl border border-zinc-700 bg-[#121314] px-3 py-2 text-sm text-zinc-200 focus:border-[#00ff66]/40 focus:outline-hidden"
+              />
+              {coverError ? (
+                <p className="mt-2 text-[11px] font-mono text-red-300">{coverError}</p>
+              ) : null}
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  disabled={coverBusy}
+                  onClick={() => {
+                    setIgdbPrompt(false);
+                    setCoverError('');
+                  }}
+                  className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="submit"
+                  disabled={coverBusy || !igdbLink.trim()}
+                  className="rounded-xl bg-[#00ff66] px-4 py-2 text-[10px] font-mono font-bold uppercase tracking-wider text-[#121314] disabled:opacity-50"
+                >
+                  {coverBusy ? 'Speichert…' : 'Setzen'}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
 
         <div className="flex-grow w-full min-w-0 flex flex-col justify-between h-full pt-2">
           <div>

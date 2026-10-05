@@ -78,6 +78,94 @@ export async function removeIntranetStatusKey(supabase, gameId, statusKey) {
 }
 
 /**
+ * IGDB-Bildlink auf die große Cover-Variante bringen.
+ * Akzeptiert images.igdb.com-URLs und nackte Bild-IDs wie co2l7t.
+ * @param {string} input
+ * @returns {string|null}
+ */
+export function parseIgdbCoverUrl(input) {
+  const raw = String(input ?? '').trim();
+  if (!raw) return null;
+
+  const bare = raw.match(/^[a-z0-9]{4,}$/i);
+  if (bare) {
+    return `https://images.igdb.com/igdb/image/upload/t_1080p/${bare[0]}.jpg`;
+  }
+
+  const withProtocol = raw.startsWith('//') ? `https:${raw}` : raw;
+  let parsed;
+  try {
+    parsed = new URL(withProtocol);
+  } catch {
+    return null;
+  }
+
+  const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+  if (host !== 'images.igdb.com') return null;
+
+  const match = parsed.pathname.match(
+    /\/upload\/(?:t_[a-z0-9_]+\/)?([a-z0-9]+)\.(?:jpe?g|png|webp)$/i,
+  );
+  if (!match) return null;
+  return `https://images.igdb.com/igdb/image/upload/t_1080p/${match[1]}.jpg`;
+}
+
+/**
+ * Setzt das Cover aus einem IGDB-Bildlink und markiert status.igdb als COMPLETED,
+ * damit der nächste Pipeline-Lauf dieses Cover nicht wieder ersetzt.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {string} imageUrl
+ */
+export async function setIntranetIgdbCover(supabase, gameId, imageUrl) {
+  const id = String(gameId ?? '').trim();
+  const coverUrl = parseIgdbCoverUrl(imageUrl);
+  if (!id) return { coverUrl: null, status: null, error: new Error('Kein Spiel ausgewählt.') };
+  if (!coverUrl) {
+    return {
+      coverUrl: null,
+      status: null,
+      error: new Error('Bitte einen Bildlink von images.igdb.com einfügen.'),
+    };
+  }
+
+  const { data: current, error: readError } = await supabase
+    .from(TABLES.games)
+    .select(`${GAME_STRUCT.status}, ${GAME_I18N.coverUrl}`)
+    .eq(GAME_PK, id)
+    .maybeSingle();
+
+  if (readError) return { coverUrl: null, status: null, error: readError };
+
+  const statusMap = { ...parseStatusMap(current?.[GAME_STRUCT.status]) };
+  statusMap.igdb = 'COMPLETED';
+  delete statusMap.igdb_reason;
+
+  const existing = current?.[GAME_I18N.coverUrl];
+  const cover = existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {};
+  for (const key of Object.keys(cover)) cover[key] = coverUrl;
+  cover.de = coverUrl;
+  cover.en = coverUrl;
+
+  const { data, error } = await supabase
+    .from(TABLES.games)
+    .update({
+      [GAME_I18N.coverUrl]: cover,
+      [GAME_STRUCT.status]: statusMap,
+    })
+    .eq(GAME_PK, id)
+    .select(GAME_STRUCT.status)
+    .maybeSingle();
+
+  if (error) return { coverUrl: null, status: null, error };
+  return {
+    coverUrl,
+    status: parseStatusMap(data?.[GAME_STRUCT.status] ?? statusMap),
+    error: null,
+  };
+}
+
+/**
  * Entfernt das Cover und den Pipeline-Schlüssel status.igdb.
  * Die übrigen Status-Werte, inklusive guide_de, bleiben stehen.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
