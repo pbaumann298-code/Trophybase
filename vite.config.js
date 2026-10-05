@@ -7,6 +7,7 @@ import { countryToLocale } from './shared/countryLocaleMap.js';
 import { handleSitemapRequest } from './server/sitemap.js';
 import { handleGuideRequest } from './server/guidePage.js';
 import { parsePrettyGuidePath } from './server/prettyPath.js';
+import { isCrawler } from './shared/crawler.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -72,6 +73,12 @@ function devApiPlugin(env) {
         }
 
         if (parsePrettyGuidePath(url.pathname)) {
+          // Browser-Reload der Pretty-URL muss die App starten. Nur Crawler
+          // bekommen das statische Guide-HTML.
+          if (!isCrawler(req.headers['user-agent'])) {
+            next();
+            return;
+          }
           try {
             await sendWebResponse(res, await handleGuideRequest(url));
           } catch (error) {

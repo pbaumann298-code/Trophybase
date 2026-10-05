@@ -8,7 +8,7 @@ export default defineConfig([
   globalIgnores(['dist']),
   {
     // Build- und Serverdateien laufen in Node, nicht im Browser.
-    files: ['vite.config.js', 'eslint.config.js', 'api/**/*.js', 'scripts/**/*.{js,mjs}'],
+    files: ['vite.config.js', 'eslint.config.js', 'middleware.js', 'api/**/*.js', 'scripts/**/*.{js,mjs}'],
     languageOptions: { globals: globals.node },
   },
   {

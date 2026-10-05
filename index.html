@@ -84,6 +84,11 @@
               'Die Anwendung wurde nicht vollstaendig ausgeliefert. Bitte versuche es spaeter erneut.';
             box.appendChild(titel);
             box.appendChild(text);
+            var link = document.createElement('a');
+            link.href = '/';
+            link.textContent = 'Zur Startseite';
+            link.style.cssText = 'color:#00ff66;font-weight:700';
+            box.appendChild(link);
             if (ersterFehler) {
               var details = document.createElement('p');
               details.style.cssText =

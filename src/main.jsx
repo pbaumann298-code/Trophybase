@@ -6,7 +6,9 @@ import { VisibilityProvider } from './context/VisibilityContext.jsx'
 import { LocaleProvider } from './context/LocaleContext.jsx'
 import { MediaConsentProvider } from './context/MediaConsentContext.jsx'
 import { registerPwa } from './lib/registerPwa.js'
+import { anchorReloadInApp } from './lib/reloadHistory.js'
 
+anchorReloadInApp()
 registerPwa()
 
 createRoot(document.getElementById('root')).render(
