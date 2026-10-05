@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { CollectibleKacheln, BossKacheln } from './CollectibleKacheln';
 import GameSeoInfobox from '../components/GameSeoInfobox';
+import AdminGameOverview from '../components/AdminGameOverview';
 import GuideLanguageSelector from '../components/GuideLanguageSelector';
 import GuideBreadcrumb from '../components/GuideBreadcrumb';
 import RelatedGuides from '../components/RelatedGuides';
@@ -107,6 +108,7 @@ function GamePageContent({
   const [coverError, setCoverError] = useState('');
   const [igdbPrompt, setIgdbPrompt] = useState(false);
   const [igdbLink, setIgdbLink] = useState('');
+  const [playtime, setPlaytime] = useState(null);
   const { notifyVideoCleared } = useGuideVideo();
 
   useEffect(() => {
@@ -330,6 +332,34 @@ function GamePageContent({
   useEffect(() => {
     return () => setAvailableLocales(DEFAULT_AVAILABLE_LOCALES);
   }, [setAvailableLocales]);
+
+  useEffect(() => {
+    if (!isAdmin || !gameUuid) {
+      setPlaytime(null);
+      return undefined;
+    }
+    let cancelled = false;
+    supabase
+      .from('games')
+      .select('spielzeit_hauptstory, spielzeit_nebeninhalte, spielzeit_komplettierer, spielzeit_dlc')
+      .eq('id', gameUuid)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled || error) {
+          if (!cancelled) setPlaytime(null);
+          return;
+        }
+        setPlaytime({
+          hauptstory: data?.spielzeit_hauptstory ?? null,
+          neben: data?.spielzeit_nebeninhalte ?? null,
+          komplett: data?.spielzeit_komplettierer ?? null,
+          dlc: data?.spielzeit_dlc ?? null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, gameUuid]);
 
   useEffect(() => {
     let cancelled = false;
@@ -882,10 +912,17 @@ function GamePageContent({
         </div>
       </div>
 
+      {isAdmin ? (
+        <AdminGameOverview className="mb-8" game={gameForPublication} playtime={playtime} />
+      ) : null}
+
       <GameSeoInfobox
         title={gameTitle}
         description={gameDescription}
         creators={contentCreators}
+        overview={isAdmin ? (
+          <AdminGameOverview game={gameForPublication} playtime={playtime} />
+        ) : null}
       />
 
       <section ref={guideSectionRef} className="mt-8 w-full min-w-0">
