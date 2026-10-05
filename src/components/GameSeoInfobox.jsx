@@ -11,7 +11,7 @@ function YoutubeIcon() {
   );
 }
 
-function GameSeoInfobox({ title, description, creator = null, creators = null, overview = null }) {
+function GameSeoInfobox({ title, description, creator = null, creators = null }) {
   const { globalLocale, t } = useLocale();
   const text = typeof description === 'string' ? description.trim() : '';
   const list = (Array.isArray(creators) ? creators : [creator]).filter(Boolean);
@@ -42,7 +42,7 @@ function GameSeoInfobox({ title, description, creator = null, creators = null, o
         : `${names.slice(0, -1).join(', ')} ${andWord} ${names[names.length - 1]}`;
   const credit = nameLabel ? t('creatorCredit').replaceAll('{name}', nameLabel) : '';
 
-  if (!text && !credit && withYoutube.length === 0 && !overview) return null;
+  if (!text && !credit && withYoutube.length === 0) return null;
 
   const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
 
@@ -81,12 +81,8 @@ function GameSeoInfobox({ title, description, creator = null, creators = null, o
           </div>
         )}
 
-        {overview ? (
-          <div className={paragraphs.length > 0 ? 'mt-5' : ''}>{overview}</div>
-        ) : null}
-
         {(credit || withYoutube.length > 0) && (
-          <div className={paragraphs.length > 0 || overview ? 'mt-5 pt-5 border-t border-zinc-800/80' : ''}>
+          <div className={paragraphs.length > 0 ? 'mt-5 pt-5 border-t border-zinc-800/80' : ''}>
             {credit ? (
               <p className="text-sm leading-relaxed text-white">{credit}</p>
             ) : null}

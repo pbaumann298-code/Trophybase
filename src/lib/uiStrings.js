@@ -81,8 +81,8 @@ export const UI_STRINGS = {
     creatorCredit:
       'Dieser Guide nutzt Inhalte aus den Videos von {name}. Wenn du die Videos von {name} genauso zu schätzen weißt wie wir, lass doch bitte ein Abo da. Jede Unterstützung hilft, um noch mehr tolle Inhalte zu erstellen!',
     creatorYoutube: 'YouTube',
-    gameOverview: 'Spielüberblick',
-    gameOverviewPrototype: 'Prototyp',
+    platinGuide: 'Platin-Guide',
+    gameOverview: 'Überblick zum {title} Platin-Guide',
     trophiesTotal: 'Trophäen gesamt',
     trophiesMissable: 'Verpassbare Trophäen',
     trophiesOnline: 'Online-Trophäen',
@@ -173,8 +173,8 @@ export const UI_STRINGS = {
     creatorCredit:
       'This guide uses footage from the wonderful videos by {name}. If you enjoy {name}’s videos as much as we do, please consider subscribing. Every bit of support helps create even more great content!',
     creatorYoutube: 'YouTube',
-    gameOverview: 'Game overview',
-    gameOverviewPrototype: 'Prototype',
+    platinGuide: 'Platinum guide',
+    gameOverview: 'Overview of the {title} platinum guide',
     trophiesTotal: 'Trophies total',
     trophiesMissable: 'Missable trophies',
     trophiesOnline: 'Online trophies',
@@ -265,8 +265,8 @@ export const UI_STRINGS = {
     creatorCredit:
       'Esta guía utiliza imágenes de los vídeos de {name}. Si te gustan tanto como a nosotros, suscríbete. Cada apoyo ayuda a crear aún más contenido.',
     creatorYoutube: 'YouTube',
-    gameOverview: 'Resumen del juego',
-    gameOverviewPrototype: 'Prototipo',
+    platinGuide: 'Guía de platino',
+    gameOverview: 'Resumen de la guía de platino de {title}',
     trophiesTotal: 'Trofeos en total',
     trophiesMissable: 'Trofeos perdibles',
     trophiesOnline: 'Trofeos en línea',

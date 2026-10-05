@@ -804,8 +804,8 @@ function GamePageContent({
           <div>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <span className="text-[10px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-2 py-0.5 rounded-sm font-mono font-bold uppercase tracking-wider">
-                  Spiele Hub
+                <span className="inline-flex items-center rounded-md border border-[#00ff66]/20 bg-[#00ff66]/10 px-2.5 py-1 font-mono text-sm font-bold uppercase tracking-wider text-[#00ff66]">
+                  {t('platinGuide')}
                 </span>
                 <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-2 mb-6">
                   {gameTitle}
@@ -913,16 +913,13 @@ function GamePageContent({
       </div>
 
       {isAdmin ? (
-        <AdminGameOverview className="mb-8" game={gameForPublication} playtime={playtime} />
+        <AdminGameOverview className="mb-8" game={gameForPublication} title={gameTitle} playtime={playtime} />
       ) : null}
 
       <GameSeoInfobox
         title={gameTitle}
         description={gameDescription}
         creators={contentCreators}
-        overview={isAdmin ? (
-          <AdminGameOverview game={gameForPublication} playtime={playtime} />
-        ) : null}
       />
 
       <section ref={guideSectionRef} className="mt-8 w-full min-w-0">

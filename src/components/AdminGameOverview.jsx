@@ -27,19 +27,19 @@ function FactRow({ label, value, emphasize = false }) {
 /**
  * Admin-Prototyp. Zahlen kommen aus games, die Beschriftung aus der Seitensprache.
  */
-function AdminGameOverview({ game, playtime = null, className = '' }) {
+function AdminGameOverview({ game, title = '', playtime = null, className = '' }) {
   const { globalLocale, t } = useLocale();
   if (!game) return null;
 
   const serverDead = String(game[GAME_STRUCT.gameType] ?? '').trim() === GAME_TYPE.SERVER_DEAD;
   const hours = (key) => formatHours(playtime?.[key], globalLocale, t('playtimeHours'));
+  const heading = t('gameOverview').replaceAll('{title}', title || '—');
 
   return (
     <section className={`rounded-2xl border border-zinc-800 bg-[#1a1b1c] px-4 py-3 ${className}`}>
-      <p className="mb-2 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-        {t('gameOverview')}
-        <span className="ml-2 font-normal text-zinc-600">{t('gameOverviewPrototype')}</span>
-      </p>
+      <h3 className="mb-3 text-base font-bold tracking-tight text-white md:text-lg">
+        {heading}
+      </h3>
       {serverDead ? (
         <p className="mb-3 text-sm font-semibold leading-relaxed text-red-500">
           {t('serverDeadPlatinum')}
