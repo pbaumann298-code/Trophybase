@@ -116,6 +116,8 @@ export const GAME_TYPE = {
   EVERGREEN: 'Evergreen',
   PREMIUM: 'Premium',
   STANDARD: 'Standard',
+  /** Online mit Slug, aber nicht in der Sitemap. Einbindung kommt später. */
+  SERVER_DEAD: 'Servertot',
 };
 
 /** Startseiten-Reihen, die nur redaktionelle Guides zeigen (keine Quickwins). */

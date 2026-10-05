@@ -17,9 +17,25 @@ export async function setIntranetGameType(supabase, gameId, gameType) {
     return { gameType: null, error: new Error('Unbekannter Spieltyp.') };
   }
 
+  const { data: current, error: readError } = await supabase
+    .from(TABLES.games)
+    .select(GAME_STRUCT.gameType)
+    .eq(GAME_PK, id)
+    .maybeSingle();
+
+  if (readError) return { gameType: null, error: readError };
+
+  const previousType = String(current?.[GAME_STRUCT.gameType] ?? '').trim();
+  const update = { [GAME_STRUCT.gameType]: nextType };
+  if (nextType === GAME_TYPE.SERVER_DEAD) {
+    update[GAME_STRUCT.isIndexable] = false;
+  } else if (previousType === GAME_TYPE.SERVER_DEAD && nextType !== GAME_TYPE.QUICKWIN) {
+    update[GAME_STRUCT.isIndexable] = true;
+  }
+
   const { data, error } = await supabase
     .from(TABLES.games)
-    .update({ [GAME_STRUCT.gameType]: nextType })
+    .update(update)
     .eq(GAME_PK, id)
     .select(GAME_STRUCT.gameType)
     .maybeSingle();

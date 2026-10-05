@@ -1,4 +1,4 @@
-import { TABLES, GAME_PK, GAME_STRUCT } from './gameSchema.js';
+import { TABLES, GAME_PK, GAME_STRUCT, GAME_TYPE } from './gameSchema.js';
 import { normalizeLocale } from './locale.js';
 import { ensureGameSlug, warmPublishedGuidePages } from './publishSeo.js';
 
@@ -131,7 +131,7 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
 
   const { data: current, error: readError } = await supabase
     .from(TABLES.games)
-    .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.slug}, ${GAME_STRUCT.hardware}`)
+    .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.slug}, ${GAME_STRUCT.hardware}, ${GAME_STRUCT.gameType}`)
     .eq(GAME_PK, uuid)
     .maybeSingle();
 
@@ -142,10 +142,15 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
     ...statusMap,
     [guideStatusKey(lang)]: published ? GUIDE_PUBLICATION.PUBLISHED : GUIDE_PUBLICATION.DONE,
   };
+  const update = { [GAME_STRUCT.status]: nextStatus };
+  const gameType = String(current?.[GAME_STRUCT.gameType] ?? '').trim();
+  if (published && gameType === GAME_TYPE.SERVER_DEAD) {
+    update[GAME_STRUCT.isIndexable] = false;
+  }
 
   const { data, error } = await supabase
     .from(TABLES.games)
-    .update({ [GAME_STRUCT.status]: nextStatus })
+    .update(update)
     .eq(GAME_PK, uuid)
     .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.slug}, ${GAME_STRUCT.hardware}`)
     .maybeSingle();

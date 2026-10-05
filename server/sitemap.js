@@ -1,5 +1,5 @@
 import { SUPPORTED_LOCALES } from '../shared/countryLocaleMap.js';
-import { GAME_STRUCT } from '../src/lib/gameSchema.js';
+import { GAME_STRUCT, GAME_TYPE } from '../src/lib/gameSchema.js';
 import { hardwareToUrlSegment, buildPrettyGamePath } from '../src/lib/gameSlug.js';
 import { GUIDE_PUBLICATION, isGuidePublished } from '../src/lib/guidePublication.js';
 import { getPublicSupabase, publicOrigin } from './publicSupabase.js';
@@ -15,14 +15,18 @@ function xmlWrap(body) {
 async function loadIndexablePublishedGames(supabase) {
   const { data, error } = await supabase
     .from('games')
-    .select(`slug, hardware, ${GAME_STRUCT.createdAt}, ${GAME_STRUCT.status}`)
+    .select(`slug, hardware, ${GAME_STRUCT.gameType}, ${GAME_STRUCT.createdAt}, ${GAME_STRUCT.status}`)
     .not('slug', 'is', null)
     .filter(`${GAME_STRUCT.status}->>guide_de`, 'eq', GUIDE_PUBLICATION.PUBLISHED)
     .or(`${GAME_STRUCT.isIndexable}.is.null,${GAME_STRUCT.isIndexable}.eq.true`)
     .limit(SITEMAP_URL_CAP);
 
   if (error) throw error;
-  return (data ?? []).filter((row) => row?.slug && hardwareToUrlSegment(row.hardware));
+  return (data ?? []).filter((row) => (
+    row?.slug
+    && hardwareToUrlSegment(row.hardware)
+    && row[GAME_STRUCT.gameType] !== GAME_TYPE.SERVER_DEAD
+  ));
 }
 
 function gamesForLocale(games, locale) {
