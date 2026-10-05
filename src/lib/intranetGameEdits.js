@@ -1,4 +1,4 @@
-import { GAME_PK, GAME_STRUCT, GAME_TYPE, TABLES } from './gameSchema';
+import { GAME_I18N, GAME_PK, GAME_STRUCT, GAME_TYPE, TABLES } from './gameSchema';
 import { parseStatusMap } from './guidePublication';
 
 const GAME_TYPE_VALUES = new Set(Object.values(GAME_TYPE));
@@ -69,6 +69,41 @@ export async function removeIntranetStatusKey(supabase, gameId, statusKey) {
   const { data, error } = await supabase
     .from(TABLES.games)
     .update({ [GAME_STRUCT.status]: statusMap })
+    .eq(GAME_PK, id)
+    .select(GAME_STRUCT.status)
+    .maybeSingle();
+
+  if (error) return { status: null, error };
+  return { status: parseStatusMap(data?.[GAME_STRUCT.status] ?? statusMap), error: null };
+}
+
+/**
+ * Entfernt das Cover und den Pipeline-Schlüssel status.igdb.
+ * Die übrigen Status-Werte, inklusive guide_de, bleiben stehen.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ */
+export async function clearIntranetCover(supabase, gameId) {
+  const id = String(gameId ?? '').trim();
+  if (!id) return { status: null, error: new Error('Kein Spiel ausgewählt.') };
+
+  const { data: current, error: readError } = await supabase
+    .from(TABLES.games)
+    .select(GAME_STRUCT.status)
+    .eq(GAME_PK, id)
+    .maybeSingle();
+
+  if (readError) return { status: null, error: readError };
+
+  const statusMap = { ...parseStatusMap(current?.[GAME_STRUCT.status]) };
+  delete statusMap.igdb;
+
+  const { data, error } = await supabase
+    .from(TABLES.games)
+    .update({
+      [GAME_I18N.coverUrl]: {},
+      [GAME_STRUCT.status]: statusMap,
+    })
     .eq(GAME_PK, id)
     .select(GAME_STRUCT.status)
     .maybeSingle();

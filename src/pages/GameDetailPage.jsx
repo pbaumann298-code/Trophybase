@@ -30,6 +30,7 @@ import { loadRelatedGuides } from '../lib/relatedGames';
 import { fetchGameGuideBundle, resolveGameId, resolveGuideLanguage } from '../lib/guideQueries';
 import { isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished, PUBLISH_LOCALE } from '../lib/guidePublication';
+import { clearIntranetCover } from '../lib/intranetGameEdits';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
   getGameCover,
@@ -101,6 +102,9 @@ function GamePageContent({
   // Nach dem Freigeben sofort umschalten, ohne das Spiel neu zu laden. Die UUID
   // hängt mit dran, damit der Wert beim Spielwechsel nicht fälschlich greift.
   const [publicationOverride, setPublicationOverride] = useState(null);
+  const [coverCleared, setCoverCleared] = useState(false);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverError, setCoverError] = useState('');
   const { notifyVideoCleared } = useGuideVideo();
 
   useEffect(() => {
@@ -127,6 +131,8 @@ function GamePageContent({
 
   useEffect(() => {
     setGuideLanguageOverride(null);
+    setCoverCleared(false);
+    setCoverError('');
   }, [selectedGame?.id, selectedGame?.platform_game_id]);
 
   useEffect(() => {
@@ -350,7 +356,30 @@ function GamePageContent({
   const isGuideLoading = guidesLoading || loadingGuide;
 
   const gameTitle = getGameTitle(selectedGame, globalLocale);
-  const gameCover = getGameCover(selectedGame, globalLocale);
+  const gameCover = coverCleared ? '' : getGameCover(selectedGame, globalLocale);
+
+  const handleClearCover = async () => {
+    if (!gameUuid || coverBusy) return;
+    const confirmed = window.confirm('Cover wirklich löschen? Der IGDB-Status wird dabei mit entfernt.');
+    if (!confirmed) return;
+
+    setCoverBusy(true);
+    setCoverError('');
+    const { status, error } = await clearIntranetCover(supabase, gameUuid);
+    setCoverBusy(false);
+    if (error) {
+      setCoverError(error.message || 'Cover konnte nicht gelöscht werden.');
+      return;
+    }
+    setCoverCleared(true);
+    setPublicationOverride((prev) => ({
+      uuid: gameUuid,
+      status,
+      slug: prev?.uuid === gameUuid ? prev.slug : null,
+      gameType: prev?.uuid === gameUuid ? prev.gameType : null,
+      homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
+    }));
+  };
   const gameDescription = getGameDescription(selectedGame, globalLocale);
 
   const showServerShutdown = isServerOffline(selectedGame);
@@ -615,14 +644,36 @@ function GamePageContent({
 
       <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 flex flex-col md:flex-row flex-wrap md:flex-nowrap gap-8 items-start mb-8 shadow-xl">
         <div className="relative w-full md:w-64 aspect-[3/4] rounded-xl overflow-hidden shadow-2xl border border-zinc-800 bg-[#121314] flex-shrink-0">
-          <img
-            src={gameCover}
-            className="w-full h-full object-cover"
-            alt="Game Cover"
-          />
+          {gameCover ? (
+            <img
+              src={gameCover}
+              className="w-full h-full object-cover"
+              alt="Game Cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-wider text-zinc-600">
+              kein Cover
+            </div>
+          )}
           <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none">
             <GuideOnlineBadge game={gameForPublication} visible={isAdmin} size="md" />
           </div>
+          {isAdmin && gameCover ? (
+            <button
+              type="button"
+              onClick={handleClearCover}
+              disabled={coverBusy}
+              title="Cover löschen und status.igdb entfernen"
+              className="absolute top-2.5 right-2.5 z-10 rounded-lg border border-red-500/40 bg-black/75 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+            >
+              {coverBusy ? '…' : 'Löschen'}
+            </button>
+          ) : null}
+          {coverError ? (
+            <p className="absolute inset-x-2 bottom-2 z-10 rounded-lg bg-black/80 px-2 py-1 text-[10px] font-mono text-red-300">
+              {coverError}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex-grow w-full min-w-0 flex flex-col justify-between h-full pt-2">
