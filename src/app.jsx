@@ -236,15 +236,18 @@ function App() {
       const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id ?? null;
 
+      const loadId = startTrophyLoad();
       const { trophies, earnedIds } = await fetchGameTrophiesWithEarned(
         supabase,
         userId,
         gameData,
         localeForPage,
       );
-      setActiveTrophies(trophies);
-      setEarnedTrophyIds(earnedIds);
-      setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
+      if (loadId === trophyLoadRef.current) {
+        setActiveTrophies(trophies);
+        setEarnedTrophyIds(earnedIds);
+        setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
+      }
 
       const { chapters, guides, bosses } = await fetchGameGuideBundle(
         supabase,
@@ -279,35 +282,19 @@ function App() {
     loadGameFromUrl();
   }, [loadGameFromUrl]);
 
-  // Trophäen-Texte + Verdienst-Status bei Login oder globaler Sprachänderung
-  useEffect(() => {
-    if (currentView !== 'game_info' || !selectedGame) return;
-
-    let cancelled = false;
-    const gameId = resolveGameId(selectedGame);
-    if (!gameId) return;
+  const trophyLoadRef = useRef(0);
+  const startTrophyLoad = useCallback(() => {
+    trophyLoadRef.current += 1;
+    return trophyLoadRef.current;
+  }, []);
+  const handleActiveTrophies = useCallback((trophies, earnedIds, loadId) => {
+    if (loadId !== trophyLoadRef.current) return;
+    setActiveTrophies(trophies ?? []);
+    if (!earnedIds) return;
     const gameUuid = getGameUuid(selectedGame);
-
-    async function reloadTrophies() {
-      const userId = sessionUser?.id ?? null;
-      const { trophies, earnedIds } = await fetchGameTrophiesWithEarned(
-        supabase,
-        userId,
-        selectedGame,
-        globalLocale,
-      );
-      if (cancelled) return;
-
-      setActiveTrophies(trophies);
-      setEarnedTrophyIds(earnedIds);
-      setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
-    }
-
-    reloadTrophies();
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionUser?.id, currentView, selectedGame, globalLocale]);
+    setEarnedTrophyIds(earnedIds);
+    setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
+  }, [selectedGame]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -500,6 +487,7 @@ function App() {
     navigateToGame(game, { locale: globalLocale });
 
     const userId = sessionUser?.id ?? null;
+    const loadId = startTrophyLoad();
     const [trophyResult, guideBundle, fullGame] = await Promise.all([
       fetchGameTrophiesWithEarned(supabase, userId, game, globalLocale),
       fetchGameGuideBundle(supabase, game, globalLocale),
@@ -512,10 +500,12 @@ function App() {
 
     if (fullGame?.data) setSelectedGame(fullGame.data);
 
-    const { trophies, earnedIds } = trophyResult;
-    setActiveTrophies(trophies);
-    setEarnedTrophyIds(earnedIds);
-    setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
+    if (loadId === trophyLoadRef.current) {
+      const { trophies, earnedIds } = trophyResult;
+      setActiveTrophies(trophies);
+      setEarnedTrophyIds(earnedIds);
+      setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
+    }
 
     const { chapters, guides, bosses } = guideBundle;
     setChapterItems(chapters);
@@ -847,6 +837,8 @@ function App() {
                 onGoHome={goHome}
                 openGame={openGuide}
                 onOpenHelp={openGuideHelp}
+                onActiveTrophies={handleActiveTrophies}
+                startTrophyLoad={startTrophyLoad}
                 fromSearch={
                   guideReturnView === 'search-results' || guideReturnView === 'advanced-search'
                 }

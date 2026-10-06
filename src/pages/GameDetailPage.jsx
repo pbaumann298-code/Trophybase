@@ -10,6 +10,7 @@ import GameStatusBanners from '../components/GameStatusBanners';
 import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
 import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
 import WatchlistButton from '../components/WatchlistButton';
+import ShareButton from '../components/ShareButton';
 import GuidePublishButton from '../components/GuidePublishButton';
 import AdminFollowupButton from '../components/AdminFollowupButton';
 import GuideOnlineBadge from '../components/GuideOnlineBadge';
@@ -32,6 +33,7 @@ import {
 import { incrementGameViews } from '../lib/gameQueries';
 import { loadRelatedGuides } from '../lib/relatedGames';
 import { fetchGameGuideBundle, resolveGameId, resolveGuideLanguage } from '../lib/guideQueries';
+import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
 import { isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished } from '../lib/guidePublication';
 import { clearIntranetCover, setIntranetIgdbCover } from '../lib/intranetGameEdits';
@@ -85,6 +87,8 @@ function GamePageContent({
   onGoHome,
   openGame,
   onOpenHelp,
+  onActiveTrophies,
+  startTrophyLoad,
   fromSearch = false,
   sessionUser = null,
 }) {
@@ -246,10 +250,24 @@ function GamePageContent({
       if (!gameId) return;
 
       setGuidesLoading(true);
-      const { chapters, guides, bosses, chaptersError, guidesError, bossesError } =
-        await fetchGameGuideBundle(supabase, gameId, globalLocale, guideLanguageOverride);
+      const loadId = startTrophyLoad?.();
+      const [bundle, trophyResult] = await Promise.all([
+        fetchGameGuideBundle(supabase, gameId, globalLocale, guideLanguageOverride),
+        fetchGameTrophiesWithEarned(
+          supabase,
+          sessionUser?.id ?? null,
+          selectedGame,
+          globalLocale,
+          guideLanguageOverride,
+        ),
+      ]);
+      const { chapters, guides, bosses, chaptersError, guidesError, bossesError } = bundle;
 
       if (cancelled) return;
+
+      if (!trophyResult.trophiesError) {
+        onActiveTrophies?.(trophyResult.trophies, trophyResult.earnedIds, loadId);
+      }
 
       if (chaptersError || guidesError || bossesError) {
         console.error('game_guides:', (chaptersError || guidesError || bossesError).message, {
@@ -268,7 +286,7 @@ function GamePageContent({
     return () => {
       cancelled = true;
     };
-  }, [selectedGame, globalLocale, guideLanguageOverride]);
+  }, [selectedGame, globalLocale, guideLanguageOverride, sessionUser?.id, onActiveTrophies, startTrophyLoad]);
 
   const chronologicalGuideData = useMemo(
     () => buildChronologicalGuideData(chapterRows),
@@ -839,6 +857,7 @@ function GamePageContent({
               </div>
               <div className="flex flex-col items-stretch sm:items-end gap-2 sm:flex-shrink-0 sm:mt-1">
                 <WatchlistButton gameId={watchlistGameId} variant="detail" />
+                <ShareButton title={gameTitle} />
                 {featureHints.watchlist && onOpenHelp ? (
                   <p className="max-w-[16rem] text-right text-[10px] leading-snug text-zinc-500">
                     {t('hintWatchlist')}{' '}

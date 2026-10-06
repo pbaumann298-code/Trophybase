@@ -64,6 +64,9 @@ export const UI_STRINGS = {
     watchlistAddTitle: 'Zur Watchlist hinzufügen',
     watchlistRemoveTitle: 'Von Watchlist entfernen',
     watchlistFailed: 'Watchlist konnte nicht aktualisiert werden.',
+    share: 'Teilen',
+    shareCopied: 'Link kopiert.',
+    shareFailed: 'Link konnte nicht kopiert werden.',
     guideNotFoundTitle: 'Guide nicht gefunden',
     guideNotFoundBody:
       'Zu diesem Link gibt es gerade kein Spiel. Vielleicht ist der Link veraltet oder der Guide wird noch überarbeitet.',
@@ -186,6 +189,9 @@ export const UI_STRINGS = {
     watchlistAddTitle: 'Add to watchlist',
     watchlistRemoveTitle: 'Remove from watchlist',
     watchlistFailed: 'Could not update the watchlist.',
+    share: 'Share',
+    shareCopied: 'Link copied.',
+    shareFailed: 'Could not copy the link.',
     guideNotFoundTitle: 'Guide not found',
     guideNotFoundBody:
       'There is no game behind this link right now. It may be outdated, or the guide is still being reworked.',
@@ -308,6 +314,9 @@ export const UI_STRINGS = {
     watchlistAddTitle: 'Añadir a la watchlist',
     watchlistRemoveTitle: 'Quitar de la watchlist',
     watchlistFailed: 'No se ha podido actualizar la watchlist.',
+    share: 'Compartir',
+    shareCopied: 'Enlace copiado.',
+    shareFailed: 'No se ha podido copiar el enlace.',
     guideNotFoundTitle: 'Guía no encontrada',
     guideNotFoundBody:
       'Ahora mismo no hay ningún juego detrás de este enlace. Puede estar obsoleto o la guía aún se está revisando.',
