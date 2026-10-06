@@ -2,7 +2,8 @@ import { GAME_PK, GAME_STRUCT, TABLES } from './gameSchema';
 
 const HOME_TAG_DEFS = 'home_tag_defs';
 
-function normalizeSlug(value) {
+/** Vergleichsschlüssel. Die gespeicherte Schreibweise bleibt der Slug aus der Tabelle. */
+export function homeTagKey(value) {
   return String(value ?? '').trim().toLowerCase();
 }
 
@@ -13,7 +14,16 @@ function normalizeSlug(value) {
 export function readHomeTags(game) {
   const raw = game?.[GAME_STRUCT.homeTags];
   if (!Array.isArray(raw)) return [];
-  return [...new Set(raw.map(normalizeSlug).filter(Boolean))];
+  const seen = new Set();
+  const tags = [];
+  for (const value of raw) {
+    const slug = String(value ?? '').trim();
+    const key = homeTagKey(slug);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    tags.push(slug);
+  }
+  return tags;
 }
 
 /**
@@ -21,9 +31,8 @@ export function readHomeTags(game) {
  * @param {string[]} slugs
  */
 export function orderHomeTags(defs, slugs) {
-  const allowed = new Set((defs ?? []).map((def) => def.slug));
-  const chosen = new Set((slugs ?? []).map(normalizeSlug).filter((slug) => allowed.has(slug)));
-  return (defs ?? []).map((def) => def.slug).filter((slug) => chosen.has(slug));
+  const chosen = new Set((slugs ?? []).map(homeTagKey).filter(Boolean));
+  return (defs ?? []).filter((def) => chosen.has(homeTagKey(def.slug))).map((def) => def.slug);
 }
 
 /**
@@ -40,8 +49,8 @@ export async function fetchHomeTagDefs(supabase) {
   if (error) return { data: [], error };
   const defs = (data ?? [])
     .map((row) => ({
-      slug: normalizeSlug(row.slug),
-      label: String(row.label ?? '').trim() || normalizeSlug(row.slug),
+      slug: String(row.slug ?? '').trim(),
+      label: String(row.label ?? '').trim() || String(row.slug ?? '').trim(),
       railId: String(row.rail_id ?? '').trim(),
       sortPos: Number(row.sort_pos) || 0,
     }))
@@ -60,7 +69,9 @@ export async function setEditorialHomeTags(supabase, gameId, tags, defs = []) {
   const id = String(gameId ?? '').trim();
   if (!id) return { homeTags: null, error: new Error('Kein Spiel ausgewählt.') };
 
-  const next = defs.length ? orderHomeTags(defs, tags) : [...new Set((tags ?? []).map(normalizeSlug).filter(Boolean))];
+  const next = defs.length
+    ? orderHomeTags(defs, tags)
+    : [...new Set((tags ?? []).map((tag) => String(tag ?? '').trim()).filter(Boolean))];
   const { data, error } = await supabase.rpc('tb_set_home_tags_editorial', {
     p_id: id,
     p_tags: next,

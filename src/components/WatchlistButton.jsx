@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useWatchlist } from '../context/WatchlistContext';
+import { markHintSeen } from '../lib/featureHints';
 
 /**
  * Lesezeichen für die Watchlist – lokal im Browser, ohne Login.
@@ -44,6 +45,7 @@ function WatchlistButton({
       return;
     }
 
+    markHintSeen('watchlist');
     setHint(result.added ? 'Zur Watchlist hinzugefügt.' : 'Von Watchlist entfernt.');
     window.setTimeout(() => setHint(''), 2200);
   };

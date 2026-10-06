@@ -13,6 +13,28 @@ export const UI_STRINGS = {
     guideLanguageReset: 'Standard',
     impressum: 'Impressum',
     privacy: 'Datenschutz (DSGVO)',
+    howTo: 'Kurz erklärt',
+    howToLead: 'Ein paar Handgriffe, die die Guides schneller machen.',
+    howToSwipeTitle: 'Wischen und Pfeiltasten',
+    howToSwipeBody:
+      'Im Guide wechselt Wischen nach links den nächsten Reiter, nach rechts den vorherigen. Auf der Tastatur gilt dasselbe mit Pfeil rechts und Pfeil links.',
+    howToCheckTitle: 'Abhaken und ausblenden',
+    howToCheckBody:
+      'Trophäen und Guide-Schritte lassen sich abhaken. „Erledigte ausblenden“ räumt die Liste auf. Im Kopf der Seite blendet Einblenden und Ausblenden Spiele ein, die du schon versteckt hast.',
+    howToWatchTitle: 'Watchlist',
+    howToWatchBody:
+      'Der Stern merkt sich ein Spiel in diesem Browser. Die Liste steht auf der Startseite. Ein Konto braucht es dafür nicht.',
+    howToLandscapeTitle: 'Querformat',
+    howToLandscapeBody:
+      'Mit laufendem Video im Hochformat erscheint ein Hinweis, das Handy zu drehen. Die Schritte und das Bild liegen dann nebeneinander.',
+    howToReportTitle: 'Fehler melden',
+    howToReportBody:
+      'Text im Guide markieren. Darüber erscheint „Fehler melden“. Die Meldung geht an die Redaktion, samt der Stelle, die du markiert hast.',
+    hintSwipe: 'Nach links oder rechts wischen wechselt den Reiter.',
+    hintWatchlist: 'Der Stern legt das Spiel auf die Watchlist.',
+    hintMore: 'Mehr',
+    hintOk: 'OK',
+    hintLandscape: 'Für die beste Guide-Erfahrung mit Video bitte das Gerät ins Querformat drehen.',
     fairUseNote:
       'Cover, Logos und Spieltitel dienen nur der Identifikation im redaktionellen Datenbank-Kontext. TrophyBase ist nicht mit den Rechteinhabern affiliated.',
     consentTitle: 'Hinweise zu externen Inhalten',
@@ -88,9 +110,7 @@ export const UI_STRINGS = {
     trophiesOnline: 'Online-Trophäen',
     playtimeTitle: 'Spieldauer',
     playtimeStory: 'Nur Hauptstory',
-    playtimeSides: 'Mit Nebeninhalten',
     playtimeComplete: 'Komplettierer',
-    playtimeDlc: 'DLC-Spielzeit',
     playtimeHours: '{n} Std.',
     serverDeadPlatinum: 'Wegen Abschaltung der Server ist die Platin nicht mehr regulär erspielbar.',
   },
@@ -105,6 +125,28 @@ export const UI_STRINGS = {
     guideLanguageReset: 'Default',
     impressum: 'Legal notice',
     privacy: 'Privacy (GDPR)',
+    howTo: 'How it works',
+    howToLead: 'A few gestures that make the guides faster.',
+    howToSwipeTitle: 'Swipe and arrow keys',
+    howToSwipeBody:
+      'In a guide, swipe left for the next section and right for the previous one. On a keyboard, the right and left arrow keys do the same.',
+    howToCheckTitle: 'Check off and hide',
+    howToCheckBody:
+      'Trophies and guide steps can be checked off. “Hide completed” clears the list. Show and hide in the header brings back games you have tucked away.',
+    howToWatchTitle: 'Watchlist',
+    howToWatchBody:
+      'The star keeps a game in this browser. The list sits on the home page. No account is required.',
+    howToLandscapeTitle: 'Landscape',
+    howToLandscapeBody:
+      'With a video playing in portrait, a note asks you to turn the phone. The steps and the picture then sit side by side.',
+    howToReportTitle: 'Report an error',
+    howToReportBody:
+      'Select text in the guide. “Report error” appears above it. The note goes to the editors, with the passage you marked.',
+    hintSwipe: 'Swipe left or right to change section.',
+    hintWatchlist: 'The star adds this game to your watchlist.',
+    hintMore: 'More',
+    hintOk: 'OK',
+    hintLandscape: 'For the best guide experience with video, turn the device sideways.',
     fairUseNote:
       'Covers, logos and titles are used only to identify games in an editorial database. TrophyBase is not affiliated with the rights holders.',
     consentTitle: 'External content',
@@ -180,9 +222,7 @@ export const UI_STRINGS = {
     trophiesOnline: 'Online trophies',
     playtimeTitle: 'Playtime',
     playtimeStory: 'Main story only',
-    playtimeSides: 'With side content',
     playtimeComplete: 'Completionist',
-    playtimeDlc: 'DLC playtime',
     playtimeHours: '{n} h',
     serverDeadPlatinum: 'Because the servers have been shut down, the platinum can no longer be earned through regular play.',
   },
@@ -197,6 +237,28 @@ export const UI_STRINGS = {
     guideLanguageReset: 'Predeterminado',
     impressum: 'Aviso legal',
     privacy: 'Privacidad (RGPD)',
+    howTo: 'En resumen',
+    howToLead: 'Unos pocos gestos que hacen las guías más rápidas.',
+    howToSwipeTitle: 'Deslizar y flechas',
+    howToSwipeBody:
+      'En una guía, desliza a la izquierda para la siguiente sección y a la derecha para la anterior. En el teclado, las flechas derecha e izquierda hacen lo mismo.',
+    howToCheckTitle: 'Marcar y ocultar',
+    howToCheckBody:
+      'Los trofeos y los pasos de la guía se pueden marcar. “Ocultar completados” limpia la lista. Mostrar y ocultar en la cabecera recupera los juegos que hayas guardado.',
+    howToWatchTitle: 'Watchlist',
+    howToWatchBody:
+      'La estrella guarda el juego en este navegador. La lista está en la portada. No hace falta una cuenta.',
+    howToLandscapeTitle: 'Horizontal',
+    howToLandscapeBody:
+      'Con un vídeo en vertical aparece un aviso para girar el teléfono. Los pasos y la imagen quedan entonces uno al lado del otro.',
+    howToReportTitle: 'Informar de un error',
+    howToReportBody:
+      'Selecciona texto en la guía. Encima aparece “Informar de un error”. El aviso llega a la redacción, con el pasaje que marcaste.',
+    hintSwipe: 'Desliza a izquierda o derecha para cambiar de sección.',
+    hintWatchlist: 'La estrella añade el juego a la watchlist.',
+    hintMore: 'Más',
+    hintOk: 'OK',
+    hintLandscape: 'Para la mejor experiencia con vídeo, gira el dispositivo.',
     fairUseNote:
       'Carátulas, logos y títulos se usan solo para identificar juegos en una base editorial. TrophyBase no está afiliado a los titulares.',
     consentTitle: 'Contenido externo',
@@ -272,9 +334,7 @@ export const UI_STRINGS = {
     trophiesOnline: 'Trofeos en línea',
     playtimeTitle: 'Duración',
     playtimeStory: 'Solo historia principal',
-    playtimeSides: 'Con contenido secundario',
     playtimeComplete: 'Completista',
-    playtimeDlc: 'Duración del DLC',
     playtimeHours: '{n} h',
     serverDeadPlatinum: 'Por el cierre de los servidores, el platino ya no se puede conseguir de forma normal.',
   },

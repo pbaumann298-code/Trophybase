@@ -59,6 +59,7 @@ function GuidePublishButton({
         return;
       }
       setTagDefs(data);
+      setSelectedTags((current) => orderHomeTags(data, current));
       setTagsLoaded(true);
     });
     return () => {

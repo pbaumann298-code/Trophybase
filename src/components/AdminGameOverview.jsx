@@ -56,9 +56,7 @@ function AdminGameOverview({ game, title = '', playtime = null, className = '' }
             {t('playtimeTitle')}
           </p>
           <FactRow label={t('playtimeStory')} value={hours('hauptstory')} />
-          <FactRow label={t('playtimeSides')} value={hours('neben')} />
           <FactRow label={t('playtimeComplete')} value={hours('komplett')} />
-          <FactRow label={t('playtimeDlc')} value={hours('dlc')} />
         </dl>
       </div>
     </section>

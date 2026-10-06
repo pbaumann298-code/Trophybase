@@ -1,8 +1,10 @@
 /**
  * Mehrfachauswahl der Allowlist home_tag_defs.
  */
+import { homeTagKey } from '../lib/homeTagDefs';
+
 function HomeTagChecks({ defs, selected, disabled = false, onToggle, wrap = false, className = '' }) {
-  const chosen = new Set(selected ?? []);
+  const chosen = new Set((selected ?? []).map(homeTagKey));
 
   if (!defs?.length) {
     return (
@@ -22,7 +24,7 @@ function HomeTagChecks({ defs, selected, disabled = false, onToggle, wrap = fals
         >
           <input
             type="checkbox"
-            checked={chosen.has(def.slug)}
+            checked={chosen.has(homeTagKey(def.slug))}
             disabled={disabled}
             onChange={() => onToggle(def.slug)}
             className="accent-[#00ff66]"

@@ -9,7 +9,7 @@ import {
   pipelineStatusValue,
 } from '../../lib/gamePipelineStatus';
 import { removeIntranetStatusKey, setIntranetGameType } from '../../lib/intranetGameEdits';
-import { fetchHomeTagDefs, orderHomeTags, readHomeTags, setEditorialHomeTags } from '../../lib/homeTagDefs';
+import { fetchHomeTagDefs, homeTagKey, orderHomeTags, readHomeTags, setEditorialHomeTags } from '../../lib/homeTagDefs';
 import HomeTagChecks from '../HomeTagChecks';
 import { toggleAdminFollowup } from '../../lib/adminFollowups';
 import { useAdminFollowups } from '../../hooks/useAdminFollowups';
@@ -126,8 +126,9 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
 
   const handleTags = async (game, slug) => {
     const current = readHomeTags(game);
-    const next = current.includes(slug)
-      ? current.filter((value) => value !== slug)
+    const tagKey = homeTagKey(slug);
+    const next = current.some((value) => homeTagKey(value) === tagKey)
+      ? current.filter((value) => homeTagKey(value) !== tagKey)
       : [...current, slug];
     const ordered = orderHomeTags(tagDefs, next);
     const key = `${game.id}:tags`;

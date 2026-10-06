@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { markHintSeen } from '../lib/featureHints';
 
 const SWIPE_MIN_DISTANCE = 60;
 /** Horizontale Strecke muss die vertikale deutlich schlagen, sonst bleibt es normales Scrollen. */
@@ -123,8 +124,8 @@ export function useTabNavigation({
       if (Math.abs(deltaX) < SWIPE_MIN_DISTANCE) return;
       if (Math.abs(deltaX) <= Math.abs(deltaY) * SWIPE_AXIS_RATIO) return;
 
-      if (deltaX < 0) shiftTab(1);
-      else shiftTab(-1);
+      const switched = deltaX < 0 ? shiftTab(1) : shiftTab(-1);
+      if (switched) markHintSeen('swipe');
     };
 
     const onTouchCancel = () => {
@@ -155,7 +156,10 @@ export function useTabNavigation({
       if (hasOpenDialog()) return;
 
       const switched = shiftTab(event.key === 'ArrowRight' ? 1 : -1);
-      if (switched) event.preventDefault();
+      if (switched) {
+        markHintSeen('swipe');
+        event.preventDefault();
+      }
     };
 
     window.addEventListener('keydown', onKeyDown);

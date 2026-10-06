@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocale } from '../context/LocaleContext';
 import { useGuideVideo } from '../context/GuideVideoContext';
 import { useOrientation } from '../hooks/useOrientation';
 
@@ -10,9 +11,10 @@ const SESSION_KEY = 'tb_portrait_hint_dismissed';
  * @param {boolean} isGuideView – Nutzer ist auf der Spiele-Guide-Seite
  * @param {boolean} isVideoGuideTab – Reiter mit Video-Player (nicht Trophäen)
  */
-function PortraitGuideHint({ isGuideView, isVideoGuideTab }) {
+function PortraitGuideHint({ isGuideView, isVideoGuideTab, onOpenHelp }) {
   const { isPortrait } = useOrientation();
   const { hasActiveVideo } = useGuideVideo();
+  const { t } = useLocale();
   const [visible, setVisible] = useState(false);
   const [minimized, setMinimized] = useState(false);
 
@@ -75,7 +77,12 @@ function PortraitGuideHint({ isGuideView, isVideoGuideTab }) {
   return (
     <div className="portrait-guide-hint" role="status" aria-live="polite">
       <p className="portrait-guide-hint__text">
-        Für die beste Guide-Erfahrung mit Video bitte das Gerät ins Querformat drehen.
+        {t('hintLandscape')}{' '}
+        {onOpenHelp ? (
+          <button type="button" className="portrait-guide-hint__link" onClick={() => onOpenHelp('querformat')}>
+            {t('hintMore')}
+          </button>
+        ) : null}
       </p>
       <div className="portrait-guide-hint__actions">
         <button type="button" onClick={dismiss} className="portrait-guide-hint__btn">

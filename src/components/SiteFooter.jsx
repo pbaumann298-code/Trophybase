@@ -1,7 +1,7 @@
 import { TRADEMARK_DISCLAIMER } from '../lib/legalConfig';
 import { useLocale } from '../context/LocaleContext';
 
-function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy }) {
+function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy, onOpenHelp }) {
   const { t } = useLocale();
 
   return (
@@ -33,6 +33,16 @@ function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy }) {
             }}
           >
             {t('privacy')}
+          </a>
+          <a
+            href="/kurz-erklaert"
+            className="hover:text-zinc-300 transition"
+            onClick={(e) => {
+              e.preventDefault();
+              onOpenHelp?.();
+            }}
+          >
+            {t('howTo')}
           </a>
         </nav>
         <div className="flex items-center gap-2 font-mono text-[11px] min-w-0 max-w-full">

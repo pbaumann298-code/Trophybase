@@ -14,6 +14,9 @@ import GuidePublishButton from '../components/GuidePublishButton';
 import AdminFollowupButton from '../components/AdminFollowupButton';
 import GuideOnlineBadge from '../components/GuideOnlineBadge';
 import PortraitGuideHint from '../components/PortraitGuideHint';
+import FeatureHint from '../components/FeatureHint';
+import { useFeatureHintSlots } from '../hooks/useFeatureHintSlots';
+import { markHintSeen } from '../lib/featureHints';
 import GuideTabBar from '../components/GuideTabBar';
 import { guideTabId, guideTabPanelId } from '../lib/guideTabs';
 import { useTabNavigation } from '../hooks/useTabNavigation';
@@ -81,6 +84,7 @@ function GamePageContent({
   onNavigateHome,
   onGoHome,
   openGame,
+  onOpenHelp,
   fromSearch = false,
   sessionUser = null,
 }) {
@@ -147,23 +151,23 @@ function GamePageContent({
     incrementGameViews(supabase, uuid);
   }, [selectedGame?.id]);
 
+  const creatorGameId = getGameUuid(selectedGame);
+
   useEffect(() => {
     let cancelled = false;
+    setContentCreators([]);
 
     async function loadCreator() {
-      if (!selectedGame) {
-        setContentCreators([]);
-        return;
-      }
-      const { data } = await fetchContentCreatorsForGame(supabase, selectedGame);
-      if (!cancelled) setContentCreators(data);
+      if (!creatorGameId) return;
+      const { data } = await fetchContentCreatorsForGame(supabase, creatorGameId);
+      if (!cancelled) setContentCreators(data ?? []);
     }
 
     loadCreator();
     return () => {
       cancelled = true;
     };
-  }, [selectedGame]);
+  }, [creatorGameId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -341,7 +345,7 @@ function GamePageContent({
     let cancelled = false;
     supabase
       .from('games')
-      .select('spielzeit_hauptstory, spielzeit_nebeninhalte, spielzeit_komplettierer, spielzeit_dlc')
+      .select('spielzeit_hauptstory, spielzeit_komplettierer')
       .eq('id', gameUuid)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -351,9 +355,7 @@ function GamePageContent({
         }
         setPlaytime({
           hauptstory: data?.spielzeit_hauptstory ?? null,
-          neben: data?.spielzeit_nebeninhalte ?? null,
           komplett: data?.spielzeit_komplettierer ?? null,
-          dlc: data?.spielzeit_dlc ?? null,
         });
       });
     return () => {
@@ -511,6 +513,11 @@ function GamePageContent({
     onTabChange: handleTabChange,
     containerRef: guideSectionRef,
     enabled: isGuideVisible,
+  });
+
+  const featureHints = useFeatureHintSlots({
+    isVideoGuideTab: activeTab !== 'reiter0',
+    tabCount: visibleTabs.length,
   });
 
   const renderTabContent = () => (
@@ -684,7 +691,20 @@ function GamePageContent({
   return (
     <div className="w-full max-w-[1400px] min-w-0 overflow-x-hidden mx-auto px-4 md:px-8 pt-6 pb-12 box-border">
       <GuideBreadcrumb game={selectedGame} title={gameTitle} onHome={onGoHome || onNavigateHome} />
-      <PortraitGuideHint isGuideView isVideoGuideTab={activeTab !== 'reiter0'} />
+      <PortraitGuideHint
+        isGuideView
+        isVideoGuideTab={activeTab !== 'reiter0'}
+        onOpenHelp={onOpenHelp}
+      />
+      {featureHints.swipe && onOpenHelp ? (
+        <FeatureHint
+          id="swipe"
+          text={t('hintSwipe')}
+          moreLabel={t('hintMore')}
+          okLabel={t('hintOk')}
+          onMore={() => onOpenHelp('wischen')}
+        />
+      ) : null}
       <GameStatusBanners
         showServerShutdown={showServerShutdown}
         serverMessage={statusMessages[STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN]}
@@ -813,6 +833,29 @@ function GamePageContent({
               </div>
               <div className="flex flex-col items-stretch sm:items-end gap-2 sm:flex-shrink-0 sm:mt-1">
                 <WatchlistButton gameId={watchlistGameId} variant="detail" />
+                {featureHints.watchlist && onOpenHelp ? (
+                  <p className="max-w-[16rem] text-right text-[10px] leading-snug text-zinc-500">
+                    {t('hintWatchlist')}{' '}
+                    <button
+                      type="button"
+                      className="border-none bg-transparent p-0 text-[#00ff66] underline cursor-pointer"
+                      onClick={() => {
+                        markHintSeen('watchlist');
+                        onOpenHelp('watchlist');
+                      }}
+                    >
+                      {t('hintMore')}
+                    </button>
+                    {' · '}
+                    <button
+                      type="button"
+                      className="border-none bg-transparent p-0 font-mono uppercase text-zinc-400 cursor-pointer"
+                      onClick={() => markHintSeen('watchlist')}
+                    >
+                      {t('hintOk')}
+                    </button>
+                  </p>
+                ) : null}
                 <GuidePublishButton
                   user={sessionUser}
                   game={gameForPublication}

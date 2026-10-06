@@ -19,6 +19,7 @@ export const PUBLIC_APP_VIEWS = new Set([
   'advanced-search',
   'impressum',
   'datenschutz',
+  'guide-help',
 ]);
 
 /** Views die eingeloggte Nutzer auch im Wartungsmodus sehen dürfen. */
@@ -43,6 +44,7 @@ export function getViewFromPath(pathname = '', search) {
   const path = normalizePath(pathname);
   if (path === '/impressum') return 'impressum';
   if (path === '/datenschutz' || path === '/privacy') return 'datenschutz';
+  if (path === '/kurz-erklaert') return 'guide-help';
   if (path === '/suche' || path === '/search') {
     const queryString =
       search ??
@@ -149,6 +151,13 @@ export function navigateToImpressum() {
 
 export function navigateToPrivacy() {
   writeAppPath('/datenschutz');
+}
+
+export function navigateToGuideHelp(section = '') {
+  const href = section ? `/kurz-erklaert#${section}` : '/kurz-erklaert';
+  const here = `${normalizePath(window.location.pathname)}${window.location.hash}`;
+  if (here === href) return;
+  window.history.pushState({}, '', href);
 }
 
 const ADVANCED_SEARCH_QUERY_KEYS = ['title', 'developer', 'genre', 'console'];

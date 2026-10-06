@@ -27,6 +27,7 @@ import {
   gameGuidePath,
   parsePrettyGamePath,
   navigateToImpressum,
+  navigateToGuideHelp,
   navigateToPrivacy,
   navigateToAdvancedSearch,
   navigateToSimpleSearch,
@@ -72,6 +73,7 @@ import SiteFooter from './components/SiteFooter';
 import MediaConsentBanner from './components/MediaConsentBanner';
 import GuideNotFound from './components/GuideNotFound';
 import { LegalNoticePage, PrivacyPage } from './pages/LegalPages';
+import HowToPage from './pages/HowToPage';
 
 function App() {
   const { globalLocale } = useLocale();
@@ -469,7 +471,14 @@ function App() {
     await runSearch();
   };
 
+  const openedGameRef = useRef('');
+
   const openGuide = async (game) => {
+    const gameUuid = getGameUuid(game);
+    const gameId = resolveGameId(game);
+    const token = gameUuid || gameId || '';
+    openedGameRef.current = token;
+
     setGuideReturnView(currentView);
     setSelectedGame(game);
     setCurrentView('game_info');
@@ -480,40 +489,44 @@ function App() {
     setGuideItems([]);
     setChapterItems([]);
     setBossItems([]);
-    const gameUuid = getGameUuid(game);
     setUnlockedTrophies(mergeUnlockedTrophies(gameUuid));
     setEarnedTrophyIds(new Set());
 
-    const gameId = resolveGameId(game);
-    if (gameId) {
-      navigateToGame(game, { locale: globalLocale });
-
-      const userId = sessionUser?.id ?? null;
-      const { trophies, earnedIds } = await fetchGameTrophiesWithEarned(
-        supabase,
-        userId,
-        game,
-        globalLocale,
-      );
-      setActiveTrophies(trophies);
-      setEarnedTrophyIds(earnedIds);
-      setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
-
-      const { chapters, guides, bosses } = await fetchGameGuideBundle(
-        supabase,
-        game,
-        globalLocale,
-      );
-      setChapterItems(chapters);
-      setGuideItems(guides);
-      setBossItems(bosses);
-      setCompletedGuideItems(
-        claimCompletedGuideItems(
-          gameUuid,
-          collectGuideProgressIds(chapters, guides, bosses),
-        ),
-      );
+    if (!gameId) {
+      setLoadingGuide(false);
+      return;
     }
+
+    navigateToGame(game, { locale: globalLocale });
+
+    const userId = sessionUser?.id ?? null;
+    const [trophyResult, guideBundle, fullGame] = await Promise.all([
+      fetchGameTrophiesWithEarned(supabase, userId, game, globalLocale),
+      fetchGameGuideBundle(supabase, game, globalLocale),
+      gameUuid
+        ? fetchGameByRouteRef(supabase, gameUuid, globalLocale)
+        : Promise.resolve({ data: null }),
+    ]);
+
+    if (openedGameRef.current !== token) return;
+
+    if (fullGame?.data) setSelectedGame(fullGame.data);
+
+    const { trophies, earnedIds } = trophyResult;
+    setActiveTrophies(trophies);
+    setEarnedTrophyIds(earnedIds);
+    setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
+
+    const { chapters, guides, bosses } = guideBundle;
+    setChapterItems(chapters);
+    setGuideItems(guides);
+    setBossItems(bosses);
+    setCompletedGuideItems(
+      claimCompletedGuideItems(
+        gameUuid,
+        collectGuideProgressIds(chapters, guides, bosses),
+      ),
+    );
     setLoadingGuide(false);
   };
 
@@ -584,6 +597,10 @@ function App() {
       applyPathCanonical('/datenschutz');
       return () => clearGameSeoLinks();
     }
+    if (currentView === 'guide-help') {
+      applyPathCanonical('/kurz-erklaert');
+      return () => clearGameSeoLinks();
+    }
     if (currentView === 'search-results') {
       applyPathCanonical(window.location.pathname + window.location.search, { noIndex: true });
       return () => clearGameSeoLinks();
@@ -633,6 +650,20 @@ function App() {
     navigateToPrivacy();
     window.scrollTo(0, 0);
   }, []);
+
+  const openGuideHelp = useCallback((section = '') => {
+    setCurrentView('guide-help');
+    navigateToGuideHelp(section);
+    window.scrollTo(0, 0);
+  }, []);
+
+  const backFromHelp = useCallback(() => {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    goHome();
+  }, [goHome]);
 
   const openAdvancedSearch = useCallback(() => {
     setCurrentView('advanced-search');
@@ -720,6 +751,7 @@ function App() {
         className={`flex-1 flex flex-col w-full max-w-full min-w-0 overflow-x-hidden ${
           currentView === 'impressum' ||
           currentView === 'datenschutz' ||
+          currentView === 'guide-help' ||
           currentView === 'advanced-search' ||
           currentView === 'search-results'
             ? 'justify-start'
@@ -814,6 +846,7 @@ function App() {
                 onNavigateHome={goBackFromGuide}
                 onGoHome={goHome}
                 openGame={openGuide}
+                onOpenHelp={openGuideHelp}
                 fromSearch={
                   guideReturnView === 'search-results' || guideReturnView === 'advanced-search'
                 }
@@ -823,6 +856,7 @@ function App() {
             {currentView === 'login' && <LoginPage onLogin={handleLogin} />}
             {currentView === 'tester-setup' && <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />}
             {currentView === 'impressum' && <LegalNoticePage onBack={goHome} />}
+            {currentView === 'guide-help' && <HowToPage onBack={backFromHelp} />}
             {currentView === 'datenschutz' && (
               <PrivacyPage
                 onBack={goHome}
@@ -842,6 +876,7 @@ function App() {
         dbOk={dbOk}
         onOpenImpressum={openImpressum}
         onOpenPrivacy={openPrivacy}
+        onOpenHelp={openGuideHelp}
       />
 
     </div>

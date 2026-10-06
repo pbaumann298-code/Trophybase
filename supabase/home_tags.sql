@@ -49,17 +49,24 @@ comment on column public.games.home_tags_locked is
 create index if not exists games_home_tags_gin
   on public.games using gin (home_tags);
 
+-- Schreibt die Slugs so zurueck, wie sie in home_tag_defs stehen.
+-- "Jump 'n' run" und "jump 'n' run" sind derselbe Tag. Leerzeichen und
+-- Apostrophe bleiben erhalten. Unbekannte Werte bleiben kleingeschrieben,
+-- damit die Allowlist sie ablehnt.
 create or replace function public.tb_normalize_home_tags(p_tags text[])
 returns text[]
 language sql
-immutable
+stable
+set search_path = public
 as $$
   select coalesce(
     (
-      select array_agg(slug order by slug)
+      select array_agg(canonical order by canonical)
       from (
-        select distinct lower(btrim(t)) as slug
+        select distinct coalesce(def.slug, lower(btrim(t))) as canonical
         from unnest(coalesce(p_tags, '{}'::text[])) as t
+        left join public.home_tag_defs def
+          on lower(btrim(def.slug)) = lower(btrim(t))
         where btrim(coalesce(t, '')) <> ''
       ) s
     ),
