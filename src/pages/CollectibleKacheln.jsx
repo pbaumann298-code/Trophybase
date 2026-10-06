@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocale } from '../context/LocaleContext';
 import { getYouTubeEmbedUrl, getYouTubeVideoId } from '../utils/videoUrl';
 import YouTubeEmbed, { YouTubeThumb, YoutubePlayIcon } from '../components/YouTubeEmbed';
 import { useVisibility } from '../context/VisibilityContext';
@@ -154,9 +155,6 @@ function useTrophyRowExtras(trophyById) {
  */
 function SplitScreenGuideKacheln({
   itemsData = [],
-  progressPercent = 0,
-  completedCount = 0,
-  totalCount = 0,
   getDisplayName,
   nameColumnHeader,
   renderNameAddon,
@@ -180,6 +178,7 @@ function SplitScreenGuideKacheln({
   reportEntityType = 'guide_item',
   reportKeyField = 'guide_id',
 }) {
+  const { t } = useLocale();
   const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
   const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -559,7 +558,7 @@ function SplitScreenGuideKacheln({
                     height: '16px',
                   }}
                 />
-                Erledigte ausblenden
+                {t('hideCompleted')}
               </label>
             )}
           </div>
@@ -589,55 +588,11 @@ function SplitScreenGuideKacheln({
                   height: '16px',
                 }}
               />
-              Erledigte ausblenden
+              {t('hideCompleted')}
             </label>
           </div>
         )}
 
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '8px',
-            fontSize: '12px',
-            fontFamily: 'monospace',
-          }}
-        >
-          <span style={{ color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Gesamtfortschritt
-          </span>
-          <span
-            style={{
-              color: '#00ff66',
-              fontWeight: 'bold',
-              fontSize: '14px',
-              marginLeft: 'auto',
-            }}
-          >
-            {progressPercent}% ({completedCount}/{totalCount})
-          </span>
-        </div>
-        <div
-          style={{
-            width: '100%',
-            backgroundColor: '#27272a',
-            height: '10px',
-            borderRadius: '9999px',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: '#00ff66',
-              height: '100%',
-              borderRadius: '9999px',
-              transition: 'all 500ms ease-in-out',
-              boxShadow: '0 0 8px rgba(0,255,102,0.5)',
-              width: `${progressPercent}%`,
-            }}
-          />
-        </div>
       </div>
 
       {localisationSections.map(renderLocalisationSection)}
@@ -647,9 +602,6 @@ function SplitScreenGuideKacheln({
 
 export function CollectibleKacheln({
   collectiblesData,
-  progressPercent,
-  completedCount,
-  totalCount,
   groupByField = 'category_group',
   groupHeaderIcon = '📍',
   localisationHeaderIcon = '🗺️',
@@ -670,9 +622,6 @@ export function CollectibleKacheln({
   return (
     <SplitScreenGuideKacheln
       itemsData={collectiblesData}
-      progressPercent={progressPercent}
-      completedCount={completedCount}
-      totalCount={totalCount}
       getDisplayName={(item) => item.item_name}
       nameColumnHeader="Sammelgegenstand"
       renderNameAddon={renderNameAddon}
@@ -698,9 +647,6 @@ export function CollectibleKacheln({
 
 export function BossKacheln({
   bossesData,
-  progressPercent,
-  completedCount,
-  totalCount,
   listTitle = 'Boss-Checkliste',
   hideCompleted,
   setHideCompleted,
@@ -748,9 +694,6 @@ export function BossKacheln({
   return (
     <SplitScreenGuideKacheln
       itemsData={bossesData}
-      progressPercent={progressPercent}
-      completedCount={completedCount}
-      totalCount={totalCount}
       getDisplayName={(item) => item.item_name || item.boss_name}
       nameColumnHeader="Bossgegner"
       renderNameAddon={renderTrophyBadge}

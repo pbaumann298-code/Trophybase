@@ -1,4 +1,5 @@
 import { DEFAULT_LOCALE, hreflangOf } from '../shared/countryLocaleMap.js';
+import { hreflangCluster } from '../src/lib/gameSeo.js';
 import {
   TABLES,
   GAME_PK,
@@ -117,15 +118,16 @@ function renderHtml({
     localizeJsonField(game[GAME_I18N.description], locale) ||
     `${title} – Trophäen-Guide auf TrophyBase.`;
   const canonical = seo.canonical;
-  const langs = seo.langs;
-  const hreflangs = langs
-    .map((lang) => {
-      const href = `${origin}${buildPrettyGamePath(lang, hardware, slug)}`;
-      return `<link rel="alternate" hreflang="${escapeAttr(hreflangOf(lang))}" href="${escapeAttr(href)}" />`;
-    })
-    .join('\n    ');
-  const xDefaultLang = langs.includes(DEFAULT_LOCALE) ? DEFAULT_LOCALE : langs[0];
-  const xDefault = `${origin}${buildPrettyGamePath(xDefaultLang, hardware, slug)}`;
+  const cluster = hreflangCluster(seo.langs);
+  const hreflangs = cluster
+    ? [
+        ...cluster.langs.map((lang) => {
+          const href = `${origin}${buildPrettyGamePath(lang, hardware, slug)}`;
+          return `<link rel="alternate" hreflang="${escapeAttr(hreflangOf(lang))}" href="${escapeAttr(href)}" />`;
+        }),
+        `<link rel="alternate" hreflang="x-default" href="${escapeAttr(`${origin}${buildPrettyGamePath(cluster.xDefault, hardware, slug)}`)}" />`,
+      ].join('\n    ')
+    : '';
   const jsonLd = JSON.stringify(seo.jsonLd).replace(/</g, '\\u003c');
   const ogImage = seo.cover
     ? `<meta property="og:image" content="${escapeAttr(seo.cover)}" />
@@ -181,7 +183,6 @@ function renderHtml({
     <meta name="robots" content="${robots}" />
     <link rel="canonical" href="${escapeAttr(canonical)}" />
     ${hreflangs}
-    <link rel="alternate" hreflang="x-default" href="${escapeAttr(xDefault)}" />
     <meta property="og:site_name" content="TrophyBase.app" />
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="${escapeAttr(seo.ogLocale)}" />

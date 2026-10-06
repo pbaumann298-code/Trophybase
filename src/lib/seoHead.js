@@ -1,9 +1,10 @@
-import { DEFAULT_LOCALE, hreflangOf } from '../../shared/countryLocaleMap.js';
+import { hreflangOf } from '../../shared/countryLocaleMap.js';
 import { buildPrettyGamePath, hardwareToUrlSegment } from './gameSlug';
 import {
   SITE_NAME,
   HOME_META_TITLE,
   buildGameSeo,
+  hreflangCluster,
 } from './gameSeo';
 
 const SEO_ATTR = 'data-tb-seo';
@@ -138,7 +139,7 @@ function applyShareMeta({ title, description, url, image, ogLocale, type = 'webs
 
 /**
  * canonical zeigt strikt auf die aufgerufene Sprach-URL.
- * hreflang nur für Sprachen mit eigener Freigabe, x-default auf DE.
+ * hreflang erst, wenn mindestens zwei Sprachen freigegeben sind.
  *
  * Der robots-Tag wird vor allem anderen gesetzt: Spiele ohne Slug bekommen
  * keine canonical-Links, brauchen aber trotzdem ihr noindex.
@@ -172,16 +173,17 @@ export function applyGameSeoLinks({ locale, hardware, slug, game, noIndex = fals
 
   appendLink('canonical', { href: seo.canonical });
 
-  for (const lang of seo.langs) {
-    const href = `${origin}${buildPrettyGamePath(lang, hw, gameSlug)}`;
-    appendLink('alternate', { hreflang: hreflangOf(lang), href });
+  const cluster = hreflangCluster(seo.langs);
+  if (cluster) {
+    for (const lang of cluster.langs) {
+      const href = `${origin}${buildPrettyGamePath(lang, hw, gameSlug)}`;
+      appendLink('alternate', { hreflang: hreflangOf(lang), href });
+    }
+    appendLink('alternate', {
+      hreflang: 'x-default',
+      href: `${origin}${buildPrettyGamePath(cluster.xDefault, hw, gameSlug)}`,
+    });
   }
-
-  const xDefaultLang = seo.langs.includes(DEFAULT_LOCALE) ? DEFAULT_LOCALE : seo.langs[0];
-  appendLink('alternate', {
-    hreflang: 'x-default',
-    href: `${origin}${buildPrettyGamePath(xDefaultLang, hw, gameSlug)}`,
-  });
 
   applyShareMeta({
     title: seo.pageTitle,

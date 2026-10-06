@@ -1,7 +1,7 @@
-import { isGuidePublished, PUBLISH_LOCALE } from '../lib/guidePublication';
+import { hasPublishedGuide } from '../lib/guidePublication';
 
 function GuideOnlineBadge({ game, visible = false, size = 'sm', className = '' }) {
-  if (!visible || !isGuidePublished(game, PUBLISH_LOCALE)) return null;
+  if (!visible || !hasPublishedGuide(game)) return null;
 
   const sizeClass =
     size === 'md' ? 'w-8 h-8' : size === 'lg' ? 'w-10 h-10' : 'w-7 h-7';

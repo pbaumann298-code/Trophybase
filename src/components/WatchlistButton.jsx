@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useWatchlist } from '../context/WatchlistContext';
+import { useLocale } from '../context/LocaleContext';
 import { markHintSeen } from '../lib/featureHints';
 
 /**
@@ -13,8 +14,9 @@ function WatchlistButton({
   showLabel = false,
 }) {
   const { isOnWatchlist, toggleWatchlist, loading } = useWatchlist();
+  const { t } = useLocale();
   const [busy, setBusy] = useState(false);
-  const [hint, setHint] = useState('');
+  const [hint, setHint] = useState(null);
 
   if (!gameId) return null;
 
@@ -31,7 +33,7 @@ function WatchlistButton({
     e.preventDefault();
     e.stopPropagation();
 
-    setHint('');
+    setHint(null);
     setBusy(true);
     let result;
     try {
@@ -41,19 +43,19 @@ function WatchlistButton({
     }
 
     if (result.error) {
-      setHint(result.error.message || 'Watchlist konnte nicht aktualisiert werden.');
+      setHint({ text: result.error.message || t('watchlistFailed'), ok: false });
       return;
     }
 
     markHintSeen('watchlist');
-    setHint(result.added ? 'Zur Watchlist hinzugefügt.' : 'Von Watchlist entfernt.');
-    window.setTimeout(() => setHint(''), 2200);
+    setHint({
+      text: result.added ? t('watchlistAdded') : t('watchlistRemoved'),
+      ok: true,
+    });
+    window.setTimeout(() => setHint(null), 2200);
   };
 
-  const hintClass =
-    hint.includes('hinzugefügt') || hint.includes('entfernt')
-      ? 'text-[#00ff66]'
-      : 'text-amber-400';
+  const hintClass = hint?.ok ? 'text-[#00ff66]' : 'text-amber-400';
 
   if (variant === 'detail') {
     return (
@@ -71,11 +73,11 @@ function WatchlistButton({
           <span aria-hidden className="text-base leading-none">
             {active ? '★' : '☆'}
           </span>
-          {active ? 'Auf Watchlist' : 'Zur Watchlist'}
+          {active ? t('watchlistOn') : t('watchlistAdd')}
         </button>
-        {hint && (
-          <span className={`text-[10px] font-mono text-right leading-snug ${hintClass}`}>{hint}</span>
-        )}
+        {hint ? (
+          <span className={`text-[10px] font-mono text-right leading-snug ${hintClass}`}>{hint.text}</span>
+        ) : null}
       </div>
     );
   }
@@ -86,8 +88,8 @@ function WatchlistButton({
         type="button"
         onClick={handleClick}
         disabled={busy || loading}
-        title={active ? 'Von Watchlist entfernen' : 'Zur Watchlist hinzufügen'}
-        aria-label={active ? 'Von Watchlist entfernen' : 'Zur Watchlist hinzufügen'}
+        title={active ? t('watchlistRemoveTitle') : t('watchlistAddTitle')}
+        aria-label={active ? t('watchlistRemoveTitle') : t('watchlistAddTitle')}
         aria-pressed={active}
         className={`${sizeClass} rounded-full border flex items-center justify-center transition-all duration-200 shadow-md disabled:opacity-50 ${
           active
@@ -102,11 +104,11 @@ function WatchlistButton({
           Watchlist
         </span>
       )}
-      {hint && (
+      {hint ? (
         <span className={`text-[10px] font-mono max-w-[10rem] text-right leading-snug ${hintClass}`}>
-          {hint}
+          {hint.text}
         </span>
-      )}
+      ) : null}
     </div>
   );
 }

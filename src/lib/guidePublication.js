@@ -1,3 +1,4 @@
+import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 import { TABLES, GAME_PK, GAME_STRUCT, GAME_TYPE } from './gameSchema.js';
 import { normalizeLocale } from './locale.js';
 import { ensureGameSlug, warmPublishedGuidePages } from './publishSeo.js';
@@ -15,15 +16,23 @@ export const GUIDE_PUBLICATION = {
 };
 
 /**
- * Redaktionell freigegeben wird vorerst nur Deutsch. Andere Sprachen (EN, ES, …)
- * brauchen einen eigenen status.guide_<lang> = PUBLISHED, sonst erscheinen sie
- * nicht im Sprachwähler und nicht in Sitemap/Hreflang.
+ * Fallback, wenn ein Spiel noch keine freigegebene Sprache hat.
+ * Die Freigabe selbst hängt an status.guide_<lang>, für jede Sprache einzeln.
  */
 export const PUBLISH_LOCALE = 'de';
 
 /** Darf in dieser Sprache über die Website freigegeben werden? */
 export function canPublishLocale(lang) {
-  return normalizeLocale(lang) === PUBLISH_LOCALE;
+  return SUPPORTED_LOCALES.includes(normalizeLocale(lang));
+}
+
+/** Sprachen, deren Guide für Besucher freigegeben ist. */
+export function publishedGuideLocales(game) {
+  return SUPPORTED_LOCALES.filter((lang) => isGuidePublished(game, lang));
+}
+
+export function hasPublishedGuide(game) {
+  return publishedGuideLocales(game).length > 0;
 }
 
 /** Sprachspezifischer Schlüssel in games.status, z. B. „guide_de". */
@@ -96,7 +105,7 @@ export function isGuideReady(game, lang = PUBLISH_LOCALE) {
  * @param {object|null|undefined} game
  */
 export function isGameIndexable(game) {
-  if (!isGuidePublished(game, PUBLISH_LOCALE)) return false;
+  if (!hasPublishedGuide(game)) return false;
   return game?.[GAME_STRUCT.isIndexable] !== false;
 }
 
@@ -123,9 +132,7 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
   if (!canPublishLocale(lang)) {
     return {
       status: null,
-      error: new Error(
-        `Freigabe über die Website ist nur für ${PUBLISH_LOCALE.toUpperCase()} vorgesehen.`,
-      ),
+      error: new Error('Für diese Sprache gibt es keine Freigabe.'),
     };
   }
 

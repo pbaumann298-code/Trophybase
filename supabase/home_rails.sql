@@ -102,10 +102,20 @@ as $$
       ) as titles
     from public.games g
     where
-      (g.status ->> 'guide_de') = 'PUBLISHED'
+      exists (
+        select 1
+        from jsonb_each_text(coalesce(g.status, '{}'::jsonb)) e
+        where starts_with(e.key, 'guide_')
+          and upper(e.value) = 'PUBLISHED'
+      )
       or (
         public.tb_is_admin()
-        and (g.status ->> 'guide_de') = 'FERTIG'
+        and exists (
+          select 1
+          from jsonb_each_text(coalesce(g.status, '{}'::jsonb)) e
+          where starts_with(e.key, 'guide_')
+            and upper(e.value) = 'FERTIG'
+        )
       )
   ),
   scored as (

@@ -5,23 +5,18 @@ import { GAME_STRUCT, GAME_TYPE } from '../lib/gameSchema';
 import { setIntranetGameType } from '../lib/intranetGameEdits';
 import { fetchHomeTagDefs, orderHomeTags, readHomeTags, setEditorialHomeTags } from '../lib/homeTagDefs';
 import HomeTagChecks from './HomeTagChecks';
+import { normalizeLocale } from '../lib/locale';
 import {
   canPublishLocale,
   isGuidePublished,
-  PUBLISH_LOCALE,
   setGuidePublished,
 } from '../lib/guidePublication';
 
 const GAME_TYPES = Object.values(GAME_TYPE);
 
-const LANG_LABEL = PUBLISH_LOCALE.toUpperCase();
-
 /**
- * Redaktionelle Freigabe eines Guides – nur für Admins sichtbar.
- *
- * Geschrieben wird ausschliesslich status.guide_de. Der Button erscheint daher
- * nur, solange der deutsche Guide angezeigt wird: geprüft und freigegeben wird
- * dieselbe Sprache.
+ * Redaktionelle Freigabe der gerade angezeigten Guide-Sprache.
+ * Geschrieben wird status.guide_<lang>. Andere Sprachen bleiben unberührt.
  */
 function currentGameType(game) {
   return String(game?.[GAME_STRUCT.gameType] ?? '').trim();
@@ -67,9 +62,12 @@ function GuidePublishButton({
     };
   }, [publishPrompt]);
 
-  if (!isAdminUser(user) || !gameUuid || !canPublishLocale(guideLang)) return null;
+  const lang = normalizeLocale(guideLang);
+  const langLabel = lang.toUpperCase();
 
-  const published = isGuidePublished(game, PUBLISH_LOCALE);
+  if (!isAdminUser(user) || !gameUuid || !canPublishLocale(lang)) return null;
+
+  const published = isGuidePublished(game, lang);
   const knownType = GAME_TYPES.includes(currentGameType(game));
 
   const publish = async ({ gameType = null, homeTags = null } = {}) => {
@@ -104,7 +102,7 @@ function GuidePublishButton({
     const { status, slug, error } = await setGuidePublished(
       supabase,
       gameUuid,
-      PUBLISH_LOCALE,
+      lang,
       !published,
     );
     setBusy(false);
@@ -122,7 +120,7 @@ function GuidePublishButton({
     setPublishPrompt(false);
     onPublishedChange?.(status, { slug, gameType: savedType, homeTags: savedTags });
     setHintTone('ok');
-    setHint(published ? `${LANG_LABEL} wieder offline.` : `${LANG_LABEL} ist online.`);
+    setHint(published ? `${langLabel} wieder offline.` : `${langLabel} ist online.`);
     window.setTimeout(() => setHint(''), 2600);
   };
 
@@ -158,8 +156,8 @@ function GuidePublishButton({
         disabled={busy}
         title={
           published
-            ? `Guide (${LANG_LABEL}) wieder auf FERTIG setzen – für Besucher unsichtbar`
-            : `Guide (${LANG_LABEL}) freigeben – für alle Besucher sichtbar`
+            ? `Guide (${langLabel}) wieder auf FERTIG setzen – für Besucher unsichtbar`
+            : `Guide (${langLabel}) freigeben – für alle Besucher sichtbar`
         }
         aria-pressed={published}
         className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-mono font-bold uppercase tracking-wider transition-all duration-200 disabled:opacity-50 ${
@@ -171,7 +169,7 @@ function GuidePublishButton({
         <span aria-hidden className="text-base leading-none">
           {published ? '●' : '○'}
         </span>
-        {busy ? 'Speichert…' : published ? `${LANG_LABEL} online` : `${LANG_LABEL} freigeben`}
+        {busy ? 'Speichert…' : published ? `${langLabel} online` : `${langLabel} freigeben`}
       </button>
       {hint && (
         <span
@@ -250,7 +248,7 @@ function GuidePublishButton({
                 onClick={handleConfirmPublish}
                 className="rounded-xl bg-[#00ff66] px-4 py-2 text-[10px] font-mono font-bold uppercase tracking-wider text-[#121314] disabled:opacity-50"
               >
-                {busy ? 'Speichert…' : `${LANG_LABEL} freigeben`}
+                {busy ? 'Speichert…' : `${langLabel} freigeben`}
               </button>
             </div>
           </div>

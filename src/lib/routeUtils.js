@@ -6,8 +6,8 @@ import {
   parsePrettyGamePath,
 } from './gameSlug.js';
 import { getGameUuid, getPlatformGameId, UUID_PATTERN } from './gameModel.js';
-import { isGuidePublished, PUBLISH_LOCALE } from './guidePublication.js';
-import { coerceToAvailableLocale, contentLocalesForGame } from './contentLocales.js';
+import { publishedGuideLocales } from './guidePublication.js';
+import { coerceToAvailableLocale } from './contentLocales.js';
 
 /** NPWR-IDs haben das Format NPWR12345_00 (legacy platform_game_id) */
 export const NPWR_ID_PATTERN = /^NPWR\d+_\d+$/i;
@@ -78,11 +78,11 @@ export function gameGuidePath(gameOrRef, locale = getLocale()) {
   }
 
   const id = getGameUuid(gameOrRef) || getPlatformGameId(gameOrRef);
-  const published = isGuidePublished(gameOrRef, PUBLISH_LOCALE);
-  if (published) {
+  const publishedLocales = publishedGuideLocales(gameOrRef);
+  if (publishedLocales.length > 0) {
     const slug = String(gameOrRef.slug ?? '').trim();
     const hardware = hardwareToUrlSegment(gameOrRef.hardware);
-    const pathLocale = coerceToAvailableLocale(locale, contentLocalesForGame(gameOrRef));
+    const pathLocale = coerceToAvailableLocale(locale, publishedLocales);
     const pretty = buildPrettyGamePath(pathLocale, hardware, slug);
     if (pretty) return pretty;
   }

@@ -6,7 +6,7 @@ import {
   GAME_I18N,
   HOME_FEATURED_GAME_TYPES,
 } from './gameSchema.js';
-import { GUIDE_PUBLICATION } from './guidePublication.js';
+import { GUIDE_PUBLICATION, guideStatusKey } from './guidePublication.js';
 import { getLocale } from './locale.js';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 import { getGameUuid, isUuid, mergeGameRecord, mergeGameRows } from './gameModel.js';
@@ -390,15 +390,20 @@ async function fetchSearchRows(makeQuery, limit) {
  * @param {object} query
  * @param {{ includeReady?: boolean, publishedOnly?: boolean }} [catalog]
  */
+function guideStatusMatch(state) {
+  return SUPPORTED_LOCALES
+    .map((lang) => `${GAME_STRUCT.status}->>${guideStatusKey(lang)}.eq.${state}`)
+    .join(',');
+}
+
 export function applyGuideCatalogFilter(query, catalog = {}) {
   if (catalog.includeReady) {
     return query.or(
-      `${GAME_STRUCT.status}->>guide_de.eq.${GUIDE_PUBLICATION.DONE},` +
-        `${GAME_STRUCT.status}->>guide_de.eq.${GUIDE_PUBLICATION.PUBLISHED}`,
+      `${guideStatusMatch(GUIDE_PUBLICATION.DONE)},${guideStatusMatch(GUIDE_PUBLICATION.PUBLISHED)}`,
     );
   }
   if (catalog.publishedOnly) {
-    return query.filter(`${GAME_STRUCT.status}->>guide_de`, 'eq', GUIDE_PUBLICATION.PUBLISHED);
+    return query.or(guideStatusMatch(GUIDE_PUBLICATION.PUBLISHED));
   }
   return query;
 }

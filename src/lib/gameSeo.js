@@ -40,6 +40,19 @@ export function ogLocaleOf(locale) {
   return OG_LOCALES[locale] || 'de_DE';
 }
 
+/**
+ * hreflang erst ab zwei freigegebenen Sprachen.
+ * Eine einzelne Sprache bleibt bei ihrem Canonical, ohne Alternate.
+ * @param {string[]} langs
+ * @returns {{ langs: string[], xDefault: string }|null}
+ */
+export function hreflangCluster(langs) {
+  const list = [...new Set((langs ?? []).filter(Boolean))];
+  if (list.length < 2) return null;
+  const xDefault = list.includes(DEFAULT_LOCALE) ? DEFAULT_LOCALE : list[0];
+  return { langs: list, xDefault };
+}
+
 function absoluteUrl(origin, pathOrUrl) {
   const raw = String(pathOrUrl ?? '').trim();
   if (!raw) return '';

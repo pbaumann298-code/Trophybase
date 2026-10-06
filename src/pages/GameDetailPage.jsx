@@ -33,7 +33,7 @@ import { incrementGameViews } from '../lib/gameQueries';
 import { loadRelatedGuides } from '../lib/relatedGames';
 import { fetchGameGuideBundle, resolveGameId, resolveGuideLanguage } from '../lib/guideQueries';
 import { isAdminUser } from '../lib/adminAccess';
-import { isGuidePublished, PUBLISH_LOCALE } from '../lib/guidePublication';
+import { isGuidePublished } from '../lib/guidePublication';
 import { clearIntranetCover, setIntranetIgdbCover } from '../lib/intranetGameEdits';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
@@ -320,8 +320,8 @@ function GamePageContent({
   }, [selectedGame, publicationOverride, gameUuid]);
 
   const isAdmin = isAdminUser(sessionUser);
-  /** Sichtbarkeit der Guide-Reiter hängt an der DE-Freigabe; andere Sprachen brauchen eigene guide_* PUBLISHED. */
-  const guidePublished = isGuidePublished(gameForPublication, PUBLISH_LOCALE);
+  /** Sichtbarkeit der Guide-Reiter hängt an der gerade gezeigten Sprache. */
+  const guidePublished = isGuidePublished(gameForPublication, effectiveGuideLang);
   /** Admins sehen den Guide als Vorschau, Besucher erst nach der Freigabe. */
   const canSeeGuides = guidePublished || isAdmin;
   const contentLocales = useMemo(
@@ -530,7 +530,7 @@ function GamePageContent({
         >
           <div className="flex justify-between items-center mb-4 px-1">
             <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">
-              100% Trophäen-Checkliste
+              {t('trophyChecklist')}
             </h3>
             <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer select-none">
               <input
@@ -541,6 +541,21 @@ function GamePageContent({
               />
               {t('hideCompleted')}
             </label>
+          </div>
+
+          <div className="mb-4 px-1">
+            <div className="flex justify-between items-center mb-2 text-xs font-mono">
+              <span className="text-zinc-400 uppercase tracking-wider">{t('overallProgress')}</span>
+              <span className="text-[#00ff66] font-bold text-sm">
+                {progressPercent}% ({completedCount}/{activeTrophies.length})
+              </span>
+            </div>
+            <div className="w-full bg-zinc-800 h-2.5 rounded-full overflow-hidden">
+              <div
+                className="bg-[#00ff66] h-full rounded-full transition-all duration-500 shadow-[0_0_8px_rgba(0,255,102,0.5)]"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
           </div>
 
           <TrophyGroupedChecklist
@@ -581,9 +596,6 @@ function GamePageContent({
                 gameId={gameId}
                 reportEntityType="guide_step"
                 collectiblesData={chronologicalGuideData}
-                progressPercent={progressPercent}
-                completedCount={completedCount}
-                totalCount={activeTrophies.length}
                 trophyById={trophyById}
                 groupByField="chronological_group"
                 groupHeaderIcon="📍"
@@ -625,9 +637,6 @@ function GamePageContent({
                 gameId={gameId}
                 reportEntityType="guide_item"
                 collectiblesData={byTypeGuideData}
-                progressPercent={progressPercent}
-                completedCount={completedCount}
-                totalCount={activeTrophies.length}
                 trophyById={trophyById}
                 groupByField="category_group"
                 groupHeaderIcon="📦"
@@ -668,9 +677,6 @@ function GamePageContent({
               <BossKacheln
                 gameId={gameId}
                 bossesData={bossOverviewData}
-                progressPercent={progressPercent}
-                completedCount={completedCount}
-                totalCount={activeTrophies.length}
                 trophyById={trophyById}
                 listTitle="Bosse"
                 hideCompleted={hideCompleted}
@@ -888,19 +894,19 @@ function GamePageContent({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4 sm:gap-x-8 w-full max-w-xl min-w-0 text-sm border-t border-zinc-800/60 pt-4">
               <div className="flex justify-between border-b border-zinc-800/40 pb-2 sm:col-span-2">
-                <span className="text-zinc-500 font-mono text-xs uppercase">Konsole</span>
+                <span className="text-zinc-500 font-mono text-xs uppercase">{t('searchConsole')}</span>
                 <span className="text-sky-300 font-semibold text-right">
                   {selectedGame[GAME_FIELDS.console] || '—'}
                 </span>
               </div>
               <div className="flex justify-between border-b border-zinc-800/40 pb-2">
-                <span className="text-zinc-500 font-mono text-xs uppercase">Release Jahr</span>
+                <span className="text-zinc-500 font-mono text-xs uppercase">{t('releaseYear')}</span>
                 <span className="text-zinc-200 font-medium">
                   {selectedGame[GAME_FIELDS.year] || '—'}
                 </span>
               </div>
               <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2 sm:col-span-1">
-                <span className="text-zinc-500 font-mono text-xs uppercase">Genre</span>
+                <span className="text-zinc-500 font-mono text-xs uppercase">{t('searchGenre')}</span>
                 <span className="text-zinc-200 font-medium">
                   {selectedGame[GAME_FIELDS.genre] || '—'}
                 </span>
@@ -937,21 +943,6 @@ function GamePageContent({
               )}
             </div>
           </div>
-
-          <div className="mt-8 bg-[#121314] p-4 rounded-xl border border-zinc-800/80 max-w-xl">
-            <div className="flex justify-between items-center mb-2 text-xs font-mono">
-              <span className="text-zinc-400 uppercase tracking-wider">Gesamtfortschritt Trophäen</span>
-              <span className="text-[#00ff66] font-bold text-sm">
-                {progressPercent}% ({completedCount}/{activeTrophies.length})
-              </span>
-            </div>
-            <div className="w-full bg-zinc-800 h-2.5 rounded-full overflow-hidden">
-              <div
-                className="bg-[#00ff66] h-full rounded-full transition-all duration-500 shadow-[0_0_8px_rgba(0,255,102,0.5)]"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-          </div>
         </div>
       </div>
 
@@ -974,7 +965,7 @@ function GamePageContent({
 
         {isAdmin && !guidePublished && hasGuideContent && (
           <p className="text-xs text-amber-400 font-mono mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
-            Vorschau: Dieser Guide ist noch nicht freigegeben ({PUBLISH_LOCALE.toUpperCase()}) und
+            Vorschau: Dieser Guide ist noch nicht freigegeben ({effectiveGuideLang.toUpperCase()}) und
             für Besucher unsichtbar.
           </p>
         )}

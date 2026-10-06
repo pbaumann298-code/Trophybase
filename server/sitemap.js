@@ -17,7 +17,11 @@ async function loadIndexablePublishedGames(supabase) {
     .from('games')
     .select(`slug, hardware, ${GAME_STRUCT.gameType}, ${GAME_STRUCT.createdAt}, ${GAME_STRUCT.status}`)
     .not('slug', 'is', null)
-    .filter(`${GAME_STRUCT.status}->>guide_de`, 'eq', GUIDE_PUBLICATION.PUBLISHED)
+    .or(
+      SUPPORTED_LOCALES
+        .map((locale) => `${GAME_STRUCT.status}->>guide_${locale}.eq.${GUIDE_PUBLICATION.PUBLISHED}`)
+        .join(','),
+    )
     .or(`${GAME_STRUCT.isIndexable}.is.null,${GAME_STRUCT.isIndexable}.eq.true`)
     .limit(SITEMAP_URL_CAP);
 
