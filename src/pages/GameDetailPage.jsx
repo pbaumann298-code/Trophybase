@@ -966,7 +966,13 @@ function GamePageContent({
       </div>
 
       {isAdmin ? (
-        <AdminGameOverview className="mb-8" game={gameForPublication} title={gameTitle} playtime={playtime} />
+        <AdminGameOverview
+          className="mb-8"
+          game={gameForPublication}
+          title={gameTitle}
+          playtime={playtime}
+          trophies={activeTrophies}
+        />
       ) : null}
 
       <GameSeoInfobox
