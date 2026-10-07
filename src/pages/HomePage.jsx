@@ -51,11 +51,6 @@ function HomePage({
         <span className="home-hero-kicker">{t('homeKicker')}</span>
         <h1 className="home-hero-title">{t('homeTitle')}</h1>
         <p className="home-hero-sub">{t('homeSub')}</p>
-        {includeReady ? (
-          <p className="mt-3 text-xs font-mono text-amber-400/90">
-            Admin-Vorschau: FERTIG-Guides. Besucher sehen nur PUBLISHED.
-          </p>
-        ) : null}
         <div className="home-search-block">
           <form ref={searchFormRef} onSubmit={handleSearchSubmit} className="home-search">
             <input
@@ -91,7 +86,9 @@ function HomePage({
       <Dashboard openGame={openGame} />
 
       <div className="home-categories" role="list">
-        {HOME_CATEGORIES.map((category) => (
+        {HOME_CATEGORIES.filter(
+          (category) => loading || (categoryGames[category.id] || []).length > 0,
+        ).map((category) => (
           <CategoryCarousel
             key={category.id}
             category={category}

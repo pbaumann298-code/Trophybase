@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import VisibilityModeToggle from './VisibilityModeToggle';
-import LocaleSelector from './LocaleSelector';
+import { LocaleRegister } from './LocaleSelector';
 import { useLocale } from '../context/LocaleContext';
 import { hasAdminReturnFlag, isAdminUser } from '../lib/adminAccess';
 import { navigateToHome } from '../lib/routeUtils';
@@ -29,7 +29,7 @@ function Header({ setCurrentView, sessionUser, onLogout }) {
           <span className="text-white">TrophyBase</span>
           <span className="text-[#00ff66]">.app</span>
         </div>
-        <LocaleSelector menuAlign="left" />
+        {isAdmin ? <LocaleRegister /> : null}
       </div>
 
       <div className="site-header-right min-w-0">

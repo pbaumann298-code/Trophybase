@@ -121,7 +121,6 @@ function CategoryCarousel({
               {category.title}
             </h2>
           )}
-          <p className="home-category-tagline">{category.tagline}</p>
         </div>
         <div className="home-category-nav flex-shrink-0">
           <button

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocale } from '../context/LocaleContext';
 import { localeOptions } from '../lib/uiStrings';
+import { SUPPORTED_LOCALES } from '../lib/locale';
 import { DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
 
 function LocaleSelector({ className = '', menuAlign = 'left' }) {
@@ -73,3 +74,39 @@ function LocaleSelector({ className = '', menuAlign = 'left' }) {
 }
 
 export default LocaleSelector;
+
+/** Admin-Register: alle 14 Sprachen, die Ansicht folgt der freigegebenen Sprache. */
+export function LocaleRegister({ className = '' }) {
+  const { globalLocale, setGlobalLocale, t } = useLocale();
+  const options = localeOptions(SUPPORTED_LOCALES);
+
+  return (
+    <div
+      role="tablist"
+      aria-label={t('language')}
+      className={`flex flex-wrap gap-1 ${className}`}
+    >
+      {options.map((opt) => {
+        const active = opt.code === globalLocale;
+        return (
+          <button
+            key={opt.code}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            title={opt.label}
+            aria-label={opt.label}
+            onClick={() => setGlobalLocale(opt.code, { unlock: true })}
+            className={`inline-flex h-7 w-7 items-center justify-center rounded-md border text-sm leading-none transition ${
+              active
+                ? 'border-[#00ff66]/50 bg-[#00ff66]/10'
+                : 'border-zinc-800 bg-[#121314] hover:border-zinc-700'
+            }`}
+          >
+            <span aria-hidden>{opt.flag}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}

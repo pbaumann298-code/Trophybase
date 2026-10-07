@@ -10,6 +10,7 @@ import {
   GAME_SEARCH_LOCALIZED_COLUMNS,
 } from './gameQueries';
 import { getLocale } from './locale';
+import { isGuidePublished } from './guidePublication';
 
 const LIMIT = 12;
 
@@ -68,6 +69,21 @@ async function mergeRailRows(queries, locale, { dropQuickwins = false, limit = L
 
 function emptyRails() {
   return Object.fromEntries(HOME_CATEGORIES.map((cat) => [cat.id, []]));
+}
+
+/** Nur Guides, die in dieser Sprache wirklich freigegeben sind. */
+function railsForLocale(byId, locale) {
+  const next = {};
+  for (const [id, games] of Object.entries(byId ?? {})) {
+    next[id] = (games ?? []).filter((game) => {
+      const status = game?.status;
+      if (!status || typeof status !== 'object' || Array.isArray(status)) {
+        return locale === 'de';
+      }
+      return isGuidePublished(game, locale);
+    });
+  }
+  return next;
 }
 
 function isMissingHomeRailsRpc(error) {
@@ -140,7 +156,6 @@ export const HOME_CATEGORIES = [
     id: 'beliebt',
     emoji: '🔥',
     title: 'Beliebt',
-    tagline: 'Die meistaufgerufenen Evergreen- & Premium-Guides',
     accent: '#ff6b35',
     fetch: async (supabase, locale = getLocale(), includeReady = false) => {
       const { data, error } = await fetchPopularGames(supabase, LIMIT, locale, includeReady);
@@ -155,7 +170,6 @@ export const HOME_CATEGORIES = [
     id: 'neu',
     emoji: '✨',
     title: 'Neue Guides',
-    tagline: 'Frisch in der Datenbank – nur Evergreen & Premium',
     accent: '#a3e635',
     fetch: async (supabase, locale = getLocale(), includeReady = false) => {
       const { data, error } = await fetchNewGuideGames(supabase, LIMIT, locale, includeReady);
@@ -172,7 +186,6 @@ export const HOME_CATEGORIES = [
     title: 'Souls / Soulslike',
     searchMatch: /^(souls(\s*\/\s*soulslike)?|soulslike)$/i,
     search: { kind: 'souls' },
-    tagline: 'FromSoftware und alles mit Tag soulslike',
     accent: '#a855f7',
     fetch: (supabase, locale, includeReady) =>
       fetchCategoryList({ search: { kind: 'souls' } }, supabase, locale, includeReady, LIMIT),
@@ -183,7 +196,6 @@ export const HOME_CATEGORIES = [
     title: 'Open World',
     searchMatch: /^(open[_\s-]?world)$/i,
     search: { kind: 'tag', tag: HOME_TAGS.OPEN_WORLD },
-    tagline: 'Große Sandboxen – kuratiert über den Open-World-Tag',
     accent: '#34d399',
     fetch: (supabase, locale, includeReady) =>
       fetchCategoryList(
@@ -200,7 +212,6 @@ export const HOME_CATEGORIES = [
     title: 'Ubisoft-Welten',
     searchMatch: /^(ubisoft([- ]welten)?)$/i,
     search: { kind: 'studio', studio: 'Ubisoft', dropQuickwins: true },
-    tagline: 'Nur Entwickler/Publisher Ubisoft – keine Quickwins',
     accent: '#38bdf8',
     fetch: (supabase, locale, includeReady) =>
       fetchCategoryList(
@@ -217,7 +228,6 @@ export const HOME_CATEGORIES = [
     title: 'Rockstar Games',
     searchMatch: /^(rockstar(\s+games)?)$/i,
     search: { kind: 'studio', studio: 'Rockstar', dropQuickwins: true },
-    tagline: 'Entwickler oder Publisher Rockstar',
     accent: '#facc15',
     fetch: (supabase, locale, includeReady) =>
       fetchCategoryList(
@@ -234,7 +244,6 @@ export const HOME_CATEGORIES = [
     title: 'Familienspaß & Easy Platin',
     searchMatch: /^(familienspa[sß].*|easy platin)$/i,
     search: { kind: 'tag', tag: HOME_TAGS.FAMILY },
-    tagline: 'Sobald der Family-Tag gesetzt ist',
     accent: '#4ade80',
     fetch: (supabase, locale, includeReady) =>
       fetchCategoryList(
@@ -251,7 +260,6 @@ export const HOME_CATEGORIES = [
     title: 'Indie-Perlen',
     searchMatch: /^(indie([- ]perlen)?)$/i,
     search: { kind: 'tag', tag: HOME_TAGS.INDIE },
-    tagline: 'Sobald der Indie-Tag gesetzt ist',
     accent: '#f472b6',
     fetch: (supabase, locale, includeReady) =>
       fetchCategoryList(
@@ -268,7 +276,6 @@ export const HOME_CATEGORIES = [
     title: 'Highspeed & Asphalt',
     searchMatch: /^(highspeed.*|asphalt|racing)$/i,
     search: { kind: 'tag', tag: HOME_TAGS.RACING },
-    tagline: 'Sobald der Racing-Tag gesetzt ist',
     accent: '#22d3ee',
     fetch: (supabase, locale, includeReady) =>
       fetchCategoryList(
@@ -285,7 +292,6 @@ export const HOME_CATEGORIES = [
     title: 'God of War',
     searchMatch: /^god of war$/i,
     search: { kind: 'titles', titles: ['%God of War%'] },
-    tagline: 'Von den griechischen Mythen bis nach Midgard',
     accent: '#c4a35a',
     fetch: (supabase, locale, includeReady) =>
       fetchCategoryList(
@@ -302,7 +308,6 @@ export const HOME_CATEGORIES = [
     title: 'Tomb Raider',
     searchMatch: /^tomb raider$/i,
     search: { kind: 'titles', titles: ['%Tomb Raider%', '%Lara Croft%'] },
-    tagline: 'Laras Abenteuer – von den Klassikern bis zum Reboot',
     accent: '#14b8a6',
     fetch: (supabase, locale, includeReady) =>
       fetchCategoryList(
@@ -409,6 +414,6 @@ export function findHomeCategoryForQuery(query) {
  */
 export async function fetchAllHomeCategories(supabase, locale = getLocale(), includeReady = false) {
   const viaRpc = await fetchHomeRailsViaRpc(supabase, locale);
-  if (viaRpc) return viaRpc;
-  return fetchHomeRailsLegacy(supabase, locale, includeReady);
+  const rails = viaRpc ?? (await fetchHomeRailsLegacy(supabase, locale, includeReady));
+  return railsForLocale(rails, locale);
 }

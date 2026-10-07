@@ -338,13 +338,6 @@
   line-height: 1;
 }
 
-.home-category-tagline {
-  font-size: 0.7rem;
-  color: #71717a;
-  margin: 0.2rem 0 0;
-  line-height: 1.35;
-}
-
 .home-category-nav {
   display: flex;
   gap: 0.35rem;

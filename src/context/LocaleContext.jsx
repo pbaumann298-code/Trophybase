@@ -33,8 +33,11 @@ export function LocaleProvider({ children }) {
     return getLocale();
   });
   const [availableLocales, setAvailableLocales] = useState(DEFAULT_AVAILABLE_LOCALES);
+  const [localeUnlocked, setLocaleUnlocked] = useState(false);
 
-  const displayLocale = coerceToAvailableLocale(globalLocale, availableLocales);
+  const displayLocale = localeUnlocked
+    ? globalLocale
+    : coerceToAvailableLocale(globalLocale, availableLocales);
 
   useEffect(() => {
     if (getPersistedLocale()) return undefined;
@@ -54,15 +57,18 @@ export function LocaleProvider({ children }) {
     };
   }, []);
 
-  const setGlobalLocale = useCallback((next) => {
+  const setGlobalLocale = useCallback((next, options = {}) => {
     const normalized = persistLocale(next);
     setGlobalLocaleState(normalized);
-    const pathLocale = coerceToAvailableLocale(normalized, availableLocales);
+    if (options.unlock) setLocaleUnlocked(true);
+    const pathLocale = options.unlock || localeUnlocked
+      ? normalized
+      : coerceToAvailableLocale(normalized, availableLocales);
     syncPathLocale(pathLocale);
     if (typeof document !== 'undefined') {
       document.documentElement.lang = pathLocale;
     }
-  }, [availableLocales]);
+  }, [availableLocales, localeUnlocked]);
 
   useEffect(() => {
     const onLocaleChange = (event) => {
