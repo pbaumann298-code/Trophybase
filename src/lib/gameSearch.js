@@ -1,4 +1,5 @@
 import { getGameTitle } from './gameModel';
+import { GAME_STRUCT, GAME_TYPE } from './gameSchema';
 import {
   SEARCH_RESULT_CAP,
   searchGamesByFreeText,
@@ -7,6 +8,25 @@ import {
 } from './gameQueries';
 import { findHomeCategoryForQuery, searchHomeCategory } from './homeCategories';
 import { getLocale } from './locale';
+
+/** Suchreihenfolge: Evergreen, Premium, Standard, danach Servertot und Quickwins. */
+const SEARCH_TYPE_RANK = {
+  [GAME_TYPE.EVERGREEN]: 0,
+  [GAME_TYPE.PREMIUM]: 1,
+  [GAME_TYPE.STANDARD]: 2,
+  [GAME_TYPE.SERVER_DEAD]: 3,
+  [GAME_TYPE.QUICKWIN]: 3,
+};
+
+function searchTypeRank(game) {
+  const type = String(game?.[GAME_STRUCT.gameType] ?? '').trim();
+  return SEARCH_TYPE_RANK[type] ?? 2;
+}
+
+/** Gleiche Typen behalten die bisherige Reihenfolge (Release-Jahr). */
+export function rankSearchResults(games) {
+  return [...(games ?? [])].sort((a, b) => searchTypeRank(a) - searchTypeRank(b));
+}
 
 export const SEARCH_PAGE_SIZE = 50;
 
@@ -60,11 +80,12 @@ export async function searchGames(supabase, query, options = {}) {
     : { publishedOnly: options.publishedOnly !== false };
 
   const rail = findHomeCategoryForQuery(check.query);
-  if (rail?.search) {
-    return searchHomeCategory(supabase, rail, locale, Boolean(options.includeReady), limit);
-  }
+  const result = rail?.search
+    ? await searchHomeCategory(supabase, rail, locale, Boolean(options.includeReady), limit)
+    : await searchGamesByFreeText(supabase, check.pattern, limit, locale, catalog);
 
-  return searchGamesByFreeText(supabase, check.pattern, limit, locale, catalog);
+  if (result.error) return result;
+  return { ...result, data: rankSearchResults(result.data) };
 }
 
 /**
@@ -74,7 +95,9 @@ export async function searchGames(supabase, query, options = {}) {
  * @param {{ limit?: number, locale?: string, includeReady?: boolean, publishedOnly?: boolean }} [options]
  */
 export async function searchGamesAdvanced(supabase, filters, options = {}) {
-  return runAdvancedSearch(supabase, filters, options);
+  const result = await runAdvancedSearch(supabase, filters, options);
+  if (result.error) return result;
+  return { ...result, data: rankSearchResults(result.data) };
 }
 
 export { getGameTitle };
