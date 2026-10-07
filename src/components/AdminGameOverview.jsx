@@ -24,23 +24,16 @@ function FactRow({ label, value, emphasize = false }) {
   );
 }
 
-/** Anzahl der geladenen Trophäen mit is_missable. Leer, solange die Liste fehlt. */
-function countMissable(trophies) {
-  if (!Array.isArray(trophies) || trophies.length === 0) return null;
-  return trophies.filter((trophy) => trophy?.is_missable).length;
-}
-
 /**
- * Admin-Prototyp. Verpassbar kommt aus den geladenen Trophäen, der Rest aus games.
+ * Admin-Prototyp. Trophäen-Zahlen kommen aus games, Spielzeit aus den Spielzeit-Spalten.
  */
-function AdminGameOverview({ game, title = '', playtime = null, trophies = null, className = '' }) {
+function AdminGameOverview({ game, title = '', playtime = null, className = '' }) {
   const { globalLocale, t } = useLocale();
   if (!game) return null;
 
   const serverDead = String(game[GAME_STRUCT.gameType] ?? '').trim() === GAME_TYPE.SERVER_DEAD;
   const hours = (key) => formatHours(playtime?.[key], globalLocale, t('playtimeHours'));
   const heading = t('gameOverview').replaceAll('{title}', title || '—');
-  const missableCount = countMissable(trophies);
 
   return (
     <section className={`rounded-2xl border border-zinc-800 bg-[#1a1b1c] px-4 py-3 ${className}`}>
@@ -55,7 +48,7 @@ function AdminGameOverview({ game, title = '', playtime = null, trophies = null,
       <div className="grid gap-x-8 sm:grid-cols-2">
         <dl className="text-sm">
           <FactRow label={t('trophiesTotal')} value={formatCount(game[GAME_STRUCT.trophyCount])} emphasize />
-          <FactRow label={t('trophiesMissable')} value={formatCount(missableCount)} />
+          <FactRow label={t('trophiesMissable')} value={formatCount(game[GAME_STRUCT.totalMissableTrophies])} />
           <FactRow label={t('trophiesOnline')} value={formatCount(game[GAME_STRUCT.totalOnlineTrophies])} />
         </dl>
         <dl className="text-sm">

@@ -189,22 +189,6 @@ create policy trophy_status_messages_admin_write
   using (public.tb_is_admin())
   with check (public.tb_is_admin());
 
-alter table public.online_trophies_log enable row level security;
-select public.tb_drop_policies('online_trophies_log');
-
-create policy online_trophies_log_select
-  on public.online_trophies_log
-  for select
-  to anon, authenticated
-  using (true);
-
-create policy online_trophies_log_admin_write
-  on public.online_trophies_log
-  for all
-  to authenticated
-  using (public.tb_is_admin())
-  with check (public.tb_is_admin());
-
 -- ---------------------------------------------------------------------------
 -- invite_keys: nur Admin (Beta-Redeem ueber den Client geht danach nicht mehr)
 -- ---------------------------------------------------------------------------

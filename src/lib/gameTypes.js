@@ -60,6 +60,7 @@
  * @property {string} trophy_gruppe 'default' = Hauptspiel, sonst DLC
  * @property {string} [ist_versteckt]
  * @property {boolean} [is_missable]
+ * @property {boolean} [is_online]
  * @property {boolean} [is_story_related]
  * @property {boolean} [is_unachievable]
  * @property {string} [video_url]

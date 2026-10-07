@@ -114,6 +114,7 @@ export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LA
     ist_versteckt: row[ACHIEVEMENT_STRUCT.isHidden] ?? '',
     is_hidden: toBoolFlag(row[ACHIEVEMENT_STRUCT.isHidden]),
     is_missable: Boolean(row[ACHIEVEMENT_STRUCT.isMissable]),
+    is_online: Boolean(row[ACHIEVEMENT_STRUCT.isOnline]),
     is_story_related: Boolean(row[ACHIEVEMENT_STRUCT.isStoryRelated]),
     is_unachievable: Boolean(row[ACHIEVEMENT_STRUCT.isUnachievable]),
     video_url: row[ACHIEVEMENT_STRUCT.videoUrl] ?? '',

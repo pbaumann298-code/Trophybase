@@ -3,10 +3,12 @@ import CollapsibleSectionCard from './CollapsibleSectionCard';
 import Reportable from './Reportable';
 import TrophyArtwork from './TrophyArtwork';
 import TrophyTypeIcon from './TrophyTypeIcon';
+import { useLocale } from '../context/LocaleContext';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
 import { getTrophyAiTranslation, getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
 
-function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onToggle }) {
+function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle }) {
+  const { t } = useLocale();
   const trophyKey = getTrophyIdKey(trophy);
   const trophyDesc = getTrophyDescription(trophy);
   const trophyTranslation = getTrophyAiTranslation(trophy);
@@ -31,31 +33,46 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onTog
           }`}
         />
         <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0">
-          <TrophyArtwork
-            trophy={trophy}
-            gameId={gameId}
-            reportKey={trophyKey}
-            size={48}
-            reportable
-          />
+          {conceal ? (
+            <div className="flex h-full w-full items-center justify-center text-lg text-zinc-600" aria-hidden="true">
+              ?
+            </div>
+          ) : (
+            <TrophyArtwork
+              trophy={trophy}
+              gameId={gameId}
+              reportKey={trophyKey}
+              size={48}
+              reportable
+            />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Reportable
-              as="p"
-              source={gameId}
-              type="trophy"
-              reportKey={trophyKey}
-              field="name"
-              className={`text-sm font-bold ${
-                isUnlocked ? 'text-zinc-500 line-through' : 'text-zinc-200'
-              }`}
-            >
-              {trophy.trophy_name}
-            </Reportable>
+            {conceal ? (
+              <p className="text-sm font-bold text-zinc-500">{t('hiddenTrophyName')}</p>
+            ) : (
+              <Reportable
+                as="p"
+                source={gameId}
+                type="trophy"
+                reportKey={trophyKey}
+                field="name"
+                className={`text-sm font-bold ${
+                  isUnlocked ? 'text-zinc-500 line-through' : 'text-zinc-200'
+                }`}
+              >
+                {trophy.trophy_name}
+              </Reportable>
+            )}
             {trophy.is_hidden && (
               <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded-sm font-mono uppercase">
                 Versteckt
+              </span>
+            )}
+            {!conceal && trophy.is_missable && (
+              <span className="text-[9px] bg-rose-500/10 text-rose-400 border border-rose-500/25 px-1.5 py-0.5 rounded-sm font-mono uppercase">
+                Verpassbar
               </span>
             )}
             {isEarned && (
@@ -63,13 +80,13 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onTog
                 PSN
               </span>
             )}
-            {isOnlineTrophy && (
+            {!conceal && trophy.is_online && (
               <span className="text-[9px] bg-sky-500/10 text-sky-400 border border-sky-500/25 px-1.5 py-0.5 rounded-sm font-mono uppercase">
                 Online Trophäe
               </span>
             )}
           </div>
-          {(trophyDesc || trophyTranslation) && (
+          {!conceal && (trophyDesc || trophyTranslation) && (
             <div className="mt-1">
               {trophyDesc && (
                 <Reportable
@@ -106,7 +123,7 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onTog
           </span>
         </div>
       </div>
-      {!isUnlocked && (trophy.guide_tip || trophy.video_url) && (
+      {!conceal && !isUnlocked && (trophy.guide_tip || trophy.video_url) && (
         <div className="mt-1 pl-4 border-l-2 border-[#00ff66]/30 flex flex-col gap-2 bg-zinc-950/40 p-2 rounded-r-xl">
           {trophy.guide_tip && (
             <p className="text-xs text-zinc-400 font-sans italic">
@@ -143,7 +160,7 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onTog
   );
 }
 
-function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, onlineTrophyIds, hideCompleted, onToggle }) {
+function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, hideCompleted, revealHidden, onToggle }) {
   const earnedSet = earnedTrophyIds ?? new Set();
   const visible = trophies.filter((t) => {
     const key = getTrophyIdKey(t);
@@ -164,14 +181,15 @@ function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, onlin
       {visible.map((t, idx) => {
         const key = getTrophyIdKey(t) || idx;
         const isEarned = earnedTrophyIds?.has?.(key) ?? false;
+        const isUnlocked = isEarned || !!unlockedTrophies[key];
         return (
           <TrophyRow
             key={key}
             gameId={gameId}
             trophy={t}
-            isUnlocked={isEarned || !!unlockedTrophies[key]}
+            isUnlocked={isUnlocked}
             isEarned={isEarned}
-            isOnlineTrophy={onlineTrophyIds.has(getTrophyIdKey(t))}
+            conceal={Boolean(t.is_hidden) && !revealHidden && !isUnlocked}
             onToggle={onToggle}
           />
         );
@@ -185,8 +203,8 @@ function TrophyGroupedChecklist({
   trophies,
   unlockedTrophies,
   earnedTrophyIds,
-  onlineTrophyIds,
   hideCompleted,
+  revealHidden = false,
   onToggle,
   mainGameTitle = 'Hauptspiel',
 }) {
@@ -225,8 +243,8 @@ function TrophyGroupedChecklist({
             trophies={mainGame}
             unlockedTrophies={unlockedTrophies}
             earnedTrophyIds={earnedSet}
-            onlineTrophyIds={onlineTrophyIds}
             hideCompleted={hideCompleted}
+            revealHidden={revealHidden}
             onToggle={onToggle}
           />
         </CollapsibleSectionCard>
@@ -253,8 +271,8 @@ function TrophyGroupedChecklist({
               trophies={dlc.trophies}
               unlockedTrophies={unlockedTrophies}
               earnedTrophyIds={earnedSet}
-              onlineTrophyIds={onlineTrophyIds}
               hideCompleted={hideCompleted}
+              revealHidden={revealHidden}
               onToggle={onToggle}
             />
           </CollapsibleSectionCard>

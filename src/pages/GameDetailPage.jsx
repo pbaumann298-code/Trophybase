@@ -34,6 +34,12 @@ import { incrementGameViews } from '../lib/gameQueries';
 import { loadRelatedGuides } from '../lib/relatedGames';
 import { fetchGameGuideBundle, resolveGameId, resolveGuideLanguage } from '../lib/guideQueries';
 import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
+import {
+  HIDDEN_TROPHY_MODE,
+  hiddenTrophiesRevealed,
+  loadHiddenTrophyMode,
+  saveHiddenTrophyMode,
+} from '../lib/hiddenTrophyPreference';
 import { isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished } from '../lib/guidePublication';
 import { clearIntranetCover, setIntranetIgdbCover } from '../lib/intranetGameEdits';
@@ -46,7 +52,6 @@ import {
 } from '../lib/gameModel';
 import { useLocale } from '../context/LocaleContext';
 import { contentLocalesForGame, DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
-import { fetchOnlineTrophyIdsForGame } from '../lib/trophyQueries';
 import {
   fetchTrophyStatusMessages,
   fetchTrophyStatusMessagesByIds,
@@ -105,7 +110,6 @@ function GamePageContent({
     serverDead: '',
     onlineTrophies: '',
   });
-  const [onlineTrophyIds, setOnlineTrophyIds] = useState(() => new Set());
   const [contentCreators, setContentCreators] = useState([]);
   const [relatedGuides, setRelatedGuides] = useState({ creatorGames: [], similarGames: [] });
   // Nach dem Freigeben sofort umschalten, ohne das Spiel neu zu laden. Die UUID
@@ -197,11 +201,9 @@ function GamePageContent({
     async function loadCoverAndOnlineData() {
       if (!selectedGame) {
         setCoverStatusMessages({ serverDead: '', onlineTrophies: '' });
-        setOnlineTrophyIds(new Set());
         return;
       }
 
-      const gameId = resolveGameId(selectedGame);
       const showServerDead = isServerDead(selectedGame);
       const showOnlineNote = hasOnlineTrophiesFlag(selectedGame);
 
@@ -209,12 +211,10 @@ function GamePageContent({
       if (showServerDead) idsToLoad.push(STATUS_MESSAGE_IDS.SERVER_DEAD);
       if (showOnlineNote) idsToLoad.push(STATUS_MESSAGE_IDS.HAS_ONLINE_TROPHIES);
 
-      const [messagesById, onlineRes] = await Promise.all([
+      const messagesById =
         idsToLoad.length > 0
-          ? fetchTrophyStatusMessagesByIds(supabase, idsToLoad, globalLocale)
-          : Promise.resolve({ messages: {} }),
-        gameId ? fetchOnlineTrophyIdsForGame(supabase, gameId) : Promise.resolve({ ids: new Set() }),
-      ]);
+          ? await fetchTrophyStatusMessagesByIds(supabase, idsToLoad, globalLocale)
+          : { messages: {} };
 
       if (cancelled) return;
 
@@ -226,7 +226,6 @@ function GamePageContent({
           ? messagesById.messages[STATUS_MESSAGE_IDS.HAS_ONLINE_TROPHIES] ?? ''
           : '',
       });
-      setOnlineTrophyIds(onlineRes.ids ?? new Set());
     }
 
     loadCoverAndOnlineData();
@@ -313,6 +312,11 @@ function GamePageContent({
   const watchlistGameId = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
 
   const gameId = watchlistGameId;
+  const [hiddenTrophyMode, setHiddenTrophyMode] = useState(() => loadHiddenTrophyMode(gameId));
+
+  useEffect(() => {
+    setHiddenTrophyMode(loadHiddenTrophyMode(gameId));
+  }, [gameId]);
 
   const gameUuid = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
   const studioCredits = useMemo(() => publicStudioCredits(selectedGame), [selectedGame]);
@@ -561,6 +565,33 @@ function GamePageContent({
             </label>
           </div>
 
+          <fieldset className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 px-1">
+            <legend className="text-xs text-zinc-400">{t('hiddenTrophies')}</legend>
+            {[
+              [HIDDEN_TROPHY_MODE.SHOW, 'hiddenTrophiesShow'],
+              [HIDDEN_TROPHY_MODE.HIDE, 'hiddenTrophiesHide'],
+              [HIDDEN_TROPHY_MODE.ALWAYS, 'hiddenTrophiesAlways'],
+            ].map(([mode, labelKey]) => (
+              <label
+                key={mode}
+                className="flex cursor-pointer select-none items-center gap-2 text-xs text-zinc-400"
+              >
+                <input
+                  type="radio"
+                  name="hidden-trophy-mode"
+                  value={mode}
+                  checked={hiddenTrophyMode === mode}
+                  onChange={() => {
+                    saveHiddenTrophyMode(gameId, mode);
+                    setHiddenTrophyMode(loadHiddenTrophyMode(gameId));
+                  }}
+                  className="h-4 w-4 cursor-pointer border-zinc-700 bg-[#121314] text-[#00ff66] focus:ring-0"
+                />
+                {t(labelKey)}
+              </label>
+            ))}
+          </fieldset>
+
           <div className="mb-4 px-1">
             <div className="flex justify-between items-center mb-2 text-xs font-mono">
               <span className="text-zinc-400 uppercase tracking-wider">{t('overallProgress')}</span>
@@ -581,8 +612,8 @@ function GamePageContent({
             trophies={activeTrophies}
             unlockedTrophies={unlockedTrophies}
             earnedTrophyIds={earnedTrophyIds}
-            onlineTrophyIds={onlineTrophyIds}
             hideCompleted={hideCompleted}
+            revealHidden={hiddenTrophiesRevealed(hiddenTrophyMode)}
             onToggle={toggleTrophy}
             mainGameTitle={gameTitle || 'Hauptspiel'}
           />
@@ -971,7 +1002,6 @@ function GamePageContent({
           game={gameForPublication}
           title={gameTitle}
           playtime={playtime}
-          trophies={activeTrophies}
         />
       ) : null}
 
