@@ -13,7 +13,7 @@ import {
   GUIDE_SHEET_TYPE,
 } from '../src/lib/gameSchema.js';
 import { hardwareToUrlSegment, buildPrettyGamePath, hardwareLabel } from '../src/lib/gameSlug.js';
-import { localizeJsonField } from '../src/lib/translationUtils.js';
+import { localizeJsonField, localizeSonyDescription, readAiTranslation } from '../src/lib/translationUtils.js';
 import { isGameIndexable } from '../src/lib/guidePublication.js';
 import { contentLocalesForGame, coerceToAvailableLocale } from '../src/lib/contentLocales.js';
 import { buildGameSeo } from '../src/lib/gameSeo.js';
@@ -115,7 +115,7 @@ function renderHtml({
   const seo = buildGameSeo({ origin, locale, hardware, slug, game, locales });
   const title = seo.title;
   const description =
-    localizeJsonField(game[GAME_I18N.description], locale) ||
+    localizeJsonField(game[GAME_I18N.description], locale, undefined, { exact: true }) ||
     `${title} – Trophäen-Guide auf TrophyBase.`;
   const canonical = seo.canonical;
   const cluster = hreflangCluster(seo.langs);
@@ -136,15 +136,20 @@ function renderHtml({
     : `<meta name="twitter:card" content="summary" />`;
   const genre = String(game[GAME_STRUCT.genre] ?? '').trim();
 
-  const trophyItems = trophies.map((row) => ({
-    name: localizeJsonField(row[ACHIEVEMENT_I18N.name], locale) || row.platform_achievement_id,
-    detail: [
-      localizeJsonField(row[ACHIEVEMENT_I18N.desc], locale),
-      localizeJsonField(row[ACHIEVEMENT_I18N.guideTip], locale),
-    ]
-      .filter(Boolean)
-      .join(' — '),
-  }));
+  const trophyItems = trophies.map((row) => {
+    const description = localizeSonyDescription(row[ACHIEVEMENT_I18N.desc], locale);
+    const translation = readAiTranslation(row[ACHIEVEMENT_I18N.aiTranslation], locale);
+    return {
+      name: localizeJsonField(row[ACHIEVEMENT_I18N.name], locale) || row.platform_achievement_id,
+      detail: [
+        description,
+        translation && translation !== description ? translation : '',
+        localizeJsonField(row[ACHIEVEMENT_I18N.guideTip], locale, undefined, { exact: true }),
+      ]
+        .filter(Boolean)
+        .join(' — '),
+    };
+  });
 
   const walkthrough = [];
   const collectibles = [];

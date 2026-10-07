@@ -59,6 +59,12 @@ export function getTrophyDescription(trophy) {
   ).trim();
 }
 
+/** KI-Übersetzung der Beschreibung, sofern sie vom Sony-Text abweicht. */
+export function getTrophyAiTranslation(trophy) {
+  if (!trophy) return '';
+  return String(trophy.trophy_desc_translation ?? '').trim();
+}
+
 /** platform_achievement_id als String für Abgleich mit Logs / earned table. */
 export function getTrophyIdKey(trophy) {
   if (!trophy) return '';

@@ -20,12 +20,15 @@ export function asText(value) {
 /**
  * Reihenfolge der Sprachkandidaten: gewünschte Sprache → de → en → übrige
  * unterstützte Sprachen → beliebiger vorhandener Schlüssel.
+ * Mit exact bleibt nur die gewünschte Sprache übrig.
  * @param {Record<string, unknown>} map
  * @param {string} preferred
  * @param {string} fallback
+ * @param {boolean} exact
  * @returns {string[]}
  */
-function languageCandidates(map, preferred, fallback) {
+function languageCandidates(map, preferred, fallback, exact) {
+  if (exact) return preferred ? [preferred] : [];
   const chain = [preferred, PRIMARY_LANGUAGE, fallback, ...SUPPORTED_LOCALES, ...Object.keys(map)];
   return [...new Set(chain.filter(Boolean))];
 }
@@ -36,11 +39,13 @@ function languageCandidates(map, preferred, fallback) {
  * @param {unknown} value
  * @param {string} preferredLang
  * @param {string} [fallbackLang]
+ * @param {{ exact?: boolean }} [options] exact: kein Sprung auf Deutsch oder andere Sprachen
  * @returns {{ text: string, locale: string, usedFallback: boolean }}
  */
-export function pickLocalized(value, preferredLang, fallbackLang = FALLBACK_LANGUAGE) {
+export function pickLocalized(value, preferredLang, fallbackLang = FALLBACK_LANGUAGE, options = {}) {
   const preferred = String(preferredLang ?? '').toLowerCase();
   const fallback = String(fallbackLang ?? '').toLowerCase();
+  const exact = options?.exact === true;
   const empty = { text: '', locale: preferred || fallback, usedFallback: false };
 
   if (value == null) return empty;
@@ -54,7 +59,7 @@ export function pickLocalized(value, preferredLang, fallbackLang = FALLBACK_LANG
 
   const map = /** @type {Record<string, unknown>} */ (value);
 
-  for (const candidate of languageCandidates(map, preferred, fallback)) {
+  for (const candidate of languageCandidates(map, preferred, fallback, exact)) {
     const text = asText(map[candidate]);
     if (text) {
       return { text, locale: candidate, usedFallback: candidate !== preferred };
@@ -69,10 +74,57 @@ export function pickLocalized(value, preferredLang, fallbackLang = FALLBACK_LANG
  * @param {unknown} value
  * @param {string} preferredLang
  * @param {string} [fallbackLang]
+ * @param {{ exact?: boolean }} [options]
  * @returns {string}
  */
-export function localizeJsonField(value, preferredLang, fallbackLang = FALLBACK_LANGUAGE) {
-  return pickLocalized(value, preferredLang, fallbackLang).text;
+export function localizeJsonField(value, preferredLang, fallbackLang = FALLBACK_LANGUAGE, options) {
+  return pickLocalized(value, preferredLang, fallbackLang, options).text;
+}
+
+/**
+ * Sony-Trophäentext: gewünschte Sprache, sonst das englische Original.
+ * Kein Sprung auf Deutsch oder weitere Sprachen.
+ * @param {unknown} value
+ * @param {string} locale
+ * @returns {string}
+ */
+export function localizeSonyDescription(value, locale) {
+  const lang = String(locale ?? '').toLowerCase();
+  const exact = localizeJsonField(value, lang, FALLBACK_LANGUAGE, { exact: true });
+  if (exact) return exact;
+  if (lang && lang !== 'en') {
+    return localizeJsonField(value, 'en', FALLBACK_LANGUAGE, { exact: true });
+  }
+  return '';
+}
+
+/**
+ * Text aus ai_translation für genau eine Zielsprache.
+ * Erwartet { pl: "…" }, { pl: { trophy_desc: "…" } } oder { trophy_desc: { pl: "…" } }.
+ * @param {unknown} value
+ * @param {string} locale
+ * @returns {string}
+ */
+export function readAiTranslation(value, locale) {
+  const lang = String(locale ?? '').toLowerCase();
+  if (!lang || value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value !== 'object' || Array.isArray(value)) return '';
+
+  const textOf = (entry) => {
+    if (typeof entry === 'string') return entry.trim();
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return '';
+    return asText(entry.trophy_desc) || asText(entry.description) || asText(entry.desc) || asText(entry.text);
+  };
+
+  const direct = textOf(value[lang]);
+  if (direct) return direct;
+
+  const wrapped = value.trophy_desc ?? value.description ?? value.desc;
+  if (wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)) {
+    return asText(wrapped[lang]);
+  }
+  return '';
 }
 
 /**

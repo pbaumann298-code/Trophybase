@@ -31,6 +31,7 @@ export const REPORT_ENTITY_MAP = {
     jsonLangFields: {
       name: ACHIEVEMENT_I18N.name,
       description: ACHIEVEMENT_I18N.desc,
+      ai_translation: ACHIEVEMENT_I18N.aiTranslation,
       guide_tip: ACHIEVEMENT_I18N.guideTip,
       icon_url: ACHIEVEMENT_I18N.iconUrl,
     },

@@ -4,11 +4,12 @@ import Reportable from './Reportable';
 import TrophyArtwork from './TrophyArtwork';
 import TrophyTypeIcon from './TrophyTypeIcon';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
-import { getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
+import { getTrophyAiTranslation, getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
 
 function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onToggle }) {
   const trophyKey = getTrophyIdKey(trophy);
   const trophyDesc = getTrophyDescription(trophy);
+  const trophyTranslation = getTrophyAiTranslation(trophy);
 
   return (
     <div
@@ -68,19 +69,37 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, isOnlineTrophy, onTog
               </span>
             )}
           </div>
-          {trophyDesc && (
-            <Reportable
-              as="p"
-              source={gameId}
-              type="trophy"
-              reportKey={trophyKey}
-              field="description"
-              className={`text-xs mt-1 leading-relaxed ${
-                isUnlocked ? 'text-zinc-600' : 'text-zinc-400'
-              }`}
-            >
-              {trophyDesc}
-            </Reportable>
+          {(trophyDesc || trophyTranslation) && (
+            <div className="mt-1">
+              {trophyDesc && (
+                <Reportable
+                  as="p"
+                  source={gameId}
+                  type="trophy"
+                  reportKey={trophyKey}
+                  field="description"
+                  className={`text-xs leading-relaxed ${
+                    isUnlocked ? 'text-zinc-600' : 'text-zinc-400'
+                  }`}
+                >
+                  {trophyDesc}
+                </Reportable>
+              )}
+              {trophyTranslation && (
+                <Reportable
+                  as="p"
+                  source={gameId}
+                  type="trophy"
+                  reportKey={trophyKey}
+                  field="ai_translation"
+                  className={`text-xs leading-relaxed italic ${
+                    trophyDesc ? 'mt-1' : ''
+                  } ${isUnlocked ? 'text-zinc-600' : 'text-zinc-500'}`}
+                >
+                  {trophyTranslation}
+                </Reportable>
+              )}
+            </div>
           )}
           <span className="inline-flex items-center mt-2">
             <TrophyTypeIcon type={trophy.trophy_type} size={22} />

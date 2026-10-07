@@ -456,7 +456,7 @@ function GamePageContent({
     setIgdbLink('');
     rememberCoverStatus(status);
   };
-  const gameDescription = getGameDescription(selectedGame, globalLocale);
+  const gameDescription = getGameDescription(selectedGame, effectiveGuideLang);
 
   const showServerShutdown = isServerOffline(selectedGame);
   const showCoverServerDead = isServerDead(selectedGame);

@@ -10,9 +10,11 @@ import {
 } from './gameSchema.js';
 import {
   localizeJsonField,
+  localizeSonyDescription,
   parsePercentValue,
   pickLocalized,
   PRIMARY_LANGUAGE,
+  readAiTranslation,
 } from './translationUtils.js';
 
 /**
@@ -27,7 +29,9 @@ export function mergeGameRecord(gameRow, locale, fallbackLocale = FALLBACK_LANGU
   if (!gameRow) return null;
 
   const titlePick = pickLocalized(gameRow[GAME_I18N.title], locale, fallbackLocale);
-  const description = localizeJsonField(gameRow[GAME_I18N.description], locale, fallbackLocale);
+  const description = localizeJsonField(gameRow[GAME_I18N.description], locale, fallbackLocale, {
+    exact: true,
+  });
   const cover = localizeJsonField(gameRow[GAME_I18N.coverUrl], locale, fallbackLocale);
   const statusExplanation = localizeJsonField(
     gameRow[GAME_I18N.statusExplanation],
@@ -42,7 +46,6 @@ export function mergeGameRecord(gameRow, locale, fallbackLocale = FALLBACK_LANGU
     [GAME_FIELDS.cover]: cover,
     [GAME_FIELDS.statusExplanation]: statusExplanation,
     [GAME_I18N.title]: titlePick.text,
-    [GAME_I18N.description]: description,
     [GAME_I18N.statusExplanation]: statusExplanation,
     _locale: titlePick.locale,
     _translationFallback: titlePick.usedFallback,
@@ -69,13 +72,18 @@ export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LA
 
   const platformId = String(row[ACHIEVEMENT_PK] ?? '');
   const namePick = pickLocalized(row[ACHIEVEMENT_I18N.name], locale, fallbackLocale);
-  const trophy_desc = localizeJsonField(row[ACHIEVEMENT_I18N.desc], locale, fallbackLocale);
-  const guide_tip = localizeJsonField(row[ACHIEVEMENT_I18N.guideTip], locale, fallbackLocale);
+  const trophy_desc = localizeSonyDescription(row[ACHIEVEMENT_I18N.desc], locale);
+  const aiTranslation = readAiTranslation(row[ACHIEVEMENT_I18N.aiTranslation], locale);
+  const trophy_desc_translation = aiTranslation && aiTranslation !== trophy_desc ? aiTranslation : '';
+  const guide_tip = localizeJsonField(row[ACHIEVEMENT_I18N.guideTip], locale, fallbackLocale, {
+    exact: true,
+  });
   // Spalte ist noch leer; pickLocalized verträgt Sprachmap und reinen Text.
   const guide_tip_long = localizeJsonField(
     row[ACHIEVEMENT_I18N.guideTipLong],
     locale,
     fallbackLocale,
+    { exact: true },
   );
   const icon_url = localizeJsonField(row[ACHIEVEMENT_I18N.iconUrl], locale, fallbackLocale);
   const rarity = localizeJsonField(row[ACHIEVEMENT_I18N.rarity], locale, fallbackLocale);
@@ -93,6 +101,7 @@ export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LA
     trophy_name: namePick.text,
     trophy_desc,
     trophy_description: trophy_desc,
+    trophy_desc_translation,
     guide_tip,
     guide_tip_long,
     icon_url,
@@ -175,14 +184,14 @@ export function getRouteSlug(gameOrId) {
  * @param {string} locale
  * @returns {string}
  */
-function readLocalizedGameField(game, jsonbColumn, mergedField, locale) {
+function readLocalizedGameField(game, jsonbColumn, mergedField, locale, options) {
   if (!game || typeof game !== 'object') return '';
 
-  const fromColumn = localizeJsonField(game[jsonbColumn], locale);
+  const fromColumn = localizeJsonField(game[jsonbColumn], locale, FALLBACK_LANGUAGE, options);
   if (fromColumn) return fromColumn;
 
   if (mergedField && mergedField !== jsonbColumn) {
-    return localizeJsonField(game[mergedField], locale);
+    return localizeJsonField(game[mergedField], locale, FALLBACK_LANGUAGE, options);
   }
 
   return '';
@@ -212,7 +221,14 @@ export function getGameCover(game, locale = PRIMARY_LANGUAGE) {
  * @returns {string}
  */
 export function getGameDescription(game, locale = PRIMARY_LANGUAGE) {
-  return readLocalizedGameField(game, GAME_I18N.description, GAME_FIELDS.description, locale);
+  if (!game || typeof game !== 'object') return '';
+  const raw = game[GAME_I18N.description];
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return localizeJsonField(raw, locale, FALLBACK_LANGUAGE, { exact: true });
+  }
+  return localizeJsonField(raw ?? game[GAME_FIELDS.description], locale, FALLBACK_LANGUAGE, {
+    exact: true,
+  });
 }
 
 export const UUID_PATTERN =
