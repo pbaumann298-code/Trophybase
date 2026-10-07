@@ -339,6 +339,32 @@ function quoteFilterValue(pattern) {
   return `"${String(pattern ?? '').replace(/["\\]/g, '')}"`;
 }
 
+/** Füllwörter, die zwischen den eigentlichen Suchworten stehen dürfen. */
+const SEARCH_STOPWORDS = new Set([
+  'the', 'a', 'an', 'of', 'and', 'or',
+  'der', 'die', 'das', 'ein', 'eine', 'und', 'von',
+  'le', 'la', 'les', 'des', 'et',
+  'el', 'los', 'las', 'del',
+]);
+
+/**
+ * Zerlegt eine Suche in Wörter. „Escape Backr“ trifft damit
+ * „Escape the Backrooms“, ohne dass die Wörter direkt hintereinander stehen.
+ * @param {string} query
+ * @returns {string[]}
+ */
+export function searchWords(query) {
+  const parts = String(query ?? '')
+    .replace(/%/g, ' ')
+    .split(/[\s,;:/|+_-]+/)
+    .map((part) => part.replace(/[%_\\'’".!?()[\]]/g, ''))
+    .filter((part) => part.length >= 2);
+
+  const meaningful = parts.filter((part) => !SEARCH_STOPWORDS.has(part.toLowerCase()));
+  const words = meaningful.length > 0 ? meaningful : parts;
+  return words.slice(0, 6);
+}
+
 function capSearchLimit(limit, fallback = SEARCH_RESULT_CAP) {
   return Math.min(Math.max(Number(limit) || fallback, 1), SEARCH_RESULT_CAP);
 }
@@ -434,12 +460,26 @@ async function searchStructColumn(supabase, column, pattern, limit, catalog) {
 }
 
 /**
- * Freitext über Titel, Genre, Studio und Publisher (ODER).
+ * Freitext über Titel, Genre, Studio und Publisher.
+ * Mehrere Wörter müssen alle vorkommen, aber nicht direkt hintereinander.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} pattern bereits validiertes ilike-Muster, z. B. %LEGO%
  * @param {number} [limit]
  * @param {string} [locale]
  */
+function freeTextTokenFilter(token) {
+  const pattern = `%${token}%`;
+  const parts = [
+    buildLocalizedOrFilter(GAME_I18N.title, pattern),
+    `${GAME_STRUCT.genre}.ilike.${quoteFilterValue(pattern)}`,
+    `${GAME_STRUCT.developer}.ilike.${quoteFilterValue(pattern)}`,
+  ];
+  if (hasPublisherColumn()) {
+    parts.push(`${GAME_STRUCT.publisher}.ilike.${quoteFilterValue(pattern)}`);
+  }
+  return parts.join(',');
+}
+
 export async function searchGamesByFreeText(
   supabase,
   pattern,
@@ -447,22 +487,19 @@ export async function searchGamesByFreeText(
   locale = getLocale(),
   catalog = {},
 ) {
+  const words = searchWords(pattern);
+  if (words.length === 0) {
+    return { data: [], error: new Error('Suchbegriff fehlt') };
+  }
+
   const { data, error } = await fetchSearchRows(
     () => {
-      const orFilter = [
-        buildLocalizedOrFilter(GAME_I18N.title, pattern),
-        `${GAME_STRUCT.genre}.ilike.${quoteFilterValue(pattern)}`,
-        `${GAME_STRUCT.developer}.ilike.${quoteFilterValue(pattern)}`,
-      ];
-      if (hasPublisherColumn()) {
-        orFilter.push(`${GAME_STRUCT.publisher}.ilike.${quoteFilterValue(pattern)}`);
+      let query = supabase.from(TABLES.games).select(getGameSelect());
+      for (const word of words) {
+        query = query.or(freeTextTokenFilter(word));
       }
       return applyGuideCatalogFilter(
-        supabase
-          .from(TABLES.games)
-          .select(getGameSelect())
-          .or(orFilter.join(','))
-          .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
+        query.order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
         catalog,
       );
     },
@@ -620,7 +657,9 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
     let query = supabase.from(TABLES.games).select(getGameSelect());
 
     if (title.valid) {
-      query = query.or(buildLocalizedOrFilter(GAME_I18N.title, title.pattern));
+      for (const word of searchWords(title.query)) {
+        query = query.or(buildLocalizedOrFilter(GAME_I18N.title, `%${word}%`));
+      }
     }
     if (developer.valid) {
       const studioOr = [`${GAME_STRUCT.developer}.ilike.${quoteFilterValue(developer.pattern)}`];

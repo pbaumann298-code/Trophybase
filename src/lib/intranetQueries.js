@@ -8,7 +8,7 @@ import {
   GAME_CREATOR_MAP,
   GAME_TYPE,
 } from './gameSchema';
-import { validateSearchQuery } from './gameQueries';
+import { searchWords, validateSearchQuery } from './gameQueries';
 import { applyPipelineStatusFilters } from './gamePipelineStatus';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 
@@ -95,7 +95,11 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
   const run = (select) => {
     let query = supabase.from(TABLES.games).select(select, { count: 'exact' });
 
-    if (title.valid) query = query.or(buildLocalizedOrFilter(GAME_I18N.title, title.pattern));
+    if (title.valid) {
+      for (const word of searchWords(title.query)) {
+        query = query.or(buildLocalizedOrFilter(GAME_I18N.title, `%${word}%`));
+      }
+    }
     if (ecosystem.valid) query = query.ilike(GAME_STRUCT.ecosystem, ecosystem.pattern);
     if (hardware.valid) query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
     // JSON-Syntax als String: ein JS-Array würde zum PostgreSQL-Array-Literal.
