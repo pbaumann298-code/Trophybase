@@ -6,7 +6,6 @@ import AdminGameOverview from '../components/AdminGameOverview';
 import GuideLanguageSelector from '../components/GuideLanguageSelector';
 import GuideBreadcrumb from '../components/GuideBreadcrumb';
 import RelatedGuides from '../components/RelatedGuides';
-import GameStatusBanners from '../components/GameStatusBanners';
 import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
 import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
 import WatchlistButton from '../components/WatchlistButton';
@@ -52,15 +51,6 @@ import {
 } from '../lib/gameModel';
 import { useLocale } from '../context/LocaleContext';
 import { contentLocalesForGame, DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
-import {
-  fetchTrophyStatusMessages,
-  fetchTrophyStatusMessagesByIds,
-  hasOnlineTrophiesFlag,
-  isServerDead,
-  isServerOffline,
-  STATUS_MESSAGE_IDS,
-  STATUS_MESSAGE_KEYS,
-} from '../lib/trophyStatusMessages';
 
 const TAB_META = {
   reiter0: { icon: '🏆', labelKey: 'trophies' },
@@ -103,13 +93,6 @@ function GamePageContent({
   const [guidesLoading, setGuidesLoading] = useState(false);
   const { globalLocale, t, setAvailableLocales } = useLocale();
   const [guideLanguageOverride, setGuideLanguageOverride] = useState(null);
-  const [statusMessages, setStatusMessages] = useState({
-    [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN]: '',
-  });
-  const [coverStatusMessages, setCoverStatusMessages] = useState({
-    serverDead: '',
-    onlineTrophies: '',
-  });
   const [contentCreators, setContentCreators] = useState([]);
   const [relatedGuides, setRelatedGuides] = useState({ creatorGames: [], similarGames: [] });
   // Nach dem Freigeben sofort umschalten, ohne das Spiel neu zu laden. Die UUID
@@ -176,63 +159,6 @@ function GamePageContent({
       cancelled = true;
     };
   }, [creatorGameId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadStatusMessages() {
-      const { messages } = await fetchTrophyStatusMessages(
-        supabase,
-        [STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN],
-        globalLocale,
-      );
-      if (!cancelled) setStatusMessages(messages);
-    }
-
-    loadStatusMessages();
-    return () => {
-      cancelled = true;
-    };
-  }, [globalLocale]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadCoverAndOnlineData() {
-      if (!selectedGame) {
-        setCoverStatusMessages({ serverDead: '', onlineTrophies: '' });
-        return;
-      }
-
-      const showServerDead = isServerDead(selectedGame);
-      const showOnlineNote = hasOnlineTrophiesFlag(selectedGame);
-
-      const idsToLoad = [];
-      if (showServerDead) idsToLoad.push(STATUS_MESSAGE_IDS.SERVER_DEAD);
-      if (showOnlineNote) idsToLoad.push(STATUS_MESSAGE_IDS.HAS_ONLINE_TROPHIES);
-
-      const messagesById =
-        idsToLoad.length > 0
-          ? await fetchTrophyStatusMessagesByIds(supabase, idsToLoad, globalLocale)
-          : { messages: {} };
-
-      if (cancelled) return;
-
-      setCoverStatusMessages({
-        serverDead: showServerDead
-          ? messagesById.messages[STATUS_MESSAGE_IDS.SERVER_DEAD] ?? ''
-          : '',
-        onlineTrophies: showOnlineNote
-          ? messagesById.messages[STATUS_MESSAGE_IDS.HAS_ONLINE_TROPHIES] ?? ''
-          : '',
-      });
-    }
-
-    loadCoverAndOnlineData();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedGame, globalLocale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -461,10 +387,6 @@ function GamePageContent({
     rememberCoverStatus(status);
   };
   const gameDescription = getGameDescription(selectedGame, effectiveGuideLang);
-
-  const showServerShutdown = isServerOffline(selectedGame);
-  const showCoverServerDead = isServerDead(selectedGame);
-  const showCoverOnlineNote = hasOnlineTrophiesFlag(selectedGame);
 
   const tabCounts = {
     reiter0: activeTrophies.length,
@@ -760,11 +682,6 @@ function GamePageContent({
           onMore={() => onOpenHelp('wischen')}
         />
       ) : null}
-      <GameStatusBanners
-        showServerShutdown={showServerShutdown}
-        serverMessage={statusMessages[STATUS_MESSAGE_KEYS.SERVER_SHUTDOWN]}
-      />
-
       <button
         type="button"
         onClick={onNavigateHome}
@@ -975,22 +892,6 @@ function GamePageContent({
                   </span>
                 </div>
               ) : null}
-
-              {showCoverServerDead && coverStatusMessages.serverDead && (
-                <div className="col-span-2 pt-2">
-                  <p className="text-xs leading-relaxed text-red-400 bg-red-950/40 border border-red-900/50 rounded-lg px-3 py-2">
-                    {coverStatusMessages.serverDead}
-                  </p>
-                </div>
-              )}
-
-              {showCoverOnlineNote && coverStatusMessages.onlineTrophies && (
-                <div className="col-span-2 pt-2">
-                  <p className="text-xs leading-relaxed text-sky-300 bg-sky-950/40 border border-sky-800/50 rounded-lg px-3 py-2">
-                    {coverStatusMessages.onlineTrophies}
-                  </p>
-                </div>
-              )}
             </div>
           </div>
         </div>

@@ -51,8 +51,17 @@ export function groupTrophiesByPack(trophies) {
     if (name) bucket.title = name;
   }
 
+  const idOf = (trophy) => String(trophy?.platform_achievement_id ?? trophy?.trophy_id ?? '');
+  const lowestId = (trophies) =>
+    trophies.reduce((min, trophy) => {
+      const id = idOf(trophy);
+      if (min == null || id.localeCompare(min, undefined, { numeric: true }) < 0) return id;
+      return min;
+    }, null);
   const dlcGroups = [...dlcMap.values()].sort((a, b) =>
-    a.gruppe.localeCompare(b.gruppe, undefined, { numeric: true }),
+    String(lowestId(a.trophies) ?? '').localeCompare(String(lowestId(b.trophies) ?? ''), undefined, {
+      numeric: true,
+    }),
   );
 
   return { mainGame, dlcGroups };

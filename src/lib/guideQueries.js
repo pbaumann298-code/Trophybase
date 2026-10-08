@@ -28,14 +28,14 @@ export function resolveGameId(gameOrId) {
 }
 
 /**
- * game_guides hat keine sort_order-Spalte; local_id trägt die Nummer aus der
- * Quelltabelle (bei Bossen mit „B_"-Präfix, z. B. „B_12"). Ohne local_id
- * bleibt die Ladereihenfolge (created_at) erhalten.
- * @param {unknown} localId
+ * game_guides hat keine sort_order-Spalte. Die Reihenfolge steckt in guide_id.
+ * trophy_id verweist nur auf die Trophäe und taugt nicht zum Sortieren
+ * (mehrere Schätze teilen sich dieselbe trophy_id).
+ * @param {unknown} guideId
  * @param {number} index
  */
-function guideSortOrder(localId, index) {
-  const match = String(localId ?? '').match(/\d+/);
+function guideSortOrder(guideId, index) {
+  const match = String(guideId ?? '').match(/\d+/);
   if (!match) return index;
   const n = Number(match[0]);
   return Number.isFinite(n) ? n : index;
@@ -50,8 +50,8 @@ function guideSortOrder(localId, index) {
 export function mergeGuideRow(row, lang, index = 0) {
   if (!row) return null;
 
-  const guideId = row[GUIDE_STRUCT.id] ?? row.guide_id ?? null;
-  const localId = row[GUIDE_STRUCT.localId] ?? null;
+  const guideUuid = row[GUIDE_STRUCT.id] ?? null;
+  const guideSequence = row[GUIDE_STRUCT.guideId] ?? row.local_id ?? null;
   const sheetTypes = resolveSheetTypes(row[GUIDE_I18N.sheetType]);
   const itemName = localizeJsonField(row[GUIDE_I18N.itemName], lang, FALLBACK_LANGUAGE);
   const localisation = localizeJsonField(row[GUIDE_I18N.localisation], lang, FALLBACK_LANGUAGE);
@@ -69,8 +69,8 @@ export function mergeGuideRow(row, lang, index = 0) {
 
   return {
     ...row,
-    guide_id: guideId,
-    local_id: localId,
+    guide_id: guideUuid || row.guide_id || null,
+    guide_sequence: guideSequence,
     game_id: String(row[GAME_FK] ?? ''),
     sheet_types: sheetTypes,
     // Nur der primäre Reiter – zum Filtern ist sheet_types maßgeblich,
@@ -84,10 +84,10 @@ export function mergeGuideRow(row, lang, index = 0) {
     video_chapter: videoChapter,
     timestamp: row[GUIDE_STRUCT.timestamp] ?? '',
     video_url: row[GUIDE_STRUCT.videoUrl] ?? '',
-    sort_order: guideSortOrder(localId, index),
+    sort_order: guideSortOrder(guideSequence, index),
     trophy_id: trophyId,
     // Boss-Aliase (sheet_type === 3)
-    boss_id: guideId,
+    boss_id: guideUuid,
     boss_name: itemName,
     is_trophy_relevant: row[GUIDE_STRUCT.isTrophyRelevant] ?? (trophyId ? 'Ja' : ''),
   };

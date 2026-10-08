@@ -15,7 +15,6 @@ export const TABLES = {
   watchlist: 'user_watchlist',
   inbox: 'user_inbox',
   qaDashboard: 'qa_dashboard',
-  statusMessages: 'trophy_status_messages',
   inviteKeys: 'invite_keys',
   communityReports: 'community_reports',
   contentCreators: 'content_creators',
@@ -139,18 +138,18 @@ export const ACHIEVEMENT_STRUCT = {
   isMissable: 'is_missable',
   isOnline: 'is_online',
   isStoryRelated: 'is_story_related',
-  isUnachievable: 'is_unachievable',
   videoUrl: 'video_url',
   timestamp: 'timestamp',
   isAutoTranslated: 'is_auto_translated',
   originalLocale: 'original_locale',
+  /** Eine Bild-URL vom Trophäen-Crawler. Keine Sprachmap. */
+  iconUrl: 'icon_url',
 };
 
 /** JSONB-Sprachmaps auf public.game_achievements */
 export const ACHIEVEMENT_I18N = {
   name: 'trophy_name',
   desc: 'trophy_desc',
-  iconUrl: 'icon_url',
   rarity: 'global_seltenheit',
   guideTip: 'guide_tip',
   /** Sony trophyGroupName (Hauptspiel + DLC), JSONB-Sprachmap */
@@ -166,8 +165,9 @@ export const ACHIEVEMENT_I18N = {
 /** Skalare Spalten auf public.game_guides */
 export const GUIDE_STRUCT = {
   id: 'id',
+  /** Reihenfolge von Walkthrough, Sammelobjekten und Bossen. Nicht die UUID. */
+  guideId: 'guide_id',
   platformGameId: 'platform_game_id',
-  localId: 'local_id',
   timestamp: 'timestamp',
   videoUrl: 'video_url',
   trophyId: 'trophy_id',

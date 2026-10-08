@@ -34,7 +34,7 @@ const TROPHY_SELECT = [
 
 const GUIDE_SELECT = [
   GAME_FK,
-  GUIDE_STRUCT.localId,
+  GUIDE_STRUCT.guideId,
   GUIDE_I18N.sheetType,
   GUIDE_I18N.itemName,
   GUIDE_I18N.localisation,
@@ -336,8 +336,20 @@ export async function handleGuideRequest(requestUrl) {
       hardware: pretty.hardware,
       slug: pretty.slug,
       game,
-      trophies: trophies ?? [],
-      guides: guides ?? [],
+      trophies: [...(trophies ?? [])].sort((a, b) =>
+        String(a.platform_achievement_id ?? '').localeCompare(
+          String(b.platform_achievement_id ?? ''),
+          undefined,
+          { numeric: true },
+        ),
+      ),
+      guides: [...(guides ?? [])].sort((a, b) =>
+        String(a[GUIDE_STRUCT.guideId] ?? '').localeCompare(
+          String(b[GUIDE_STRUCT.guideId] ?? ''),
+          undefined,
+          { numeric: true },
+        ),
+      ),
       noIndex: !isGameIndexable(game),
       locales: publishedLocales,
       creatorGames: related.creatorGames,

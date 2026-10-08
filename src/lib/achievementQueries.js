@@ -1,4 +1,4 @@
-import { TABLES, GAME_FK, ACHIEVEMENT_PK, ACHIEVEMENT_STRUCT } from './gameSchema';
+import { TABLES, GAME_FK, ACHIEVEMENT_PK } from './gameSchema';
 import { getLocale } from './locale';
 import { resolveGuideLanguage } from './localeResolver';
 import { mergeAchievementRecord } from './gameModel';
@@ -7,14 +7,10 @@ import { resolveGameUuid } from './gameQueries';
 const naturalCollator = new Intl.Collator('de', { numeric: true, sensitivity: 'base' });
 
 /**
- * game_achievements hat keine sort_order-Spalte: Reihenfolge ergibt sich aus
- * Trophäengruppe (Hauptspiel vor DLC) und natürlicher ID-Sortierung.
+ * game_achievements hat keine sort_order-Spalte. Die Liste folgt
+ * platform_achievement_id, numerisch (2 vor 10).
  */
 function compareAchievements(a, b) {
-  const groupA = String(a?.[ACHIEVEMENT_STRUCT.trophyGroup] ?? '');
-  const groupB = String(b?.[ACHIEVEMENT_STRUCT.trophyGroup] ?? '');
-  if (groupA !== groupB) return naturalCollator.compare(groupA, groupB);
-
   return naturalCollator.compare(
     String(a?.[ACHIEVEMENT_PK] ?? ''),
     String(b?.[ACHIEVEMENT_PK] ?? ''),

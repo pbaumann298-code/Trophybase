@@ -173,22 +173,6 @@ create policy game_creator_map_admin_write
   using (public.tb_is_admin())
   with check (public.tb_is_admin());
 
-alter table public.trophy_status_messages enable row level security;
-select public.tb_drop_policies('trophy_status_messages');
-
-create policy trophy_status_messages_select
-  on public.trophy_status_messages
-  for select
-  to anon, authenticated
-  using (true);
-
-create policy trophy_status_messages_admin_write
-  on public.trophy_status_messages
-  for all
-  to authenticated
-  using (public.tb_is_admin())
-  with check (public.tb_is_admin());
-
 -- ---------------------------------------------------------------------------
 -- invite_keys: nur Admin (Beta-Redeem ueber den Client geht danach nicht mehr)
 -- ---------------------------------------------------------------------------

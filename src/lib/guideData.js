@@ -21,7 +21,7 @@ export function normalizeGuideEntryRow(row) {
   return {
     guide_id: guideId,
     boss_id: row.boss_id ?? guideId,
-    local_id: row.local_id ?? null,
+    guide_sequence: row.guide_sequence ?? null,
     game_id: String(row.game_id ?? '').trim(),
     sheet_types: sheetTypes,
     /** Primärer Reiter – für Filter ist sheet_types maßgeblich */
@@ -121,24 +121,24 @@ function groupNameKeyFn(groupByField) {
 }
 
 /**
- * game_guides.id ist eine UUID – die Reihenfolge steckt in sort_order
- * (aus local_id bzw. Ladereihenfolge, siehe mergeGuideRow).
- * Bosse haben ein „B_"-Präfix auf local_id („B_12"), aus dem /\d+/ die 12 zieht.
+ * game_guides.id ist eine UUID – die Reihenfolge steckt in guide_id
+ * (über guide_sequence / sort_order, siehe mergeGuideRow).
  */
 function toSortNumber(row) {
-  const candidates = [row?.sort_order, String(row?.local_id ?? '').match(/\d+/)?.[0]];
-  for (const candidate of candidates) {
-    if (candidate == null || candidate === '') continue;
-    const n = Number(candidate);
-    if (Number.isFinite(n)) return n;
-  }
-  return Infinity;
+  const raw = row?.guide_sequence ?? row?.sort_order;
+  const match = String(raw ?? '').match(/\d+/);
+  if (!match) return Infinity;
+  const n = Number(match[0]);
+  return Number.isFinite(n) ? n : Infinity;
 }
 
 function compareGuideOrder(a, b) {
   const orderCmp = toSortNumber(a) - toSortNumber(b);
   if (orderCmp !== 0) return orderCmp;
-  const localCmp = String(a?.local_id ?? '').localeCompare(String(b?.local_id ?? ''), undefined, {
+  const localCmp = String(a?.guide_sequence ?? '').localeCompare(
+    String(b?.guide_sequence ?? ''),
+    undefined,
+    {
     numeric: true,
     sensitivity: 'base',
   });
@@ -192,8 +192,8 @@ function sortRowsByGroupLevels(rows, keyFns) {
 }
 
 /**
- * Walkthrough (sheet_type 1): Gebiete (localisation) nach kleinster local_id,
- * darin die Kacheln je chronological_group, Einträge nach local_id.
+ * Walkthrough (sheet_type 1): Gebiete (localisation) nach kleinster guide_id,
+ * darin die Kacheln je chronological_group, Einträge nach guide_id.
  */
 export function sortChronologicalGuideRows(rows) {
   return sortRowsByGroupLevels(rows, [
@@ -204,7 +204,7 @@ export function sortChronologicalGuideRows(rows) {
 
 /**
  * Sammelobjekte (sheet_type 2): Gebiete (localisation) nach kleinster
- * local_id, darin die Kacheln je category_group, Einträge nach local_id.
+ * guide_id, darin die Kacheln je category_group, Einträge nach guide_id.
  */
 export function sortByTypeGuideRows(rows) {
   return sortRowsByGroupLevels(rows, [guideLocalisationKey, groupNameKeyFn('category_group')]);
@@ -320,7 +320,7 @@ export function filterGuidesBySheetType(rows, sheetType) {
 
 /**
  * Walkthrough (sheet_type 1): group by chronological_group, Sortierung nach
- * game_guides.local_id (über sort_order).
+ * game_guides.guide_id (über sort_order).
  */
 export function buildChronologicalGuideData(chapterRows) {
   const mapped = applyLocalisationForSheet(
@@ -332,7 +332,7 @@ export function buildChronologicalGuideData(chapterRows) {
 
 /**
  * Sammelobjekte (sheet_type 2): group by category_group, Sortierung nach
- * game_guides.local_id (über sort_order). localisation nur, wenn
+ * game_guides.guide_id (über sort_order). localisation nur, wenn
  * localisation_sheet den Reiter 2 enthält.
  */
 export function buildByTypeGuideData(guideRows) {

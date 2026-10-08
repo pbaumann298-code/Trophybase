@@ -61,6 +61,23 @@ export function toBoolFlag(value) {
 }
 
 /**
+ * Eine Bild-URL. Der Crawler speichert Text. Liegt noch eine Sprachmap vor,
+ * reicht ein beliebiger Eintrag: das Bild ist in jeder Sprache dasselbe.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function trophyIconUrl(value) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if (typeof value !== 'object' || Array.isArray(value)) return '';
+  for (const entry of Object.values(value)) {
+    const text = String(entry ?? '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+/**
  * Mergt eine game_achievements-Zeile (JSONB-Sprachmaps) zu einem flachen
  * UI-Objekt.
  * @param {Record<string, unknown>} row
@@ -85,7 +102,7 @@ export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LA
     fallbackLocale,
     { exact: true },
   );
-  const icon_url = localizeJsonField(row[ACHIEVEMENT_I18N.iconUrl], locale, fallbackLocale);
+  const icon_url = trophyIconUrl(row[ACHIEVEMENT_STRUCT.iconUrl]);
   const rarity = localizeJsonField(row[ACHIEVEMENT_I18N.rarity], locale, fallbackLocale);
   const spielname = localizeJsonField(
     row[ACHIEVEMENT_I18N.groupName] ?? row.Spielname ?? row.spiel_name,
@@ -116,7 +133,6 @@ export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LA
     is_missable: Boolean(row[ACHIEVEMENT_STRUCT.isMissable]),
     is_online: Boolean(row[ACHIEVEMENT_STRUCT.isOnline]),
     is_story_related: Boolean(row[ACHIEVEMENT_STRUCT.isStoryRelated]),
-    is_unachievable: Boolean(row[ACHIEVEMENT_STRUCT.isUnachievable]),
     video_url: row[ACHIEVEMENT_STRUCT.videoUrl] ?? '',
     _locale: namePick.locale,
     _translationFallback: namePick.usedFallback,

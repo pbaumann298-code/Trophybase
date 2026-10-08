@@ -33,10 +33,10 @@ export const REPORT_ENTITY_MAP = {
       description: ACHIEVEMENT_I18N.desc,
       ai_translation: ACHIEVEMENT_I18N.aiTranslation,
       guide_tip: ACHIEVEMENT_I18N.guideTip,
-      icon_url: ACHIEVEMENT_I18N.iconUrl,
     },
     structFields: {
       video_url: ACHIEVEMENT_STRUCT.videoUrl,
+      icon_url: ACHIEVEMENT_STRUCT.iconUrl,
     },
   },
   guide_step: GUIDE_REPORT_TARGET,

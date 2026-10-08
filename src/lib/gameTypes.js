@@ -62,14 +62,13 @@
  * @property {boolean} [is_missable]
  * @property {boolean} [is_online]
  * @property {boolean} [is_story_related]
- * @property {boolean} [is_unachievable]
  * @property {string} [video_url]
  * @property {string} [timestamp]
  * @property {boolean} [is_auto_translated]
  * @property {string} [original_locale]
  * @property {LocalizedText} [trophy_name]
  * @property {LocalizedText} [trophy_desc]
- * @property {LocalizedText} [icon_url]
+ * @property {string} [icon_url] Eine Bild-URL, keine Sprachmap
  * @property {LocalizedText} [global_seltenheit]
  * @property {LocalizedText} [guide_tip]
  * @property {Record<string, unknown>} [ai_translation]
@@ -91,7 +90,8 @@
  * @property {string} id UUID (PK)
  * @property {string} game_id UUID → games.id
  * @property {string} [platform_game_id]
- * @property {string} [local_id] Laufende Nummer aus der Quelltabelle („B_12" bei Bossen)
+ * @property {string} [guide_id] Reihenfolge der Zeile (1, 2, 10 …)
+ * @property {string} [trophy_id] Verweis auf platform_achievement_id
  * @property {number[]} sheet_type JSONB-Array der Reiter, z. B. [1], [1,2], [3].
  *   1=Walkthrough, 2=Sammelobjekte, 3=Bosse. Mehrere Werte = der Eintrag stand
  *   in mehreren Excel-Reitern und wurde beim Upload zusammengefasst.
@@ -112,7 +112,6 @@
  * @typedef {Object} GameGuideEntryRow
  * @property {string} guide_id UUID (= game_guides.id)
  * @property {string} game_id
- * @property {string} [local_id]
  * @property {number[]} sheet_types Alle Reiter des Eintrags – maßgeblich für Filter
  * @property {1|2|3|number} sheet_type Primärer Reiter (sheet_types[0]), nur Abwärtskompatibilität
  * @property {string} [item_name]
@@ -124,7 +123,8 @@
  * @property {string} [timestamp]
  * @property {string} [video_url]
  * @property {string|null} [trophy_id]
- * @property {number} [sort_order] Aus local_id bzw. Ladereihenfolge
+ * @property {string} [guide_sequence] game_guides.guide_id, Sortierschlüssel
+ * @property {number} [sort_order] Zahl aus guide_id bzw. Ladereihenfolge
  * @property {string} [id] Stabile Frontend-ID nach mapGuideRows
  */
 
