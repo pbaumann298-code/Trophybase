@@ -41,6 +41,32 @@ export function guideStatusKey(lang) {
 }
 
 /**
+ * publishing_status und published_locales aus der Statusmappe.
+ * Nur Sprachen mit PUBLISHED. status.guide_* bleibt die Quelle für
+ * Intranet, Slugs und Sitemap.
+ * @param {Record<string, unknown>} statusMap
+ */
+export function publishingFieldsFromStatus(statusMap) {
+  const publishingStatus = {};
+  const publishedLocales = [];
+
+  for (const [key, value] of Object.entries(statusMap ?? {})) {
+    if (!key.startsWith('guide_')) continue;
+    if (String(value ?? '').trim().toUpperCase() !== GUIDE_PUBLICATION.PUBLISHED) continue;
+    const lang = key.slice('guide_'.length);
+    if (!lang) continue;
+    publishingStatus[lang] = GUIDE_PUBLICATION.PUBLISHED;
+    publishedLocales.push(lang);
+  }
+
+  publishedLocales.sort();
+  return {
+    [GAME_STRUCT.publishingStatus]: publishingStatus,
+    [GAME_STRUCT.publishedLocales]: publishedLocales,
+  };
+}
+
+/**
  * games.status ist JSONB. Altbestand kann noch ein JSON-String oder ein reiner
  * Textstatus sein – beides darf nicht zu einem Absturz führen.
  * @param {unknown} value
@@ -149,7 +175,10 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
     ...statusMap,
     [guideStatusKey(lang)]: published ? GUIDE_PUBLICATION.PUBLISHED : GUIDE_PUBLICATION.DONE,
   };
-  const update = { [GAME_STRUCT.status]: nextStatus };
+  const update = {
+    [GAME_STRUCT.status]: nextStatus,
+    ...publishingFieldsFromStatus(nextStatus),
+  };
   const gameType = String(current?.[GAME_STRUCT.gameType] ?? '').trim();
   if (published && gameType === GAME_TYPE.SERVER_DEAD) {
     update[GAME_STRUCT.isIndexable] = false;

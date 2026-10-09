@@ -68,6 +68,10 @@ export const GAME_STRUCT = {
   gameType: 'spiel_typ',
   progress: 'fortschritt',
   status: 'status',
+  /** Nur die freigegebenen Sprachen, z. B. { de: 'PUBLISHED', en: 'PUBLISHED' }. */
+  publishingStatus: 'publishing_status',
+  /** Kürzel der freigegebenen Sprachen, z. B. ['de', 'en']. */
+  publishedLocales: 'published_locales',
   serverStatus: 'server_status',
   hasOnlineTrophies: 'has_online_trophies',
   hasMissableTrophies: 'has_missable_trophies',
