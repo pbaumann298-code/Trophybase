@@ -1,40 +1,59 @@
 import { SUPPORTED_LOCALES } from '../shared/countryLocaleMap.js';
 import { GAME_STRUCT, GAME_TYPE } from '../src/lib/gameSchema.js';
 import { hardwareToUrlSegment, buildPrettyGamePath } from '../src/lib/gameSlug.js';
-import { GUIDE_PUBLICATION, isGuidePublished } from '../src/lib/guidePublication.js';
+import { GUIDE_PUBLICATION, guideStatusKey } from '../src/lib/guidePublication.js';
 import { getPublicSupabase, publicOrigin } from './publicSupabase.js';
 import { parseSitemapLocale } from './prettyPath.js';
 import { escapeHtml } from './escapeHtml.js';
 
 const SITEMAP_URL_CAP = 5000;
+const SITEMAP_COLUMNS = [
+  'slug',
+  'hardware',
+  GAME_STRUCT.gameType,
+  GAME_STRUCT.createdAt,
+].join(', ');
 
 function xmlWrap(body) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n${body}`;
 }
 
-async function loadIndexablePublishedGames(supabase) {
-  const { data, error } = await supabase
+/**
+ * Eine Sprache, ein Ausdruck: status->>guide_<lang> = PUBLISHED.
+ * Die frühere ODER-Kette über alle 14 Sprachen konnte keinen Index nutzen
+ * und ist an statement_timeout gelaufen.
+ */
+function indexablePublishedQuery(supabase, locale) {
+  return supabase
     .from('games')
-    .select(`slug, hardware, ${GAME_STRUCT.gameType}, ${GAME_STRUCT.createdAt}, ${GAME_STRUCT.status}`)
+    .select(SITEMAP_COLUMNS)
     .not('slug', 'is', null)
-    .or(
-      SUPPORTED_LOCALES
-        .map((locale) => `${GAME_STRUCT.status}->>guide_${locale}.eq.${GUIDE_PUBLICATION.PUBLISHED}`)
-        .join(','),
+    .filter(
+      `${GAME_STRUCT.status}->>${guideStatusKey(locale)}`,
+      'eq',
+      GUIDE_PUBLICATION.PUBLISHED,
     )
     .or(`${GAME_STRUCT.isIndexable}.is.null,${GAME_STRUCT.isIndexable}.eq.true`)
-    .limit(SITEMAP_URL_CAP);
-
-  if (error) throw error;
-  return (data ?? []).filter((row) => (
-    row?.slug
-    && hardwareToUrlSegment(row.hardware)
-    && row[GAME_STRUCT.gameType] !== GAME_TYPE.SERVER_DEAD
-  ));
+    .or(`${GAME_STRUCT.gameType}.is.null,${GAME_STRUCT.gameType}.neq.${GAME_TYPE.SERVER_DEAD}`);
 }
 
-function gamesForLocale(games, locale) {
-  return games.filter((game) => isGuidePublished(game, locale));
+function hasSitemapUrl(row) {
+  return Boolean(row?.slug && hardwareToUrlSegment(row.hardware));
+}
+
+async function loadIndexablePublishedGames(supabase, locale) {
+  const { data, error } = await indexablePublishedQuery(supabase, locale).limit(SITEMAP_URL_CAP);
+  if (error) throw error;
+  return (data ?? []).filter(hasSitemapUrl);
+}
+
+async function localesWithIndexableGames(supabase) {
+  const checks = await Promise.all(SUPPORTED_LOCALES.map(async (locale) => {
+    const { data, error } = await indexablePublishedQuery(supabase, locale).limit(20);
+    if (error) throw error;
+    return (data ?? []).some(hasSitemapUrl) ? locale : null;
+  }));
+  return checks.filter(Boolean);
 }
 
 function urlset(origin, locale, games) {
@@ -82,16 +101,14 @@ export async function handleSitemapRequest(requestUrl) {
 
   try {
     const supabase = getPublicSupabase();
-    const games = await loadIndexablePublishedGames(supabase);
-    const localesWithUrls = SUPPORTED_LOCALES.filter(
-      (locale) => gamesForLocale(games, locale).length > 0,
-    );
 
     if (parsed.kind === 'index') {
+      const localesWithUrls = await localesWithIndexableGames(supabase);
       return new Response(sitemapIndex(origin, localesWithUrls), { status: 200, headers });
     }
 
-    return new Response(urlset(origin, parsed.locale, gamesForLocale(games, parsed.locale)), {
+    const games = await loadIndexablePublishedGames(supabase, parsed.locale);
+    return new Response(urlset(origin, parsed.locale, games), {
       status: 200,
       headers,
     });
@@ -99,7 +116,10 @@ export async function handleSitemapRequest(requestUrl) {
     const message = escapeHtml(error?.message ?? 'Sitemap fehlgeschlagen');
     return new Response(xmlWrap(`<error>${message}</error>`), {
       status: 500,
-      headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+      headers: {
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
     });
   }
 }
