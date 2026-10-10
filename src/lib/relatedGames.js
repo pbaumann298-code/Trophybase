@@ -1,9 +1,10 @@
 import {
   TABLES,
   GAME_PK,
+  GAME_FK,
   GAME_STRUCT,
   GAME_TYPE,
-  GAME_CREATOR_MAP,
+  GUIDE_STRUCT,
 } from './gameSchema.js';
 import { getGameSelect, applyGuideCatalogFilter } from './gameQueries.js';
 import { getGameUuid, mergeGameRows } from './gameModel.js';
@@ -45,15 +46,28 @@ export async function fetchCreatorOtherGames(
   const exclude = String(gameUuid ?? '').trim();
   if (!ids.length || !exclude) return [];
 
-  const { data: maps, error } = await supabase
-    .from(TABLES.gameCreatorMap)
-    .select(`${GAME_CREATOR_MAP.gameId}, ${GAME_CREATOR_MAP.creatorId}`)
-    .in(GAME_CREATOR_MAP.creatorId, ids)
-    .neq(GAME_CREATOR_MAP.gameId, exclude);
+  const gameIds = [];
+  const seen = new Set();
+  for (let from = 0; from < 5000; from += 1000) {
+    const { data: links, error } = await supabase
+      .from(TABLES.gameGuideCreators)
+      .select(GAME_FK)
+      .in(GUIDE_STRUCT.creatorId, ids)
+      .neq(GAME_FK, exclude)
+      .order(GAME_FK, { ascending: true })
+      .range(from, from + 999);
 
-  if (error || !maps?.length) return [];
+    if (error) return [];
+    if (!links?.length) break;
+    for (const row of links) {
+      const id = row[GAME_FK];
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      gameIds.push(id);
+    }
+    if (links.length < 1000) break;
+  }
 
-  const gameIds = maps.map((row) => row[GAME_CREATOR_MAP.gameId]).filter(Boolean);
   return loadGamesByIds(supabase, gameIds, locale, includeReady, limit);
 }
 

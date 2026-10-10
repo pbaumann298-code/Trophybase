@@ -16,7 +16,6 @@ function emptyFilters() {
     channelName: '',
     youtubeUrl: '',
     gameTitle: '',
-    contentType: '',
   };
 }
 
@@ -71,7 +70,7 @@ function IntranetCreatorSearch() {
       <div>
         <h2 className="text-lg font-bold text-white mb-1">Creator</h2>
         <p className="text-sm text-zinc-500 max-w-3xl leading-relaxed">
-          Zeigt über <span className="text-zinc-400 font-mono">game_creator_map</span>, welche
+          Zeigt über <span className="text-zinc-400 font-mono">game_guides.creator_id</span>, welche
           Spiele an welchen Creator hängen — inklusive Status aus der Datenbank. Ohne Filter:
           alle Zuordnungen.
         </p>
@@ -79,7 +78,7 @@ function IntranetCreatorSearch() {
 
       <form
         onSubmit={handleSubmit}
-        className="rounded-2xl border border-zinc-800 bg-[#1a1b1c] p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+        className="rounded-2xl border border-zinc-800 bg-[#1a1b1c] p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
       >
         <label className="flex flex-col gap-1.5 min-w-0">
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
@@ -117,21 +116,7 @@ function IntranetCreatorSearch() {
             className={FIELD_CLASS}
           />
         </label>
-        <label className="flex flex-col gap-1.5 min-w-0">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
-            content_type
-          </span>
-          <select
-            value={filters.contentType}
-            onChange={updateField('contentType')}
-            className={FIELD_CLASS}
-          >
-            <option value="">Alle</option>
-            <option value="VIDEO">VIDEO</option>
-          </select>
-        </label>
-
-        <div className="sm:col-span-2 lg:col-span-4 flex flex-wrap gap-2 pt-1">
+        <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap gap-2 pt-1">
           <button
             type="submit"
             disabled={loading}
@@ -198,8 +183,7 @@ function IntranetCreatorSearch() {
                 <table className="min-w-full text-left text-xs">
                   <thead className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
                     <tr>
-                      <th className="px-5 py-2 font-medium">content_type</th>
-                      <th className="px-3 py-2 font-medium">spieltitel</th>
+                      <th className="px-5 py-2 font-medium">spieltitel</th>
                       <th className="px-3 py-2 font-medium">hardware</th>
                       <th className="px-3 py-2 font-medium">status</th>
                       <th className="px-3 py-2 font-medium">spiel_typ</th>
@@ -211,11 +195,8 @@ function IntranetCreatorSearch() {
                     {creator.games.map((game) => {
                       const href = intranetGameHref(game);
                       return (
-                        <tr key={`${creator.id}-${game.id}-${game.contentType}`} className="border-t border-zinc-800/80">
-                          <td className="px-5 py-2 font-mono text-[#00ff66]/90 whitespace-nowrap">
-                            {game.contentType || '—'}
-                          </td>
-                          <td className="px-3 py-2 text-zinc-200 max-w-[20rem]">
+                        <tr key={`${creator.id}-${game.id}`} className="border-t border-zinc-800/80">
+                          <td className="px-5 py-2 text-zinc-200 max-w-[20rem]">
                             {formatIntranetTitles(game.spieltitel)}
                           </td>
                           <td className="px-3 py-2 text-sky-300 whitespace-nowrap">{game.hardware || '—'}</td>

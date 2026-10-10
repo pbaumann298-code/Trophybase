@@ -1,5 +1,23 @@
-import { GAME_I18N, GAME_PK, GAME_STRUCT, GAME_TYPE, TABLES } from './gameSchema';
-import { parseStatusMap } from './guidePublication';
+import { GAME_FK, GAME_I18N, GAME_PK, GAME_STRUCT, GAME_TYPE, TABLES } from './gameSchema';
+import { parseStatusMap, publishingFieldsFromStatus } from './guidePublication';
+
+/** Pipeline-Schlüssel, die einen vorhandenen Guide markieren und mit ihm wegfallen. */
+const GUIDE_DISCARD_KEYS = new Set(['fertig', 'fertig_de', 'fertig_en']);
+
+/**
+ * Statusmappe, nachdem der Guide verworfen wurde.
+ * guide_* (FERTIG / PUBLISHED) und die älteren fertig*-Schlüssel fallen weg,
+ * guides wird NO_GUIDE. Übrige Pipeline-Keys bleiben.
+ * @param {unknown} currentStatus
+ */
+export function statusAfterGuideDiscard(currentStatus) {
+  const statusMap = { ...parseStatusMap(currentStatus) };
+  for (const key of Object.keys(statusMap)) {
+    if (key.startsWith('guide_') || GUIDE_DISCARD_KEYS.has(key)) delete statusMap[key];
+  }
+  statusMap.guides = 'NO_GUIDE';
+  return statusMap;
+}
 
 const GAME_TYPE_VALUES = new Set(Object.values(GAME_TYPE));
 
@@ -42,6 +60,46 @@ export async function setIntranetGameType(supabase, gameId, gameType) {
 
   if (error) return { gameType: null, error };
   return { gameType: data?.[GAME_STRUCT.gameType] ?? nextType, error: null };
+}
+
+/**
+ * Löscht alle game_guides-Zeilen eines Spiels und nimmt die Freigabe zurück.
+ * publishing_status / published_locales werden geleert — eine Spalte is_published gibt es nicht.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ */
+export async function discardIntranetGuide(supabase, gameId) {
+  const id = String(gameId ?? '').trim();
+  if (!id) return { status: null, error: new Error('Kein Spiel ausgewählt.') };
+
+  const { error: deleteError } = await supabase
+    .from(TABLES.guides)
+    .delete()
+    .eq(GAME_FK, id);
+
+  if (deleteError) return { status: null, error: deleteError };
+
+  const { data: current, error: readError } = await supabase
+    .from(TABLES.games)
+    .select(GAME_STRUCT.status)
+    .eq(GAME_PK, id)
+    .maybeSingle();
+
+  if (readError) return { status: null, error: readError };
+
+  const nextStatus = statusAfterGuideDiscard(current?.[GAME_STRUCT.status]);
+  const { data, error } = await supabase
+    .from(TABLES.games)
+    .update({
+      [GAME_STRUCT.status]: nextStatus,
+      ...publishingFieldsFromStatus(nextStatus),
+    })
+    .eq(GAME_PK, id)
+    .select(GAME_STRUCT.status)
+    .maybeSingle();
+
+  if (error) return { status: null, error };
+  return { status: parseStatusMap(data?.[GAME_STRUCT.status] ?? nextStatus), error: null };
 }
 
 /**

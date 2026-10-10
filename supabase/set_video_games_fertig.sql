@@ -8,7 +8,7 @@
 --
 -- "Hat Video" = mindestens eines:
 --   * status.guides = HAS_VIDEO  (04.3 Creator-Skript)
---   * Zeile in game_creator_map
+--   * game_guides.creator_id gesetzt
 --   * game_achievements.video_url oder game_guides.video_url nicht leer
 --
 -- PUBLISHED bleibt unangetastet. Schon FERTIG ebenfalls.
@@ -24,9 +24,9 @@ with video_games as (
 
   union
 
-  select m.game_id
-  from public.game_creator_map m
-  where m.game_id is not null
+  select gg.game_id
+  from public.game_guides gg
+  where gg.creator_id is not null
 
   union
 
@@ -53,7 +53,7 @@ with video_games as (
   from public.games g
   where coalesce(g.status ->> 'guides', '') = 'HAS_VIDEO'
   union
-  select m.game_id from public.game_creator_map m where m.game_id is not null
+  select gg.game_id from public.game_guides gg where gg.creator_id is not null
   union
   select a.game_id
   from public.game_achievements a
@@ -87,7 +87,7 @@ limit 50;
 --   from public.games g
 --   where coalesce(g.status ->> 'guides', '') = 'HAS_VIDEO'
 --   union
---   select m.game_id from public.game_creator_map m where m.game_id is not null
+--   select gg.game_id from public.game_guides gg where gg.creator_id is not null
 --   union
 --   select a.game_id
 --   from public.game_achievements a

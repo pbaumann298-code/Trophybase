@@ -5,7 +5,7 @@ import {
   GAME_STRUCT,
   GAME_I18N,
   GAME_FK,
-  GAME_CREATOR_MAP,
+  GUIDE_STRUCT,
   GAME_TYPE,
 } from './gameSchema';
 import { searchWords, validateSearchQuery } from './gameQueries';
@@ -223,7 +223,7 @@ async function fetchAllPages(buildQuery) {
   };
 }
 
-async function fetchCreatorMapRows(supabase, { creatorIds, gameIds, contentType }) {
+async function fetchGuideCreatorRows(supabase, { creatorIds, gameIds }) {
   const creatorChunks = creatorIds?.length ? chunkList(creatorIds, 80) : [null];
   const gameChunks = gameIds?.length ? chunkList(gameIds, 80) : [null];
   const rows = [];
@@ -232,14 +232,12 @@ async function fetchCreatorMapRows(supabase, { creatorIds, gameIds, contentType 
     for (const games of gameChunks) {
       const page = await fetchAllPages(() => {
         let query = supabase
-          .from(TABLES.gameCreatorMap)
-          .select(`${GAME_CREATOR_MAP.gameId}, ${GAME_CREATOR_MAP.creatorId}, ${GAME_CREATOR_MAP.contentType}`)
-          .order(GAME_CREATOR_MAP.creatorId, { ascending: true })
-          .order(GAME_CREATOR_MAP.gameId, { ascending: true })
-          .order(GAME_CREATOR_MAP.contentType, { ascending: true });
-        if (creators) query = query.in(GAME_CREATOR_MAP.creatorId, creators);
+          .from(TABLES.gameGuideCreators)
+          .select(`${GAME_FK}, ${GUIDE_STRUCT.creatorId}`)
+          .order(GUIDE_STRUCT.creatorId, { ascending: true })
+          .order(GAME_FK, { ascending: true });
+        if (creators) query = query.in(GUIDE_STRUCT.creatorId, creators);
         if (games) query = query.in(GAME_FK, games);
-        if (contentType) query = query.eq(GAME_CREATOR_MAP.contentType, contentType);
         return query;
       });
       if (page.error) return page;
@@ -251,13 +249,12 @@ async function fetchCreatorMapRows(supabase, { creatorIds, gameIds, contentType 
 }
 
 /**
- * Creator → gemappte Spiele. Leere Filter laden alle Creator mit ihren Spielen.
+ * Creator → Spiele über game_guides.creator_id. Leere Filter laden alle Creator mit ihren Spielen.
  */
 export async function searchIntranetCreators(supabase, filters = {}) {
   const name = textFilter(filters.channelName);
   const youtube = textFilter(filters.youtubeUrl);
   const gameTitle = textFilter(filters.gameTitle);
-  const contentType = String(filters.contentType ?? '').trim();
   const hasCreatorFilter = name.valid || youtube.valid;
 
   let gameIdsFromTitle = null;
@@ -291,10 +288,9 @@ export async function searchIntranetCreators(supabase, filters = {}) {
     if (creators.length === 0) return { data: [], error: null };
   }
 
-  const { data: maps, error: mapError } = await fetchCreatorMapRows(supabase, {
+  const { data: maps, error: mapError } = await fetchGuideCreatorRows(supabase, {
     creatorIds: hasCreatorFilter ? creators.map((creator) => creator.id) : null,
     gameIds: gameIdsFromTitle,
-    contentType,
   });
   if (mapError) return { data: [], error: mapError };
 
@@ -309,8 +305,8 @@ export async function searchIntranetCreators(supabase, filters = {}) {
     return { data: [], error: null };
   }
 
-  const creatorIds = [...new Set(mapRows.map((row) => row[GAME_CREATOR_MAP.creatorId]).filter(Boolean))];
-  const gameIds = [...new Set(mapRows.map((row) => row[GAME_CREATOR_MAP.gameId]).filter(Boolean))];
+  const creatorIds = [...new Set(mapRows.map((row) => row[GUIDE_STRUCT.creatorId]).filter(Boolean))];
+  const gameIds = [...new Set(mapRows.map((row) => row[GAME_FK]).filter(Boolean))];
 
   if (!hasCreatorFilter) {
     const { data: mappedCreators, error: mappedError } = await fetchRowsByIds(
@@ -342,14 +338,12 @@ export async function searchIntranetCreators(supabase, filters = {}) {
   const gamesByCreator = new Map();
 
   for (const row of mapRows) {
-    const creatorId = row[GAME_CREATOR_MAP.creatorId];
-    const game = gamesById.get(row[GAME_CREATOR_MAP.gameId]);
+    const creatorId = row[GUIDE_STRUCT.creatorId];
+    const game = gamesById.get(row[GAME_FK]);
     if (!creatorId || !game) continue;
     const list = gamesByCreator.get(creatorId) ?? [];
-    list.push({
-      ...game,
-      contentType: row[GAME_CREATOR_MAP.contentType] || '',
-    });
+    if (list.some((entry) => entry.id === game.id)) continue;
+    list.push(game);
     gamesByCreator.set(creatorId, list);
   }
 

@@ -18,7 +18,8 @@ export const TABLES = {
   inviteKeys: 'invite_keys',
   communityReports: 'community_reports',
   contentCreators: 'content_creators',
-  gameCreatorMap: 'game_creator_map',
+  /** Distinct (game_id, creator_id) aus game_guides. Siehe game_guides_creator_id.sql. */
+  gameGuideCreators: 'game_guide_creators',
 };
 
 export const QA_STATUS = {
@@ -35,17 +36,6 @@ export const GAME_PLATFORM_ID = 'platform_game_id';
 
 /** FK in Kind- und User-Tabellen → games.id */
 export const GAME_FK = 'game_id';
-
-/** public.game_creator_map */
-export const GAME_CREATOR_MAP = {
-  gameId: 'game_id',
-  creatorId: 'creator_id',
-  contentType: 'content_type',
-};
-
-export const CREATOR_CONTENT_TYPE = {
-  video: 'VIDEO',
-};
 
 export const ACHIEVEMENT_PK = 'platform_achievement_id';
 
@@ -176,6 +166,8 @@ export const GUIDE_STRUCT = {
   videoUrl: 'video_url',
   trophyId: 'trophy_id',
   isTrophyRelevant: 'is_trophy_relevant',
+  /** FK → content_creators.id. Ein Creator pro Guide-Zeile, nicht mehr über game_creator_map. */
+  creatorId: 'creator_id',
   createdAt: 'created_at',
 };
 

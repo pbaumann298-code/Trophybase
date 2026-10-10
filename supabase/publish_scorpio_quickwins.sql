@@ -3,7 +3,7 @@
 -- Einmal in der Supabase-SQL-Konsole. Zuerst nur die SELECTs.
 -- =============================================================================
 --
--- Trifft NUR Spiele mit Mapping auf diesen Creator (game_creator_map).
+-- Trifft NUR Spiele, deren Guide auf diesen Creator zeigt (game_guides.creator_id).
 -- Andere Guides, andere Creator: unangetastet.
 --
 -- Pro Spiel:
@@ -37,10 +37,10 @@ with scorpio as (
         like '%scorpioofshadows%'
 ),
 mapped as (
-  select distinct m.game_id
-  from public.game_creator_map m
-  join scorpio s on s.id = m.creator_id
-  where m.game_id is not null
+  select distinct gg.game_id
+  from public.game_guides gg
+  join scorpio s on s.id = gg.creator_id
+  where gg.game_id is not null
 )
 select
   count(*) as spiele,
@@ -63,10 +63,10 @@ with scorpio as (
         like '%scorpioofshadows%'
 ),
 mapped as (
-  select distinct m.game_id
-  from public.game_creator_map m
-  join scorpio s on s.id = m.creator_id
-  where m.game_id is not null
+  select distinct gg.game_id
+  from public.game_guides gg
+  join scorpio s on s.id = gg.creator_id
+  where gg.game_id is not null
 )
 select
   coalesce(nullif(btrim(g.spiel_typ), ''), '(leer)') as spiel_typ,
@@ -88,10 +88,10 @@ with scorpio as (
         like '%scorpioofshadows%'
 ),
 mapped as (
-  select distinct m.game_id
-  from public.game_creator_map m
-  join scorpio s on s.id = m.creator_id
-  where m.game_id is not null
+  select distinct gg.game_id
+  from public.game_guides gg
+  join scorpio s on s.id = gg.creator_id
+  where gg.game_id is not null
 )
 select
   g.id,
@@ -126,10 +126,10 @@ limit 100;
 --         like '%scorpioofshadows%'
 -- ),
 -- mapped as (
---   select distinct m.game_id
---   from public.game_creator_map m
---   join scorpio s on s.id = m.creator_id
---   where m.game_id is not null
+--   select distinct gg.game_id
+--   from public.game_guides gg
+--   join scorpio s on s.id = gg.creator_id
+--   where gg.game_id is not null
 -- )
 -- update public.games g
 -- set
@@ -170,5 +170,9 @@ limit 100;
 --   ) as online_ohne_slug,
 --   count(*) filter (where g.is_indexable is not distinct from false) as noindex
 -- from public.games g
--- join public.game_creator_map m on m.game_id = g.id
--- join scorpio s on s.id = m.creator_id;
+-- where exists (
+--   select 1
+--   from public.game_guides gg
+--   join scorpio s on s.id = gg.creator_id
+--   where gg.game_id = g.id
+-- );

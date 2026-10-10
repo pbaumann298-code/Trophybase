@@ -1,8 +1,7 @@
 import {
   TABLES,
   GAME_FK,
-  GAME_CREATOR_MAP,
-  CREATOR_CONTENT_TYPE,
+  GUIDE_STRUCT,
 } from './gameSchema.js';
 import { getGameUuid } from './gameModel.js';
 
@@ -56,40 +55,37 @@ function isUnavailableRelationError(error) {
   );
 }
 
-function pickCreatorIds(rows) {
-  const list = Array.isArray(rows) ? rows : [];
-  const videoType = CREATOR_CONTENT_TYPE.video.toLowerCase();
-  const videoRows = list.filter(
-    (row) => String(row?.[GAME_CREATOR_MAP.contentType] ?? '').toLowerCase() === videoType,
-  );
-  const preferred = videoRows.length > 0 ? videoRows : list;
+function uniqueIds(rows, column) {
   const ids = [];
-  for (const row of preferred) {
-    const id = row?.[GAME_CREATOR_MAP.creatorId];
+  for (const row of rows ?? []) {
+    const id = row?.[column];
     if (id && !ids.includes(id)) ids.push(id);
   }
   return ids;
 }
 
 /**
- * Creator zum Spiel über game_creator_map (game_id → creator_id).
- * Bevorzugt content_type VIDEO. Ohne Mapping oder ohne Leserecht: { data: [] }.
+ * Creator zum Spiel über game_guides.creator_id.
+ * Die Sicht game_guide_creators hält die Paare distinct, damit nicht jede
+ * Guide-Zeile denselben Creator noch einmal liefert.
+ * Embed auf der Tabelle: game_guides(creator_id, content_creators(*)).
+ * Ohne Zuordnung oder ohne Leserecht: { data: [] }.
  */
 export async function fetchContentCreatorsForGame(supabase, gameOrUuid) {
   const gameUuid = typeof gameOrUuid === 'string' ? gameOrUuid : getGameUuid(gameOrUuid);
   if (!gameUuid) return { data: [], error: null };
 
-  const { data: maps, error: mapError } = await supabase
-    .from(TABLES.gameCreatorMap)
-    .select(`${GAME_CREATOR_MAP.creatorId}, ${GAME_CREATOR_MAP.contentType}`)
+  const { data: links, error: linkError } = await supabase
+    .from(TABLES.gameGuideCreators)
+    .select(GUIDE_STRUCT.creatorId)
     .eq(GAME_FK, gameUuid);
 
-  if (mapError) {
-    if (isUnavailableRelationError(mapError)) return { data: [], error: null };
-    return { data: [], error: mapError };
+  if (linkError) {
+    if (isUnavailableRelationError(linkError)) return { data: [], error: null };
+    return { data: [], error: linkError };
   }
 
-  const creatorIds = pickCreatorIds(maps);
+  const creatorIds = uniqueIds(links, GUIDE_STRUCT.creatorId);
   if (creatorIds.length === 0) return { data: [], error: null };
 
   const { data, error } = await supabase
@@ -107,7 +103,7 @@ export async function fetchContentCreatorsForGame(supabase, gameOrUuid) {
   return { data: creators, error: null };
 }
 
-/** Erster VIDEO-Creator, sonst der erste Mapping-Eintrag. */
+/** Erster Creator der Guide-Zeilen, sonst null. */
 export async function fetchContentCreatorForGame(supabase, gameOrUuid) {
   const { data, error } = await fetchContentCreatorsForGame(supabase, gameOrUuid);
   return { data: data[0] ?? null, error };

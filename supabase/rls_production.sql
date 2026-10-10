@@ -157,21 +157,8 @@ create policy content_creators_admin_write
   using (public.tb_is_admin())
   with check (public.tb_is_admin());
 
-alter table public.game_creator_map enable row level security;
-select public.tb_drop_policies('game_creator_map');
-
-create policy game_creator_map_select
-  on public.game_creator_map
-  for select
-  to anon, authenticated
-  using (true);
-
-create policy game_creator_map_admin_write
-  on public.game_creator_map
-  for all
-  to authenticated
-  using (public.tb_is_admin())
-  with check (public.tb_is_admin());
+-- game_creator_map ist aufgelöst. Der Creator steht auf game_guides.creator_id
+-- (siehe game_guides_creator_id.sql). Lesen läuft über die game_guides-Policies.
 
 -- ---------------------------------------------------------------------------
 -- invite_keys: nur Admin (Beta-Redeem ueber den Client geht danach nicht mehr)

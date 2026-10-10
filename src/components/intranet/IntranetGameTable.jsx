@@ -8,7 +8,12 @@ import {
   listPipelineStatusEntries,
   pipelineStatusValue,
 } from '../../lib/gamePipelineStatus';
-import { removeIntranetStatusKey, setIntranetGameType } from '../../lib/intranetGameEdits';
+import {
+  discardIntranetGuide,
+  removeIntranetStatusKey,
+  setIntranetGameType,
+  statusAfterGuideDiscard,
+} from '../../lib/intranetGameEdits';
 import { fetchHomeTagDefs, homeTagKey, orderHomeTags, readHomeTags, setEditorialHomeTags } from '../../lib/homeTagDefs';
 import HomeTagChecks from '../HomeTagChecks';
 import { toggleAdminFollowup } from '../../lib/adminFollowups';
@@ -22,6 +27,24 @@ const STATUS_COLUMNS = [
   { key: 'guides', className: 'text-zinc-400' },
   { key: 'guide_de', className: 'text-amber-300/90' },
 ];
+
+function DiscardGuideButton({ disabled, onClick }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      aria-label="Guide verwerfen"
+      title="Guide verwerfen"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-40"
+    >
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-9 0 1 12a1 1 0 0 0 1 .9h6a1 1 0 0 0 1-.9l1-12" />
+        <path strokeLinecap="round" d="M10 11v6M14 11v6" />
+      </svg>
+    </button>
+  );
+}
 
 function StatusDeleteButton({ label, disabled, onClick }) {
   return (
@@ -89,6 +112,7 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
   const followedIds = new Set(followups.map((entry) => entry.id));
   const [busyKey, setBusyKey] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [notice, setNotice] = useState('');
   const [tagDefs, setTagDefs] = useState([]);
 
   useEffect(() => {
@@ -143,6 +167,47 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
     patch(game.id, { home_tags: homeTags, home_tags_locked: true });
   };
 
+  const handleDiscardGuide = async (game) => {
+    const title = formatIntranetTitles(game.spieltitel);
+    const confirmed = window.confirm(
+      `Guide für „${title}“ verwerfen?\n\nAlle Guide-Zeilen werden gelöscht und der Freigabe-Status zurückgesetzt.`,
+    );
+    if (!confirmed) return;
+
+    const key = `${game.id}:discard-guide`;
+    const previous = {
+      status: game.status,
+      publishing_status: game.publishing_status,
+      published_locales: game.published_locales,
+      game_guides: game.game_guides,
+    };
+    const nextStatus = statusAfterGuideDiscard(game.status);
+    setBusyKey(key);
+    setErrorMessage('');
+    setNotice('');
+    patch(game.id, {
+      status: nextStatus,
+      publishing_status: {},
+      published_locales: [],
+      game_guides: [{ count: 0 }],
+    });
+
+    const { status, error } = await discardIntranetGuide(supabase, game.id);
+    setBusyKey('');
+    if (error) {
+      patch(game.id, previous);
+      setErrorMessage(error.message || 'Guide konnte nicht gelöscht werden.');
+      return;
+    }
+    patch(game.id, {
+      status,
+      publishing_status: {},
+      published_locales: [],
+      game_guides: [{ count: 0 }],
+    });
+    setNotice('Guide erfolgreich gelöscht und Status zurückgesetzt.');
+  };
+
   const handleRemoveStatus = async (game, statusKey, value) => {
     const confirmed = window.confirm(`Status „${statusKey}“ (${value}) wirklich löschen?`);
     if (!confirmed) return;
@@ -180,6 +245,11 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
       {errorMessage ? (
         <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/25 rounded-lg px-3 py-2">
           {errorMessage}
+        </p>
+      ) : null}
+      {notice ? (
+        <p className="text-xs text-[#00ff66] bg-[#00ff66]/10 border border-[#00ff66]/25 rounded-lg px-3 py-2">
+          {notice}
         </p>
       ) : null}
       <div className="overflow-x-auto rounded-2xl border border-zinc-800">
@@ -301,6 +371,10 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <div className="flex items-center gap-3">
+                      <DiscardGuideButton
+                        disabled={busyKey === `${game.id}:discard-guide`}
+                        onClick={() => handleDiscardGuide(game)}
+                      />
                       <button
                         type="button"
                         onClick={() => handleFollowup(game)}

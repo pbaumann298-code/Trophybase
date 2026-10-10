@@ -103,6 +103,7 @@
  * @property {LocalizedText} [video_chapter]
  * @property {string} [timestamp]
  * @property {string} [video_url]
+ * @property {string|null} [creator_id] UUID → content_creators.id
  * @property {string} [trophy_id]
  * @property {string} [is_trophy_relevant] 'Ja' | 'Nein'
  */
