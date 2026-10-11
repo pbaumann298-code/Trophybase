@@ -1,4 +1,13 @@
-import { GAME_FK, GAME_I18N, GAME_PK, GAME_STRUCT, GAME_TYPE, TABLES } from './gameSchema';
+import {
+  ACHIEVEMENT_I18N,
+  ACHIEVEMENT_PK,
+  GAME_FK,
+  GAME_I18N,
+  GAME_PK,
+  GAME_STRUCT,
+  GAME_TYPE,
+  TABLES,
+} from './gameSchema';
 import { parseStatusMap, publishingFieldsFromStatus } from './guidePublication';
 
 /** Pipeline-Schlüssel, die einen vorhandenen Guide markieren und mit ihm wegfallen. */
@@ -58,6 +67,82 @@ export async function setIntranetGameType(supabase, gameId, gameType) {
 
   if (error) return { gameType: null, error };
   return { gameType: data?.[GAME_STRUCT.gameType] ?? nextType, error: null };
+}
+
+function asTipMap(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return { ...value };
+  const text = String(value ?? '').trim();
+  return text ? { en: text } : {};
+}
+
+const CLEARED_TIPS = {
+  [ACHIEVEMENT_I18N.guideTip]: null,
+  [ACHIEVEMENT_I18N.guideTipLong]: null,
+};
+
+/**
+ * Schreibt den Guide-Tipp einer Trophäe in der aktuellen Sprache.
+ * Leerer Text löscht den Tipp komplett, auch die Langfassung.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {string} achievementId
+ * @param {string} locale
+ * @param {string} text
+ */
+export async function saveTrophyGuideTip(supabase, gameId, achievementId, locale, text) {
+  const game = String(gameId ?? '').trim();
+  const achievement = String(achievementId ?? '').trim();
+  const lang = String(locale ?? '').trim();
+  const next = String(text ?? '').trim();
+  if (!game || !achievement) {
+    return { error: new Error('Trophäe fehlt.') };
+  }
+
+  if (!next) {
+    const { error } = await supabase
+      .from(TABLES.achievements)
+      .update(CLEARED_TIPS)
+      .eq(GAME_FK, game)
+      .eq(ACHIEVEMENT_PK, achievement);
+    return { error: error ?? null };
+  }
+
+  const { data, error: readError } = await supabase
+    .from(TABLES.achievements)
+    .select(ACHIEVEMENT_I18N.guideTip)
+    .eq(GAME_FK, game)
+    .eq(ACHIEVEMENT_PK, achievement)
+    .maybeSingle();
+
+  if (readError) return { error: readError };
+
+  const map = asTipMap(data?.[ACHIEVEMENT_I18N.guideTip]);
+  if (lang) map[lang] = next;
+
+  const { error } = await supabase
+    .from(TABLES.achievements)
+    .update({ [ACHIEVEMENT_I18N.guideTip]: map })
+    .eq(GAME_FK, game)
+    .eq(ACHIEVEMENT_PK, achievement);
+
+  return { error: error ?? null };
+}
+
+/**
+ * Löscht alle Guide-Tipps eines Spiels, Kurz- und Langfassung.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ */
+export async function clearGameGuideTips(supabase, gameId) {
+  const game = String(gameId ?? '').trim();
+  if (!game) return { error: new Error('Kein Spiel ausgewählt.') };
+
+  const { error } = await supabase
+    .from(TABLES.achievements)
+    .update(CLEARED_TIPS)
+    .eq(GAME_FK, game);
+
+  return { error: error ?? null };
 }
 
 /**

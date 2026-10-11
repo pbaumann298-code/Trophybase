@@ -7,7 +7,7 @@ import GuideLanguageSelector from '../components/GuideLanguageSelector';
 import GuideBreadcrumb from '../components/GuideBreadcrumb';
 import RelatedGuides from '../components/RelatedGuides';
 import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
-import TrophyGroupedChecklist from '../components/TrophyGroupedChecklist';
+import TrophyGroupedChecklist, { ClearGuideTipsButton } from '../components/TrophyGroupedChecklist';
 import WatchlistButton from '../components/WatchlistButton';
 import ShareButton from '../components/ShareButton';
 import GuidePublishButton from '../components/GuidePublishButton';
@@ -41,7 +41,8 @@ import {
 } from '../lib/hiddenTrophyPreference';
 import { isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished } from '../lib/guidePublication';
-import { clearIntranetCover, setIntranetIgdbCover } from '../lib/intranetGameEdits';
+import { clearGameGuideTips, clearIntranetCover, saveTrophyGuideTip, setIntranetIgdbCover } from '../lib/intranetGameEdits';
+import { getTrophyIdKey } from '../lib/trophyQueries';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
   getGameCover,
@@ -240,10 +241,42 @@ function GamePageContent({
 
   const gameId = watchlistGameId;
   const [hiddenTrophyMode, setHiddenTrophyMode] = useState(() => loadHiddenTrophyMode(gameId));
+  const [tipOverrides, setTipOverrides] = useState({});
+  const [tipHint, setTipHint] = useState('');
 
   useEffect(() => {
     setHiddenTrophyMode(loadHiddenTrophyMode(gameId));
+    setTipOverrides({});
+    setTipHint('');
   }, [gameId]);
+
+  const trophiesWithTips = useMemo(() => (
+    activeTrophies.map((trophy) => {
+      const id = getTrophyIdKey(trophy);
+      if (!Object.prototype.hasOwnProperty.call(tipOverrides, id)) return trophy;
+      const guide_tip = tipOverrides[id];
+      return { ...trophy, guide_tip, guide_tip_long: guide_tip ? trophy.guide_tip_long : '' };
+    })
+  ), [activeTrophies, tipOverrides]);
+
+  const saveGuideTip = async (achievementId, text) => {
+    const { error } = await saveTrophyGuideTip(supabase, gameId, achievementId, globalLocale, text);
+    if (error) return error;
+    setTipOverrides((prev) => ({ ...prev, [achievementId]: text.trim() }));
+    return null;
+  };
+
+  const clearAllGuideTips = async () => {
+    const { error } = await clearGameGuideTips(supabase, gameId);
+    if (error) {
+      setTipHint(error.message || t('trophyTipFailed'));
+      return;
+    }
+    const next = {};
+    for (const trophy of activeTrophies) next[getTrophyIdKey(trophy)] = '';
+    setTipOverrides(next);
+    setTipHint(t('trophyTipSaved'));
+  };
 
   const gameUuid = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
   const studioCredits = useMemo(() => publicStudioCredits(selectedGame), [selectedGame]);
@@ -530,15 +563,22 @@ function GamePageContent({
             </div>
           </div>
 
+          {isAdmin ? (
+            <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+              {tipHint ? <span className="text-[10px] text-zinc-500">{tipHint}</span> : null}
+              <ClearGuideTipsButton onClear={clearAllGuideTips} />
+            </div>
+          ) : null}
           <TrophyGroupedChecklist
             gameId={gameId}
-            trophies={activeTrophies}
+            trophies={isAdmin ? trophiesWithTips : activeTrophies}
             unlockedTrophies={unlockedTrophies}
             earnedTrophyIds={earnedTrophyIds}
             hideCompleted={hideCompleted}
             revealHidden={hiddenTrophiesRevealed(hiddenTrophyMode)}
             onToggle={toggleTrophy}
             mainGameTitle={gameTitle || 'Hauptspiel'}
+            guideTipEditor={isAdmin ? saveGuideTip : null}
           />
         </div>
       )}

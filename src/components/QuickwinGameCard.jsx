@@ -3,7 +3,7 @@ import WatchlistButton from './WatchlistButton';
 import GuideOnlineBadge from './GuideOnlineBadge';
 import GuideTabBar from './GuideTabBar';
 import CollapsibleSectionCard from './CollapsibleSectionCard';
-import TrophyGroupedChecklist from './TrophyGroupedChecklist';
+import TrophyGroupedChecklist, { ClearGuideTipsButton } from './TrophyGroupedChecklist';
 import GameSeoInfobox from './GameSeoInfobox';
 import { BossKacheln, CollectibleKacheln } from '../pages/CollectibleKacheln';
 import { GuideVideoProvider } from '../context/GuideVideoContext';
@@ -14,6 +14,7 @@ import { publicStudioCredits } from '../lib/studioCredits';
 import { gameGuidePath } from '../lib/routeUtils';
 import { fetchGameGuideBundle } from '../lib/guideQueries';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
+import { clearGameGuideTips, saveTrophyGuideTip } from '../lib/intranetGameEdits';
 import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
 import {
   buildBossOverviewData,
@@ -96,6 +97,7 @@ function QuickwinGameCard({
   const [hiddenMode, setHiddenMode] = useState(() => loadHiddenTrophyMode(gameUuid));
   const [activeTab, setActiveTab] = useState('reiter0');
   const [newer, setNewer] = useState({ mode: '', heading: '', games: [] });
+  const [tipHint, setTipHint] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -132,6 +134,28 @@ function QuickwinGameCard({
       cancelled = true;
     };
   }, [game, gameUuid, globalLocale, sessionUser?.id, newerVersions, includeReady]);
+
+  const saveGuideTip = async (achievementId, text) => {
+    const { error } = await saveTrophyGuideTip(supabase, gameUuid, achievementId, globalLocale, text);
+    if (error) return error;
+    const next = text.trim();
+    setTrophies((prev) => prev.map((trophy) => (
+      getTrophyIdKey(trophy) === achievementId
+        ? { ...trophy, guide_tip: next, guide_tip_long: next ? trophy.guide_tip_long : '' }
+        : trophy
+    )));
+    return null;
+  };
+
+  const clearAllGuideTips = async () => {
+    const { error } = await clearGameGuideTips(supabase, gameUuid);
+    if (error) {
+      setTipHint(error.message || t('trophyTipFailed'));
+      return;
+    }
+    setTrophies((prev) => prev.map((trophy) => ({ ...trophy, guide_tip: '', guide_tip_long: '' })));
+    setTipHint(t('trophyTipSaved'));
+  };
 
   const toggleTrophy = (id) => {
     if (earnedIds.has(id)) return;
@@ -171,13 +195,15 @@ function QuickwinGameCard({
   const tabs = useMemo(() => {
     const visible = ['reiter0'];
     if (loading || walkthrough.length > 0) visible.push('reiter1');
-    if (!loading && newer.games.length > 0) visible.push('reiter4');
     if (!loading && collectibles.length > 0) visible.push('reiter2');
+    if (!loading && newer.games.length > 0) visible.push('reiter4');
     if (!loading && bosses.length > 0) visible.push('reiter3');
     return visible.map((id) => ({
       id,
       icon: TAB_META[id].icon,
-      label: t(TAB_META[id].labelKey),
+      label: id === 'reiter2' && (newerVersions || serverNotice)
+        ? t('collectGuide')
+        : t(TAB_META[id].labelKey),
       count: id === 'reiter0'
         ? trophies.length
         : id === 'reiter1'
@@ -317,6 +343,12 @@ function QuickwinGameCard({
                   ))}
                 </fieldset>
               )}
+              {isAdmin ? (
+                <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                  {tipHint ? <span className="text-[10px] text-zinc-500">{tipHint}</span> : null}
+                  <ClearGuideTipsButton onClear={clearAllGuideTips} />
+                </div>
+              ) : null}
               <TrophyGroupedChecklist
                 gameId={gameUuid}
                 trophies={trophies}
@@ -326,6 +358,7 @@ function QuickwinGameCard({
                 revealHidden={hiddenTrophiesRevealed(hiddenMode)}
                 onToggle={toggleTrophy}
                 mainGameTitle={title || 'Hauptspiel'}
+                guideTipEditor={isAdmin ? saveGuideTip : null}
               />
             </div>
           )}
@@ -361,7 +394,7 @@ function QuickwinGameCard({
             <GuideVideoProvider>
               <CollapsibleSectionCard
                 sectionId={`qw-collect-${gameUuid}`}
-                title={t('completion')}
+                title={newerVersions || serverNotice ? t('collectGuide') : t('completion')}
                 badge={`${collectibles.length}`}
                 defaultOpen
                 accent="amber"
@@ -372,7 +405,7 @@ function QuickwinGameCard({
                   collectiblesData={collectibles}
                   trophyById={trophyById}
                   groupByField="category_group"
-                  listTitle={t('completion')}
+                  listTitle={newerVersions || serverNotice ? t('collectGuide') : t('completion')}
                   hideCompleted={hideCompleted}
                   setHideCompleted={serverNotice ? undefined : setHideCompleted}
                   completedItems={completedItems}

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import CollapsibleSectionCard from './CollapsibleSectionCard';
 import Reportable from './Reportable';
 import TrophyArtwork from './TrophyArtwork';
@@ -7,7 +7,73 @@ import { useLocale } from '../context/LocaleContext';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
 import { getTrophyAiTranslation, getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
 
-function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle }) {
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM7 9h2v9H7V9z"
+      />
+    </svg>
+  );
+}
+
+function TrophyTipEditor({ trophy, onSave }) {
+  const { t } = useLocale();
+  const saved = String(trophy.guide_tip ?? '');
+  const [draft, setDraft] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const [hint, setHint] = useState('');
+
+  useEffect(() => {
+    setDraft(saved);
+  }, [saved]);
+
+  const commit = async (text) => {
+    if (text.trim() === saved.trim() || busy) return;
+    setBusy(true);
+    setHint('');
+    const error = await onSave(text);
+    setBusy(false);
+    setHint(error ? t('trophyTipFailed') : t('trophyTipSaved'));
+  };
+
+  return (
+    <div className="mt-2 flex items-start gap-2">
+      <label className="min-w-0 flex-1">
+        <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66]">
+          {t('trophyTipLabel')}
+        </span>
+        <textarea
+          value={draft}
+          rows={2}
+          placeholder={t('trophyTipPlaceholder')}
+          disabled={busy}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => commit(draft)}
+          className="w-full resize-y rounded-lg border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66]/40 focus:outline-hidden"
+        />
+        {hint ? <span className="mt-1 block text-[10px] text-zinc-500">{hint}</span> : null}
+      </label>
+      <button
+        type="button"
+        title={t('trophyTipDelete')}
+        aria-label={t('trophyTipDelete')}
+        disabled={busy || !draft.trim()}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          setDraft('');
+          commit('');
+        }}
+        className="mt-5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-700 text-zinc-400 hover:border-red-500/40 hover:text-red-300 disabled:opacity-30"
+      >
+        <TrashIcon />
+      </button>
+    </div>
+  );
+}
+
+function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, guideTipEditor }) {
   const { t } = useLocale();
   const trophyKey = getTrophyIdKey(trophy);
   const trophyDesc = getTrophyDescription(trophy);
@@ -123,7 +189,13 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle }) 
           </span>
         </div>
       </div>
-      {!conceal && !isUnlocked && (trophy.guide_tip || trophy.video_url) && (
+      {guideTipEditor ? (
+        <TrophyTipEditor
+          trophy={trophy}
+          onSave={(text) => guideTipEditor(getTrophyIdKey(trophy), text)}
+        />
+      ) : null}
+      {!guideTipEditor && !conceal && !isUnlocked && (trophy.guide_tip || trophy.video_url) && (
         <div className="mt-1 pl-4 border-l-2 border-[#00ff66]/30 flex flex-col gap-2 bg-zinc-950/40 p-2 rounded-r-xl">
           {trophy.guide_tip && (
             <p className="text-xs text-zinc-400 font-sans italic">
@@ -160,7 +232,7 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle }) 
   );
 }
 
-function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, hideCompleted, revealHidden, onToggle }) {
+function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, hideCompleted, revealHidden, onToggle, guideTipEditor }) {
   const earnedSet = earnedTrophyIds ?? new Set();
   const visible = trophies.filter((t) => {
     const key = getTrophyIdKey(t);
@@ -191,6 +263,7 @@ function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, hideC
             isEarned={isEarned}
             conceal={Boolean(t.is_hidden) && !revealHidden && !isUnlocked}
             onToggle={onToggle}
+            guideTipEditor={guideTipEditor}
           />
         );
       })}
@@ -209,6 +282,7 @@ function TrophyGroupedChecklist({
   mainGameTitle = 'Hauptspiel',
   /** Kein zusätzlicher Karten-Reiter, wenn die Liste schon in einer Zeile steckt. */
   flat = false,
+  guideTipEditor = null,
 }) {
   const { mainGame, dlcGroups } = useMemo(
     () => groupTrophiesByPack(trophies),
@@ -242,6 +316,7 @@ function TrophyGroupedChecklist({
             hideCompleted={hideCompleted}
             revealHidden={revealHidden}
             onToggle={onToggle}
+            guideTipEditor={guideTipEditor}
           />
         )}
         {dlcGroups.map((dlc) => {
@@ -268,6 +343,7 @@ function TrophyGroupedChecklist({
                 hideCompleted={hideCompleted}
                 revealHidden={revealHidden}
                 onToggle={onToggle}
+                guideTipEditor={guideTipEditor}
               />
             </CollapsibleSectionCard>
           );
@@ -294,6 +370,7 @@ function TrophyGroupedChecklist({
             hideCompleted={hideCompleted}
             revealHidden={revealHidden}
             onToggle={onToggle}
+            guideTipEditor={guideTipEditor}
           />
         </CollapsibleSectionCard>
       )}
@@ -322,6 +399,7 @@ function TrophyGroupedChecklist({
               hideCompleted={hideCompleted}
               revealHidden={revealHidden}
               onToggle={onToggle}
+              guideTipEditor={guideTipEditor}
             />
           </CollapsibleSectionCard>
         );
@@ -333,6 +411,22 @@ function TrophyGroupedChecklist({
         </p>
       )}
     </div>
+  );
+}
+
+export function ClearGuideTipsButton({ onClear, className = '' }) {
+  const { t } = useLocale();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (window.confirm(t('trophyTipsDeleteAllConfirm'))) onClear();
+      }}
+      className={`inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400 hover:border-red-500/40 hover:text-red-300 ${className}`}
+    >
+      <TrashIcon />
+      {t('trophyTipsDeleteAll')}
+    </button>
   );
 }
 
