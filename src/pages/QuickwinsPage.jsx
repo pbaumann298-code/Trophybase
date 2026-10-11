@@ -21,6 +21,8 @@ import {
   parseQuickwinsParams,
 } from '../lib/routeUtils';
 import QuickwinGameCard, { formatQuickwinCount } from '../components/QuickwinGameCard';
+import { parseServertotPath, servertotPageCopy, servertotPublicPath } from '../lib/servertotPage';
+import { normalizeLocale } from '../lib/locale';
 import '../styles/quickwins.css';
 
 function QuickwinsPage({
@@ -34,8 +36,18 @@ function QuickwinsPage({
   basePath = QUICKWINS_PATH,
   titleKey = 'quickwinsTitle',
   newerVersions = false,
+  localizedPath = false,
+  serverNotice = false,
 }) {
   const { t, globalLocale } = useLocale();
+  const [pathLocale, setPathLocale] = useState(() => (
+    localizedPath && typeof window !== 'undefined'
+      ? parseServertotPath(window.location.pathname)?.locale || null
+      : null
+  ));
+  const copyLocale = pathLocale || normalizeLocale(globalLocale);
+  const pageCopy = localizedPath ? servertotPageCopy(copyLocale) : null;
+  const activePath = localizedPath ? servertotPublicPath(copyLocale) : basePath;
   const initial = parseQuickwinsParams();
   const [draft, setDraft] = useState(() => ({ title: initial.title, publisher: initial.publisher }));
   const [applied, setApplied] = useState(() => initial);
@@ -47,11 +59,35 @@ function QuickwinsPage({
 
   useEffect(() => {
     const previous = document.title;
-    document.title = `${t(titleKey)} · TrophyBase.app`;
+    document.title = `${pageCopy?.title || t(titleKey)} · TrophyBase.app`;
     return () => {
       document.title = previous;
     };
-  }, [t, titleKey]);
+  }, [t, titleKey, pageCopy]);
+
+  useEffect(() => {
+    if (!localizedPath) return undefined;
+    const alignPath = () => {
+      const parsed = parseServertotPath(window.location.pathname);
+      if (!parsed) return;
+      const locale = parsed.locale || normalizeLocale(globalLocale);
+      setPathLocale(locale);
+      const target = servertotPublicPath(locale);
+      const current = window.location.pathname.replace(/\/$/, '') || '/';
+      if (current === target) return;
+      navigateToQuickwins(
+        {
+          title: applied.title,
+          publisher: applied.publisher,
+          sort: applied.sort,
+        },
+        { replace: true, path: target },
+      );
+    };
+    alignPath();
+    window.addEventListener('popstate', alignPath);
+    return () => window.removeEventListener('popstate', alignPath);
+  }, [localizedPath, globalLocale, applied.title, applied.publisher, applied.sort]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +111,7 @@ function QuickwinsPage({
 
   useEffect(() => {
     const onPop = () => {
-      const viewName = basePath === SERVERTOT_PATH ? 'servertot' : 'quickwins';
+      const viewName = localizedPath || basePath === SERVERTOT_PATH ? 'servertot' : 'quickwins';
       if (getViewFromPath(window.location.pathname) !== viewName) return;
       const next = parseQuickwinsParams();
       setApplied(next);
@@ -122,7 +158,7 @@ function QuickwinsPage({
     setOpenGameId(null);
     setApplied(next);
     setDraft({ title: next.title, publisher: next.publisher });
-    navigateToQuickwins(next, { replace, path: basePath });
+    navigateToQuickwins(next, { replace, path: activePath });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -213,6 +249,8 @@ function QuickwinsPage({
                       sessionUser={sessionUser}
                       newerVersions={newerVersions}
                       includeReady={includeReady}
+                      serverNotice={serverNotice}
+                      serverNoticeText={pageCopy?.notice || ''}
                     />
                   )}
                 </div>
@@ -229,7 +267,8 @@ function QuickwinsPage({
       <button type="button" className="quickwins-back" onClick={onBack}>
         {t('searchBack')}
       </button>
-      <h1 className="quickwins-title">{t(titleKey)}</h1>
+      <h1 className="quickwins-title">{pageCopy?.title || t(titleKey)}</h1>
+      {pageCopy?.lead ? <p className="quickwins-lead">{pageCopy.lead}</p> : null}
 
       <form className="quickwins-form" onSubmit={handleSubmit}>
         <div className="advanced-search-field">

@@ -73,6 +73,8 @@ function QuickwinGameCard({
   sessionUser = null,
   newerVersions = false,
   includeReady = false,
+  serverNotice = false,
+  serverNoticeText = '',
 }) {
   const { t, globalLocale } = useLocale();
   const gameUuid = getGameUuid(game);
@@ -266,25 +268,31 @@ function QuickwinGameCard({
 
           {activeTab === 'reiter0' && (
             <div className="quickwin-tab">
-              <div className="quickwin-progress">
-                <div className="quickwin-progress-label">
-                  <span>{t('overallProgress')}</span>
-                  <strong>
-                    {progressPercent}% ({doneCount}/{trophies.length})
-                  </strong>
-                </div>
-                <div className="quickwin-progress-track">
-                  <div style={{ width: `${progressPercent}%` }} />
-                </div>
-              </div>
-              <label className="quickwin-hide-done">
-                <input
-                  type="checkbox"
-                  checked={hideCompleted}
-                  onChange={(event) => setHideCompleted(event.target.checked)}
-                />
-                {t('hideCompleted')}
-              </label>
+              {serverNotice ? (
+                <p className="quickwin-server-notice">{serverNoticeText}</p>
+              ) : (
+                <>
+                  <div className="quickwin-progress">
+                    <div className="quickwin-progress-label">
+                      <span>{t('overallProgress')}</span>
+                      <strong>
+                        {progressPercent}% ({doneCount}/{trophies.length})
+                      </strong>
+                    </div>
+                    <div className="quickwin-progress-track">
+                      <div style={{ width: `${progressPercent}%` }} />
+                    </div>
+                  </div>
+                  <label className="quickwin-hide-done">
+                    <input
+                      type="checkbox"
+                      checked={hideCompleted}
+                      onChange={(event) => setHideCompleted(event.target.checked)}
+                    />
+                    {t('hideCompleted')}
+                  </label>
+                </>
+              )}
               {hasHidden && (
                 <fieldset className="quickwin-hidden">
                   <legend>{t('hiddenTrophies')}</legend>
@@ -339,7 +347,7 @@ function QuickwinGameCard({
                   groupByField="chronological_group"
                   listTitle={t('fullGameplay')}
                   hideCompleted={hideCompleted}
-                  setHideCompleted={setHideCompleted}
+                  setHideCompleted={serverNotice ? undefined : setHideCompleted}
                   completedItems={completedItems}
                   toggleCompleted={toggleGuideItem}
                   embedInAccordion
@@ -366,7 +374,7 @@ function QuickwinGameCard({
                   groupByField="category_group"
                   listTitle={t('completion')}
                   hideCompleted={hideCompleted}
-                  setHideCompleted={setHideCompleted}
+                  setHideCompleted={serverNotice ? undefined : setHideCompleted}
                   completedItems={completedItems}
                   toggleCompleted={toggleGuideItem}
                   embedInAccordion
@@ -402,7 +410,7 @@ function QuickwinGameCard({
                   trophyById={trophyById}
                   listTitle={t('bosses')}
                   hideCompleted={hideCompleted}
-                  setHideCompleted={setHideCompleted}
+                  setHideCompleted={serverNotice ? undefined : setHideCompleted}
                   completedItems={completedItems}
                   toggleCompleted={toggleGuideItem}
                   embedInAccordion

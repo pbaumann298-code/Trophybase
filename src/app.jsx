@@ -43,6 +43,7 @@ import {
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
 import { GAME_TYPE, TABLES } from './lib/gameSchema';
+import { servertotPublicPath } from './lib/servertotPage';
 import ProfilePage from './pages/ProfilePage';
 import QaAdminPage from './pages/QaAdminPage';
 import { fetchGameGuideBundle, resolveGameId } from './lib/guideQueries';
@@ -612,7 +613,7 @@ function App() {
       return () => clearGameSeoLinks();
     }
     if (currentView === 'servertot') {
-      applyPathCanonical(SERVERTOT_PATH, { noIndex: true });
+      applyPathCanonical(servertotPublicPath(globalLocale), { noIndex: true });
       return () => clearGameSeoLinks();
     }
     if (currentView !== 'game_info' || !selectedGame) {
@@ -845,6 +846,8 @@ function App() {
                 basePath={SERVERTOT_PATH}
                 titleKey="servertotTitle"
                 newerVersions
+                localizedPath
+                serverNotice
               />
             )}
 

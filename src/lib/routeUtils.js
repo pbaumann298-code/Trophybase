@@ -1,3 +1,4 @@
+import { parseServertotPath, servertotPublicPath } from './servertotPage.js';
 import { resolveViewForSession } from './trophyBaseAuth.js';
 import { getLocale, normalizeLocale } from './locale.js';
 import {
@@ -48,7 +49,7 @@ export function getViewFromPath(pathname = '', search) {
   if (path === '/datenschutz' || path === '/privacy') return 'datenschutz';
   if (path === '/kurz-erklaert') return 'guide-help';
   if (path === '/quickwins') return 'quickwins';
-  if (path === '/servertot') return 'servertot';
+  if (path === '/servertot' || parseServertotPath(path)) return 'servertot';
   if (path === '/suche' || path === '/search') {
     const queryString =
       search ??
@@ -337,11 +338,17 @@ export function navigateToGuideTab(tabId, { replace = true } = {}) {
 /** Sprachwechsel auf einer Pretty-URL: nur das Locale-Segment tauschen. */
 export function syncPathLocale(nextLocale) {
   if (typeof window === 'undefined') return;
-  const pretty = parsePrettyGamePath(window.location.pathname);
-  if (!pretty) return;
   const normalized = normalizeLocale(nextLocale);
-  if (pretty.locale === normalized) return;
-  writeAppPath(buildPrettyGamePath(normalized, pretty.hardware, pretty.slug), { replace: true });
+  const pretty = parsePrettyGamePath(window.location.pathname);
+  if (pretty) {
+    if (pretty.locale === normalized) return;
+    writeAppPath(buildPrettyGamePath(normalized, pretty.hardware, pretty.slug), { replace: true });
+    return;
+  }
+  if (parseServertotPath(window.location.pathname)) {
+    const nextPath = `${servertotPublicPath(normalized)}${window.location.search}`;
+    writeAppPath(nextPath, { replace: true });
+  }
 }
 
 export { parsePrettyGamePath };
