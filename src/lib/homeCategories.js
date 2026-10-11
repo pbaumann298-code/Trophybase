@@ -15,6 +15,17 @@ import { isGuidePublished } from './guidePublication';
 const LIMIT = 12;
 
 /**
+ * Die Live-RPC `tb_get_home_rails` ist aktuell zu langsam (Statement-Timeout
+ * nach ~2–3s). Solange die optimierte `supabase/home_rails.sql` nicht in
+ * Supabase liegt, direkt Legacy nutzen – sonst wartet die Startseite erst
+ * auf den Timeout und wirkt danach leer bzw. sehr träge.
+ */
+const HOME_RAILS_RPC_ENABLED = false;
+
+/** Client-Soft-Timeout: nicht auf den vollen DB-Statement-Timeout warten. */
+const HOME_RAILS_RPC_SOFT_MS = 1200;
+
+/**
  * Eindeutige Spiele nach games.id (Fallback: Route-Slug, dann Titel).
  * Der Schlüssel muss ein Primitive sein, sonst greift die Map-Deduplizierung
  * nicht.
@@ -435,13 +446,24 @@ export function findHomeCategoryForQuery(query) {
   );
 }
 
+function withSoftTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} [locale]
  * @param {boolean} [includeReady] nur Legacy-Fallback; die RPC liest das JWT
  */
 export async function fetchAllHomeCategories(supabase, locale = getLocale(), includeReady = false) {
-  const viaRpc = await fetchHomeRailsViaRpc(supabase, locale);
+  let viaRpc = null;
+  if (HOME_RAILS_RPC_ENABLED) {
+    viaRpc = await withSoftTimeout(fetchHomeRailsViaRpc(supabase, locale), HOME_RAILS_RPC_SOFT_MS);
+  }
   const rails = viaRpc ?? (await fetchHomeRailsLegacy(supabase, locale, includeReady));
   return railsForLocale(rails, locale);
 }

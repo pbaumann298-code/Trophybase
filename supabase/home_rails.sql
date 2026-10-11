@@ -70,6 +70,8 @@ grant execute on function public.tb_home_game_payload(
   uuid, jsonb, text, text, text, text, jsonb, text, timestamptz, integer, jsonb, jsonb
 ) to anon, authenticated;
 
+-- security definer: Index auf (status->>'guide_de') nutzen, ohne dass RLS
+-- zusaetzlich jede Zeile teuer prueft. Sicht bleibt im Funktionskoerper.
 create or replace function public.tb_get_home_rails()
 returns table (
   rail_id text,
@@ -78,7 +80,7 @@ returns table (
 )
 language sql
 stable
-security invoker
+security definer
 set search_path = public
 as $$
   with catalog as (
@@ -103,15 +105,15 @@ as $$
       lower(coalesce(g.spieltitel::text, '')) as titles
     from public.games g
     where
-      upper(coalesce(g.status ->> 'guide_de', '')) = 'PUBLISHED'
-      or upper(coalesce(g.status ->> 'guide_en', '')) = 'PUBLISHED'
-      or upper(coalesce(g.status ->> 'guide_es', '')) = 'PUBLISHED'
+      g.status ->> 'guide_de' = 'PUBLISHED'
+      or g.status ->> 'guide_en' = 'PUBLISHED'
+      or g.status ->> 'guide_es' = 'PUBLISHED'
       or (
         public.tb_is_admin()
         and (
-          upper(coalesce(g.status ->> 'guide_de', '')) = 'FERTIG'
-          or upper(coalesce(g.status ->> 'guide_en', '')) = 'FERTIG'
-          or upper(coalesce(g.status ->> 'guide_es', '')) = 'FERTIG'
+          g.status ->> 'guide_de' = 'FERTIG'
+          or g.status ->> 'guide_en' = 'FERTIG'
+          or g.status ->> 'guide_es' = 'FERTIG'
         )
       )
   ),
