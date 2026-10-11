@@ -3,11 +3,9 @@ import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
 import { fetchQuickwinGames } from '../lib/gameQueries';
 import { getGameTitle, getGameUuid } from '../lib/gameModel';
-import { paginateItems, SEARCH_PAGE_SIZE } from '../lib/gameSearch';
 import {
   filterQuickwins,
   groupQuickwinsByPublisher,
-  quickwinPublisherKey,
   quickwinPublisherOptions,
   sortQuickwins,
 } from '../lib/quickwinCatalog';
@@ -18,12 +16,6 @@ import {
 } from '../lib/routeUtils';
 import QuickwinGameCard, { formatQuickwinCount } from '../components/QuickwinGameCard';
 import '../styles/quickwins.css';
-
-function formatPageStatus(template, page, total) {
-  return String(template ?? '')
-    .replace('{page}', String(page))
-    .replace('{total}', String(total));
-}
 
 function QuickwinsPage({
   openGame,
@@ -92,32 +84,6 @@ function QuickwinsPage({
     }));
   }, [games, applied, globalLocale, t]);
 
-  const flat = useMemo(() => grouped.flatMap((group) => group.games), [grouped]);
-  const paged = useMemo(
-    () => paginateItems(flat, applied.page, SEARCH_PAGE_SIZE),
-    [flat, applied.page],
-  );
-  const groupByKey = useMemo(() => new Map(grouped.map((group) => [group.key, group])), [grouped]);
-  const pageGroups = useMemo(() => {
-    const blocks = [];
-    for (const game of paged.items) {
-      const key = quickwinPublisherKey(game);
-      const last = blocks[blocks.length - 1];
-      if (!last || last.key !== key) {
-        const group = groupByKey.get(key);
-        blocks.push({
-          key,
-          label: group?.label || '',
-          count: group?.games.length ?? 0,
-          games: [game],
-        });
-      } else {
-        last.games.push(game);
-      }
-    }
-    return blocks;
-  }, [paged.items, groupByKey]);
-
   const commit = (next, { replace = false } = {}) => {
     setOpenPublishers(new Set());
     setOpenGameId(null);
@@ -129,19 +95,15 @@ function QuickwinsPage({
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    commit({ ...applied, title: draft.title.trim(), publisher: draft.publisher, page: 1 });
+    commit({ ...applied, title: draft.title.trim(), publisher: draft.publisher });
   };
 
   const handleReset = () => {
-    commit({ title: '', publisher: '', sort: 'title-asc', page: 1 }, { replace: true });
+    commit({ title: '', publisher: '', sort: 'title-asc' }, { replace: true });
   };
 
   const handleSort = (event) => {
-    commit({ ...applied, sort: event.target.value, page: 1 }, { replace: true });
-  };
-
-  const handlePage = (page) => {
-    commit({ ...applied, page }, { replace: true });
+    commit({ ...applied, sort: event.target.value }, { replace: true });
   };
 
   const togglePublisher = (key, gameIds) => {
@@ -161,34 +123,7 @@ function QuickwinsPage({
     setOpenGameId((current) => (current === gameId ? null : gameId));
   };
 
-  const renderPager = () => {
-    if (!paged.showPager) return null;
-    return (
-      <nav className="search-pager" aria-label={t('quickwinsTitle')}>
-        <button
-          type="button"
-          className="search-pager-btn"
-          disabled={paged.page <= 1}
-          onClick={() => handlePage(paged.page - 1)}
-        >
-          {t('searchPrevPage')}
-        </button>
-        <span className="search-pager-status">
-          {formatPageStatus(t('searchPageStatus'), paged.page, paged.totalPages)}
-        </span>
-        <button
-          type="button"
-          className="search-pager-btn"
-          disabled={paged.page >= paged.totalPages}
-          onClick={() => handlePage(paged.page + 1)}
-        >
-          {t('searchNextPage')}
-        </button>
-      </nav>
-    );
-  };
-
-  const pageBlocks = pageGroups.map((block) => {
+  const pageBlocks = grouped.map((block) => {
     const isOpen = openPublishers.has(block.key);
     const gameIds = new Set(block.games.map((game) => getGameUuid(game)).filter(Boolean));
     return (
@@ -203,7 +138,7 @@ function QuickwinsPage({
             {block.label || t('quickwinsNoPublisher')}
             <span className="guide-localisation__count">
               ({formatQuickwinCount(
-                block.count,
+                block.games.length,
                 t('quickwinsGameCountOne'),
                 t('quickwinsGameCount'),
               )})
@@ -304,14 +239,10 @@ function QuickwinsPage({
         <p className="quickwin-card-note">{t('searchLoading')}</p>
       ) : loadError ? (
         <p className="quickwin-card-note">{t('searchNoResults')}</p>
-      ) : flat.length === 0 ? (
+      ) : grouped.length === 0 ? (
         <p className="quickwin-card-note">{t('searchNoResults')}</p>
       ) : (
-        <>
-          {renderPager()}
-          <div className="quickwins-list">{pageBlocks}</div>
-          {renderPager()}
-        </>
+        <div className="quickwins-list">{pageBlocks}</div>
       )}
     </div>
   );
