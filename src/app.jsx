@@ -33,6 +33,7 @@ import {
   navigateToAdvancedSearch,
   navigateToSimpleSearch,
   QUICKWINS_PATH,
+  SERVERTOT_PATH,
   parseSimpleSearchParams,
   parseExcludeQuickwins,
   parseGuideTabParam,
@@ -41,9 +42,9 @@ import {
   DEFAULT_GUIDE_TAB,
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
+import { GAME_TYPE, TABLES } from './lib/gameSchema';
 import ProfilePage from './pages/ProfilePage';
 import QaAdminPage from './pages/QaAdminPage';
-import { TABLES } from './lib/gameSchema';
 import { fetchGameGuideBundle, resolveGameId } from './lib/guideQueries';
 import { fetchGameByRouteRef, fetchGameBySlug } from './lib/gameQueries';
 import { useLocale } from './context/LocaleContext';
@@ -610,6 +611,10 @@ function App() {
       applyPathCanonical(QUICKWINS_PATH, { noIndex: true });
       return () => clearGameSeoLinks();
     }
+    if (currentView === 'servertot') {
+      applyPathCanonical(SERVERTOT_PATH, { noIndex: true });
+      return () => clearGameSeoLinks();
+    }
     if (currentView !== 'game_info' || !selectedGame) {
       clearGameSeoLinks();
       return undefined;
@@ -755,7 +760,8 @@ function App() {
           currentView === 'guide-help' ||
           currentView === 'advanced-search' ||
           currentView === 'search-results' ||
-          currentView === 'quickwins'
+          currentView === 'quickwins' ||
+          currentView === 'servertot'
             ? 'justify-start'
             : 'justify-center'
         }`}
@@ -827,6 +833,21 @@ function App() {
               />
             )}
 
+            {currentView === 'servertot' && (
+              <QuickwinsPage
+                openGame={openGuide}
+                onBack={goHome}
+                onRequestLogin={() => setCurrentView('login')}
+                includeReady={isAdminUser(sessionUser)}
+                isAdmin={isAdminUser(sessionUser)}
+                sessionUser={sessionUser}
+                gameType={GAME_TYPE.SERVER_DEAD}
+                basePath={SERVERTOT_PATH}
+                titleKey="servertotTitle"
+                newerVersions
+              />
+            )}
+
             {currentView === 'game_info' && !selectedGame && loadingGuide && (
               <p className="text-center text-sm text-zinc-500 font-mono py-16 animate-pulse">
                 Guide wird geladen…
@@ -867,7 +888,13 @@ function App() {
                 fromSearch={
                   guideReturnView === 'search-results' || guideReturnView === 'advanced-search'
                 }
-                backLabel={guideReturnView === 'quickwins' ? t('quickwinsBack') : ''}
+                backLabel={
+                  guideReturnView === 'quickwins'
+                    ? t('quickwinsBack')
+                    : guideReturnView === 'servertot'
+                      ? t('servertotBack')
+                      : ''
+                }
               />
             )}
 

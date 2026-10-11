@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
-import { fetchQuickwinGames } from '../lib/gameQueries';
+import { fetchGamesByType } from '../lib/gameQueries';
+import { GAME_TYPE } from '../lib/gameSchema';
 import { getGameTitle, getGameUuid } from '../lib/gameModel';
 import {
+  QUICKWIN_PUBLISHER_MIN,
+  buildQuickwinPublisherCanon,
   filterQuickwins,
   groupQuickwinsByPublisher,
+  quickwinPublisherIdentity,
   quickwinPublisherOptions,
   sortQuickwins,
 } from '../lib/quickwinCatalog';
 import {
+  QUICKWINS_PATH,
+  SERVERTOT_PATH,
   getViewFromPath,
   navigateToQuickwins,
   parseQuickwinsParams,
@@ -24,6 +30,10 @@ function QuickwinsPage({
   includeReady = false,
   isAdmin = false,
   sessionUser = null,
+  gameType = GAME_TYPE.QUICKWIN,
+  basePath = QUICKWINS_PATH,
+  titleKey = 'quickwinsTitle',
+  newerVersions = false,
 }) {
   const { t, globalLocale } = useLocale();
   const initial = parseQuickwinsParams();
@@ -37,19 +47,19 @@ function QuickwinsPage({
 
   useEffect(() => {
     const previous = document.title;
-    document.title = `${t('quickwinsTitle')} · TrophyBase.app`;
+    document.title = `${t(titleKey)} · TrophyBase.app`;
     return () => {
       document.title = previous;
     };
-  }, [t]);
+  }, [t, titleKey]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchQuickwinGames(supabase, globalLocale, { includeReady }).then(({ data, error }) => {
+    fetchGamesByType(supabase, gameType, globalLocale, { includeReady }).then(({ data, error }) => {
       if (cancelled) return;
       if (error) {
-        console.error('Quickwins:', error.message);
+        console.error(titleKey, error.message);
         setLoadError(true);
         setGames([]);
       } else {
@@ -61,11 +71,12 @@ function QuickwinsPage({
     return () => {
       cancelled = true;
     };
-  }, [globalLocale, includeReady]);
+  }, [globalLocale, includeReady, gameType, titleKey]);
 
   useEffect(() => {
     const onPop = () => {
-      if (getViewFromPath(window.location.pathname) !== 'quickwins') return;
+      const viewName = basePath === SERVERTOT_PATH ? 'servertot' : 'quickwins';
+      if (getViewFromPath(window.location.pathname) !== viewName) return;
       const next = parseQuickwinsParams();
       setApplied(next);
       setDraft({ title: next.title, publisher: next.publisher });
@@ -74,22 +85,44 @@ function QuickwinsPage({
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  const publishers = useMemo(() => quickwinPublisherOptions(games), [games]);
+  const canon = useMemo(
+    () => (isAdmin ? null : buildQuickwinPublisherCanon(games)),
+    [games, isAdmin],
+  );
+
+  const visibleGames = useMemo(() => {
+    if (isAdmin) return games;
+    const counts = new Map();
+    for (const game of games) {
+      const identity = quickwinPublisherIdentity(game, canon);
+      if (!identity.key) continue;
+      counts.set(identity.key, (counts.get(identity.key) || 0) + 1);
+    }
+    return games.filter((game) => {
+      const identity = quickwinPublisherIdentity(game, canon);
+      return identity.key && (counts.get(identity.key) || 0) >= QUICKWIN_PUBLISHER_MIN;
+    });
+  }, [games, canon, isAdmin]);
+
+  const publishers = useMemo(
+    () => quickwinPublisherOptions(visibleGames, canon),
+    [visibleGames, canon],
+  );
 
   const grouped = useMemo(() => {
-    const filtered = filterQuickwins(games, applied);
-    return groupQuickwinsByPublisher(filtered, globalLocale, t('quickwinsNoPublisher')).map((group) => ({
+    const filtered = filterQuickwins(visibleGames, applied, canon);
+    return groupQuickwinsByPublisher(filtered, globalLocale, t('quickwinsNoPublisher'), canon).map((group) => ({
       ...group,
       games: sortQuickwins(group.games, applied.sort, globalLocale),
     }));
-  }, [games, applied, globalLocale, t]);
+  }, [visibleGames, applied, globalLocale, t, canon]);
 
   const commit = (next, { replace = false } = {}) => {
     setOpenPublishers(new Set());
     setOpenGameId(null);
     setApplied(next);
     setDraft({ title: next.title, publisher: next.publisher });
-    navigateToQuickwins(next, { replace });
+    navigateToQuickwins(next, { replace, path: basePath });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -161,16 +194,25 @@ function QuickwinsPage({
                     aria-expanded={titleOpen}
                     onClick={() => toggleGame(gameId)}
                   >
-                    <span>{getGameTitle(game, globalLocale)}</span>
+                    <span className="quickwin-title-name">
+                      <span>{getGameTitle(game, globalLocale)}</span>
+                      {isAdmin ? (
+                        <span className="quickwin-type">
+                          {String(game.spiel_typ ?? '').trim() || '—'}
+                        </span>
+                      ) : null}
+                    </span>
                     <span aria-hidden>{titleOpen ? '▲' : '▼'}</span>
                   </button>
                   {titleOpen && (
-                    <QuickwinGameCard
+                      <QuickwinGameCard
                       game={game}
                       openGame={openGame}
                       onRequestLogin={onRequestLogin}
                       isAdmin={isAdmin}
                       sessionUser={sessionUser}
+                      newerVersions={newerVersions}
+                      includeReady={includeReady}
                     />
                   )}
                 </div>
@@ -187,7 +229,7 @@ function QuickwinsPage({
       <button type="button" className="quickwins-back" onClick={onBack}>
         {t('searchBack')}
       </button>
-      <h1 className="quickwins-title">{t('quickwinsTitle')}</h1>
+      <h1 className="quickwins-title">{t(titleKey)}</h1>
 
       <form className="quickwins-form" onSubmit={handleSubmit}>
         <div className="advanced-search-field">

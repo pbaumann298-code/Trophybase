@@ -800,8 +800,13 @@ function GamePageContent({
                 <span className="inline-flex items-center rounded-md border border-[#00ff66]/20 bg-[#00ff66]/10 px-2.5 py-1 font-mono text-sm font-bold uppercase tracking-wider text-[#00ff66]">
                   {t('platinGuide')}
                 </span>
-                <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-2 mb-6">
-                  {gameTitle}
+                <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-2 mb-6 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <span>{gameTitle}</span>
+                  {isAdmin ? (
+                    <span className="inline-flex items-center rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-0.5 font-mono text-[11px] font-bold uppercase tracking-wider text-zinc-300">
+                      {String(gameForPublication?.[GAME_STRUCT.gameType] ?? '').trim() || '—'}
+                    </span>
+                  ) : null}
                 </h2>
               </div>
               <div className="flex flex-col items-stretch sm:items-end gap-2 sm:flex-shrink-0 sm:mt-1">

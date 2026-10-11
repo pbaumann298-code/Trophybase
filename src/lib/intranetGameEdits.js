@@ -21,8 +21,17 @@ export function statusAfterGuideDiscard(currentStatus) {
 
 const GAME_TYPE_VALUES = new Set(Object.values(GAME_TYPE));
 
+/** Diese Typen gehören in die Sitemap. Quickwin und Servertot bleiben noindex. */
+const INDEXABLE_GAME_TYPES = new Set([
+  GAME_TYPE.STANDARD,
+  GAME_TYPE.PREMIUM,
+  GAME_TYPE.EVERGREEN,
+]);
+
 /**
  * Setzt games.spiel_typ auf einen der redaktionellen Typen.
+ * Standard, Premium und Evergreen setzen is_indexable mit auf true.
+ * Quickwin und Servertot setzen es auf false. Der Slug bleibt unverändert.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
  * @param {string} gameType
@@ -35,21 +44,10 @@ export async function setIntranetGameType(supabase, gameId, gameType) {
     return { gameType: null, error: new Error('Unbekannter Spieltyp.') };
   }
 
-  const { data: current, error: readError } = await supabase
-    .from(TABLES.games)
-    .select(GAME_STRUCT.gameType)
-    .eq(GAME_PK, id)
-    .maybeSingle();
-
-  if (readError) return { gameType: null, error: readError };
-
-  const previousType = String(current?.[GAME_STRUCT.gameType] ?? '').trim();
-  const update = { [GAME_STRUCT.gameType]: nextType };
-  if (nextType === GAME_TYPE.SERVER_DEAD) {
-    update[GAME_STRUCT.isIndexable] = false;
-  } else if (previousType === GAME_TYPE.SERVER_DEAD && nextType !== GAME_TYPE.QUICKWIN) {
-    update[GAME_STRUCT.isIndexable] = true;
-  }
+  const update = {
+    [GAME_STRUCT.gameType]: nextType,
+    [GAME_STRUCT.isIndexable]: INDEXABLE_GAME_TYPES.has(nextType),
+  };
 
   const { data, error } = await supabase
     .from(TABLES.games)

@@ -44,10 +44,10 @@ function RelatedTile({ game, openGame }) {
   );
 }
 
-function RelatedBlock({ title, games, openGame }) {
+export function RelatedBlock({ title, games, openGame, compact = false }) {
   if (!games?.length) return null;
   return (
-    <section className="home-category w-full min-w-0 mt-10">
+    <section className={`home-category w-full min-w-0 ${compact ? 'mt-1' : 'mt-10'}`}>
       <header className="home-category-header mb-3">
         <h2 className="text-sm font-bold tracking-tight text-zinc-200">{title}</h2>
       </header>

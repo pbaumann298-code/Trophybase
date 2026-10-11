@@ -38,12 +38,15 @@ import {
   saveHiddenTrophyMode,
 } from '../lib/hiddenTrophyPreference';
 import { supabase } from '../pages/supabaseClient';
+import { fetchNewerVersions } from '../lib/newerVersions';
+import { RelatedBlock } from './RelatedGuides';
 
 const TAB_META = {
   reiter0: { icon: '🏆', labelKey: 'trophies' },
   reiter1: { icon: '📖', labelKey: 'fullGameplay' },
   reiter2: { icon: '📦', labelKey: 'completion' },
   reiter3: { icon: '⚔️', labelKey: 'bosses' },
+  reiter4: { icon: '↗', labelKey: 'newerVersions' },
 };
 
 export function formatQuickwinCount(count, oneLabel, manyTemplate) {
@@ -68,6 +71,8 @@ function QuickwinGameCard({
   onRequestLogin,
   isAdmin = false,
   sessionUser = null,
+  newerVersions = false,
+  includeReady = false,
 }) {
   const { t, globalLocale } = useLocale();
   const gameUuid = getGameUuid(game);
@@ -88,15 +93,20 @@ function QuickwinGameCard({
   const [hideCompleted, setHideCompleted] = useState(false);
   const [hiddenMode, setHiddenMode] = useState(() => loadHiddenTrophyMode(gameUuid));
   const [activeTab, setActiveTab] = useState('reiter0');
+  const [newer, setNewer] = useState({ mode: '', heading: '', games: [] });
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setNewer({ mode: '', heading: '', games: [] });
     Promise.all([
       fetchGameTrophiesWithEarned(supabase, sessionUser?.id ?? null, game, globalLocale),
       fetchGameGuideBundle(supabase, game, globalLocale),
       fetchContentCreatorsForGame(supabase, game),
-    ]).then(([trophyResult, guideBundle, creatorResult]) => {
+      newerVersions
+        ? fetchNewerVersions(supabase, game, globalLocale, { includeReady })
+        : Promise.resolve({ mode: '', heading: '', games: [] }),
+    ]).then(([trophyResult, guideBundle, creatorResult, newerResult]) => {
       if (cancelled) return;
       const nextTrophies = trophyResult.trophies ?? [];
       const nextEarned = trophyResult.earnedIds ?? new Set();
@@ -110,6 +120,7 @@ function QuickwinGameCard({
       setCollectibles(buildByTypeGuideData(guides));
       setBosses(buildBossOverviewData(bossRows));
       setCreators(creatorResult.data ?? []);
+      setNewer(newerResult || { mode: '', heading: '', games: [] });
       setCompletedItems(
         claimCompletedGuideItems(gameUuid, collectGuideProgressIds(chapters, guides, bossRows)),
       );
@@ -118,7 +129,7 @@ function QuickwinGameCard({
     return () => {
       cancelled = true;
     };
-  }, [game, gameUuid, globalLocale, sessionUser?.id]);
+  }, [game, gameUuid, globalLocale, sessionUser?.id, newerVersions, includeReady]);
 
   const toggleTrophy = (id) => {
     if (earnedIds.has(id)) return;
@@ -158,6 +169,7 @@ function QuickwinGameCard({
   const tabs = useMemo(() => {
     const visible = ['reiter0'];
     if (loading || walkthrough.length > 0) visible.push('reiter1');
+    if (!loading && newer.games.length > 0) visible.push('reiter4');
     if (!loading && collectibles.length > 0) visible.push('reiter2');
     if (!loading && bosses.length > 0) visible.push('reiter3');
     return visible.map((id) => ({
@@ -170,9 +182,11 @@ function QuickwinGameCard({
           ? walkthrough.length
           : id === 'reiter2'
             ? collectibles.length
-            : bosses.length,
+            : id === 'reiter4'
+              ? newer.games.length
+              : bosses.length,
     }));
-  }, [loading, walkthrough.length, collectibles.length, bosses.length, trophies.length, t]);
+  }, [loading, walkthrough.length, collectibles.length, bosses.length, trophies.length, newer.games.length, t]);
 
   useEffect(() => {
     if (!tabs.some((tab) => tab.id === activeTab)) setActiveTab(tabs[0]?.id ?? 'reiter0');
@@ -201,6 +215,11 @@ function QuickwinGameCard({
                 }}
               >
                 {title}
+                {isAdmin ? (
+                  <span className="quickwin-type">
+                    {String(game.spiel_typ ?? '').trim() || '—'}
+                  </span>
+                ) : null}
               </a>
               <div className="quickwin-card-actions">
                 <GuideOnlineBadge game={game} visible={isAdmin} size="md" />
@@ -355,6 +374,17 @@ function QuickwinGameCard({
                 />
               </CollapsibleSectionCard>
             </GuideVideoProvider>
+          )}
+
+          {activeTab === 'reiter4' && (
+            <RelatedBlock
+              compact
+              title={newer.mode === 'publisher'
+                ? t('publisherGames').replaceAll('{name}', newer.heading)
+                : newer.heading}
+              games={newer.games}
+              openGame={openGame}
+            />
           )}
 
           {activeTab === 'reiter3' && (

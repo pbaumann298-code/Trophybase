@@ -713,13 +713,13 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
  * @param {string} [locale]
  * @param {{ includeReady?: boolean }} [options]
  */
-export async function fetchQuickwinGames(supabase, locale = getLocale(), options = {}) {
+export async function fetchGamesByType(supabase, gameType, locale = getLocale(), options = {}) {
   const includeReady = Boolean(options.includeReady);
   const { data, error } = await fetchSearchRows(() => {
     let query = supabase
       .from(TABLES.games)
       .select(getGameSelect())
-      .eq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN);
+      .eq(GAME_STRUCT.gameType, gameType);
     query = applyGuideCatalogFilter(query, {
       includeReady,
       publishedOnly: !includeReady,
@@ -729,6 +729,10 @@ export async function fetchQuickwinGames(supabase, locale = getLocale(), options
 
   if (error) return { data: [], error };
   return { data: mergeGameRows(data ?? [], locale), error: null };
+}
+
+export async function fetchQuickwinGames(supabase, locale = getLocale(), options = {}) {
+  return fetchGamesByType(supabase, GAME_TYPE.QUICKWIN, locale, options);
 }
 
 /**

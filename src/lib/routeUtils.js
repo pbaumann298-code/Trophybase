@@ -18,6 +18,7 @@ export const PUBLIC_APP_VIEWS = new Set([
   'search-results',
   'advanced-search',
   'quickwins',
+  'servertot',
   'impressum',
   'datenschutz',
   'guide-help',
@@ -47,6 +48,7 @@ export function getViewFromPath(pathname = '', search) {
   if (path === '/datenschutz' || path === '/privacy') return 'datenschutz';
   if (path === '/kurz-erklaert') return 'guide-help';
   if (path === '/quickwins') return 'quickwins';
+  if (path === '/servertot') return 'servertot';
   if (path === '/suche' || path === '/search') {
     const queryString =
       search ??
@@ -240,6 +242,7 @@ export function navigateToAdvancedSearch(filters = {}, { replace = false, page =
 
 /** Vorläufiger Pfad, bis der öffentliche Slug festliegt. */
 export const QUICKWINS_PATH = '/quickwins';
+export const SERVERTOT_PATH = '/servertot';
 
 export const QUICKWIN_SORTS = ['title-asc', 'title-desc', 'year-asc', 'year-desc'];
 
@@ -262,6 +265,7 @@ export function buildQuickwinsPath({
   publisher = '',
   sort = DEFAULT_QUICKWIN_SORT,
   page = 1,
+  path = QUICKWINS_PATH,
 } = {}) {
   const params = new URLSearchParams();
   const titleValue = String(title ?? '').trim();
@@ -272,11 +276,11 @@ export function buildQuickwinsPath({
   const safePage = Number.parseInt(String(page), 10);
   if (Number.isFinite(safePage) && safePage > 1) params.set('page', String(safePage));
   const qs = params.toString();
-  return qs ? `${QUICKWINS_PATH}?${qs}` : QUICKWINS_PATH;
+  return qs ? `${path}?${qs}` : path;
 }
 
-export function navigateToQuickwins(params = {}, { replace = false } = {}) {
-  writeAppPath(buildQuickwinsPath(params), { replace });
+export function navigateToQuickwins(params = {}, { replace = false, path = QUICKWINS_PATH } = {}) {
+  writeAppPath(buildQuickwinsPath({ ...params, path }), { replace });
 }
 
 export function navigateToGame(gameOrRef, { replace = false, locale = getLocale() } = {}) {
