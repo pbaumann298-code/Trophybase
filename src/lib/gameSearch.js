@@ -75,13 +75,21 @@ export async function searchGames(supabase, query, options = {}) {
     return { data: [], error: new Error(check.error) };
   }
 
+  const excludeQuickwins = options.excludeQuickwins !== false;
   const catalog = options.includeReady
-    ? { includeReady: true }
-    : { publishedOnly: options.publishedOnly !== false };
+    ? { includeReady: true, excludeQuickwins }
+    : { publishedOnly: options.publishedOnly !== false, excludeQuickwins };
 
   const rail = findHomeCategoryForQuery(check.query);
   const result = rail?.search
-    ? await searchHomeCategory(supabase, rail, locale, Boolean(options.includeReady), limit)
+    ? await searchHomeCategory(
+      supabase,
+      rail,
+      locale,
+      Boolean(options.includeReady),
+      limit,
+      excludeQuickwins,
+    )
     : await searchGamesByFreeText(supabase, check.pattern, limit, locale, catalog);
 
   if (result.error) return result;
@@ -92,10 +100,13 @@ export async function searchGames(supabase, query, options = {}) {
  * Erweiterte Suche über einzelne Felder (UND).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {{ title?: string, developer?: string, genre?: string, console?: string }} filters
- * @param {{ limit?: number, locale?: string, includeReady?: boolean, publishedOnly?: boolean }} [options]
+ * @param {{ limit?: number, locale?: string, includeReady?: boolean, publishedOnly?: boolean, excludeQuickwins?: boolean }} [options]
  */
 export async function searchGamesAdvanced(supabase, filters, options = {}) {
-  const result = await runAdvancedSearch(supabase, filters, options);
+  const result = await runAdvancedSearch(supabase, filters, {
+    ...options,
+    excludeQuickwins: options.excludeQuickwins !== false,
+  });
   if (result.error) return result;
   return { ...result, data: rankSearchResults(result.data) };
 }

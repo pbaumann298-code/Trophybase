@@ -177,6 +177,8 @@ function SplitScreenGuideKacheln({
   gameId = '',
   reportEntityType = 'guide_item',
   reportKeyField = 'guide_id',
+  /** Kachel-Überschrift weglassen: die umgebende Zeile ist schon die Gruppe. */
+  hideGroupHeader = false,
 }) {
   const { t } = useLocale();
   const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
@@ -235,7 +237,7 @@ function SplitScreenGuideKacheln({
   useEffect(() => () => notifyVideoCleared(), [notifyVideoCleared]);
 
   const renderGroupBox = (group) => {
-    const isExpanded = !!expandedGroups[group.key];
+    const isExpanded = hideGroupHeader || !!expandedGroups[group.key];
     const items = group.items;
     const activeVideo = activeVideos[group.key];
     const activeItem = activeVideo ? items.find((i) => i.id === activeVideo.itemId) : null;
@@ -249,14 +251,19 @@ function SplitScreenGuideKacheln({
       <div
         key={group.key}
         className="category-box"
-        style={{
-          backgroundColor: '#1a1b1c',
-          border: '1px solid #27272a',
-          borderRadius: '16px',
-          marginBottom: '16px',
-          overflow: 'hidden',
-        }}
+        style={
+          hideGroupHeader
+            ? { marginBottom: '8px', overflow: 'hidden' }
+            : {
+                backgroundColor: '#1a1b1c',
+                border: '1px solid #27272a',
+                borderRadius: '16px',
+                marginBottom: '16px',
+                overflow: 'hidden',
+              }
+        }
       >
+        {!hideGroupHeader && (
         <button
           type="button"
           onClick={() => toggleGroup(group.key)}
@@ -289,6 +296,7 @@ function SplitScreenGuideKacheln({
             {isExpanded ? '▲' : '▼'}
           </span>
         </button>
+        )}
 
         {isExpanded && (
           <div className="guide-split guide-split--expanded">
@@ -461,7 +469,7 @@ function SplitScreenGuideKacheln({
 
   const renderLocalisationSection = (section) => {
     if (section.itemCount === 0) return null;
-    if (!section.localisation) {
+    if (hideGroupHeader || !section.localisation) {
       return (
         <React.Fragment key="guide-section-ungrouped">
           {section.groups.map(renderGroupBox)}
@@ -615,6 +623,7 @@ export function CollectibleKacheln({
   gameId = '',
   reportEntityType = 'guide_item',
   trophyById,
+  hideGroupHeader = false,
 }) {
   const { renderNameAddon, renderGroupAddon, renderRowAction, renderRowDetail } =
     useTrophyRowExtras(trophyById);
@@ -641,6 +650,7 @@ export function CollectibleKacheln({
       gameId={gameId}
       reportEntityType={reportEntityType}
       reportKeyField="guide_id"
+      hideGroupHeader={hideGroupHeader}
     />
   );
 }

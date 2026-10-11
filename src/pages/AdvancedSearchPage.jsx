@@ -6,9 +6,11 @@ import {
   getViewFromPath,
   navigateToAdvancedSearch,
   parseAdvancedSearchParams,
+  parseExcludeQuickwins,
   parseSearchPageParam,
 } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
+import SearchSkipQuickwins from '../components/SearchSkipQuickwins';
 import '../styles/home.css';
 
 function emptyFilters() {
@@ -22,13 +24,14 @@ function hasAnyFilter(filters) {
 function AdvancedSearchPage({ openGame, onRequestLogin, onBack, includeReady = false }) {
   const { t, globalLocale } = useLocale();
   const [filters, setFilters] = useState(() => parseAdvancedSearchParams());
+  const [excludeQuickwins, setExcludeQuickwins] = useState(() => parseExcludeQuickwins());
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [formError, setFormError] = useState(false);
   const [page, setPage] = useState(() => parseSearchPageParam());
 
-  const runSearch = async (nextFilters, { replace = true, updateUrl = true } = {}) => {
+  const runSearch = async (nextFilters, { replace = true, updateUrl = true, exclude = excludeQuickwins } = {}) => {
     if (!hasAnyFilter(nextFilters)) {
       setFormError(true);
       return;
@@ -39,12 +42,13 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack, includeReady = f
     setHasSearched(true);
     if (updateUrl) {
       setPage(1);
-      navigateToAdvancedSearch(nextFilters, { replace, page: 1 });
+      navigateToAdvancedSearch(nextFilters, { replace, page: 1, excludeQuickwins: exclude });
     }
 
     const { data, error } = await searchGamesAdvanced(supabase, nextFilters, {
       locale: globalLocale,
       includeReady,
+      excludeQuickwins: exclude,
     });
     if (error) {
       console.error('Erweiterte Suche:', error.message);
@@ -64,17 +68,20 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack, includeReady = f
 
   useEffect(() => {
     const initial = parseAdvancedSearchParams();
+    const initialExclude = parseExcludeQuickwins();
     if (hasAnyFilter(initial)) {
-      runSearch(initial, { replace: true, updateUrl: false });
+      runSearch(initial, { replace: true, updateUrl: false, exclude: initialExclude });
     }
 
     const onPop = () => {
       if (getViewFromPath(window.location.pathname) !== 'advanced-search') return;
       const next = parseAdvancedSearchParams();
+      const nextExclude = parseExcludeQuickwins();
       setFilters(next);
+      setExcludeQuickwins(nextExclude);
       setPage(parseSearchPageParam());
       if (hasAnyFilter(next)) {
-        runSearch(next, { updateUrl: false });
+        runSearch(next, { updateUrl: false, exclude: nextExclude });
       } else {
         setResults([]);
         setHasSearched(false);
@@ -99,10 +106,11 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack, includeReady = f
   const handleReset = () => {
     const next = emptyFilters();
     setFilters(next);
+    setExcludeQuickwins(true);
     setResults([]);
     setHasSearched(false);
     setFormError(false);
-    navigateToAdvancedSearch(next, { replace: true });
+    navigateToAdvancedSearch(next, { replace: true, excludeQuickwins: true });
   };
 
   return (
@@ -172,6 +180,12 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack, includeReady = f
           <p className="advanced-search-error">{t('advancedSearchEmpty')}</p>
         ) : null}
 
+        <SearchSkipQuickwins
+          id="advanced-skip-quickwins"
+          checked={excludeQuickwins}
+          onChange={setExcludeQuickwins}
+        />
+
         <div className="advanced-search-actions">
           <button type="submit" className="advanced-search-submit">
             {t('searchSubmit')}
@@ -193,7 +207,7 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack, includeReady = f
           page={page}
           onPageChange={(nextPage) => {
             setPage(nextPage);
-            navigateToAdvancedSearch(filters, { replace: true, page: nextPage });
+            navigateToAdvancedSearch(filters, { replace: true, page: nextPage, excludeQuickwins });
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
         />

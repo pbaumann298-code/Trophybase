@@ -207,6 +207,8 @@ function TrophyGroupedChecklist({
   revealHidden = false,
   onToggle,
   mainGameTitle = 'Hauptspiel',
+  /** Kein zusätzlicher Karten-Reiter, wenn die Liste schon in einer Zeile steckt. */
+  flat = false,
 }) {
   const { mainGame, dlcGroups } = useMemo(
     () => groupTrophiesByPack(trophies),
@@ -225,6 +227,52 @@ function TrophyGroupedChecklist({
       <p className="text-xs text-zinc-500 italic text-center py-6">
         Keine Trophäen für dieses Spiel in der Datenbank.
       </p>
+    );
+  }
+
+  if (flat) {
+    return (
+      <div className="flex flex-col gap-4">
+        {mainGame.length > 0 && (
+          <TrophyList
+            gameId={gameId}
+            trophies={mainGame}
+            unlockedTrophies={unlockedTrophies}
+            earnedTrophyIds={earnedSet}
+            hideCompleted={hideCompleted}
+            revealHidden={revealHidden}
+            onToggle={onToggle}
+          />
+        )}
+        {dlcGroups.map((dlc) => {
+          const dlcProgress = countUnlockedInList(
+            dlc.trophies,
+            unlockedTrophies,
+            getTrophyIdKey,
+            earnedSet,
+          );
+          return (
+            <CollapsibleSectionCard
+              key={dlc.gruppe}
+              sectionId={`trophies-dlc-${dlc.gruppe}`}
+              title={dlc.title}
+              badge={`${dlcProgress}/${dlc.trophies.length} · ${dlc.trophies.length} Trophäen`}
+              defaultOpen={false}
+              accent="purple"
+            >
+              <TrophyList
+                gameId={gameId}
+                trophies={dlc.trophies}
+                unlockedTrophies={unlockedTrophies}
+                earnedTrophyIds={earnedSet}
+                hideCompleted={hideCompleted}
+                revealHidden={revealHidden}
+                onToggle={onToggle}
+              />
+            </CollapsibleSectionCard>
+          );
+        })}
+      </div>
     );
   }
 

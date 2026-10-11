@@ -4,6 +4,7 @@ import Header from './components/Header';
 import HomePage from './pages/HomePage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import AdvancedSearchPage from './pages/AdvancedSearchPage';
+import QuickwinsPage from './pages/QuickwinsPage';
 import GameDetailPage from "./pages/GameDetailPage";
 import LoginPage from './pages/LoginPage';
 import SocialLinkPage from './pages/SocialLinkPage';
@@ -31,7 +32,9 @@ import {
   navigateToPrivacy,
   navigateToAdvancedSearch,
   navigateToSimpleSearch,
+  QUICKWINS_PATH,
   parseSimpleSearchParams,
+  parseExcludeQuickwins,
   parseGuideTabParam,
   navigateToGuideTab,
   withGuideTabParam,
@@ -76,7 +79,7 @@ import { LegalNoticePage, PrivacyPage } from './pages/LegalPages';
 import HowToPage from './pages/HowToPage';
 
 function App() {
-  const { globalLocale } = useLocale();
+  const { globalLocale, t } = useLocale();
   const { youtube, revokeYoutube } = useMediaConsent();
   const staffAppHtml = staffAppHtmlForPath(window.location.pathname);
 
@@ -98,6 +101,7 @@ function App() {
   const [sessionUser, setSessionUser] = useState(null);
 
   const [searchQuery, setSearchQuery] = useState(() => parseSimpleSearchParams().q);
+  const [excludeQuickwins, setExcludeQuickwins] = useState(() => parseExcludeQuickwins());
   const [searchResults, setSearchResults] = useState([]);
   const [searchPage, setSearchPage] = useState(() => parseSimpleSearchParams().page);
   const [loading, setLoading] = useState(false);
@@ -309,16 +313,18 @@ function App() {
       }
 
       if (pathView === 'search-results') {
-        const { q, page } = parseSimpleSearchParams(window.location.search);
+        const { q, page, excludeQuickwins: exclude } = parseSimpleSearchParams(window.location.search);
+        const signature = `${q}\n${exclude ? '1' : '0'}`;
         setSelectedGame(null);
         setCurrentView('search-results');
         setSearchQuery(q);
         setSearchPage(page);
-        if (q && lastSearchQueryRef.current !== q) {
+        setExcludeQuickwins(exclude);
+        if (q && lastSearchQueryRef.current !== signature) {
           setLoading(true);
-          searchGames(supabase, q).then(({ data, error }) => {
+          searchGames(supabase, q, { excludeQuickwins: exclude }).then(({ data, error }) => {
             if (error) console.error('Suche:', error.message);
-            lastSearchQueryRef.current = q;
+            lastSearchQueryRef.current = signature;
             setSearchResults(data || []);
             setLoading(false);
           });
@@ -420,34 +426,35 @@ function App() {
     setCurrentView(isMaintenanceMode ? 'login' : 'home');
   };
 
-  const runSearch = async (queryOverride, { updateUrl = true, page = 1, replace = false } = {}) => {
+  const runSearch = async (queryOverride, { updateUrl = true, page = 1, replace = false, exclude = excludeQuickwins } = {}) => {
     const q = (typeof queryOverride === 'string' ? queryOverride : searchQuery).trim();
     if (!q) return;
     if (typeof queryOverride === 'string') setSearchQuery(queryOverride);
     setSearchPage(page > 1 ? page : 1);
     setLoading(true);
     setCurrentView('search-results');
-    if (updateUrl) navigateToSimpleSearch(q, { page, replace });
+    if (updateUrl) navigateToSimpleSearch(q, { page, replace, excludeQuickwins: exclude });
     const { data, error } = await searchGames(supabase, q, {
       includeReady: isAdminUser(sessionUser),
       locale: globalLocale,
+      excludeQuickwins: exclude,
     });
     if (error) {
       console.error('Suche:', error.message);
     }
     setSearchResults(data || []);
-    lastSearchQueryRef.current = q;
+    lastSearchQueryRef.current = `${q}\n${exclude ? '1' : '0'}`;
     setLoading(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   useEffect(() => {
-    const { q, page } = parseSimpleSearchParams();
+    const { q, page, excludeQuickwins: exclude } = parseSimpleSearchParams();
     if (getViewFromPath(window.location.pathname, window.location.search) !== 'search-results') {
       return undefined;
     }
     if (!q) return undefined;
-    runSearch(q, { updateUrl: false, page });
+    runSearch(q, { updateUrl: false, page, exclude });
     return undefined;
     // Deep-Link / F5: Suche nur beim ersten Öffnen anstoßen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -599,6 +606,10 @@ function App() {
       applyPathCanonical('/suche', { noIndex: true });
       return () => clearGameSeoLinks();
     }
+    if (currentView === 'quickwins') {
+      applyPathCanonical(QUICKWINS_PATH, { noIndex: true });
+      return () => clearGameSeoLinks();
+    }
     if (currentView !== 'game_info' || !selectedGame) {
       clearGameSeoLinks();
       return undefined;
@@ -658,9 +669,9 @@ function App() {
   const openAdvancedSearch = useCallback(() => {
     setCurrentView('advanced-search');
     setSelectedGame(null);
-    navigateToAdvancedSearch();
+    navigateToAdvancedSearch({}, { excludeQuickwins });
     window.scrollTo(0, 0);
-  }, []);
+  }, [excludeQuickwins]);
 
   const maintenanceBypass = hasMaintenanceBypass(sessionUser);
   const isQaAdminView = currentView === 'qa_admin';
@@ -743,7 +754,8 @@ function App() {
           currentView === 'datenschutz' ||
           currentView === 'guide-help' ||
           currentView === 'advanced-search' ||
-          currentView === 'search-results'
+          currentView === 'search-results' ||
+          currentView === 'quickwins'
             ? 'justify-start'
             : 'justify-center'
         }`}
@@ -766,6 +778,8 @@ function App() {
                 onCategorySearch={runSearch}
                 sessionUser={sessionUser}
                 onOpenAdvancedSearch={openAdvancedSearch}
+                excludeQuickwins={excludeQuickwins}
+                onExcludeQuickwinsChange={setExcludeQuickwins}
               />
             )}
 
@@ -788,7 +802,7 @@ function App() {
                 isAdmin={isAdminUser(sessionUser)}
                 onPageChange={(nextPage) => {
                   setSearchPage(nextPage);
-                  navigateToSimpleSearch(searchQuery, { page: nextPage, replace: true });
+                  navigateToSimpleSearch(searchQuery, { page: nextPage, replace: true, excludeQuickwins });
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
               />
@@ -799,6 +813,17 @@ function App() {
                 openGame={openGuide}
                 onBack={goHome}
                 includeReady={isAdminUser(sessionUser)}
+              />
+            )}
+
+            {currentView === 'quickwins' && (
+              <QuickwinsPage
+                openGame={openGuide}
+                onBack={goHome}
+                onRequestLogin={() => setCurrentView('login')}
+                includeReady={isAdminUser(sessionUser)}
+                isAdmin={isAdminUser(sessionUser)}
+                sessionUser={sessionUser}
               />
             )}
 
@@ -842,6 +867,7 @@ function App() {
                 fromSearch={
                   guideReturnView === 'search-results' || guideReturnView === 'advanced-search'
                 }
+                backLabel={guideReturnView === 'quickwins' ? t('quickwinsBack') : ''}
               />
             )}
 

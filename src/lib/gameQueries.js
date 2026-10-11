@@ -4,6 +4,7 @@ import {
   GAME_PLATFORM_ID,
   GAME_STRUCT,
   GAME_I18N,
+  GAME_TYPE,
   HOME_FEATURED_GAME_TYPES,
 } from './gameSchema.js';
 import { GUIDE_PUBLICATION, guideStatusKey } from './guidePublication.js';
@@ -434,6 +435,14 @@ export function applyGuideCatalogFilter(query, catalog = {}) {
   return query;
 }
 
+/** Lässt Quickwins weg, behält Spiele ohne spiel_typ. */
+export function applyExcludeQuickwins(query, exclude) {
+  if (!exclude) return query;
+  return query.or(
+    `${GAME_STRUCT.gameType}.is.null,${GAME_STRUCT.gameType}.neq.${GAME_TYPE.QUICKWIN}`,
+  );
+}
+
 async function searchLocalizedColumn(supabase, column, pattern, limit, catalog) {
   return fetchSearchRows(
     () => {
@@ -441,7 +450,7 @@ async function searchLocalizedColumn(supabase, column, pattern, limit, catalog) 
         .from(TABLES.games)
         .select(getGameSelect())
         .or(buildLocalizedOrFilter(column, pattern));
-      query = applyGuideCatalogFilter(query, catalog);
+      query = applyExcludeQuickwins(applyGuideCatalogFilter(query, catalog), catalog.excludeQuickwins);
       return query;
     },
     limit,
@@ -452,7 +461,7 @@ async function searchStructColumn(supabase, column, pattern, limit, catalog) {
   return fetchSearchRows(
     () => {
       let query = supabase.from(TABLES.games).select(getGameSelect()).ilike(column, pattern);
-      query = applyGuideCatalogFilter(query, catalog);
+      query = applyExcludeQuickwins(applyGuideCatalogFilter(query, catalog), catalog.excludeQuickwins);
       return query;
     },
     limit,
@@ -498,9 +507,12 @@ export async function searchGamesByFreeText(
       for (const word of words) {
         query = query.or(freeTextTokenFilter(word));
       }
-      return applyGuideCatalogFilter(
-        query.order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
-        catalog,
+      return applyExcludeQuickwins(
+        applyGuideCatalogFilter(
+          query.order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
+          catalog,
+        ),
+        catalog.excludeQuickwins,
       );
     },
     limit,
@@ -548,6 +560,7 @@ export async function searchGamesByColumn(
   const { data, error } = await runSearch(supabase, colCheck.column, pattern, safeLimit, {
     includeReady: Boolean(options.includeReady),
     publishedOnly: Boolean(options.publishedOnly) && !options.includeReady,
+    excludeQuickwins: Boolean(options.excludeQuickwins),
   });
   if (error) return { data: [], error };
 
@@ -576,10 +589,13 @@ export async function searchGamesByHomeTag(
         .select(getGameSelect())
         .contains(GAME_STRUCT.homeTags, [slug])
         .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
-      return applyGuideCatalogFilter(query, {
-        includeReady: Boolean(options.includeReady),
-        publishedOnly: Boolean(options.publishedOnly) && !options.includeReady,
-      });
+      return applyExcludeQuickwins(
+        applyGuideCatalogFilter(query, {
+          includeReady: Boolean(options.includeReady),
+          publishedOnly: Boolean(options.publishedOnly) && !options.includeReady,
+        }),
+        options.excludeQuickwins,
+      );
     },
     capSearchLimit(limit),
   );
@@ -614,13 +630,16 @@ export async function searchGamesByStudio(
         if (withPublisher) {
           parts.push(`${GAME_STRUCT.publisher}.ilike.${quoteFilterValue(like)}`);
         }
-        return applyGuideCatalogFilter(
-          supabase
-            .from(TABLES.games)
-            .select(getGameSelect())
-            .or(parts.join(','))
-            .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
-          catalog,
+        return applyExcludeQuickwins(
+          applyGuideCatalogFilter(
+            supabase
+              .from(TABLES.games)
+              .select(getGameSelect())
+              .or(parts.join(','))
+              .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false }),
+            catalog,
+          ),
+          options.excludeQuickwins,
         );
       },
       capSearchLimit(limit),
@@ -675,11 +694,38 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
       query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
     }
 
-    return applyGuideCatalogFilter(query, {
-      includeReady: Boolean(options.includeReady),
-      publishedOnly: options.includeReady ? false : options.publishedOnly !== false,
-    }).order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
+    return applyExcludeQuickwins(
+      applyGuideCatalogFilter(query, {
+        includeReady: Boolean(options.includeReady),
+        publishedOnly: options.includeReady ? false : options.publishedOnly !== false,
+      }),
+      options.excludeQuickwins,
+    ).order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
   }, limit);
+
+  if (error) return { data: [], error };
+  return { data: mergeGameRows(data ?? [], locale), error: null };
+}
+
+/**
+ * Veröffentlichte Quickwins für die Übersichtsseite.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} [locale]
+ * @param {{ includeReady?: boolean }} [options]
+ */
+export async function fetchQuickwinGames(supabase, locale = getLocale(), options = {}) {
+  const includeReady = Boolean(options.includeReady);
+  const { data, error } = await fetchSearchRows(() => {
+    let query = supabase
+      .from(TABLES.games)
+      .select(getGameSelect())
+      .eq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN);
+    query = applyGuideCatalogFilter(query, {
+      includeReady,
+      publishedOnly: !includeReady,
+    });
+    return query.order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
+  }, SEARCH_RESULT_CAP);
 
   if (error) return { data: [], error };
   return { data: mergeGameRows(data ?? [], locale), error: null };

@@ -17,6 +17,7 @@ export const PUBLIC_APP_VIEWS = new Set([
   'game_info',
   'search-results',
   'advanced-search',
+  'quickwins',
   'impressum',
   'datenschutz',
   'guide-help',
@@ -45,6 +46,7 @@ export function getViewFromPath(pathname = '', search) {
   if (path === '/impressum') return 'impressum';
   if (path === '/datenschutz' || path === '/privacy') return 'datenschutz';
   if (path === '/kurz-erklaert') return 'guide-help';
+  if (path === '/quickwins') return 'quickwins';
   if (path === '/suche' || path === '/search') {
     const queryString =
       search ??
@@ -170,27 +172,42 @@ export function parseSearchPageParam(search = '') {
   return Number.isFinite(page) && page > 1 ? page : 1;
 }
 
+/** true = Quickwins ausblenden. quick=1 in der URL holt sie dazu. */
+export function parseExcludeQuickwins(search = '') {
+  const params = new URLSearchParams(
+    search || (typeof window !== 'undefined' ? window.location.search : ''),
+  );
+  return params.get('quick') !== '1';
+}
+
+function applyExcludeQuickwinsParam(params, excludeQuickwins) {
+  if (excludeQuickwins === false) params.set('quick', '1');
+  else params.delete('quick');
+}
+
 export function parseSimpleSearchParams(search = '') {
   const source = search || (typeof window !== 'undefined' ? window.location.search : '');
   const params = new URLSearchParams(source);
   return {
     q: String(params.get('q') ?? '').trim(),
     page: parseSearchPageParam(source),
+    excludeQuickwins: parseExcludeQuickwins(source),
   };
 }
 
-export function buildSimpleSearchPath(query = '', page = 1) {
+export function buildSimpleSearchPath(query = '', page = 1, excludeQuickwins = true) {
   const q = String(query ?? '').trim();
   const params = new URLSearchParams();
   if (q) params.set('q', q);
+  applyExcludeQuickwinsParam(params, excludeQuickwins);
   const safePage = Number.parseInt(String(page), 10);
   if (Number.isFinite(safePage) && safePage > 1) params.set('page', String(safePage));
   const qs = params.toString();
   return qs ? `/suche?${qs}` : '/suche';
 }
 
-export function navigateToSimpleSearch(query = '', { page = 1, replace = false } = {}) {
-  writeAppPath(buildSimpleSearchPath(query, page), { replace });
+export function navigateToSimpleSearch(query = '', { page = 1, replace = false, excludeQuickwins = true } = {}) {
+  writeAppPath(buildSimpleSearchPath(query, page, excludeQuickwins), { replace });
 }
 
 export function parseAdvancedSearchParams(search = '') {
@@ -204,20 +221,62 @@ export function parseAdvancedSearchParams(search = '') {
   return filters;
 }
 
-export function buildAdvancedSearchPath(filters = {}, page = 1) {
+export function buildAdvancedSearchPath(filters = {}, page = 1, excludeQuickwins = true) {
   const params = new URLSearchParams();
   for (const key of ADVANCED_SEARCH_QUERY_KEYS) {
     const value = String(filters[key] ?? '').trim();
     if (value) params.set(key, value);
   }
+  applyExcludeQuickwinsParam(params, excludeQuickwins);
   const safePage = Number.parseInt(String(page), 10);
   if (Number.isFinite(safePage) && safePage > 1) params.set('page', String(safePage));
   const qs = params.toString();
   return qs ? `/suche?${qs}` : '/suche';
 }
 
-export function navigateToAdvancedSearch(filters = {}, { replace = false, page = 1 } = {}) {
-  writeAppPath(buildAdvancedSearchPath(filters, page), { replace });
+export function navigateToAdvancedSearch(filters = {}, { replace = false, page = 1, excludeQuickwins = true } = {}) {
+  writeAppPath(buildAdvancedSearchPath(filters, page, excludeQuickwins), { replace });
+}
+
+/** Vorläufiger Pfad, bis der öffentliche Slug festliegt. */
+export const QUICKWINS_PATH = '/quickwins';
+
+export const QUICKWIN_SORTS = ['title-asc', 'title-desc', 'year-asc', 'year-desc'];
+
+export const DEFAULT_QUICKWIN_SORT = 'title-asc';
+
+export function parseQuickwinsParams(search = '') {
+  const source = search || (typeof window !== 'undefined' ? window.location.search : '');
+  const params = new URLSearchParams(source);
+  const sort = params.get('sort');
+  return {
+    title: String(params.get('title') ?? '').trim(),
+    publisher: String(params.get('publisher') ?? '').trim(),
+    sort: QUICKWIN_SORTS.includes(sort) ? sort : DEFAULT_QUICKWIN_SORT,
+    page: parseSearchPageParam(source),
+  };
+}
+
+export function buildQuickwinsPath({
+  title = '',
+  publisher = '',
+  sort = DEFAULT_QUICKWIN_SORT,
+  page = 1,
+} = {}) {
+  const params = new URLSearchParams();
+  const titleValue = String(title ?? '').trim();
+  const publisherValue = String(publisher ?? '').trim();
+  if (titleValue) params.set('title', titleValue);
+  if (publisherValue) params.set('publisher', publisherValue);
+  if (sort && sort !== DEFAULT_QUICKWIN_SORT) params.set('sort', sort);
+  const safePage = Number.parseInt(String(page), 10);
+  if (Number.isFinite(safePage) && safePage > 1) params.set('page', String(safePage));
+  const qs = params.toString();
+  return qs ? `${QUICKWINS_PATH}?${qs}` : QUICKWINS_PATH;
+}
+
+export function navigateToQuickwins(params = {}, { replace = false } = {}) {
+  writeAppPath(buildQuickwinsPath(params), { replace });
 }
 
 export function navigateToGame(gameOrRef, { replace = false, locale = getLocale() } = {}) {

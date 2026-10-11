@@ -39,8 +39,10 @@ async function runQueries(queries) {
   return rows;
 }
 
-function catalogOptions(includeReady) {
-  return includeReady ? { includeReady: true } : { publishedOnly: true };
+function catalogOptions(includeReady, excludeQuickwins = false) {
+  const catalog = includeReady ? { includeReady: true } : { publishedOnly: true };
+  if (excludeQuickwins) catalog.excludeQuickwins = true;
+  return catalog;
 }
 
 function withoutQuickwins(games) {
@@ -49,7 +51,7 @@ function withoutQuickwins(games) {
   );
 }
 
-function titleLike(supabase, pattern, locale, includeReady, limit = LIMIT) {
+function titleLike(supabase, pattern, locale, includeReady, limit = LIMIT, excludeQuickwins = false) {
   if (!pattern) return Promise.resolve({ data: [], error: new Error('Suchmuster fehlt') });
   return searchGamesByColumn(
     supabase,
@@ -57,7 +59,7 @@ function titleLike(supabase, pattern, locale, includeReady, limit = LIMIT) {
     pattern,
     limit,
     locale,
-    catalogOptions(includeReady),
+    catalogOptions(includeReady, excludeQuickwins),
   );
 }
 
@@ -338,12 +340,21 @@ export async function searchHomeCategory(
   locale = getLocale(),
   includeReady = false,
   limit = SEARCH_RESULT_CAP,
+  excludeQuickwins,
 ) {
   const spec = category?.search;
   if (!spec) return { data: [], error: null };
 
-  const opts = catalogOptions(includeReady);
+  const forceExclude = excludeQuickwins === true;
+  const forceInclude = excludeQuickwins === false;
+  const opts = catalogOptions(includeReady, forceExclude);
   const fetchLimit = Math.max(Number(limit) || SEARCH_RESULT_CAP, 1);
+
+  const dropRows = (rows, specDrops) => {
+    if (forceInclude) return rows ?? [];
+    if (forceExclude || specDrops) return withoutQuickwins(rows);
+    return rows ?? [];
+  };
 
   if (spec.kind === 'tag') {
     const { data, error } = await searchGamesByHomeTag(
@@ -354,7 +365,7 @@ export async function searchHomeCategory(
       opts,
     );
     if (error) return { data: [], error };
-    return { data: withoutQuickwins(data).slice(0, fetchLimit), error: null };
+    return { data: dropRows(data, true).slice(0, fetchLimit), error: null };
   }
 
   if (spec.kind === 'studio') {
@@ -366,8 +377,7 @@ export async function searchHomeCategory(
       opts,
     );
     if (error) return { data: [], error };
-    const rows = spec.dropQuickwins ? withoutQuickwins(data) : data;
-    return { data: rows.slice(0, fetchLimit), error: null };
+    return { data: dropRows(data, spec.dropQuickwins).slice(0, fetchLimit), error: null };
   }
 
   if (spec.kind === 'souls') {
@@ -377,7 +387,7 @@ export async function searchHomeCategory(
         searchGamesByStudio(supabase, 'FromSoftware', fetchLimit, locale, opts),
       ],
       locale,
-      { dropQuickwins: true, limit: fetchLimit },
+      { dropQuickwins: !forceInclude, limit: fetchLimit },
     );
     return { data: rows, error: null };
   }
@@ -385,10 +395,10 @@ export async function searchHomeCategory(
   if (spec.kind === 'titles') {
     const rows = await mergeRailRows(
       (spec.titles ?? []).map((pattern) =>
-        titleLike(supabase, pattern, locale, includeReady, fetchLimit),
+        titleLike(supabase, pattern, locale, includeReady, fetchLimit, forceExclude),
       ),
       locale,
-      { dropQuickwins: false, limit: fetchLimit },
+      { dropQuickwins: forceExclude, limit: fetchLimit },
     );
     return { data: rows, error: null };
   }

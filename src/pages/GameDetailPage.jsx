@@ -85,6 +85,7 @@ function GamePageContent({
   onActiveTrophies,
   startTrophyLoad,
   fromSearch = false,
+  backLabel = '',
   sessionUser = null,
 }) {
   const [guideRows, setGuideRows] = useState([]);
@@ -687,7 +688,7 @@ function GamePageContent({
         onClick={onNavigateHome}
         className="text-[#00ff66] mb-6 flex items-center gap-1 text-xs uppercase tracking-wider font-bold hover:underline bg-none border-none cursor-pointer"
       >
-        {fromSearch ? t('backToSearch') : t('backDashboard')}
+        {backLabel || (fromSearch ? t('backToSearch') : t('backDashboard'))}
       </button>
 
       <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 flex flex-col md:flex-row flex-wrap md:flex-nowrap gap-8 items-start mb-8 shadow-xl">

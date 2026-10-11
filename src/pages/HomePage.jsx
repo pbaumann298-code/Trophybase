@@ -5,6 +5,7 @@ import CategoryCarousel from '../components/CategoryCarousel';
 import { HOME_CATEGORIES, fetchAllHomeCategories } from '../lib/homeCategories';
 import { isAdminUser } from '../lib/adminAccess';
 import { useLocale } from '../context/LocaleContext';
+import SearchSkipQuickwins from '../components/SearchSkipQuickwins';
 import '../styles/home.css';
 
 function HomePage({
@@ -16,6 +17,8 @@ function HomePage({
   onRequestLogin,
   onOpenAdvancedSearch,
   sessionUser = null,
+  excludeQuickwins = true,
+  onExcludeQuickwinsChange,
 }) {
   const { globalLocale, t } = useLocale();
   const [categoryGames, setCategoryGames] = useState({});
@@ -61,14 +64,21 @@ function HomePage({
               className="home-search-input"
               aria-label={t('searchAria')}
             />
-            <button
-              type="button"
-              className="home-search-icon"
-              aria-label={t('searchStartAria')}
-              onClick={() => searchFormRef.current?.requestSubmit()}
-            >
-              🔍
-            </button>
+            <div className="home-search-submit-row">
+              <SearchSkipQuickwins
+                id="home-skip-quickwins"
+                checked={excludeQuickwins}
+                onChange={onExcludeQuickwinsChange}
+              />
+              <button
+                type="button"
+                className="home-search-icon"
+                aria-label={t('searchStartAria')}
+                onClick={() => searchFormRef.current?.requestSubmit()}
+              >
+                🔍
+              </button>
+            </div>
           </form>
           <a
             href="/suche"
