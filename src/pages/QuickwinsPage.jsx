@@ -38,6 +38,7 @@ function QuickwinsPage({
   newerVersions = false,
   localizedPath = false,
   serverNotice = false,
+  publisherMin = QUICKWIN_PUBLISHER_MIN,
 }) {
   const { t, globalLocale } = useLocale();
   const [pathLocale, setPathLocale] = useState(() => (
@@ -136,9 +137,9 @@ function QuickwinsPage({
     }
     return games.filter((game) => {
       const identity = quickwinPublisherIdentity(game, canon);
-      return identity.key && (counts.get(identity.key) || 0) >= QUICKWIN_PUBLISHER_MIN;
+      return identity.key && (counts.get(identity.key) || 0) >= publisherMin;
     });
-  }, [games, canon, isAdmin]);
+  }, [games, canon, isAdmin, publisherMin]);
 
   const publishers = useMemo(
     () => quickwinPublisherOptions(visibleGames, canon),

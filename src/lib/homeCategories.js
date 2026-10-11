@@ -94,20 +94,38 @@ function isMissingHomeRailsRpc(error) {
   return (
     code === 'PGRST202' ||
     code === '42883' ||
-    message.includes('tb_get_home_rails') ||
-    message.includes('could not find the function')
+    message.includes('could not find the function') ||
+    (message.includes('tb_get_home_rails') &&
+      !message.includes('timeout') &&
+      !message.includes('canceling statement'))
+  );
+}
+
+function shouldFallbackHomeRailsRpc(error) {
+  if (isMissingHomeRailsRpc(error)) return true;
+  const message = String(error?.message ?? '').toLowerCase();
+  const code = String(error?.code ?? '');
+  // Timeout / Statement abgebrochen → Legacy-Schienen statt leerer Startseite
+  return (
+    code === '57014' ||
+    message.includes('timeout') ||
+    message.includes('canceling statement') ||
+    message.includes('statement timeout')
   );
 }
 
 /**
  * Eine RPC statt ~60 ilike-Suchen. Admin/Besucher entscheidet die Funktion
  * am JWT, nicht am Client-Flag.
- * @returns {Promise<Record<string, object[]>|null>} null = RPC fehlt, Legacy nutzen
+ * @returns {Promise<Record<string, object[]>|null>} null = RPC fehlt/timeout, Legacy nutzen
  */
 async function fetchHomeRailsViaRpc(supabase, locale) {
   const { data, error } = await supabase.rpc('tb_get_home_rails');
   if (error) {
-    if (isMissingHomeRailsRpc(error)) return null;
+    if (shouldFallbackHomeRailsRpc(error)) {
+      console.warn('Startseite tb_get_home_rails → Legacy:', error.message);
+      return null;
+    }
     console.error('Startseite tb_get_home_rails:', error.message);
     return emptyRails();
   }

@@ -6,6 +6,7 @@
 -- Voraussetzung: supabase/rls_production.sql (tb_is_admin).
 -- Zuerst supabase/home_tags.sql (games.home_tags + Allowlist).
 -- Optional: supabase/games_views.sql (Spalte views, sonst 0).
+-- Optional: supabase/games_publisher.sql (Spalte publisher).
 --
 -- IST: Die SPA feuert ~60 ilike-Suchen gegen games. Als Admin sieht Postgres
 --      den ganzen Katalog, als Besucher nur PUBLISHED – beides ist unnoetig
@@ -16,6 +17,9 @@
 --   Souls: Tag soulslike ODER FromSoftware.
 --   Open World / Familie / Indie / Racing: nur home_tags.
 --   Ubisoft / Rockstar: entwickler oder publisher, keine Quickwins, keine Titel-Ratespiele.
+--
+-- Performance: guide_* per Key (Index auf guide_de), keine jsonb_each_text-
+--   Vollscans, kein to_jsonb(g). Pro Schiene LIMIT 12.
 --
 -- Nach dem Ausfuehren: Website hart neu laden. Ohne diese Funktion bleibt
 -- die alte Mehrfach-Suche als Fallback aktiv.
@@ -88,33 +92,26 @@ as $$
       g.status,
       g.slug,
       g.created_at,
-      coalesce(nullif(to_jsonb(g) ->> 'views', '')::integer, 0) as views,
+      coalesce(g.views, 0) as views,
       coalesce(g.home_tags, '{}'::text[]) as home_tags,
       g.spieltitel,
       g.cover_url,
       (g.spiel_typ in ('Evergreen', 'Premium')) as featured,
       coalesce(g.spiel_typ, '') <> 'Quickwin' as not_quickwin,
       lower(coalesce(g.entwickler, '')) as entwickler_l,
-      lower(coalesce(to_jsonb(g) ->> 'publisher', '')) as publisher_l,
-      (
-        select lower(string_agg(e.value, ' '))
-        from jsonb_each_text(coalesce(g.spieltitel, '{}'::jsonb)) e
-      ) as titles
+      lower(coalesce(g.publisher, '')) as publisher_l,
+      lower(coalesce(g.spieltitel::text, '')) as titles
     from public.games g
     where
-      exists (
-        select 1
-        from jsonb_each_text(coalesce(g.status, '{}'::jsonb)) e
-        where starts_with(e.key, 'guide_')
-          and upper(e.value) = 'PUBLISHED'
-      )
+      upper(coalesce(g.status ->> 'guide_de', '')) = 'PUBLISHED'
+      or upper(coalesce(g.status ->> 'guide_en', '')) = 'PUBLISHED'
+      or upper(coalesce(g.status ->> 'guide_es', '')) = 'PUBLISHED'
       or (
         public.tb_is_admin()
-        and exists (
-          select 1
-          from jsonb_each_text(coalesce(g.status, '{}'::jsonb)) e
-          where starts_with(e.key, 'guide_')
-            and upper(e.value) = 'FERTIG'
+        and (
+          upper(coalesce(g.status ->> 'guide_de', '')) = 'FERTIG'
+          or upper(coalesce(g.status ->> 'guide_en', '')) = 'FERTIG'
+          or upper(coalesce(g.status ->> 'guide_es', '')) = 'FERTIG'
         )
       )
   ),
@@ -122,63 +119,9 @@ as $$
     select
       c.*,
       public.tb_home_game_payload(
-        c.id,
-        c.platform_game_id,
-        c.hardware,
-        c.entwickler,
-        c.genre,
-        c.spiel_typ,
-        c.status,
-        c.slug,
-        c.created_at,
-        c.views,
-        c.spieltitel,
-        c.cover_url
-      ) as payload,
-      -- Soulslike-Tag oder FromSoftware (Entwickler/Publisher). Keine Titel-Ratespiele.
-      (
-        c.not_quickwin
-        and (
-          'soulslike' = any(c.home_tags)
-          or c.entwickler_l like '%fromsoftware%'
-          or c.publisher_l like '%fromsoftware%'
-        )
-      ) as rail_souls,
-      (
-        c.not_quickwin
-        and 'open_world' = any(c.home_tags)
-      ) as rail_openworld,
-      (
-        c.not_quickwin
-        and (
-          c.entwickler_l like '%ubisoft%'
-          or c.publisher_l like '%ubisoft%'
-        )
-      ) as rail_ubisoft,
-      (
-        c.not_quickwin
-        and (
-          c.entwickler_l like '%rockstar%'
-          or c.publisher_l like '%rockstar%'
-        )
-      ) as rail_rockstar,
-      (
-        c.not_quickwin
-        and 'family' = any(c.home_tags)
-      ) as rail_family,
-      (
-        c.not_quickwin
-        and 'indie' = any(c.home_tags)
-      ) as rail_indie,
-      (
-        c.not_quickwin
-        and 'racing' = any(c.home_tags)
-      ) as rail_racing,
-      (c.titles like '%god of war%') as rail_godofwar,
-      (
-        c.titles like '%tomb raider%'
-        or c.titles like '%lara croft%'
-      ) as rail_tombraider
+        c.id, c.platform_game_id, c.hardware, c.entwickler, c.genre, c.spiel_typ,
+        c.status, c.slug, c.created_at, c.views, c.spieltitel, c.cover_url
+      ) as payload
     from catalog c
   ),
   exploded as (
@@ -192,39 +135,49 @@ as $$
     union all
     select 'souls', s.views, s.created_at, s.payload
     from scored s
-    where s.rail_souls
+    where
+      s.not_quickwin
+      and (
+        'soulslike' = any(s.home_tags)
+        or s.entwickler_l like '%fromsoftware%'
+        or s.publisher_l like '%fromsoftware%'
+      )
     union all
     select 'openworld', s.views, s.created_at, s.payload
     from scored s
-    where s.rail_openworld
+    where s.not_quickwin and 'open_world' = any(s.home_tags)
     union all
     select 'ubisoft', s.views, s.created_at, s.payload
     from scored s
-    where s.rail_ubisoft
+    where
+      s.not_quickwin
+      and (s.entwickler_l like '%ubisoft%' or s.publisher_l like '%ubisoft%')
     union all
     select 'rockstar', s.views, s.created_at, s.payload
     from scored s
-    where s.rail_rockstar
+    where
+      s.not_quickwin
+      and (s.entwickler_l like '%rockstar%' or s.publisher_l like '%rockstar%')
     union all
     select 'family', s.views, s.created_at, s.payload
     from scored s
-    where s.rail_family
+    where s.not_quickwin and 'family' = any(s.home_tags)
     union all
     select 'indie', s.views, s.created_at, s.payload
     from scored s
-    where s.rail_indie
+    where s.not_quickwin and 'indie' = any(s.home_tags)
     union all
     select 'racing', s.views, s.created_at, s.payload
     from scored s
-    where s.rail_racing
+    where s.not_quickwin and 'racing' = any(s.home_tags)
     union all
     select 'godofwar', s.views, s.created_at, s.payload
     from scored s
-    where s.rail_godofwar
+    where s.titles like '%god of war%'
     union all
     select 'tombraider', s.views, s.created_at, s.payload
     from scored s
-    where s.rail_tombraider
+    where s.titles like '%tomb raider%' or s.titles like '%lara croft%'
   ),
   ranked as (
     select

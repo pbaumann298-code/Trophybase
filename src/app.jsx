@@ -848,6 +848,7 @@ function App() {
                 newerVersions
                 localizedPath
                 serverNotice
+                publisherMin={1}
               />
             )}
 
