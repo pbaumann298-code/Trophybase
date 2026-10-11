@@ -90,6 +90,42 @@
   margin-bottom: 0;
 }
 
+.quickwin-titles {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0.35rem;
+}
+
+.quickwin-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(39, 39, 42, 0.85);
+  color: #e4e4e7;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  padding: 0.75rem 0.35rem;
+}
+
+.quickwin-title:hover,
+.quickwin-title[aria-expanded='true'] {
+  color: #00ff66;
+}
+
+.quickwin-title-block:last-child .quickwin-title {
+  border-bottom: none;
+}
+
+.quickwin-detail {
+  padding: 0.35rem 0.15rem 1rem;
+}
+
 .quickwin-card {
   background: #1a1b1c;
   border: 1px solid #27272a;

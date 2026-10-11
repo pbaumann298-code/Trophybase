@@ -1,17 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import WatchlistButton from './WatchlistButton';
 import GuideOnlineBadge from './GuideOnlineBadge';
+import GuideTabBar from './GuideTabBar';
+import CollapsibleSectionCard from './CollapsibleSectionCard';
 import TrophyGroupedChecklist from './TrophyGroupedChecklist';
-import { CollectibleKacheln } from '../pages/CollectibleKacheln';
+import GameSeoInfobox from './GameSeoInfobox';
+import { BossKacheln, CollectibleKacheln } from '../pages/CollectibleKacheln';
 import { GuideVideoProvider } from '../context/GuideVideoContext';
 import { useLocale } from '../context/LocaleContext';
 import { GAME_FIELDS } from '../lib/gameSchema';
-import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
+import { getGameCover, getGameDescription, getGameTitle, getGameUuid } from '../lib/gameModel';
 import { publicStudioCredits } from '../lib/studioCredits';
 import { gameGuidePath } from '../lib/routeUtils';
 import { fetchGameGuideBundle } from '../lib/guideQueries';
+import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
-import { buildChronologicalGuideData } from '../lib/guideData';
+import {
+  buildBossOverviewData,
+  buildByTypeGuideData,
+  buildChronologicalGuideData,
+} from '../lib/guideData';
 import { getTrophyIdKey } from '../lib/trophyQueries';
 import {
   loadUnlockedTrophies,
@@ -31,14 +39,31 @@ import {
 } from '../lib/hiddenTrophyPreference';
 import { supabase } from '../pages/supabaseClient';
 
+const TAB_META = {
+  reiter0: { icon: '🏆', labelKey: 'trophies' },
+  reiter1: { icon: '📖', labelKey: 'fullGameplay' },
+  reiter2: { icon: '📦', labelKey: 'completion' },
+  reiter3: { icon: '⚔️', labelKey: 'bosses' },
+};
+
 export function formatQuickwinCount(count, oneLabel, manyTemplate) {
   if (Number(count) === 1) return oneLabel;
   return String(manyTemplate ?? '').replace('{count}', String(count));
 }
 
+function distinctGroupCount(rows, field) {
+  const names = new Set(
+    (rows ?? []).map((row) => String(row?.[field] ?? '').trim()).filter(Boolean),
+  );
+  return names.size;
+}
+
+/**
+ * Spielansicht, die erst beim Aufklappen eines Titels mountet und lädt.
+ * Kopfzeile bleibt die kompakte Kachel; darunter die Guide-Reiter.
+ */
 function QuickwinGameCard({
   game,
-  groupNames = [],
   openGame,
   onRequestLogin,
   isAdmin = false,
@@ -51,38 +76,49 @@ function QuickwinGameCard({
   const credits = publicStudioCredits(game);
   const href = gameGuidePath(game, globalLocale);
 
-  const [trophiesOpen, setTrophiesOpen] = useState(false);
-  const [openGroups, setOpenGroups] = useState(() => new Set());
-  const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [trophies, setTrophies] = useState([]);
   const [earnedIds, setEarnedIds] = useState(() => new Set());
   const [unlocked, setUnlocked] = useState(() => loadUnlockedTrophies(gameUuid));
-  const [guideRows, setGuideRows] = useState([]);
+  const [walkthrough, setWalkthrough] = useState([]);
+  const [collectibles, setCollectibles] = useState([]);
+  const [bosses, setBosses] = useState([]);
+  const [creators, setCreators] = useState([]);
   const [completedItems, setCompletedItems] = useState({});
   const [hideCompleted, setHideCompleted] = useState(false);
   const [hiddenMode, setHiddenMode] = useState(() => loadHiddenTrophyMode(gameUuid));
+  const [activeTab, setActiveTab] = useState('reiter0');
 
-  const ensureLoaded = async () => {
-    if (loaded || loading || !gameUuid) return;
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    const [trophyResult, guideBundle] = await Promise.all([
+    Promise.all([
       fetchGameTrophiesWithEarned(supabase, sessionUser?.id ?? null, game, globalLocale),
       fetchGameGuideBundle(supabase, game, globalLocale),
-    ]);
-    const nextTrophies = trophyResult.trophies ?? [];
-    const nextEarned = trophyResult.earnedIds ?? new Set();
-    const chapters = guideBundle.chapters ?? [];
-    setTrophies(nextTrophies);
-    setEarnedIds(nextEarned);
-    setUnlocked(mergeUnlockedTrophies(gameUuid, nextEarned));
-    setGuideRows(buildChronologicalGuideData(chapters));
-    setCompletedItems(
-      claimCompletedGuideItems(gameUuid, collectGuideProgressIds(chapters, guideBundle.guides, guideBundle.bosses)),
-    );
-    setLoaded(true);
-    setLoading(false);
-  };
+      fetchContentCreatorsForGame(supabase, game),
+    ]).then(([trophyResult, guideBundle, creatorResult]) => {
+      if (cancelled) return;
+      const nextTrophies = trophyResult.trophies ?? [];
+      const nextEarned = trophyResult.earnedIds ?? new Set();
+      const chapters = guideBundle.chapters ?? [];
+      const guides = guideBundle.guides ?? [];
+      const bossRows = guideBundle.bosses ?? [];
+      setTrophies(nextTrophies);
+      setEarnedIds(nextEarned);
+      setUnlocked(mergeUnlockedTrophies(gameUuid, nextEarned));
+      setWalkthrough(buildChronologicalGuideData(chapters));
+      setCollectibles(buildByTypeGuideData(guides));
+      setBosses(buildBossOverviewData(bossRows));
+      setCreators(creatorResult.data ?? []);
+      setCompletedItems(
+        claimCompletedGuideItems(gameUuid, collectGuideProgressIds(chapters, guides, bossRows)),
+      );
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [game, gameUuid, globalLocale, sessionUser?.id]);
 
   const toggleTrophy = (id) => {
     if (earnedIds.has(id)) return;
@@ -103,20 +139,14 @@ function QuickwinGameCard({
     });
   };
 
-  const openTrophies = () => {
-    setTrophiesOpen((prev) => !prev);
-    ensureLoaded();
-  };
-
-  const toggleGroup = (name) => {
-    setOpenGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-    ensureLoaded();
-  };
+  const trophyById = useMemo(() => {
+    const map = new Map();
+    for (const trophy of trophies) {
+      const key = String(trophy?.platform_achievement_id ?? trophy?.trophy_id ?? '').trim();
+      if (key) map.set(key, trophy);
+    }
+    return map;
+  }, [trophies]);
 
   const doneCount = trophies.filter((trophy) => {
     const key = getTrophyIdKey(trophy);
@@ -125,166 +155,234 @@ function QuickwinGameCard({
   const progressPercent = trophies.length > 0 ? Math.round((doneCount / trophies.length) * 100) : 0;
   const hasHidden = trophies.some((trophy) => trophy.is_hidden);
 
+  const tabs = useMemo(() => {
+    const visible = ['reiter0'];
+    if (loading || walkthrough.length > 0) visible.push('reiter1');
+    if (!loading && collectibles.length > 0) visible.push('reiter2');
+    if (!loading && bosses.length > 0) visible.push('reiter3');
+    return visible.map((id) => ({
+      id,
+      icon: TAB_META[id].icon,
+      label: t(TAB_META[id].labelKey),
+      count: id === 'reiter0'
+        ? trophies.length
+        : id === 'reiter1'
+          ? walkthrough.length
+          : id === 'reiter2'
+            ? collectibles.length
+            : bosses.length,
+    }));
+  }, [loading, walkthrough.length, collectibles.length, bosses.length, trophies.length, t]);
+
+  useEffect(() => {
+    if (!tabs.some((tab) => tab.id === activeTab)) setActiveTab(tabs[0]?.id ?? 'reiter0');
+  }, [tabs, activeTab]);
+
+  const tabIndex = tabs.findIndex((tab) => tab.id === activeTab);
+  const description = getGameDescription(game, globalLocale);
+
   return (
-    <article className="quickwin-card">
-      <div className="quickwin-card-main">
-        {cover ? (
-          <img src={cover} className="quickwin-card-cover" alt="" />
-        ) : (
-          <div className="quickwin-card-cover quickwin-card-cover--empty" aria-hidden />
-        )}
-
-        <div className="quickwin-card-body">
-          <div className="quickwin-card-title-row">
-            <a
-              href={href}
-              className="quickwin-card-title"
-              onClick={(event) => {
-                event.preventDefault();
-                openGame(game);
-              }}
-            >
-              {title}
-            </a>
-            <div className="quickwin-card-actions">
-              <GuideOnlineBadge game={game} visible={isAdmin} size="md" />
-              <WatchlistButton gameId={gameUuid} onRequestLogin={onRequestLogin} size="md" />
+    <div className="quickwin-detail">
+      <article className="quickwin-card">
+        <div className="quickwin-card-main">
+          {cover ? (
+            <img src={cover} className="quickwin-card-cover" alt="" />
+          ) : (
+            <div className="quickwin-card-cover quickwin-card-cover--empty" aria-hidden />
+          )}
+          <div className="quickwin-card-body">
+            <div className="quickwin-card-title-row">
+              <a
+                href={href}
+                className="quickwin-card-title"
+                onClick={(event) => {
+                  event.preventDefault();
+                  openGame(game);
+                }}
+              >
+                {title}
+              </a>
+              <div className="quickwin-card-actions">
+                <GuideOnlineBadge game={game} visible={isAdmin} size="md" />
+                <WatchlistButton gameId={gameUuid} onRequestLogin={onRequestLogin} size="md" />
+              </div>
             </div>
-          </div>
-
-          <div className="quickwin-card-meta">
-            <div>
-              <span>Plattform</span>
-              <strong>{game[GAME_FIELDS.console] || '—'}</strong>
-            </div>
-            <div>
-              <span>Jahr</span>
-              <strong>{game[GAME_FIELDS.year] || '—'}</strong>
-            </div>
-            <div>
-              <span>Genre</span>
-              <strong>{game[GAME_FIELDS.genre] || '—'}</strong>
-            </div>
-            <div>
-              <span>{t('studioLabel')}</span>
-              <strong>{credits.studio || '—'}</strong>
+            <div className="quickwin-card-meta">
+              <div>
+                <span>Plattform</span>
+                <strong>{game[GAME_FIELDS.console] || '—'}</strong>
+              </div>
+              <div>
+                <span>Jahr</span>
+                <strong>{game[GAME_FIELDS.year] || '—'}</strong>
+              </div>
+              <div>
+                <span>Genre</span>
+                <strong>{game[GAME_FIELDS.genre] || '—'}</strong>
+              </div>
+              <div>
+                <span>{t('studioLabel')}</span>
+                <strong>{credits.studio || '—'}</strong>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </article>
 
-      <div className="quickwin-card-folds">
-        <button type="button" className="quickwin-card-fold" aria-expanded={trophiesOpen} onClick={openTrophies}>
-          <span>{t('quickwinsTrophies')}</span>
-          <span aria-hidden>{trophiesOpen ? '▲' : '▼'}</span>
-        </button>
-        {trophiesOpen && (
-          <div className="quickwin-card-fold-body">
-            {loading && !loaded ? (
-              <p className="quickwin-card-note">{t('guideLoading')}</p>
-            ) : (
-              <>
-                <div className="quickwin-progress">
-                  <div className="quickwin-progress-label">
-                    <span>{t('overallProgress')}</span>
-                    <strong>
-                      {progressPercent}% ({doneCount}/{trophies.length})
-                    </strong>
-                  </div>
-                  <div className="quickwin-progress-track">
-                    <div style={{ width: `${progressPercent}%` }} />
-                  </div>
+      {loading ? (
+        <p className="quickwin-card-note">{t('guideLoading')}</p>
+      ) : (
+        <>
+          <GuideTabBar
+            tabs={tabs}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            onPrev={() => tabIndex > 0 && setActiveTab(tabs[tabIndex - 1].id)}
+            onNext={() => tabIndex < tabs.length - 1 && setActiveTab(tabs[tabIndex + 1].id)}
+            canGoPrev={tabIndex > 0}
+            canGoNext={tabIndex >= 0 && tabIndex < tabs.length - 1}
+          />
+
+          <GameSeoInfobox title={title} description={description} creators={creators} />
+
+          {activeTab === 'reiter0' && (
+            <div className="quickwin-tab">
+              <div className="quickwin-progress">
+                <div className="quickwin-progress-label">
+                  <span>{t('overallProgress')}</span>
+                  <strong>
+                    {progressPercent}% ({doneCount}/{trophies.length})
+                  </strong>
                 </div>
-                <label className="quickwin-hide-done">
-                  <input
-                    type="checkbox"
-                    checked={hideCompleted}
-                    onChange={(event) => setHideCompleted(event.target.checked)}
-                  />
-                  {t('hideCompleted')}
-                </label>
-                {hasHidden && (
-                  <fieldset className="quickwin-hidden">
-                    <legend>{t('hiddenTrophies')}</legend>
-                    {[
-                      [HIDDEN_TROPHY_MODE.SHOW, 'hiddenTrophiesShow'],
-                      [HIDDEN_TROPHY_MODE.HIDE, 'hiddenTrophiesHide'],
-                      [HIDDEN_TROPHY_MODE.ALWAYS, 'hiddenTrophiesAlways'],
-                    ].map(([mode, labelKey]) => (
-                      <label key={mode}>
-                        <input
-                          type="radio"
-                          name={`hidden-trophy-${gameUuid}`}
-                          value={mode}
-                          checked={hiddenMode === mode}
-                          onChange={() => {
-                            saveHiddenTrophyMode(gameUuid, mode);
-                            setHiddenMode(loadHiddenTrophyMode(gameUuid));
-                          }}
-                        />
-                        {t(labelKey)}
-                      </label>
-                    ))}
-                  </fieldset>
-                )}
-                <TrophyGroupedChecklist
-                  gameId={gameUuid}
-                  trophies={trophies}
-                  unlockedTrophies={unlocked}
-                  earnedTrophyIds={earnedIds}
-                  hideCompleted={hideCompleted}
-                  revealHidden={hiddenTrophiesRevealed(hiddenMode)}
-                  onToggle={toggleTrophy}
-                  mainGameTitle={title || 'Hauptspiel'}
-                  flat
+                <div className="quickwin-progress-track">
+                  <div style={{ width: `${progressPercent}%` }} />
+                </div>
+              </div>
+              <label className="quickwin-hide-done">
+                <input
+                  type="checkbox"
+                  checked={hideCompleted}
+                  onChange={(event) => setHideCompleted(event.target.checked)}
                 />
-              </>
-            )}
-          </div>
-        )}
-
-        {groupNames.map((name) => {
-          const isOpen = openGroups.has(name);
-          const rows = guideRows.filter((row) => String(row.chronological_group ?? '').trim() === name);
-          return (
-            <div key={name}>
-              <button
-                type="button"
-                className="quickwin-card-fold"
-                aria-expanded={isOpen}
-                onClick={() => toggleGroup(name)}
-              >
-                <span>{name}</span>
-                <span aria-hidden>{isOpen ? '▲' : '▼'}</span>
-              </button>
-              {isOpen && (
-                <div className="quickwin-card-fold-body">
-                  {loading && !loaded ? (
-                    <p className="quickwin-card-note">{t('guideLoading')}</p>
-                  ) : (
-                    <GuideVideoProvider>
-                      <CollectibleKacheln
-                        gameId={gameUuid}
-                        reportEntityType="guide_step"
-                        collectiblesData={rows}
-                        groupByField="chronological_group"
-                        listTitle={name}
-                        hideCompleted={hideCompleted}
-                        setHideCompleted={setHideCompleted}
-                        completedItems={completedItems}
-                        toggleCompleted={toggleGuideItem}
-                        embedInAccordion
-                        hideGroupHeader
+                {t('hideCompleted')}
+              </label>
+              {hasHidden && (
+                <fieldset className="quickwin-hidden">
+                  <legend>{t('hiddenTrophies')}</legend>
+                  {[
+                    [HIDDEN_TROPHY_MODE.SHOW, 'hiddenTrophiesShow'],
+                    [HIDDEN_TROPHY_MODE.HIDE, 'hiddenTrophiesHide'],
+                    [HIDDEN_TROPHY_MODE.ALWAYS, 'hiddenTrophiesAlways'],
+                  ].map(([mode, labelKey]) => (
+                    <label key={mode}>
+                      <input
+                        type="radio"
+                        name={`hidden-trophy-${gameUuid}`}
+                        value={mode}
+                        checked={hiddenMode === mode}
+                        onChange={() => {
+                          saveHiddenTrophyMode(gameUuid, mode);
+                          setHiddenMode(loadHiddenTrophyMode(gameUuid));
+                        }}
                       />
-                    </GuideVideoProvider>
-                  )}
-                </div>
+                      {t(labelKey)}
+                    </label>
+                  ))}
+                </fieldset>
               )}
+              <TrophyGroupedChecklist
+                gameId={gameUuid}
+                trophies={trophies}
+                unlockedTrophies={unlocked}
+                earnedTrophyIds={earnedIds}
+                hideCompleted={hideCompleted}
+                revealHidden={hiddenTrophiesRevealed(hiddenMode)}
+                onToggle={toggleTrophy}
+                mainGameTitle={title || 'Hauptspiel'}
+              />
             </div>
-          );
-        })}
-      </div>
-    </article>
+          )}
+
+          {activeTab === 'reiter1' && (
+            <GuideVideoProvider>
+              <CollapsibleSectionCard
+                sectionId={`qw-walk-${gameUuid}`}
+                title={t('fullGameplay')}
+                badge={`${walkthrough.length}`}
+                defaultOpen
+                accent="green"
+              >
+                <CollectibleKacheln
+                  gameId={gameUuid}
+                  reportEntityType="guide_step"
+                  collectiblesData={walkthrough}
+                  trophyById={trophyById}
+                  groupByField="chronological_group"
+                  listTitle={t('fullGameplay')}
+                  hideCompleted={hideCompleted}
+                  setHideCompleted={setHideCompleted}
+                  completedItems={completedItems}
+                  toggleCompleted={toggleGuideItem}
+                  embedInAccordion
+                  hideGroupHeader={distinctGroupCount(walkthrough, 'chronological_group') <= 1}
+                />
+              </CollapsibleSectionCard>
+            </GuideVideoProvider>
+          )}
+
+          {activeTab === 'reiter2' && (
+            <GuideVideoProvider>
+              <CollapsibleSectionCard
+                sectionId={`qw-collect-${gameUuid}`}
+                title={t('completion')}
+                badge={`${collectibles.length}`}
+                defaultOpen
+                accent="amber"
+              >
+                <CollectibleKacheln
+                  gameId={gameUuid}
+                  reportEntityType="guide_item"
+                  collectiblesData={collectibles}
+                  trophyById={trophyById}
+                  groupByField="category_group"
+                  listTitle={t('completion')}
+                  hideCompleted={hideCompleted}
+                  setHideCompleted={setHideCompleted}
+                  completedItems={completedItems}
+                  toggleCompleted={toggleGuideItem}
+                  embedInAccordion
+                  hideGroupHeader={distinctGroupCount(collectibles, 'category_group') <= 1}
+                />
+              </CollapsibleSectionCard>
+            </GuideVideoProvider>
+          )}
+
+          {activeTab === 'reiter3' && (
+            <GuideVideoProvider>
+              <CollapsibleSectionCard
+                sectionId={`qw-boss-${gameUuid}`}
+                title={t('bosses')}
+                badge={`${bosses.length}`}
+                defaultOpen
+                accent="purple"
+              >
+                <BossKacheln
+                  gameId={gameUuid}
+                  bossesData={bosses}
+                  trophyById={trophyById}
+                  listTitle={t('bosses')}
+                  hideCompleted={hideCompleted}
+                  setHideCompleted={setHideCompleted}
+                  completedItems={completedItems}
+                  toggleCompleted={toggleGuideItem}
+                  embedInAccordion
+                />
+              </CollapsibleSectionCard>
+            </GuideVideoProvider>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
 import { fetchQuickwinGames } from '../lib/gameQueries';
-import { fetchChronologicalGroupLabels } from '../lib/guideQueries';
-import { getGameUuid } from '../lib/gameModel';
+import { getGameTitle, getGameUuid } from '../lib/gameModel';
 import { paginateItems, SEARCH_PAGE_SIZE } from '../lib/gameSearch';
 import {
   filterQuickwins,
@@ -41,8 +40,8 @@ function QuickwinsPage({
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => new Set());
-  const [groupLabels, setGroupLabels] = useState(() => new Map());
+  const [openPublishers, setOpenPublishers] = useState(() => new Set());
+  const [openGameId, setOpenGameId] = useState(null);
 
   useEffect(() => {
     const previous = document.title;
@@ -51,10 +50,6 @@ function QuickwinsPage({
       document.title = previous;
     };
   }, [t]);
-
-  useEffect(() => {
-    setGroupLabels(new Map());
-  }, [globalLocale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,37 +97,30 @@ function QuickwinsPage({
     () => paginateItems(flat, applied.page, SEARCH_PAGE_SIZE),
     [flat, applied.page],
   );
-  const pageIdList = useMemo(
-    () => paged.items.map((game) => getGameUuid(game)).filter(Boolean),
-    [paged.items],
-  );
   const groupByKey = useMemo(() => new Map(grouped.map((group) => [group.key, group])), [grouped]);
-
-  useEffect(() => {
-    const missing = pageIdList.filter((id) => !groupLabels.has(id));
-    if (missing.length === 0) return undefined;
-    let cancelled = false;
-    fetchChronologicalGroupLabels(supabase, missing, globalLocale).then(({ byGameId, error }) => {
-      if (cancelled) return;
-      if (error) console.error('chronological_group:', error.message);
-      setGroupLabels((prev) => {
-        const next = new Map(prev);
-        let changed = false;
-        for (const id of missing) {
-          if (next.has(id)) continue;
-          next.set(id, byGameId.get(id) ?? []);
-          changed = true;
-        }
-        return changed ? next : prev;
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [pageIdList, globalLocale, groupLabels]);
+  const pageGroups = useMemo(() => {
+    const blocks = [];
+    for (const game of paged.items) {
+      const key = quickwinPublisherKey(game);
+      const last = blocks[blocks.length - 1];
+      if (!last || last.key !== key) {
+        const group = groupByKey.get(key);
+        blocks.push({
+          key,
+          label: group?.label || '',
+          count: group?.games.length ?? 0,
+          games: [game],
+        });
+      } else {
+        last.games.push(game);
+      }
+    }
+    return blocks;
+  }, [paged.items, groupByKey]);
 
   const commit = (next, { replace = false } = {}) => {
-    setCollapsed(new Set());
+    setOpenPublishers(new Set());
+    setOpenGameId(null);
     setApplied(next);
     setDraft({ title: next.title, publisher: next.publisher });
     navigateToQuickwins(next, { replace });
@@ -156,13 +144,21 @@ function QuickwinsPage({
     commit({ ...applied, page }, { replace: true });
   };
 
-  const togglePublisher = (key) => {
-    setCollapsed((prev) => {
+  const togglePublisher = (key, gameIds) => {
+    const closing = openPublishers.has(key);
+    setOpenPublishers((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
+      if (prev.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
+    if (closing) {
+      setOpenGameId((current) => (gameIds.has(current) ? null : current));
+    }
+  };
+
+  const toggleGame = (gameId) => {
+    setOpenGameId((current) => (current === gameId ? null : gameId));
   };
 
   const renderPager = () => {
@@ -192,53 +188,64 @@ function QuickwinsPage({
     );
   };
 
-  let lastPublisher = null;
-  const pageBlocks = [];
-  for (const game of paged.items) {
-    const key = quickwinPublisherKey(game);
-    if (key !== lastPublisher) {
-      lastPublisher = key;
-      const group = groupByKey.get(key);
-      const isOpen = !collapsed.has(key);
-      pageBlocks.push(
-        <section key={`publisher-${key || 'none'}`} className="guide-localisation">
-          <button
-            type="button"
-            className="guide-localisation__header"
-            aria-expanded={isOpen}
-            onClick={() => togglePublisher(key)}
-          >
-            <span>
-              {group?.label || t('quickwinsNoPublisher')}
-              <span className="guide-localisation__count">
-                ({formatQuickwinCount(
-                  group?.games.length ?? 0,
-                  t('quickwinsGameCountOne'),
-                  t('quickwinsGameCount'),
-                )})
-              </span>
+  const pageBlocks = pageGroups.map((block) => {
+    const isOpen = openPublishers.has(block.key);
+    const gameIds = new Set(block.games.map((game) => getGameUuid(game)).filter(Boolean));
+    return (
+      <section key={`publisher-${block.key || 'none'}`} className="guide-localisation">
+        <button
+          type="button"
+          className="guide-localisation__header"
+          aria-expanded={isOpen}
+          onClick={() => togglePublisher(block.key, gameIds)}
+        >
+          <span>
+            {block.label || t('quickwinsNoPublisher')}
+            <span className="guide-localisation__count">
+              ({formatQuickwinCount(
+                block.count,
+                t('quickwinsGameCountOne'),
+                t('quickwinsGameCount'),
+              )})
             </span>
-            <span className="guide-localisation__chevron" aria-hidden>
-              {isOpen ? '▲' : '▼'}
-            </span>
-          </button>
-        </section>,
-      );
-    }
-    if (collapsed.has(key)) continue;
-    const gameId = getGameUuid(game);
-    pageBlocks.push(
-      <QuickwinGameCard
-        key={gameId || titleKey(game)}
-        game={game}
-        groupNames={groupLabels.get(gameId) ?? []}
-        openGame={openGame}
-        onRequestLogin={onRequestLogin}
-        isAdmin={isAdmin}
-        sessionUser={sessionUser}
-      />,
+          </span>
+          <span className="guide-localisation__chevron" aria-hidden>
+            {isOpen ? '▲' : '▼'}
+          </span>
+        </button>
+        {isOpen && (
+          <div className="guide-localisation__body quickwin-titles">
+            {block.games.map((game) => {
+              const gameId = getGameUuid(game);
+              const titleOpen = Boolean(gameId) && openGameId === gameId;
+              return (
+                <div key={gameId || titleKey(game)} className="quickwin-title-block">
+                  <button
+                    type="button"
+                    className="quickwin-title"
+                    aria-expanded={titleOpen}
+                    onClick={() => toggleGame(gameId)}
+                  >
+                    <span>{getGameTitle(game, globalLocale)}</span>
+                    <span aria-hidden>{titleOpen ? '▲' : '▼'}</span>
+                  </button>
+                  {titleOpen && (
+                    <QuickwinGameCard
+                      game={game}
+                      openGame={openGame}
+                      onRequestLogin={onRequestLogin}
+                      isAdmin={isAdmin}
+                      sessionUser={sessionUser}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
     );
-  }
+  });
 
   return (
     <div className="quickwins-page">
