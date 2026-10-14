@@ -75,14 +75,32 @@ function asTipMap(value) {
   return text ? { en: text } : {};
 }
 
-const CLEARED_TIPS = {
-  [ACHIEVEMENT_I18N.guideTip]: null,
-  [ACHIEVEMENT_I18N.guideTipLong]: null,
-};
+/**
+ * Nimmt eine Sprache aus der Tipp-Map. Fehlt der Schlüssel, bleibt die Spalte unangetastet.
+ * @param {unknown} value
+ * @param {string} locale
+ * @returns {Record<string, string>|null|undefined}
+ */
+function columnWithoutLocale(value, locale) {
+  const map = asTipMap(value);
+  if (!Object.prototype.hasOwnProperty.call(map, locale)) return undefined;
+  delete map[locale];
+  return Object.keys(map).length ? map : null;
+}
+
+/** Kurz- und Langfassung nur für diese Sprache leeren. Andere Schlüssel bleiben. */
+function localeClearPatch(row, locale) {
+  const patch = {};
+  const tip = columnWithoutLocale(row?.[ACHIEVEMENT_I18N.guideTip], locale);
+  const longTip = columnWithoutLocale(row?.[ACHIEVEMENT_I18N.guideTipLong], locale);
+  if (tip !== undefined) patch[ACHIEVEMENT_I18N.guideTip] = tip;
+  if (longTip !== undefined) patch[ACHIEVEMENT_I18N.guideTipLong] = longTip;
+  return patch;
+}
 
 /**
  * Schreibt den Guide-Tipp einer Trophäe in der aktuellen Sprache.
- * Leerer Text löscht den Tipp komplett, auch die Langfassung.
+ * Leerer Text löscht Kurz- und Langfassung nur in dieser Sprache.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
  * @param {string} achievementId
@@ -97,11 +115,24 @@ export async function saveTrophyGuideTip(supabase, gameId, achievementId, locale
   if (!game || !achievement) {
     return { error: new Error('Trophäe fehlt.') };
   }
+  if (!lang) return { error: new Error('Keine Sprache ausgewählt.') };
 
   if (!next) {
+    const { data, error: readError } = await supabase
+      .from(TABLES.achievements)
+      .select('*')
+      .eq(GAME_FK, game)
+      .eq(ACHIEVEMENT_PK, achievement)
+      .maybeSingle();
+
+    if (readError) return { error: readError };
+
+    const patch = localeClearPatch(data, lang);
+    if (!Object.keys(patch).length) return { error: null };
+
     const { error } = await supabase
       .from(TABLES.achievements)
-      .update(CLEARED_TIPS)
+      .update(patch)
       .eq(GAME_FK, game)
       .eq(ACHIEVEMENT_PK, achievement);
     return { error: error ?? null };
@@ -117,7 +148,7 @@ export async function saveTrophyGuideTip(supabase, gameId, achievementId, locale
   if (readError) return { error: readError };
 
   const map = asTipMap(data?.[ACHIEVEMENT_I18N.guideTip]);
-  if (lang) map[lang] = next;
+  map[lang] = next;
 
   const { error } = await supabase
     .from(TABLES.achievements)
@@ -129,20 +160,46 @@ export async function saveTrophyGuideTip(supabase, gameId, achievementId, locale
 }
 
 /**
- * Löscht alle Guide-Tipps eines Spiels, Kurz- und Langfassung.
+ * Löscht Kurz- und Langfassung der Guide-Tipps eines Spiels in einer Sprache.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
+ * @param {string} locale
  */
-export async function clearGameGuideTips(supabase, gameId) {
+export async function clearGameGuideTips(supabase, gameId, locale) {
   const game = String(gameId ?? '').trim();
+  const lang = String(locale ?? '').trim();
   if (!game) return { error: new Error('Kein Spiel ausgewählt.') };
+  if (!lang) return { error: new Error('Keine Sprache ausgewählt.') };
 
-  const { error } = await supabase
+  const { data, error: readError } = await supabase
     .from(TABLES.achievements)
-    .update(CLEARED_TIPS)
+    .select('*')
     .eq(GAME_FK, game);
 
-  return { error: error ?? null };
+  if (readError) return { error: readError };
+
+  const pending = [];
+  for (const row of data ?? []) {
+    const patch = localeClearPatch(row, lang);
+    if (!Object.keys(patch).length) continue;
+    pending.push({ id: row[ACHIEVEMENT_PK], patch });
+  }
+
+  const chunkSize = 25;
+  for (let index = 0; index < pending.length; index += chunkSize) {
+    const chunk = pending.slice(index, index + chunkSize);
+    const results = await Promise.all(chunk.map(({ id, patch }) => (
+      supabase
+        .from(TABLES.achievements)
+        .update(patch)
+        .eq(GAME_FK, game)
+        .eq(ACHIEVEMENT_PK, id)
+    )));
+    const failed = results.find((result) => result.error);
+    if (failed) return { error: failed.error };
+  }
+
+  return { error: null };
 }
 
 /**

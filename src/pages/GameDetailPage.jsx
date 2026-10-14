@@ -241,49 +241,56 @@ function GamePageContent({
   const watchlistGameId = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
 
   const gameId = watchlistGameId;
+  /** Sprache des angezeigten Guides. Freigabe und Tipp-Änderungen gelten nur für diese Sprache. */
+  const effectiveGuideLang = resolveGuideLanguage(globalLocale, guideLanguageOverride);
   const [hiddenTrophyMode, setHiddenTrophyMode] = useState(() => loadHiddenTrophyMode(gameId));
-  const [tipOverrides, setTipOverrides] = useState({});
+  const [tipOverrides, setTipOverrides] = useState({ locale: '', values: {} });
   const [tipHint, setTipHint] = useState('');
 
   useEffect(() => {
     setHiddenTrophyMode(loadHiddenTrophyMode(gameId));
-    setTipOverrides({});
+    setTipOverrides({ locale: '', values: {} });
     setTipHint('');
   }, [gameId]);
 
   const trophiesWithTips = useMemo(() => (
     activeTrophies.map((trophy) => {
+      if (tipOverrides.locale !== effectiveGuideLang) return trophy;
       const id = getTrophyIdKey(trophy);
-      if (!Object.prototype.hasOwnProperty.call(tipOverrides, id)) return trophy;
-      const guide_tip = tipOverrides[id];
+      if (!Object.prototype.hasOwnProperty.call(tipOverrides.values, id)) return trophy;
+      const guide_tip = tipOverrides.values[id];
       return { ...trophy, guide_tip, guide_tip_long: guide_tip ? trophy.guide_tip_long : '' };
     })
-  ), [activeTrophies, tipOverrides]);
+  ), [activeTrophies, tipOverrides, effectiveGuideLang]);
 
   const saveGuideTip = async (achievementId, text) => {
-    const { error } = await saveTrophyGuideTip(supabase, gameId, achievementId, globalLocale, text);
+    const { error } = await saveTrophyGuideTip(supabase, gameId, achievementId, effectiveGuideLang, text);
     if (error) return error;
-    setTipOverrides((prev) => ({ ...prev, [achievementId]: text.trim() }));
+    const next = text.trim();
+    setTipOverrides((prev) => ({
+      locale: effectiveGuideLang,
+      values: {
+        ...(prev.locale === effectiveGuideLang ? prev.values : {}),
+        [achievementId]: next,
+      },
+    }));
     return null;
   };
 
   const clearAllGuideTips = async () => {
-    const { error } = await clearGameGuideTips(supabase, gameId);
+    const { error } = await clearGameGuideTips(supabase, gameId, effectiveGuideLang);
     if (error) {
       setTipHint(error.message || t('trophyTipFailed'));
       return;
     }
-    const next = {};
-    for (const trophy of activeTrophies) next[getTrophyIdKey(trophy)] = '';
-    setTipOverrides(next);
+    const values = {};
+    for (const trophy of activeTrophies) values[getTrophyIdKey(trophy)] = '';
+    setTipOverrides({ locale: effectiveGuideLang, values });
     setTipHint(t('trophyTipSaved'));
   };
 
   const gameUuid = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
   const studioCredits = useMemo(() => publicStudioCredits(selectedGame), [selectedGame]);
-
-  /** Sprache des angezeigten Guides – entscheidet, ob der Freigabe-Button erscheint. */
-  const effectiveGuideLang = resolveGuideLanguage(globalLocale, guideLanguageOverride);
 
   const gameForPublication = useMemo(() => {
     if (!publicationOverride || publicationOverride.uuid !== gameUuid) return selectedGame;
@@ -567,7 +574,7 @@ function GamePageContent({
           {isAdmin ? (
             <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
               {tipHint ? <span className="text-[10px] text-zinc-500">{tipHint}</span> : null}
-              <ClearGuideTipsButton onClear={clearAllGuideTips} />
+              <ClearGuideTipsButton onClear={clearAllGuideTips} locale={effectiveGuideLang} />
             </div>
           ) : null}
           <TrophyGroupedChecklist

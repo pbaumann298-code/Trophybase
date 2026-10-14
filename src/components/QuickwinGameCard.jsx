@@ -148,7 +148,7 @@ function QuickwinGameCard({
   };
 
   const clearAllGuideTips = async () => {
-    const { error } = await clearGameGuideTips(supabase, gameUuid);
+    const { error } = await clearGameGuideTips(supabase, gameUuid, globalLocale);
     if (error) {
       setTipHint(error.message || t('trophyTipFailed'));
       return;
@@ -346,7 +346,7 @@ function QuickwinGameCard({
               {isAdmin ? (
                 <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
                   {tipHint ? <span className="text-[10px] text-zinc-500">{tipHint}</span> : null}
-                  <ClearGuideTipsButton onClear={clearAllGuideTips} />
+                  <ClearGuideTipsButton onClear={clearAllGuideTips} locale={globalLocale} />
                 </div>
               ) : null}
               <TrophyGroupedChecklist

@@ -414,18 +414,20 @@ function TrophyGroupedChecklist({
   );
 }
 
-export function ClearGuideTipsButton({ onClear, className = '' }) {
+export function ClearGuideTipsButton({ onClear, locale = '', className = '' }) {
   const { t } = useLocale();
+  const lang = String(locale ?? '').trim().toUpperCase();
   return (
     <button
       type="button"
       onClick={() => {
-        if (window.confirm(t('trophyTipsDeleteAllConfirm'))) onClear();
+        const message = t('trophyTipsDeleteAllConfirm').replaceAll('{lang}', lang);
+        if (window.confirm(message)) onClear();
       }}
       className={`inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400 hover:border-red-500/40 hover:text-red-300 ${className}`}
     >
       <TrashIcon />
-      {t('trophyTipsDeleteAll')}
+      {t('trophyTipsDeleteAll').replaceAll('{lang}', lang)}
     </button>
   );
 }
