@@ -16,6 +16,7 @@ const SEARCH_TYPE_RANK = {
   [GAME_TYPE.STANDARD]: 2,
   [GAME_TYPE.SERVER_DEAD]: 3,
   [GAME_TYPE.QUICKWIN]: 3,
+  [GAME_TYPE.EASY_PLATIN]: 3,
 };
 
 function searchTypeRank(game) {

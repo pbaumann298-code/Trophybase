@@ -3,10 +3,9 @@ import {
   GAME_PK,
   GAME_FK,
   GAME_STRUCT,
-  GAME_TYPE,
   GUIDE_STRUCT,
 } from './gameSchema.js';
-import { getGameSelect, applyGuideCatalogFilter } from './gameQueries.js';
+import { getGameSelect, applyGuideCatalogFilter, excludeQuickwinStyleTypes } from './gameQueries.js';
 import { getGameUuid, mergeGameRows } from './gameModel.js';
 import { fetchContentCreatorsForGame } from './contentCreators.js';
 import { publicStudioCredits } from './studioCredits.js';
@@ -23,11 +22,12 @@ async function loadGamesByIds(supabase, gameIds, locale, includeReady, limit) {
   const ids = [...new Set((gameIds || []).filter(Boolean))];
   if (!ids.length) return [];
 
-  const { data, error } = await applyGuideCatalogFilter(
-    supabase.from(TABLES.games).select(getGameSelect()).in(GAME_PK, ids),
-    catalogOf(includeReady),
+  const { data, error } = await excludeQuickwinStyleTypes(
+    applyGuideCatalogFilter(
+      supabase.from(TABLES.games).select(getGameSelect()).in(GAME_PK, ids),
+      catalogOf(includeReady),
+    ),
   )
-    .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
     .order(GAME_STRUCT.createdAt, { ascending: false })
     .limit(limit);
 
@@ -88,11 +88,12 @@ export async function fetchSimilarGames(supabase, { game, locale, includeReady =
 
   async function byExact(column, value) {
     if (!value) return [];
-    const { data, error } = await applyGuideCatalogFilter(
-      supabase.from(TABLES.games).select(getGameSelect()).eq(column, value).neq(GAME_PK, exclude),
-      catalog,
+    const { data, error } = await excludeQuickwinStyleTypes(
+      applyGuideCatalogFilter(
+        supabase.from(TABLES.games).select(getGameSelect()).eq(column, value).neq(GAME_PK, exclude),
+        catalog,
+      ),
     )
-      .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
       .order(GAME_STRUCT.createdAt, { ascending: false })
       .limit(SIMILAR_FETCH);
 
@@ -102,11 +103,12 @@ export async function fetchSimilarGames(supabase, { game, locale, includeReady =
 
   async function byStudio(column, value) {
     if (!value) return [];
-    const { data, error } = await applyGuideCatalogFilter(
-      supabase.from(TABLES.games).select(getGameSelect()).ilike(column, `%${value}%`).neq(GAME_PK, exclude),
-      catalog,
+    const { data, error } = await excludeQuickwinStyleTypes(
+      applyGuideCatalogFilter(
+        supabase.from(TABLES.games).select(getGameSelect()).ilike(column, `%${value}%`).neq(GAME_PK, exclude),
+        catalog,
+      ),
     )
-      .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
       .order(GAME_STRUCT.createdAt, { ascending: false })
       .limit(SIMILAR_FETCH);
 

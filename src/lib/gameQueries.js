@@ -435,12 +435,20 @@ export function applyGuideCatalogFilter(query, catalog = {}) {
   return query;
 }
 
-/** Lässt Quickwins weg, behält Spiele ohne spiel_typ. */
+/** Lässt Quickwins und easy_platin weg, behält Spiele ohne spiel_typ. */
 export function applyExcludeQuickwins(query, exclude) {
   if (!exclude) return query;
+  const column = GAME_STRUCT.gameType;
   return query.or(
-    `${GAME_STRUCT.gameType}.is.null,${GAME_STRUCT.gameType}.neq.${GAME_TYPE.QUICKWIN}`,
+    `${column}.is.null,and(${column}.neq.${GAME_TYPE.QUICKWIN},${column}.neq.${GAME_TYPE.EASY_PLATIN})`,
   );
+}
+
+/** Ähnliche Spiele und neuere Ausgaben: keine Quickwins und kein easy_platin. */
+export function excludeQuickwinStyleTypes(query) {
+  return query
+    .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
+    .neq(GAME_STRUCT.gameType, GAME_TYPE.EASY_PLATIN);
 }
 
 async function searchLocalizedColumn(supabase, column, pattern, limit, catalog) {

@@ -1,4 +1,4 @@
-import { GAME_PK, GAME_TYPE, HOME_TAGS } from './gameSchema';
+import { GAME_PK, HOME_TAGS, isQuickwinStyleType } from './gameSchema';
 import { getGameTitle, getRouteSlug, mergeGameRows } from './gameModel';
 import {
   SEARCH_RESULT_CAP,
@@ -15,15 +15,19 @@ import { isGuidePublished } from './guidePublication';
 const LIMIT = 12;
 
 /**
- * Die Live-RPC `tb_get_home_rails` ist aktuell zu langsam (Statement-Timeout
- * nach ~2–3s). Solange die optimierte `supabase/home_rails.sql` nicht in
- * Supabase liegt, direkt Legacy nutzen – sonst wartet die Startseite erst
- * auf den Timeout und wirkt danach leer bzw. sehr träge.
+ * Optimierte `tb_get_home_rails` (supabase/home_rails.sql).
+ * Bei Timeout: einmal retry, dann Legacy mit begrenzter Parallelität
+ * (kein Stampede – der hat Chrome/DB totgeschlagen).
  */
-const HOME_RAILS_RPC_ENABLED = false;
+const HOME_RAILS_RPC_ENABLED = true;
+const HOME_RAILS_LEGACY_CONCURRENCY = 2;
+const HOME_RAILS_CACHE_MS = 30_000;
 
-/** Client-Soft-Timeout: nicht auf den vollen DB-Statement-Timeout warten. */
-const HOME_RAILS_RPC_SOFT_MS = 1200;
+/** @type {Promise<Record<string, object[]>|null>|null} */
+let homeRailsInflight = null;
+
+/** @type {{ locale: string, at: number, rails: Record<string, object[]> }|null} */
+let homeRailsCache = null;
 
 /**
  * Eindeutige Spiele nach games.id (Fallback: Route-Slug, dann Titel).
@@ -57,9 +61,7 @@ function catalogOptions(includeReady, excludeQuickwins = false) {
 }
 
 function withoutQuickwins(games) {
-  return (games ?? []).filter(
-    (game) => String(game?.spiel_typ ?? '').trim() !== GAME_TYPE.QUICKWIN,
-  );
+  return (games ?? []).filter((game) => !isQuickwinStyleType(game?.spiel_typ));
 }
 
 function titleLike(supabase, pattern, locale, includeReady, limit = LIMIT, excludeQuickwins = false) {
@@ -125,22 +127,7 @@ function shouldFallbackHomeRailsRpc(error) {
   );
 }
 
-/**
- * Eine RPC statt ~60 ilike-Suchen. Admin/Besucher entscheidet die Funktion
- * am JWT, nicht am Client-Flag.
- * @returns {Promise<Record<string, object[]>|null>} null = RPC fehlt/timeout, Legacy nutzen
- */
-async function fetchHomeRailsViaRpc(supabase, locale) {
-  const { data, error } = await supabase.rpc('tb_get_home_rails');
-  if (error) {
-    if (shouldFallbackHomeRailsRpc(error)) {
-      console.warn('Startseite tb_get_home_rails → Legacy:', error.message);
-      return null;
-    }
-    console.error('Startseite tb_get_home_rails:', error.message);
-    return emptyRails();
-  }
-
+function parseHomeRailsRpcRows(data, locale) {
   const byId = emptyRails();
   const grouped = new Map();
   for (const row of data ?? []) {
@@ -163,9 +150,62 @@ async function fetchHomeRailsViaRpc(supabase, locale) {
   return byId;
 }
 
+/**
+ * Eine RPC statt ~60 ilike-Suchen. Admin/Besucher entscheidet die Funktion
+ * am JWT, nicht am Client-Flag.
+ * StrictMode/Doppel-Mount teilen sich denselben In-Flight-Call.
+ * @returns {Promise<Record<string, object[]>|null>} null = RPC fehlt/timeout, Legacy nutzen
+ */
+async function fetchHomeRailsViaRpc(supabase, locale) {
+  if (homeRailsInflight) return homeRailsInflight;
+
+  homeRailsInflight = (async () => {
+    const runOnce = () => supabase.rpc('tb_get_home_rails');
+
+    let { data, error } = await runOnce();
+    if (error && shouldFallbackHomeRailsRpc(error)) {
+      // Kurzer Retry: oft hilft das nach Admin-Doppel-Mount / kalter Verbindung
+      await new Promise((r) => setTimeout(r, 250));
+      ({ data, error } = await runOnce());
+    }
+
+    if (error) {
+      if (shouldFallbackHomeRailsRpc(error) || isMissingHomeRailsRpc(error)) {
+        console.warn('Startseite tb_get_home_rails → Legacy:', error.message);
+        return null;
+      }
+      console.error('Startseite tb_get_home_rails:', error.message);
+      return emptyRails();
+    }
+
+    return parseHomeRailsRpcRows(data, locale);
+  })().finally(() => {
+    homeRailsInflight = null;
+  });
+
+  return homeRailsInflight;
+}
+
+async function mapPool(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function pump() {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      results[i] = await worker(items[i], i);
+    }
+  }
+  const n = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: n }, () => pump()));
+  return results;
+}
+
 async function fetchHomeRailsLegacy(supabase, locale, includeReady) {
-  const entries = await Promise.all(
-    HOME_CATEGORIES.map(async (cat) => {
+  const entries = await mapPool(
+    HOME_CATEGORIES,
+    HOME_RAILS_LEGACY_CONCURRENCY,
+    async (cat) => {
       try {
         const games = await cat.fetch(supabase, locale, includeReady);
         return [cat.id, games];
@@ -173,7 +213,7 @@ async function fetchHomeRailsLegacy(supabase, locale, includeReady) {
         console.error(`Kategorie ${cat.id}:`, err);
         return [cat.id, []];
       }
-    }),
+    },
   );
   return Object.fromEntries(entries);
 }
@@ -446,24 +486,28 @@ export function findHomeCategoryForQuery(query) {
   );
 }
 
-function withSoftTimeout(promise, ms) {
-  let timer;
-  const timeout = new Promise((resolve) => {
-    timer = setTimeout(() => resolve(null), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} [locale]
- * @param {boolean} [includeReady] nur Legacy-Fallback; die RPC liest das JWT
+ * @param {boolean} [includeReady] nur Legacy-Fallback (RPC ist immer PUBLISHED)
  */
 export async function fetchAllHomeCategories(supabase, locale = getLocale(), includeReady = false) {
-  let viaRpc = null;
-  if (HOME_RAILS_RPC_ENABLED) {
-    viaRpc = await withSoftTimeout(fetchHomeRailsViaRpc(supabase, locale), HOME_RAILS_RPC_SOFT_MS);
+  if (
+    homeRailsCache &&
+    homeRailsCache.locale === locale &&
+    Date.now() - homeRailsCache.at < HOME_RAILS_CACHE_MS
+  ) {
+    return railsForLocale(homeRailsCache.rails, locale);
   }
+
+  const viaRpc = HOME_RAILS_RPC_ENABLED
+    ? await fetchHomeRailsViaRpc(supabase, locale)
+    : null;
   const rails = viaRpc ?? (await fetchHomeRailsLegacy(supabase, locale, includeReady));
+
+  if (viaRpc) {
+    homeRailsCache = { locale, at: Date.now(), rails: viaRpc };
+  }
+
   return railsForLocale(rails, locale);
 }

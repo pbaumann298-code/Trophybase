@@ -12,6 +12,7 @@ import WatchlistButton from '../components/WatchlistButton';
 import ShareButton from '../components/ShareButton';
 import GuidePublishButton from '../components/GuidePublishButton';
 import AdminFollowupButton from '../components/AdminFollowupButton';
+import AdminGameTypeSelect from '../components/AdminGameTypeSelect';
 import GuideOnlineBadge from '../components/GuideOnlineBadge';
 import PortraitGuideHint from '../components/PortraitGuideHint';
 import FeatureHint from '../components/FeatureHint';
@@ -843,9 +844,19 @@ function GamePageContent({
                 <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-2 mb-6 flex flex-wrap items-center gap-x-3 gap-y-2">
                   <span>{gameTitle}</span>
                   {isAdmin ? (
-                    <span className="inline-flex items-center rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-0.5 font-mono text-[11px] font-bold uppercase tracking-wider text-zinc-300">
-                      {String(gameForPublication?.[GAME_STRUCT.gameType] ?? '').trim() || '—'}
-                    </span>
+                    <AdminGameTypeSelect
+                      gameId={gameUuid}
+                      gameType={String(gameForPublication?.[GAME_STRUCT.gameType] ?? '').trim()}
+                      onSaved={(gameType) =>
+                        setPublicationOverride((prev) => ({
+                          uuid: gameUuid,
+                          status: prev?.uuid === gameUuid ? prev.status : undefined,
+                          slug: prev?.uuid === gameUuid ? prev.slug : null,
+                          gameType,
+                          homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
+                        }))
+                      }
+                    />
                   ) : null}
                 </h2>
               </div>
@@ -901,7 +912,7 @@ function GamePageContent({
                     }))
                   }
                 />
-                <AdminFollowupButton user={sessionUser} gameId={gameUuid} title={gameTitle} />
+                <AdminFollowupButton user={sessionUser} gameId={gameUuid} />
               </div>
             </div>
 

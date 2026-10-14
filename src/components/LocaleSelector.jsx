@@ -75,38 +75,29 @@ function LocaleSelector({ className = '', menuAlign = 'left' }) {
 
 export default LocaleSelector;
 
-/** Admin-Register: alle 14 Sprachen, die Ansicht folgt der freigegebenen Sprache. */
+/** Admin-Register: alle Sprachen als Menü. Die Ansicht folgt der freigegebenen Sprache. */
 export function LocaleRegister({ className = '' }) {
   const { globalLocale, setGlobalLocale, t } = useLocale();
   const options = localeOptions(SUPPORTED_LOCALES);
+  const value = options.some((opt) => opt.code === globalLocale) ? globalLocale : (options[0]?.code ?? '');
+
+  if (!options.length) return null;
 
   return (
-    <div
-      role="tablist"
-      aria-label={t('language')}
-      className={`flex flex-wrap gap-1 ${className}`}
-    >
-      {options.map((opt) => {
-        const active = opt.code === globalLocale;
-        return (
-          <button
-            key={opt.code}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            title={opt.label}
-            aria-label={opt.label}
-            onClick={() => setGlobalLocale(opt.code, { unlock: true })}
-            className={`inline-flex h-7 w-7 items-center justify-center rounded-md border text-sm leading-none transition ${
-              active
-                ? 'border-[#00ff66]/50 bg-[#00ff66]/10'
-                : 'border-zinc-800 bg-[#121314] hover:border-zinc-700'
-            }`}
-          >
-            <span aria-hidden>{opt.flag}</span>
-          </button>
-        );
-      })}
-    </div>
+    <label className={`inline-flex min-w-0 items-center ${className}`}>
+      <span className="sr-only">{t('language')}</span>
+      <select
+        value={value}
+        aria-label={t('language')}
+        onChange={(event) => setGlobalLocale(event.target.value, { unlock: true })}
+        className="max-w-[12rem] rounded-lg border border-zinc-800 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200"
+      >
+        {options.map((opt) => (
+          <option key={opt.code} value={opt.code}>
+            {opt.flag} {opt.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

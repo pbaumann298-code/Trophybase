@@ -1,4 +1,4 @@
-import { GAME_STRUCT, GAME_TYPE, GAME_FIELDS } from './gameSchema.js';
+import { GAME_STRUCT, GAME_FIELDS, isQuickwinStyleType } from './gameSchema.js';
 
 const STUDIO_HINT =
   /\b(games?|studios?|entertainment|interactive|software|digital|productions?|inc\.?|ltd\.?|llc|gmbh|corp|corporation|limited|company|co\.|fromsoftware|ubisoft|capcom|nintendo|sony|bandai|namco|square|enix|sega|konami|activision|bethesda|rockstar|naughty|santa monica|electronic arts|\bea\b)\b/i;
@@ -73,7 +73,7 @@ export function publicStudioCredits(game) {
     studio = '';
   }
 
-  if (gameType === GAME_TYPE.QUICKWIN && publisher && !same) {
+  if (isQuickwinStyleType(gameType) && publisher && !same) {
     return { studio: publisher, publisher: '' };
   }
 

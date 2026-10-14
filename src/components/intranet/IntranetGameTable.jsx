@@ -108,7 +108,7 @@ function GameTypeCell({ game, busy, onSelect }) {
 
 function IntranetGameTable({ games, sessionUser, onGamePatch }) {
   const userId = sessionUser?.id ?? '';
-  const followups = useAdminFollowups(userId);
+  const { entries: followups, error: followupError } = useAdminFollowups(userId);
   const followedIds = new Set(followups.map((entry) => entry.id));
   const [busyKey, setBusyKey] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -224,27 +224,28 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
     patch(game.id, { status });
   };
 
-  const handleFollowup = (game) => {
+  const handleFollowup = async (game) => {
     if (!userId) {
       setErrorMessage('Wiedervorlage braucht eine angemeldete Admin-Sitzung.');
       return;
     }
+    const key = `${game.id}:followup`;
+    setBusyKey(key);
     setErrorMessage('');
     try {
-      toggleAdminFollowup(userId, {
-        id: game.id,
-        title: formatIntranetTitles(game.spieltitel),
-      });
+      await toggleAdminFollowup(userId, { id: game.id });
     } catch (error) {
       setErrorMessage(error.message || 'Wiedervorlage konnte nicht gespeichert werden.');
+    } finally {
+      setBusyKey('');
     }
   };
 
   return (
     <div className="space-y-3">
-      {errorMessage ? (
+      {errorMessage || followupError ? (
         <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/25 rounded-lg px-3 py-2">
-          {errorMessage}
+          {errorMessage || followupError}
         </p>
       ) : null}
       {notice ? (
@@ -378,6 +379,7 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
                       <button
                         type="button"
                         onClick={() => handleFollowup(game)}
+                        disabled={busyKey === `${game.id}:followup`}
                         aria-pressed={noted}
                         className={`text-[10px] font-bold uppercase tracking-wider ${
                           noted ? 'text-amber-300' : 'text-zinc-400 hover:text-amber-200'

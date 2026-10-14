@@ -1,5 +1,5 @@
 import { GAME_I18N, GAME_STRUCT, GAME_TYPE, TABLES } from './gameSchema';
-import { getGameSelect, applyGuideCatalogFilter } from './gameQueries';
+import { applyGuideCatalogFilter, excludeQuickwinStyleTypes, getGameSelect } from './gameQueries';
 import { getGameTitle, getGameUuid, mergeGameRows } from './gameModel';
 import { getLocale } from './locale';
 import { quickwinPublisherKey } from './quickwinCatalog';
@@ -71,12 +71,12 @@ function titleOrFilter(stem) {
 }
 
 function livingCatalog(query, includeReady) {
-  return applyGuideCatalogFilter(query, {
-    includeReady: Boolean(includeReady),
-    publishedOnly: !includeReady,
-  })
-    .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
-    .neq(GAME_STRUCT.gameType, GAME_TYPE.SERVER_DEAD);
+  return excludeQuickwinStyleTypes(
+    applyGuideCatalogFilter(query, {
+      includeReady: Boolean(includeReady),
+      publishedOnly: !includeReady,
+    }),
+  ).neq(GAME_STRUCT.gameType, GAME_TYPE.SERVER_DEAD);
 }
 
 /**

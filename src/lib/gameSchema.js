@@ -20,6 +20,8 @@ export const TABLES = {
   contentCreators: 'content_creators',
   /** Distinct (game_id, creator_id) aus game_guides. Siehe game_guides_creator_id.sql. */
   gameGuideCreators: 'game_guide_creators',
+  /** Temporäre Admin-Merkliste. Siehe game_wiedervorlage.sql. Kein Fremdschlüssel. */
+  gameWiedervorlage: 'game_wiedervorlage',
 };
 
 export const QA_STATUS = {
@@ -74,7 +76,7 @@ export const GAME_STRUCT = {
   originalLocale: 'original_locale',
   createdAt: 'created_at',
   slug: 'slug',
-  /** false = darf nicht in den Suchindex (z. B. Quickwins, nur über die Suche auffindbar) */
+  /** false = darf nicht in den Suchindex (Quickwin, easy_platin, Servertot) */
   isIndexable: 'is_indexable',
   /** Guide-Seitenaufrufe; Startseite „Beliebt“ sortiert danach */
   views: 'views',
@@ -105,12 +107,22 @@ export const HOME_TAG_RAILS = {
 /** Werte von games.spiel_typ */
 export const GAME_TYPE = {
   QUICKWIN: 'Quickwin',
+  /** Wie Quickwin: online möglich, noindex, noch ohne eigene Übersicht. */
+  EASY_PLATIN: 'easy_platin',
   EVERGREEN: 'Evergreen',
   PREMIUM: 'Premium',
   STANDARD: 'Standard',
   /** Online mit Slug, aber nicht in der Sitemap. Einbindung kommt später. */
   SERVER_DEAD: 'Servertot',
+  /** Guide-Text ist nicht brauchbar. Bleibt noindex. */
+  UNREADABLE: 'Unlesbar',
 };
+
+/** Quickwin und easy_platin: in der normalen Suche ausblendbar, nicht indexiert. */
+export function isQuickwinStyleType(gameType) {
+  const type = String(gameType ?? '').trim();
+  return type === GAME_TYPE.QUICKWIN || type === GAME_TYPE.EASY_PLATIN;
+}
 
 /** Startseiten-Reihen, die nur redaktionelle Guides zeigen (keine Quickwins). */
 export const HOME_FEATURED_GAME_TYPES = [GAME_TYPE.EVERGREEN, GAME_TYPE.PREMIUM];

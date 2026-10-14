@@ -87,14 +87,19 @@ $$;
 alter table public.games enable row level security;
 select public.tb_drop_policies('games');
 
-create policy games_select
+-- Zwei Policies statt OR mit tb_is_admin(): sonst oft Seq-Scan ohne
+-- Index auf (status->>'guide_de') – Startseite/Suche timeouten fuer Anon.
+create policy games_select_published
   on public.games
   for select
   to anon, authenticated
-  using (
-    public.tb_is_admin()
-    or coalesce(status ->> 'guide_de', '') = 'PUBLISHED'
-  );
+  using (coalesce(status ->> 'guide_de', '') = 'PUBLISHED');
+
+create policy games_select_admin
+  on public.games
+  for select
+  to authenticated
+  using (public.tb_is_admin());
 
 create policy games_admin_write
   on public.games

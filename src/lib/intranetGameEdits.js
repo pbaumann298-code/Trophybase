@@ -30,7 +30,7 @@ export function statusAfterGuideDiscard(currentStatus) {
 
 const GAME_TYPE_VALUES = new Set(Object.values(GAME_TYPE));
 
-/** Diese Typen gehören in die Sitemap. Quickwin und Servertot bleiben noindex. */
+/** Diese Typen gehören in die Sitemap. Quickwin, easy_platin, Servertot und Unlesbar bleiben noindex. */
 const INDEXABLE_GAME_TYPES = new Set([
   GAME_TYPE.STANDARD,
   GAME_TYPE.PREMIUM,
@@ -40,7 +40,7 @@ const INDEXABLE_GAME_TYPES = new Set([
 /**
  * Setzt games.spiel_typ auf einen der redaktionellen Typen.
  * Standard, Premium und Evergreen setzen is_indexable mit auf true.
- * Quickwin und Servertot setzen es auf false. Der Slug bleibt unverändert.
+ * Quickwin, easy_platin, Servertot und Unlesbar setzen es auf false. Der Slug bleibt unverändert.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
  * @param {string} gameType

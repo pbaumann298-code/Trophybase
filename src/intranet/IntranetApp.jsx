@@ -41,7 +41,7 @@ function IntranetApp() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState('games');
-  const followups = useAdminFollowups(sessionUser?.id);
+  const { entries: followups } = useAdminFollowups(sessionUser?.id);
 
   useEffect(() => {
     let cancelled = false;

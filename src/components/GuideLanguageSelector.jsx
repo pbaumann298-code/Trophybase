@@ -11,6 +11,7 @@ function GuideLanguageSelector({
   const { globalLocale, t } = useLocale();
   const options = localeOptions(locales ?? [globalLocale]);
   const effective = resolveGuideLanguage(globalLocale, guideLanguageOverride);
+  const value = options.some((opt) => opt.code === effective) ? effective : options[0]?.code ?? '';
 
   if (options.length < 2) return null;
 
@@ -18,38 +19,24 @@ function GuideLanguageSelector({
     <div
       className={`flex flex-wrap items-center gap-2 sm:gap-3 rounded-xl border border-zinc-800/80 bg-[#121314]/90 px-3 py-2.5 mb-4 ${className}`}
     >
-      <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 flex-shrink-0">
+      <label className="inline-flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
         {t('guideLanguage')}
-      </span>
-
-      <div className="flex flex-wrap items-center gap-1.5">
-        {options.map((opt) => {
-          const isActive = effective === opt.code;
-          const isOverride = guideLanguageOverride === opt.code;
-          return (
-            <button
-              key={opt.code}
-              type="button"
-              title={opt.label}
-              onClick={() => {
-                if (opt.code === globalLocale) {
-                  onGuideLanguageOverride(null);
-                  return;
-                }
-                onGuideLanguageOverride(isOverride && opt.code !== globalLocale ? null : opt.code);
-              }}
-              className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition ${
-                isActive
-                  ? 'border-[#00ff66]/40 bg-[#00ff66]/10 text-[#00ff66]'
-                  : 'border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
-              }`}
-            >
-              <span aria-hidden>{opt.flag}</span>
-              <span className="font-mono text-[10px]">{opt.short}</span>
-            </button>
-          );
-        })}
-      </div>
+        <select
+          value={value}
+          aria-label={t('guideLanguage')}
+          onChange={(event) => {
+            const code = event.target.value;
+            onGuideLanguageOverride(code === globalLocale ? null : code);
+          }}
+          className="rounded-lg border border-zinc-700 bg-[#121314] px-2 py-1 text-xs font-sans normal-case tracking-normal text-zinc-200"
+        >
+          {options.map((opt) => (
+            <option key={opt.code} value={opt.code}>
+              {opt.flag} {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <span className="text-[10px] font-mono text-zinc-600 ml-auto">
         {t('guideLanguageHint')}: {globalLocale.toUpperCase()}
