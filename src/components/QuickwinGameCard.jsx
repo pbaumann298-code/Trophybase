@@ -14,7 +14,7 @@ import { publicStudioCredits } from '../lib/studioCredits';
 import { gameGuidePath } from '../lib/routeUtils';
 import { fetchGameGuideBundle } from '../lib/guideQueries';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
-import { clearGameGuideTips, saveTrophyGuideTip } from '../lib/intranetGameEdits';
+import { clearGameGuideTips, saveTrophyGuideTip, setAchievementFlags } from '../lib/intranetGameEdits';
 import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
 import {
   buildBossOverviewData,
@@ -143,6 +143,16 @@ function QuickwinGameCard({
       getTrophyIdKey(trophy) === achievementId
         ? { ...trophy, guide_tip: next, guide_tip_long: next ? trophy.guide_tip_long : '' }
         : trophy
+    )));
+    return null;
+  };
+
+  const saveTrophyFlags = async (trophy, patch) => {
+    const achievementId = getTrophyIdKey(trophy);
+    const { error } = await setAchievementFlags(supabase, gameUuid, achievementId, patch);
+    if (error) return error;
+    setTrophies((prev) => prev.map((row) => (
+      getTrophyIdKey(row) === achievementId ? { ...row, ...patch } : row
     )));
     return null;
   };
@@ -359,6 +369,7 @@ function QuickwinGameCard({
                 onToggle={toggleTrophy}
                 mainGameTitle={title || 'Hauptspiel'}
                 guideTipEditor={isAdmin ? saveGuideTip : null}
+                onTrophyFlags={isAdmin ? saveTrophyFlags : null}
               />
             </div>
           )}

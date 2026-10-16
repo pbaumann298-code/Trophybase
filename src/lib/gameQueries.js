@@ -435,6 +435,18 @@ export function applyGuideCatalogFilter(query, catalog = {}) {
   return query;
 }
 
+/**
+ * Admin-Suche: alle Spiele, nur veröffentlichte Guides, oder nur rohe (FERTIG).
+ * Roh heißt guide_* = FERTIG in irgendeiner Sprache, noch nicht PUBLISHED.
+ * @param {object} query
+ * @param {'all'|'published'|'raw'} [scope]
+ */
+export function applyStaffGuideScope(query, scope = 'all') {
+  if (scope === 'published') return applyGuideCatalogFilter(query, { publishedOnly: true });
+  if (scope === 'raw') return query.or(guideStatusMatch(GUIDE_PUBLICATION.DONE));
+  return query;
+}
+
 /** Lässt Quickwins und easy_platin weg, behält Spiele ohne spiel_typ. */
 export function applyExcludeQuickwins(query, exclude) {
   if (!exclude) return query;

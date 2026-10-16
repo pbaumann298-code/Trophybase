@@ -6,6 +6,7 @@ import { HOME_CATEGORIES, fetchAllHomeCategories } from '../lib/homeCategories';
 import { isAdminUser } from '../lib/adminAccess';
 import { useLocale } from '../context/LocaleContext';
 import SearchSkipQuickwins from '../components/SearchSkipQuickwins';
+import { QUICKWINS_PATH } from '../lib/routeUtils';
 import '../styles/home.css';
 
 function HomePage({
@@ -16,6 +17,7 @@ function HomePage({
   onCategorySearch,
   onRequestLogin,
   onOpenAdvancedSearch,
+  onOpenQuickwins,
   sessionUser = null,
   excludeQuickwins = true,
   onExcludeQuickwinsChange,
@@ -24,7 +26,7 @@ function HomePage({
   const [categoryGames, setCategoryGames] = useState({});
   const [loading, setLoading] = useState(true);
   const searchFormRef = useRef(null);
-  const includeReady = isAdminUser(sessionUser);
+  const isAdmin = isAdminUser(sessionUser);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,7 +34,7 @@ function HomePage({
     async function load() {
       setLoading(true);
       try {
-        const byId = await fetchAllHomeCategories(supabase, globalLocale, includeReady);
+        const byId = await fetchAllHomeCategories(supabase, globalLocale);
         if (!cancelled) setCategoryGames(byId);
       } catch (err) {
         console.error('Startseite: Kategorien konnten nicht geladen werden:', err);
@@ -46,7 +48,7 @@ function HomePage({
     return () => {
       cancelled = true;
     };
-  }, [globalLocale, includeReady]);
+  }, [globalLocale]);
 
   return (
     <div className="home-landing w-full min-w-0 overflow-x-hidden box-border">
@@ -90,6 +92,29 @@ function HomePage({
           >
             {t('advancedSearch')}
           </a>
+          <a
+            href={QUICKWINS_PATH}
+            className="home-quickwins-tile"
+            onClick={(e) => {
+              e.preventDefault();
+              onOpenQuickwins?.();
+            }}
+          >
+            <article className="home-tile" style={{ '--tile-accent': '#00ff66' }}>
+              <div className="home-tile-cover-wrap">
+                <img
+                  src="/images/quickwins-tile.jpg"
+                  className="home-tile-cover"
+                  alt=""
+                  loading="lazy"
+                />
+                <div className="home-tile-shine" aria-hidden />
+              </div>
+              <div className="home-tile-meta">
+                <p className="home-tile-title">{t('quickwinsTitle')}</p>
+              </div>
+            </article>
+          </a>
         </div>
       </header>
 
@@ -107,7 +132,7 @@ function HomePage({
             loading={loading}
             onCategorySearch={onCategorySearch}
             onRequestLogin={onRequestLogin}
-            isAdmin={includeReady}
+            isAdmin={isAdmin}
           />
         ))}
       </div>

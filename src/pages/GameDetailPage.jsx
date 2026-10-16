@@ -13,6 +13,7 @@ import ShareButton from '../components/ShareButton';
 import GuidePublishButton from '../components/GuidePublishButton';
 import AdminFollowupButton from '../components/AdminFollowupButton';
 import AdminGameTypeSelect from '../components/AdminGameTypeSelect';
+import AdminHardwareSelect from '../components/AdminHardwareSelect';
 import GuideOnlineBadge from '../components/GuideOnlineBadge';
 import PortraitGuideHint from '../components/PortraitGuideHint';
 import FeatureHint from '../components/FeatureHint';
@@ -42,7 +43,8 @@ import {
 } from '../lib/hiddenTrophyPreference';
 import { isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished } from '../lib/guidePublication';
-import { clearGameGuideTips, clearIntranetCover, saveTrophyGuideTip, setIntranetIgdbCover } from '../lib/intranetGameEdits';
+import { clearGameGuideTips, clearIntranetCover, saveTrophyGuideTip, setAchievementFlags, setIntranetIgdbCover } from '../lib/intranetGameEdits';
+import { gameGuidePath, withGuideTabParam, writeAppPath } from '../lib/routeUtils';
 import { getTrophyIdKey } from '../lib/trophyQueries';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
@@ -85,6 +87,8 @@ function GamePageContent({
   openGame,
   onOpenHelp,
   onActiveTrophies,
+  onReplaceTrophies,
+  onGameChange,
   startTrophyLoad,
   fromSearch = false,
   backLabel = '',
@@ -277,6 +281,17 @@ function GamePageContent({
     return null;
   };
 
+  const saveTrophyFlags = async (trophy, patch) => {
+    const achievementId = getTrophyIdKey(trophy);
+    const { totals, error } = await setAchievementFlags(supabase, gameId, achievementId, patch);
+    if (error) return error;
+    onReplaceTrophies?.((rows) => rows.map((row) => (
+      getTrophyIdKey(row) === achievementId ? { ...row, ...patch } : row
+    )));
+    if (totals) onGameChange?.(totals);
+    return null;
+  };
+
   const clearAllGuideTips = async () => {
     const { error } = await clearGameGuideTips(supabase, gameId, effectiveGuideLang);
     if (error) {
@@ -363,7 +378,7 @@ function GamePageContent({
       }
       const result = await loadRelatedGuides(supabase, selectedGame, {
         locale: globalLocale,
-        includeReady: isAdmin,
+        includeReady: false,
       });
       if (!cancelled) {
         setRelatedGuides({
@@ -377,7 +392,7 @@ function GamePageContent({
     return () => {
       cancelled = true;
     };
-  }, [selectedGame, globalLocale, isAdmin]);
+  }, [selectedGame, globalLocale]);
 
   const isGuideLoading = guidesLoading || loadingGuide;
 
@@ -587,6 +602,7 @@ function GamePageContent({
             onToggle={toggleTrophy}
             mainGameTitle={gameTitle || 'Hauptspiel'}
             guideTipEditor={isAdmin ? saveGuideTip : null}
+            onTrophyFlags={isAdmin ? saveTrophyFlags : null}
           />
         </div>
       )}
@@ -926,9 +942,24 @@ function GamePageContent({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4 sm:gap-x-8 w-full max-w-xl min-w-0 text-sm border-t border-zinc-800/60 pt-4">
               <div className="flex justify-between border-b border-zinc-800/40 pb-2 sm:col-span-2">
                 <span className="text-zinc-500 font-mono text-xs uppercase">{t('searchConsole')}</span>
-                <span className="text-sky-300 font-semibold text-right">
-                  {selectedGame[GAME_FIELDS.console] || '—'}
-                </span>
+                {isAdmin ? (
+                  <AdminHardwareSelect
+                    gameId={gameUuid}
+                    hardware={selectedGame[GAME_FIELDS.console]}
+                    onSaved={(hardware, urlChanged) => {
+                      const nextGame = { ...selectedGame, [GAME_STRUCT.hardware]: hardware };
+                      onGameChange?.({ [GAME_STRUCT.hardware]: hardware });
+                      if (!urlChanged) return;
+                      const nextPath = gameGuidePath(nextGame, globalLocale);
+                      if (!nextPath || nextPath === '/') return;
+                      writeAppPath(withGuideTabParam(nextPath, activeTab), { replace: true });
+                    }}
+                  />
+                ) : (
+                  <span className="text-sky-300 font-semibold text-right">
+                    {selectedGame[GAME_FIELDS.console] || '—'}
+                  </span>
+                )}
               </div>
               <div className="flex justify-between border-b border-zinc-800/40 pb-2">
                 <span className="text-zinc-500 font-mono text-xs uppercase">{t('releaseYear')}</span>

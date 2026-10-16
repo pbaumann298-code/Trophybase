@@ -68,15 +68,14 @@ function normalizeHardwareToken(part) {
 }
 
 /**
- * games.hardware → URL-Segment (ps5, ps4, …).
- * Mehrfachplattformen wie „PS4/PS5“ nehmen die höchste Generation.
- * Unbekannt / leer → null (kein Pretty-URL).
+ * Alle erkannten Konsolen in games.hardware, ohne Rangfolge.
+ * „PS4/PS5“ ergibt ['ps4', 'ps5']. Unbekanntes fällt weg.
  * @param {unknown} hardware
- * @returns {string|null}
+ * @returns {string[]}
  */
-export function hardwareToUrlSegment(hardware) {
+export function collectHardwareSegments(hardware) {
   const raw = String(hardware ?? '').trim();
-  if (!raw) return null;
+  if (!raw) return [];
 
   const tokens = raw.split(HARDWARE_SPLIT).map((part) => part.trim()).filter(Boolean);
   const parts = tokens.length > 0 ? tokens : [raw];
@@ -85,14 +84,42 @@ export function hardwareToUrlSegment(hardware) {
   const segments = [];
   for (const part of parts) {
     const segment = normalizeHardwareToken(part);
-    if (segment && !segments.includes(segment)) segments.push(segment);
+    if (segment && URL_HARDWARE_SEGMENTS.includes(segment) && !segments.includes(segment)) {
+      segments.push(segment);
+    }
   }
 
   if (segments.length === 0) {
     const fallback = normalizeHardwareToken(raw);
-    return fallback && URL_HARDWARE_SEGMENTS.includes(fallback) ? fallback : null;
+    if (fallback && URL_HARDWARE_SEGMENTS.includes(fallback)) segments.push(fallback);
   }
 
+  return segments;
+}
+
+/**
+ * Abgehakte Konsolen → Spaltenwert, älteste zuerst („PS4/PS5“).
+ * @param {string[]} segments
+ */
+export function formatHardwareValue(segments) {
+  const wanted = new Set(segments ?? []);
+  return URL_HARDWARE_SEGMENTS
+    .filter((segment) => wanted.has(segment))
+    .sort((a, b) => (HARDWARE_RANK[a] ?? 0) - (HARDWARE_RANK[b] ?? 0))
+    .map((segment) => HARDWARE_LABELS[segment])
+    .join('/');
+}
+
+/**
+ * games.hardware → URL-Segment (ps5, ps4, …).
+ * Mehrfachplattformen wie „PS4/PS5“ nehmen die höchste Generation.
+ * Unbekannt / leer → null (kein Pretty-URL).
+ * @param {unknown} hardware
+ * @returns {string|null}
+ */
+export function hardwareToUrlSegment(hardware) {
+  const segments = collectHardwareSegments(hardware);
+  if (segments.length === 0) return null;
   segments.sort((a, b) => (HARDWARE_RANK[b] ?? 0) - (HARDWARE_RANK[a] ?? 0));
   return segments[0] ?? null;
 }

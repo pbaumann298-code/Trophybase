@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import CollapsibleSectionCard from './CollapsibleSectionCard';
 import Reportable from './Reportable';
 import TrophyArtwork from './TrophyArtwork';
@@ -62,6 +62,7 @@ function TrophyTipEditor({ trophy, onSave }) {
         disabled={busy || !draft.trim()}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
+          if (!window.confirm(t('trophyTipDeleteConfirm'))) return;
           setDraft('');
           commit('');
         }}
@@ -73,7 +74,77 @@ function TrophyTipEditor({ trophy, onSave }) {
   );
 }
 
-function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, guideTipEditor }) {
+function TrophyKindMenu({ trophy, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointer = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
+  }, [open]);
+
+  const toggle = async (key) => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    const next = !trophy[key];
+    const saveError = await onChange({ [key]: next });
+    setBusy(false);
+    if (saveError) setError(saveError.message || 'Konnte nicht gespeichert werden.');
+  };
+
+  return (
+    <div ref={rootRef} className="relative mt-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        disabled={busy}
+        onClick={() => setOpen((value) => !value)}
+        className="rounded-md border border-zinc-700 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 disabled:opacity-50"
+      >
+        {busy ? '…' : 'Trophäen-Art'}
+      </button>
+      {open ? (
+        <div className="absolute left-0 z-30 mt-1 w-56 rounded-xl border border-zinc-700 bg-[#1a1b1c] p-3">
+          <label className="flex items-center gap-2 text-xs text-zinc-500">
+            <input type="checkbox" checked={Boolean(trophy.is_hidden)} disabled className="h-3.5 w-3.5" />
+            Versteckt
+            <span className="font-mono text-[9px] uppercase tracking-wider">Sony</span>
+          </label>
+          <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-sky-300">
+            <input
+              type="checkbox"
+              checked={Boolean(trophy.is_online)}
+              disabled={busy}
+              onChange={() => toggle('is_online')}
+              className="h-3.5 w-3.5 rounded-sm border-zinc-600 bg-[#121314] text-[#00ff66] focus:ring-0"
+            />
+            Online
+          </label>
+          <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-rose-300">
+            <input
+              type="checkbox"
+              checked={Boolean(trophy.is_missable)}
+              disabled={busy}
+              onChange={() => toggle('is_missable')}
+              className="h-3.5 w-3.5 rounded-sm border-zinc-600 bg-[#121314] text-[#00ff66] focus:ring-0"
+            />
+            Verpassbar
+          </label>
+          {error ? <p className="mt-2 text-[10px] text-red-400">{error}</p> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, guideTipEditor, onTrophyFlags }) {
   const { t } = useLocale();
   const trophyKey = getTrophyIdKey(trophy);
   const trophyDesc = getTrophyDescription(trophy);
@@ -184,6 +255,9 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, gu
               )}
             </div>
           )}
+          {onTrophyFlags && !conceal ? (
+            <TrophyKindMenu trophy={trophy} onChange={(patch) => onTrophyFlags(trophy, patch)} />
+          ) : null}
           <span className="inline-flex items-center mt-2">
             <TrophyTypeIcon type={trophy.trophy_type} size={22} />
           </span>
@@ -232,7 +306,7 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, gu
   );
 }
 
-function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, hideCompleted, revealHidden, onToggle, guideTipEditor }) {
+function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, hideCompleted, revealHidden, onToggle, guideTipEditor, onTrophyFlags }) {
   const earnedSet = earnedTrophyIds ?? new Set();
   const visible = trophies.filter((t) => {
     const key = getTrophyIdKey(t);
@@ -264,6 +338,7 @@ function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, hideC
             conceal={Boolean(t.is_hidden) && !revealHidden && !isUnlocked}
             onToggle={onToggle}
             guideTipEditor={guideTipEditor}
+            onTrophyFlags={onTrophyFlags}
           />
         );
       })}
@@ -283,6 +358,7 @@ function TrophyGroupedChecklist({
   /** Kein zusätzlicher Karten-Reiter, wenn die Liste schon in einer Zeile steckt. */
   flat = false,
   guideTipEditor = null,
+  onTrophyFlags = null,
 }) {
   const { mainGame, dlcGroups } = useMemo(
     () => groupTrophiesByPack(trophies),
@@ -317,6 +393,7 @@ function TrophyGroupedChecklist({
             revealHidden={revealHidden}
             onToggle={onToggle}
             guideTipEditor={guideTipEditor}
+            onTrophyFlags={onTrophyFlags}
           />
         )}
         {dlcGroups.map((dlc) => {
@@ -344,6 +421,7 @@ function TrophyGroupedChecklist({
                 revealHidden={revealHidden}
                 onToggle={onToggle}
                 guideTipEditor={guideTipEditor}
+                onTrophyFlags={onTrophyFlags}
               />
             </CollapsibleSectionCard>
           );
@@ -371,6 +449,7 @@ function TrophyGroupedChecklist({
             revealHidden={revealHidden}
             onToggle={onToggle}
             guideTipEditor={guideTipEditor}
+            onTrophyFlags={onTrophyFlags}
           />
         </CollapsibleSectionCard>
       )}
@@ -400,6 +479,7 @@ function TrophyGroupedChecklist({
               revealHidden={revealHidden}
               onToggle={onToggle}
               guideTipEditor={guideTipEditor}
+              onTrophyFlags={onTrophyFlags}
             />
           </CollapsibleSectionCard>
         );

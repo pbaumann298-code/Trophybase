@@ -31,6 +31,7 @@ import {
   navigateToGuideHelp,
   navigateToPrivacy,
   navigateToAdvancedSearch,
+  navigateToQuickwins,
   navigateToSimpleSearch,
   QUICKWINS_PATH,
   SERVERTOT_PATH,
@@ -301,6 +302,12 @@ function App() {
     setEarnedTrophyIds(earnedIds);
     setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
   }, [selectedGame]);
+  const replaceActiveTrophies = useCallback((updater) => {
+    setActiveTrophies((prev) => updater(prev ?? []));
+  }, []);
+  const patchSelectedGame = useCallback((partial) => {
+    setSelectedGame((prev) => (prev ? { ...prev, ...partial } : prev));
+  }, []);
 
   useEffect(() => {
     const onPopState = () => {
@@ -437,7 +444,6 @@ function App() {
     setCurrentView('search-results');
     if (updateUrl) navigateToSimpleSearch(q, { page, replace, excludeQuickwins: exclude });
     const { data, error } = await searchGames(supabase, q, {
-      includeReady: isAdminUser(sessionUser),
       locale: globalLocale,
       excludeQuickwins: exclude,
     });
@@ -679,6 +685,13 @@ function App() {
     window.scrollTo(0, 0);
   }, [excludeQuickwins]);
 
+  const openQuickwins = useCallback(() => {
+    setCurrentView('quickwins');
+    setSelectedGame(null);
+    navigateToQuickwins();
+    window.scrollTo(0, 0);
+  }, []);
+
   const maintenanceBypass = hasMaintenanceBypass(sessionUser);
   const isQaAdminView = currentView === 'qa_admin';
 
@@ -785,6 +798,7 @@ function App() {
                 onCategorySearch={runSearch}
                 sessionUser={sessionUser}
                 onOpenAdvancedSearch={openAdvancedSearch}
+                onOpenQuickwins={openQuickwins}
                 excludeQuickwins={excludeQuickwins}
                 onExcludeQuickwinsChange={setExcludeQuickwins}
               />
@@ -819,7 +833,6 @@ function App() {
               <AdvancedSearchPage
                 openGame={openGuide}
                 onBack={goHome}
-                includeReady={isAdminUser(sessionUser)}
               />
             )}
 
@@ -828,7 +841,6 @@ function App() {
                 openGame={openGuide}
                 onBack={goHome}
                 onRequestLogin={() => setCurrentView('login')}
-                includeReady={isAdminUser(sessionUser)}
                 isAdmin={isAdminUser(sessionUser)}
                 sessionUser={sessionUser}
               />
@@ -839,7 +851,6 @@ function App() {
                 openGame={openGuide}
                 onBack={goHome}
                 onRequestLogin={() => setCurrentView('login')}
-                includeReady={isAdminUser(sessionUser)}
                 isAdmin={isAdminUser(sessionUser)}
                 sessionUser={sessionUser}
                 gameType={GAME_TYPE.SERVER_DEAD}
@@ -888,6 +899,8 @@ function App() {
                 openGame={openGuide}
                 onOpenHelp={openGuideHelp}
                 onActiveTrophies={handleActiveTrophies}
+                onReplaceTrophies={replaceActiveTrophies}
+                onGameChange={patchSelectedGame}
                 startTrophyLoad={startTrophyLoad}
                 fromSearch={
                   guideReturnView === 'search-results' || guideReturnView === 'advanced-search'

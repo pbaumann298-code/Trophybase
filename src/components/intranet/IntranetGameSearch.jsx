@@ -8,8 +8,15 @@ import IntranetGameTable from './IntranetGameTable';
 const FIELD_CLASS =
   'bg-[#121314] border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-200 focus:outline-hidden focus:border-[#00ff66]/40 w-full';
 
+const GUIDE_SCOPES = [
+  { id: 'all', label: 'Alle' },
+  { id: 'published', label: 'Veröffentlicht' },
+  { id: 'raw', label: 'Roh (FERTIG)' },
+];
+
 function emptyFilters() {
   return {
+    guideScope: 'all',
     title: '',
     ecosystem: '',
     hardware: '',
@@ -93,11 +100,33 @@ function IntranetGameSearch({ sessionUser }) {
       <div>
         <h2 className="text-lg font-bold text-white mb-1">Spiele</h2>
         <p className="text-sm text-zinc-500 max-w-3xl leading-relaxed">
-          Komplette <span className="text-zinc-400 font-mono">games</span>-Tabelle, ohne Filter
-          nach Veröffentlichung. Spieltyp, Home-Tags und einzelne Status-Werte lassen sich direkt
+          Komplette <span className="text-zinc-400 font-mono">games</span>-Tabelle. Der Schalter
+          grenzt auf veröffentlichte Guides oder auf rohe Guides ein (status guide_* = FERTIG,
+          noch offline). Spieltyp, Home-Tags und einzelne Status-Werte lassen sich direkt
           in der Zeile ändern. Die Tags kommen aus <span className="text-zinc-400 font-mono">home_tag_defs</span>.
           Leere Felder werden ignoriert. Ohne jedes Feld: bis zu {INTRANET_GAME_LIMIT} Einträge.
         </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {GUIDE_SCOPES.map((scope) => (
+          <button
+            key={scope.id}
+            type="button"
+            onClick={() => {
+              const next = { ...filters, guideScope: scope.id };
+              setFilters(next);
+              runSearch(next);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider border ${
+              filters.guideScope === scope.id
+                ? 'border-[#00ff66]/40 bg-[#00ff66]/10 text-[#00ff66]'
+                : 'border-zinc-800 text-zinc-400 hover:text-white'
+            }`}
+          >
+            {scope.label}
+          </button>
+        ))}
       </div>
 
       <form

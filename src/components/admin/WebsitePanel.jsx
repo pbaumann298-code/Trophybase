@@ -20,7 +20,7 @@ function WebsitePanel() {
         <div>
           <p className="text-sm text-zinc-300 font-mono">https://www.trophybase.app/</p>
           <p className="text-xs text-zinc-500 mt-1">
-            Gleicher Supabase-Login. Als Admin siehst du FERTIG-Guides; Besucher nur PUBLISHED.
+            Die Website zeigt nur veröffentlichte Guides. Rohe Guides (FERTIG) suchst du im Tab Datenbank.
           </p>
         </div>
         <button

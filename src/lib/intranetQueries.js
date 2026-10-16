@@ -8,7 +8,7 @@ import {
   GUIDE_STRUCT,
   GAME_TYPE,
 } from './gameSchema';
-import { searchWords, validateSearchQuery } from './gameQueries';
+import { applyStaffGuideScope, searchWords, validateSearchQuery } from './gameQueries';
 import { applyPipelineStatusFilters } from './gamePipelineStatus';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 
@@ -121,6 +121,7 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
       query = query.eq(GAME_STRUCT.gameType, gameType);
     }
     query = applyPipelineStatusFilters(query, filters);
+    query = applyStaffGuideScope(query, filters.guideScope);
 
     return query
       .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })

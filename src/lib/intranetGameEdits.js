@@ -1,6 +1,7 @@
 import {
   ACHIEVEMENT_I18N,
   ACHIEVEMENT_PK,
+  ACHIEVEMENT_STRUCT,
   GAME_FK,
   GAME_I18N,
   GAME_PK,
@@ -8,6 +9,7 @@ import {
   GAME_TYPE,
   TABLES,
 } from './gameSchema';
+import { formatHardwareValue } from './gameSlug';
 import { parseStatusMap, publishingFieldsFromStatus } from './guidePublication';
 
 /** Pipeline-Schlüssel, die einen vorhandenen Guide markieren und mit ihm wegfallen. */
@@ -67,6 +69,82 @@ export async function setIntranetGameType(supabase, gameId, gameType) {
 
   if (error) return { gameType: null, error };
   return { gameType: data?.[GAME_STRUCT.gameType] ?? nextType, error: null };
+}
+
+/**
+ * Schreibt games.hardware als „PS4/PS5“. Mindestens eine Konsole.
+ * Die Sitemap nimmt daraus nur die neueste Generation als ein URL-Segment.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {string[]} segments ps5, ps4, ps3, psvita, psp
+ */
+export async function setGameHardware(supabase, gameId, segments) {
+  const id = String(gameId ?? '').trim();
+  const hardware = formatHardwareValue(segments);
+  if (!id) return { hardware: null, error: new Error('Kein Spiel ausgewählt.') };
+  if (!hardware) return { hardware: null, error: new Error('Mindestens eine Konsole auswählen.') };
+
+  const { data, error } = await supabase
+    .from(TABLES.games)
+    .update({ [GAME_STRUCT.hardware]: hardware })
+    .eq(GAME_PK, id)
+    .select(GAME_STRUCT.hardware)
+    .maybeSingle();
+
+  if (error) return { hardware: null, error };
+  return { hardware: data?.[GAME_STRUCT.hardware] ?? hardware, error: null };
+}
+
+/**
+ * Online und Verpassbar einer Trophäe. Versteckt bleibt Sony-Bestand.
+ * Zählt danach die Spiel-Summen neu, damit die Übersicht mitzieht.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {string} achievementId
+ * @param {{ is_online?: boolean, is_missable?: boolean }} flags
+ */
+export async function setAchievementFlags(supabase, gameId, achievementId, flags) {
+  const game = String(gameId ?? '').trim();
+  const achievement = String(achievementId ?? '').trim();
+  if (!game || !achievement) return { totals: null, error: new Error('Trophäe fehlt.') };
+
+  const patch = {};
+  if (typeof flags?.is_online === 'boolean') patch[ACHIEVEMENT_STRUCT.isOnline] = flags.is_online;
+  if (typeof flags?.is_missable === 'boolean') patch[ACHIEVEMENT_STRUCT.isMissable] = flags.is_missable;
+  if (!Object.keys(patch).length) return { totals: null, error: new Error('Keine Trophäen-Art gewählt.') };
+
+  const { error: writeError } = await supabase
+    .from(TABLES.achievements)
+    .update(patch)
+    .eq(GAME_FK, game)
+    .eq(ACHIEVEMENT_PK, achievement);
+
+  if (writeError) return { totals: null, error: writeError };
+
+  const { data, error: readError } = await supabase
+    .from(TABLES.achievements)
+    .select(`${ACHIEVEMENT_STRUCT.isMissable}, ${ACHIEVEMENT_STRUCT.isOnline}`)
+    .eq(GAME_FK, game);
+
+  if (readError) return { totals: null, error: readError };
+
+  const rows = data ?? [];
+  const missable = rows.filter((row) => row[ACHIEVEMENT_STRUCT.isMissable]).length;
+  const online = rows.filter((row) => row[ACHIEVEMENT_STRUCT.isOnline]).length;
+  const totals = {
+    [GAME_STRUCT.hasMissableTrophies]: missable > 0,
+    [GAME_STRUCT.totalMissableTrophies]: missable,
+    [GAME_STRUCT.hasOnlineTrophies]: online > 0,
+    [GAME_STRUCT.totalOnlineTrophies]: online,
+  };
+
+  const { error: gameError } = await supabase
+    .from(TABLES.games)
+    .update(totals)
+    .eq(GAME_PK, game);
+
+  if (gameError) return { totals: null, error: gameError };
+  return { totals, error: null };
 }
 
 function asTipMap(value) {
