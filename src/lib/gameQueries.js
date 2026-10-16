@@ -63,10 +63,40 @@ const GAME_SELECT_MINIMAL = GAME_SELECT.split(', ')
   )
   .join(', ');
 
+/** Publisher-Akkordeon / Titelisten: ohne Cover, Beschreibung, Tags. */
+export const GAME_SELECT_LIST = [
+  GAME_PK,
+  GAME_PLATFORM_ID,
+  GAME_STRUCT.hardware,
+  GAME_STRUCT.releaseYear,
+  GAME_STRUCT.developer,
+  GAME_STRUCT.publisher,
+  GAME_STRUCT.gameType,
+  GAME_STRUCT.status,
+  GAME_STRUCT.trophyCount,
+  GAME_STRUCT.slug,
+  GAME_I18N.title,
+].join(', ');
+
+/** Kachel-Karussells: Liste + Cover, weiterhin ohne schwere Textfelder. */
+export const GAME_SELECT_TILES = [
+  GAME_SELECT_LIST,
+  GAME_I18N.coverUrl,
+  GAME_STRUCT.hasOnlineTrophies,
+  GAME_STRUCT.hasMissableTrophies,
+  GAME_STRUCT.serverStatus,
+].join(', ');
+
 let activeGameSelect = GAME_SELECT;
 
 export function getGameSelect() {
   return activeGameSelect;
+}
+
+function selectForCatalogMode(mode) {
+  if (mode === 'list') return GAME_SELECT_LIST;
+  if (mode === 'tiles') return GAME_SELECT_TILES;
+  return getGameSelect();
 }
 
 function hasPublisherColumn() {
@@ -727,28 +757,106 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
   return { data: mergeGameRows(data ?? [], locale), error: null };
 }
 
+/** Seitengröße für Alphabet-Kataloge (Easy Platins / Servertot) beim Scroll-Nachladen. */
+export const CATALOG_FETCH_PAGE = 48;
+
+function stripPublisherColumn(columns) {
+  return String(columns)
+    .split(', ')
+    .filter((column) => column !== GAME_STRUCT.publisher)
+    .join(', ');
+}
+
+function isMissingPublisherError(error) {
+  const code = String(error?.code ?? '');
+  const message = String(error?.message ?? '').toLowerCase();
+  return (
+    code === '42703'
+    || code === 'PGRST204'
+    || (message.includes(GAME_STRUCT.publisher)
+      && (message.includes('does not exist')
+        || message.includes('schema cache')
+        || message.includes('column')))
+  );
+}
+
 /**
- * Veröffentlichte Quickwins für die Übersichtsseite.
+ * Veröffentlichte Spiele eines Typs (Quickwins, Easy Platins, Servertot, …).
+ * Mit `limit`/`offset` nur eine Seite; sonst bis SEARCH_RESULT_CAP.
+ * `mode: 'list'` = leicht (Publisher/Titel), `'tiles'` = +Cover, sonst voll.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameType
  * @param {string} [locale]
- * @param {{ includeReady?: boolean }} [options]
+ * @param {{ includeReady?: boolean, limit?: number, offset?: number, mode?: 'full'|'list'|'tiles' }} [options]
+ * @returns {Promise<{ data: object[], error: Error|null, hasMore?: boolean }>}
  */
 export async function fetchGamesByType(supabase, gameType, locale = getLocale(), options = {}) {
   const includeReady = Boolean(options.includeReady);
-  const { data, error } = await fetchSearchRows(() => {
+  const offset = Math.max(0, Number(options.offset) || 0);
+  const paged = options.limit != null || options.offset != null;
+  const limit = paged
+    ? capSearchLimit(options.limit ?? CATALOG_FETCH_PAGE, CATALOG_FETCH_PAGE)
+    : SEARCH_RESULT_CAP;
+  const mode = options.mode === 'list' || options.mode === 'tiles' ? options.mode : 'full';
+  const catalog = {
+    includeReady,
+    publishedOnly: !includeReady,
+  };
+
+  const buildQuery = (columns) => {
     let query = supabase
       .from(TABLES.games)
-      .select(getGameSelect())
+      .select(columns)
       .eq(GAME_STRUCT.gameType, gameType);
-    query = applyGuideCatalogFilter(query, {
-      includeReady,
-      publishedOnly: !includeReady,
-    });
+    query = applyGuideCatalogFilter(query, catalog);
     return query.order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
-  }, SEARCH_RESULT_CAP);
+  };
 
-  if (error) return { data: [], error };
-  return { data: mergeGameRows(data ?? [], locale), error: null };
+  const fetchRange = async (columns, from, to) => {
+    let result = await buildQuery(columns).range(from, to);
+    if (result.error && mode !== 'full' && isMissingPublisherError(result.error)) {
+      result = await buildQuery(stripPublisherColumn(columns)).range(from, to);
+    } else if (result.error && mode === 'full') {
+      result = await runSelect(() => buildQuery(getGameSelect()).range(from, to));
+    }
+    return result;
+  };
+
+  if (paged) {
+    const columns = mode === 'full' ? getGameSelect() : selectForCatalogMode(mode);
+    const { data, error } = mode === 'full'
+      ? await runSelect(() => buildQuery(getGameSelect()).range(offset, offset + limit - 1))
+      : await fetchRange(columns, offset, offset + limit - 1);
+    if (error) return { data: [], error, hasMore: false };
+    const rows = mergeGameRows(data ?? [], locale);
+    return { data: rows, error: null, hasMore: rows.length >= limit };
+  }
+
+  if (mode !== 'full') {
+    const all = [];
+    let from = 0;
+    let columns = selectForCatalogMode(mode);
+    while (from < SEARCH_RESULT_CAP) {
+      const to = Math.min(from + SEARCH_FETCH_BATCH - 1, SEARCH_RESULT_CAP - 1);
+      const { data, error } = await fetchRange(columns, from, to);
+      if (error && isMissingPublisherError(error)) {
+        columns = stripPublisherColumn(columns);
+      }
+      if (error) return { data: mergeGameRows(all, locale), error, hasMore: false };
+      const rows = data ?? [];
+      all.push(...rows);
+      if (rows.length < to - from + 1) break;
+      from += SEARCH_FETCH_BATCH;
+    }
+    return { data: mergeGameRows(all, locale), error: null, hasMore: false };
+  }
+
+  const { data, error } = await fetchSearchRows(
+    () => buildQuery(getGameSelect()),
+    SEARCH_RESULT_CAP,
+  );
+  if (error) return { data: [], error, hasMore: false };
+  return { data: mergeGameRows(data ?? [], locale), error: null, hasMore: false };
 }
 
 export async function fetchQuickwinGames(supabase, locale = getLocale(), options = {}) {

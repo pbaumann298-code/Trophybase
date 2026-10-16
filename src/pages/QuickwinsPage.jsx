@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
-import { fetchGamesByType } from '../lib/gameQueries';
-import { GAME_FIELDS, GAME_TYPE } from '../lib/gameSchema';
-import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
+import { CATALOG_FETCH_PAGE, fetchGamesByType } from '../lib/gameQueries';
+import { GAME_TYPE } from '../lib/gameSchema';
+import { getGameTitle, getGameUuid } from '../lib/gameModel';
 import {
   QUICKWIN_ALPHABET,
   QUICKWIN_PUBLISHER_MIN,
@@ -22,8 +22,7 @@ import {
   parseQuickwinsParams,
 } from '../lib/routeUtils';
 import QuickwinGameCard, { formatQuickwinCount } from '../components/QuickwinGameCard';
-import GuideOnlineBadge from '../components/GuideOnlineBadge';
-import WatchlistButton from '../components/WatchlistButton';
+import CatalogLetterSection from '../components/CatalogLetterSection';
 import { normalizeLocale } from '../lib/locale';
 import '../styles/home.css';
 import '../styles/quickwins.css';
@@ -75,10 +74,15 @@ function QuickwinsPage({
   ));
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [openPublishers, setOpenPublishers] = useState(() => new Set());
   const [openGameId, setOpenGameId] = useState(null);
   const [activeLetter, setActiveLetter] = useState('');
+  const loadMoreRef = useRef(null);
+  const fetchOffsetRef = useRef(0);
+  const loadingMoreRef = useRef(false);
 
   useEffect(() => {
     const previous = document.title;
@@ -112,25 +116,107 @@ function QuickwinsPage({
     return () => window.removeEventListener('popstate', alignPath);
   }, [localizedCatalog, globalLocale, applied.title, applied.publisher, applied.sort, alphabetCatalog]);
 
+  const mergeUniqueGames = useCallback((prev, next) => {
+    if (!next?.length) return prev;
+    const seen = new Set(prev.map((game) => getGameUuid(game)).filter(Boolean));
+    const added = [];
+    for (const game of next) {
+      const id = getGameUuid(game);
+      if (id && seen.has(id)) continue;
+      if (id) seen.add(id);
+      added.push(game);
+    }
+    return added.length ? [...prev, ...added] : prev;
+  }, []);
+
+  const catalogTitleFilter = alphabetCatalog ? String(applied.title || '').trim() : '';
+  /** Alphabet: Scroll-Nachladen. Quickwins: leichte Listen-Seiten im Hintergrund. */
+  const catalogPaged = alphabetCatalog && !catalogTitleFilter;
+  const listPaged = !alphabetCatalog;
+  const fetchMode = alphabetCatalog ? 'tiles' : 'list';
+  const progressiveFetch = catalogPaged || listPaged;
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchGamesByType(supabase, gameType, globalLocale, { includeReady }).then(({ data, error }) => {
+    setLoadError(false);
+    setHasMore(false);
+    fetchOffsetRef.current = 0;
+    loadingMoreRef.current = false;
+
+    fetchGamesByType(supabase, gameType, globalLocale, {
+      includeReady,
+      mode: fetchMode,
+      ...(progressiveFetch ? { limit: CATALOG_FETCH_PAGE, offset: 0 } : {}),
+    }).then(({ data, error, hasMore: more }) => {
       if (cancelled) return;
       if (error) {
         console.error(titleKey, error.message);
         setLoadError(true);
         setGames([]);
+        setHasMore(false);
       } else {
-        setLoadError(false);
-        setGames(data || []);
+        const rows = data || [];
+        setGames(rows);
+        fetchOffsetRef.current = rows.length;
+        setHasMore(Boolean(progressiveFetch && more));
       }
       setLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [globalLocale, includeReady, gameType, titleKey]);
+  }, [globalLocale, includeReady, gameType, titleKey, progressiveFetch, fetchMode]);
+
+  const loadMoreCatalog = useCallback(async () => {
+    if (!progressiveFetch || loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const offset = fetchOffsetRef.current;
+    try {
+      const { data, error, hasMore: more } = await fetchGamesByType(
+        supabase,
+        gameType,
+        globalLocale,
+        {
+          includeReady,
+          mode: fetchMode,
+          limit: CATALOG_FETCH_PAGE,
+          offset,
+        },
+      );
+      if (error) {
+        console.error(titleKey, error.message);
+        setHasMore(false);
+        return;
+      }
+      const rows = data || [];
+      setGames((prev) => mergeUniqueGames(prev, rows));
+      fetchOffsetRef.current = offset + rows.length;
+      setHasMore(Boolean(more) && rows.length > 0);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [
+    progressiveFetch,
+    hasMore,
+    gameType,
+    globalLocale,
+    includeReady,
+    titleKey,
+    fetchMode,
+    mergeUniqueGames,
+  ]);
+
+  /** Quickwins: restliche Publisher-Seiten still nachladen, sobald die erste da ist. */
+  useEffect(() => {
+    if (!listPaged || !hasMore || loading || loadingMore) return undefined;
+    const timer = window.setTimeout(() => {
+      loadMoreCatalog();
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [listPaged, hasMore, loading, loadingMore, loadMoreCatalog]);
 
   useEffect(() => {
     const onPop = () => {
@@ -182,6 +268,22 @@ function QuickwinsPage({
     () => (alphabetCatalog ? groupQuickwinsByAlphabet(filteredGames, globalLocale) : []),
     [alphabetCatalog, filteredGames, globalLocale],
   );
+
+  useEffect(() => {
+    if (!catalogPaged || !hasMore) return undefined;
+    const node = loadMoreRef.current;
+    if (!node) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadMoreCatalog();
+        }
+      },
+      { rootMargin: '320px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [catalogPaged, hasMore, loadMoreCatalog, alphabetGroups.length]);
 
   const letterHasGames = useMemo(() => {
     const set = new Set(alphabetGroups.map((group) => group.key));
@@ -307,86 +409,30 @@ function QuickwinsPage({
       ) : (
         <div className="catalog-list">
           {alphabetGroups.map((group) => (
-            <section
+            <CatalogLetterSection
               key={group.key}
-              id={`catalog-letter-${group.key}`}
-              className="catalog-letter-section"
-            >
-              <h2 className="catalog-letter-heading">{group.key}</h2>
-              <div className="catalog-tile-grid">
-                {group.games.map((game, index) => {
-                  const gameId = getGameUuid(game);
-                  const title = getGameTitle(game, globalLocale);
-                  const cover = getGameCover(game, globalLocale);
-                  const consoleLabel = game[GAME_FIELDS.console] ?? '';
-                  const isOpen = Boolean(gameId) && openGameId === gameId;
-                  return (
-                    <div
-                      key={gameId || `${group.key}-${index}`}
-                      className={`catalog-tile-wrap${isOpen ? ' is-open' : ''}`}
-                    >
-                      <div className="catalog-tile-shell">
-                        <button
-                          type="button"
-                          className="catalog-tile"
-                          aria-expanded={isOpen}
-                          onClick={() => toggleGame(gameId)}
-                        >
-                          <article
-                            className="home-tile group h-full"
-                            style={{ '--tile-accent': '#00ff66' }}
-                          >
-                            <div className="home-tile-cover-wrap">
-                              {cover ? (
-                                <img src={cover} className="home-tile-cover" alt="" loading="lazy" />
-                              ) : (
-                                <div className="home-tile-cover home-tile-cover--empty">🎮</div>
-                              )}
-                              <div className="home-tile-online">
-                                <GuideOnlineBadge game={game} visible={isAdmin} size="sm" />
-                              </div>
-                              <div className="home-tile-shine" aria-hidden />
-                            </div>
-                            <div className="home-tile-meta">
-                              <p className="home-tile-title" title={title}>
-                                {title}
-                              </p>
-                              {consoleLabel ? (
-                                <span className="home-tile-badge">{consoleLabel}</span>
-                              ) : null}
-                            </div>
-                          </article>
-                        </button>
-                        <div className="home-tile-watchlist">
-                          <WatchlistButton
-                            gameId={gameId}
-                            onRequestLogin={onRequestLogin}
-                            size="sm"
-                          />
-                        </div>
-                      </div>
-                      {isOpen ? (
-                        <div className="catalog-detail">
-                          <QuickwinGameCard
-                            game={game}
-                            openGame={openGame}
-                            onRequestLogin={onRequestLogin}
-                            isAdmin={isAdmin}
-                            sessionUser={sessionUser}
-                            newerVersions={false}
-                            includeReady={includeReady}
-                            serverNotice={serverNotice}
-                            serverNoticeText={pageCopy?.notice || ''}
-                            allowFullGameNav={false}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
+              letter={group.key}
+              games={group.games}
+              openGameId={openGameId}
+              onToggleGame={toggleGame}
+              openGame={openGame}
+              onRequestLogin={onRequestLogin}
+              isAdmin={isAdmin}
+              sessionUser={sessionUser}
+              includeReady={includeReady}
+              serverNotice={serverNotice}
+              serverNoticeText={pageCopy?.notice || ''}
+            />
           ))}
+          {hasMore ? (
+            <div ref={loadMoreRef} className="catalog-load-more" aria-hidden={!loadingMore}>
+              {loadingMore ? (
+                <p className="quickwin-card-note">{t('searchLoading')}</p>
+              ) : (
+                <span className="catalog-load-more-spacer" />
+              )}
+            </div>
+          ) : null}
         </div>
       )}
     </>
@@ -522,14 +568,21 @@ function QuickwinsPage({
 
       {alphabetCatalog ? (
         renderAlphabetCatalog()
-      ) : loading ? (
+      ) : loading && games.length === 0 ? (
         <p className="quickwin-card-note">{t('searchLoading')}</p>
-      ) : loadError ? (
+      ) : loadError && games.length === 0 ? (
         <p className="quickwin-card-note">{t('searchNoResults')}</p>
       ) : grouped.length === 0 ? (
-        <p className="quickwin-card-note">{t('searchNoResults')}</p>
+        <p className="quickwin-card-note">
+          {hasMore || loadingMore ? t('searchLoading') : t('searchNoResults')}
+        </p>
       ) : (
-        <div className="quickwins-list">{pageBlocks}</div>
+        <div className="quickwins-list">
+          {pageBlocks}
+          {hasMore || loadingMore ? (
+            <p className="quickwin-card-note catalog-load-more">{t('searchLoading')}</p>
+          ) : null}
+        </div>
       )}
     </div>
   );
