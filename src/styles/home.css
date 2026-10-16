@@ -117,21 +117,6 @@
   color: #00ff66;
 }
 
-.home-quickwins-tile {
-  display: block;
-  width: 9.5rem;
-  max-width: 100%;
-  margin: 1.25rem auto 0;
-  text-decoration: none;
-  color: inherit;
-}
-
-@media (min-width: 640px) {
-  .home-quickwins-tile {
-    width: 11rem;
-  }
-}
-
 .advanced-search-page {
   width: 100%;
   max-width: 48rem;
@@ -139,6 +124,42 @@
   margin: 0 auto;
   padding: 2rem 1rem 3.5rem;
   box-sizing: border-box;
+}
+
+.advanced-search-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0 0 1.5rem;
+}
+
+.advanced-search-tile {
+  display: block;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.advanced-search-tile--static {
+  cursor: default;
+}
+
+.advanced-search-tile--static .home-tile {
+  cursor: default;
+}
+
+.advanced-search-tile--static .home-tile:hover {
+  transform: none;
+  border-color: #27272a;
+  box-shadow: none;
+}
+
+.advanced-search-tile--static .home-tile:hover .home-tile-cover {
+  transform: none;
+}
+
+.advanced-search-tile--static .home-tile:hover .home-tile-shine {
+  opacity: 0;
 }
 
 .advanced-search-form {

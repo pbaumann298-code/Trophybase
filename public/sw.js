@@ -3,7 +3,7 @@
  * Navigations → Network, fallback /offline.html
  * Supabase / API → Network Only (keine Trophäenstände im Cache)
  */
-const CACHE_VERSION = 'tb-static-v4';
+const CACHE_VERSION = 'tb-static-v5';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [
@@ -18,6 +18,8 @@ const PRECACHE_URLS = [
   '/icons/icon-maskable-192.png',
   '/icons/icon-maskable-512.png',
   '/images/quickwins-tile.jpg',
+  '/images/easy-platins-tile.jpg',
+  '/images/unobtainable-platins-tile.jpg',
 ];
 
 const STATIC_EXTENSIONS = ['.js', '.css', '.svg', '.png', '.ico', '.webp', '.woff', '.woff2'];

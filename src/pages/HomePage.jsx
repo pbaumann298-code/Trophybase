@@ -6,7 +6,6 @@ import { HOME_CATEGORIES, fetchAllHomeCategories } from '../lib/homeCategories';
 import { isAdminUser } from '../lib/adminAccess';
 import { useLocale } from '../context/LocaleContext';
 import SearchSkipQuickwins from '../components/SearchSkipQuickwins';
-import { QUICKWINS_PATH } from '../lib/routeUtils';
 import '../styles/home.css';
 
 function HomePage({
@@ -17,7 +16,6 @@ function HomePage({
   onCategorySearch,
   onRequestLogin,
   onOpenAdvancedSearch,
-  onOpenQuickwins,
   sessionUser = null,
   excludeQuickwins = true,
   onExcludeQuickwinsChange,
@@ -91,29 +89,6 @@ function HomePage({
             }}
           >
             {t('advancedSearch')}
-          </a>
-          <a
-            href={QUICKWINS_PATH}
-            className="home-quickwins-tile"
-            onClick={(e) => {
-              e.preventDefault();
-              onOpenQuickwins?.();
-            }}
-          >
-            <article className="home-tile" style={{ '--tile-accent': '#00ff66' }}>
-              <div className="home-tile-cover-wrap">
-                <img
-                  src="/images/quickwins-tile.jpg"
-                  className="home-tile-cover"
-                  alt=""
-                  loading="lazy"
-                />
-                <div className="home-tile-shine" aria-hidden />
-              </div>
-              <div className="home-tile-meta">
-                <p className="home-tile-title">{t('quickwinsTitle')}</p>
-              </div>
-            </article>
           </a>
         </div>
       </header>

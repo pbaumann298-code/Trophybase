@@ -798,7 +798,6 @@ function App() {
                 onCategorySearch={runSearch}
                 sessionUser={sessionUser}
                 onOpenAdvancedSearch={openAdvancedSearch}
-                onOpenQuickwins={openQuickwins}
                 excludeQuickwins={excludeQuickwins}
                 onExcludeQuickwinsChange={setExcludeQuickwins}
               />
@@ -833,6 +832,7 @@ function App() {
               <AdvancedSearchPage
                 openGame={openGuide}
                 onBack={goHome}
+                onOpenQuickwins={openQuickwins}
               />
             )}
 

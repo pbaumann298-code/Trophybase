@@ -3,6 +3,7 @@ import { supabase } from './supabaseClient';
 import SearchResultsPage from './SearchResultsPage';
 import { CONSOLE_FILTER_OPTIONS, searchGamesAdvanced } from '../lib/gameSearch';
 import {
+  QUICKWINS_PATH,
   getViewFromPath,
   navigateToAdvancedSearch,
   parseAdvancedSearchParams,
@@ -21,7 +22,45 @@ function hasAnyFilter(filters) {
   return Object.values(filters).some((value) => String(value ?? '').trim());
 }
 
-function AdvancedSearchPage({ openGame, onRequestLogin, onBack, includeReady = false }) {
+function CatalogTile({ href, onClick, src, title, linked = false }) {
+  const className = linked ? 'advanced-search-tile' : 'advanced-search-tile advanced-search-tile--static';
+  const body = (
+    <article className="home-tile" style={{ '--tile-accent': '#00ff66' }}>
+      <div className="home-tile-cover-wrap">
+        <img src={src} className="home-tile-cover" alt="" loading="lazy" />
+        <div className="home-tile-shine" aria-hidden />
+      </div>
+      <div className="home-tile-meta">
+        <p className="home-tile-title">{title}</p>
+      </div>
+    </article>
+  );
+
+  if (!linked) {
+    return <div className={className}>{body}</div>;
+  }
+
+  return (
+    <a
+      href={href}
+      className={className}
+      onClick={(event) => {
+        event.preventDefault();
+        onClick?.();
+      }}
+    >
+      {body}
+    </a>
+  );
+}
+
+function AdvancedSearchPage({
+  openGame,
+  onRequestLogin,
+  onBack,
+  onOpenQuickwins,
+  includeReady = false,
+}) {
   const { t, globalLocale } = useLocale();
   const [filters, setFilters] = useState(() => parseAdvancedSearchParams());
   const [excludeQuickwins, setExcludeQuickwins] = useState(() => parseExcludeQuickwins());
@@ -195,6 +234,24 @@ function AdvancedSearchPage({ openGame, onRequestLogin, onBack, includeReady = f
           </button>
         </div>
       </form>
+
+      <div className="advanced-search-tiles" aria-label={t('advancedSearch')}>
+        <CatalogTile
+          linked
+          href={QUICKWINS_PATH}
+          onClick={onOpenQuickwins}
+          src="/images/quickwins-tile.jpg"
+          title={t('quickwinsTitle')}
+        />
+        <CatalogTile
+          src="/images/easy-platins-tile.jpg"
+          title={t('easyPlatinsTitle')}
+        />
+        <CatalogTile
+          src="/images/unobtainable-platins-tile.jpg"
+          title={t('servertotTitle')}
+        />
+      </div>
 
       {hasSearched && (
         <SearchResultsPage
