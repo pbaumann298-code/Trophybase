@@ -119,7 +119,7 @@
 
 .advanced-search-page {
   width: 100%;
-  max-width: 48rem;
+  max-width: 56rem;
   min-width: 0;
   margin: 0 auto;
   padding: 2rem 1rem 3.5rem;
@@ -129,7 +129,7 @@
 .advanced-search-tiles {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 1rem;
   margin: 0 0 1.5rem;
 }
 
@@ -138,6 +138,16 @@
   min-width: 0;
   text-decoration: none;
   color: inherit;
+}
+
+/* Cover sind 2:3 (PS-Case). 3:4 der normalen Spielkacheln schneidet oben/unten ab. */
+.advanced-search-tile .home-tile-cover-wrap {
+  aspect-ratio: 2 / 3;
+}
+
+.advanced-search-tile .home-tile-cover {
+  object-fit: contain;
+  object-position: center top;
 }
 
 .advanced-search-tile--static {
