@@ -75,7 +75,44 @@ export function getYouTubeThumbnailUrls(videoId) {
 }
 
 /**
+ * Startzeit aus YouTube-URLs (?t=90, ?t=1m30s, ?start=90, #t=30).
+ * @param {string} url
+ * @returns {number|null}
+ */
+export function extractYouTubeStartSeconds(url) {
+  const raw = String(url ?? '').trim();
+  if (!raw) return null;
+
+  let param = '';
+  try {
+    const parsed = new URL(raw);
+    param = parsed.searchParams.get('t')
+      || parsed.searchParams.get('start')
+      || '';
+    if (!param && parsed.hash) {
+      const hashMatch = parsed.hash.match(/[?&]?t=([^&]+)/i);
+      if (hashMatch) param = decodeURIComponent(hashMatch[1]);
+    }
+  } catch {
+    const loose = raw.match(/[?&#](?:t|start)=([^&#]+)/i);
+    if (loose) param = decodeURIComponent(loose[1]);
+  }
+
+  if (!param) return null;
+  const cleaned = String(param).trim().replace(/s$/i, '');
+  const hms = cleaned.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+))?$/i);
+  if (hms && (hms[1] || hms[2] || /[hm]/i.test(cleaned))) {
+    const hours = parseInt(hms[1] || '0', 10);
+    const mins = parseInt(hms[2] || '0', 10);
+    const secs = parseInt(hms[3] || '0', 10);
+    return hours * 3600 + mins * 60 + secs;
+  }
+  return parseTimecodeToSeconds(cleaned);
+}
+
+/**
  * YouTube-Embed-URL mit optionalem Startzeitpunkt (Sekunden).
+ * Fehlt `timecode`, wird `t`/`start` aus der Quell-URL übernommen.
  * @param {string} url
  * @param {string|number|null|undefined} timecode
  * @param {{ autoplay?: boolean }} [options]
@@ -89,7 +126,7 @@ export function getYouTubeEmbedUrl(url, timecode, { autoplay = false } = {}) {
     : String(url).replace('youtube.com/embed/', 'youtube-nocookie.com/embed/');
 
   const params = new URLSearchParams();
-  const seconds = parseTimecodeToSeconds(timecode);
+  const seconds = parseTimecodeToSeconds(timecode) ?? extractYouTubeStartSeconds(url);
   if (seconds != null && seconds > 0) params.set('start', String(seconds));
   if (autoplay) {
     params.set('autoplay', '1');

@@ -3,9 +3,13 @@ import CollapsibleSectionCard from './CollapsibleSectionCard';
 import Reportable from './Reportable';
 import TrophyArtwork from './TrophyArtwork';
 import TrophyTypeIcon from './TrophyTypeIcon';
+import YouTubeEmbed from './YouTubeEmbed';
+import { useGuideVideo } from '../context/GuideVideoContext';
 import { useLocale } from '../context/LocaleContext';
+import { reportableDataAttrs } from '../lib/reportableAttrs';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
 import { getTrophyAiTranslation, getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
+import { getYouTubeEmbedUrl } from '../utils/videoUrl';
 
 function TrashIcon() {
   return (
@@ -146,9 +150,24 @@ function TrophyKindMenu({ trophy, onChange }) {
 
 function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, guideTipEditor, onTrophyFlags }) {
   const { t } = useLocale();
+  const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
+  const [videoOpen, setVideoOpen] = useState(false);
   const trophyKey = getTrophyIdKey(trophy);
   const trophyDesc = getTrophyDescription(trophy);
   const trophyTranslation = getTrophyAiTranslation(trophy);
+  const embedUrl = useMemo(
+    () => (trophy.video_url ? getYouTubeEmbedUrl(trophy.video_url, null, { autoplay: true }) : null),
+    [trophy.video_url],
+  );
+
+  useEffect(() => {
+    if (!videoOpen) {
+      notifyVideoCleared();
+      return undefined;
+    }
+    notifyVideoStarted();
+    return () => notifyVideoCleared();
+  }, [videoOpen, notifyVideoStarted, notifyVideoCleared]);
 
   return (
     <div
@@ -285,21 +304,33 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, gu
               </Reportable>
             </p>
           )}
-          {trophy.video_url && (
-            <Reportable
-              as="a"
-              source={gameId}
-              type="trophy"
-              reportKey={trophyKey}
-              field="video_url"
-              href={trophy.video_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[11px] text-[#00ff66] hover:underline flex items-center gap-1 font-mono font-bold"
-            >
-              🎬 Video-Guide auf YouTube ansehen
-            </Reportable>
-          )}
+          {trophy.video_url && embedUrl ? (
+            <>
+              <button
+                type="button"
+                {...reportableDataAttrs({
+                  source: gameId,
+                  type: 'trophy',
+                  reportKey: trophyKey,
+                  field: 'video_url',
+                })}
+                onClick={() => setVideoOpen((open) => !open)}
+                aria-expanded={videoOpen}
+                className="text-[11px] text-[#00ff66] hover:underline flex items-center gap-1 font-mono font-bold bg-transparent border-none p-0 cursor-pointer text-left"
+              >
+                {videoOpen ? '▲ Video ausblenden' : '🎬 Video-Guide ansehen'}
+              </button>
+              {videoOpen ? (
+                <div className="trophy-inline-video mt-1 w-full min-w-0 overflow-hidden rounded-lg border border-zinc-800">
+                  <YouTubeEmbed
+                    key={`${trophyKey}-${embedUrl}`}
+                    src={embedUrl}
+                    title={trophy.trophy_name || 'YouTube-Video'}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
         </div>
       )}
     </div>

@@ -63,7 +63,7 @@ const GAME_SELECT_MINIMAL = GAME_SELECT.split(', ')
   )
   .join(', ');
 
-/** Publisher-Akkordeon / Titelisten: ohne Cover, Beschreibung, Tags. */
+/** Publisher-Akkordeon / Titellisten: Cover ja, ohne Beschreibung/Tags. */
 export const GAME_SELECT_LIST = [
   GAME_PK,
   GAME_PLATFORM_ID,
@@ -76,12 +76,12 @@ export const GAME_SELECT_LIST = [
   GAME_STRUCT.trophyCount,
   GAME_STRUCT.slug,
   GAME_I18N.title,
+  GAME_I18N.coverUrl,
 ].join(', ');
 
-/** Kachel-Karussells: Liste + Cover, weiterhin ohne schwere Textfelder. */
+/** Kachel-Karussells: Liste + Online-/Servertot-Flags, ohne schwere Textfelder. */
 export const GAME_SELECT_TILES = [
   GAME_SELECT_LIST,
-  GAME_I18N.coverUrl,
   GAME_STRUCT.hasOnlineTrophies,
   GAME_STRUCT.hasMissableTrophies,
   GAME_STRUCT.serverStatus,

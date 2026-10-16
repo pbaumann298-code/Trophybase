@@ -39,6 +39,7 @@ import {
   saveHiddenTrophyMode,
 } from '../lib/hiddenTrophyPreference';
 import { supabase } from '../pages/supabaseClient';
+import { fetchGameByRouteRef } from '../lib/gameQueries';
 import { fetchNewerVersions } from '../lib/newerVersions';
 import { RelatedBlock } from './RelatedGuides';
 
@@ -80,11 +81,12 @@ function QuickwinGameCard({
   allowFullGameNav = true,
 }) {
   const { t, globalLocale } = useLocale();
-  const gameUuid = getGameUuid(game);
-  const title = getGameTitle(game, globalLocale);
-  const cover = getGameCover(game, globalLocale);
-  const credits = publicStudioCredits(game);
-  const href = gameGuidePath(game, globalLocale);
+  const [detailGame, setDetailGame] = useState(game);
+  const gameUuid = getGameUuid(detailGame) || getGameUuid(game);
+  const title = getGameTitle(detailGame, globalLocale);
+  const cover = getGameCover(detailGame, globalLocale);
+  const credits = publicStudioCredits(detailGame);
+  const href = gameGuidePath(detailGame, globalLocale);
 
   const [loading, setLoading] = useState(true);
   const [trophies, setTrophies] = useState([]);
@@ -102,18 +104,28 @@ function QuickwinGameCard({
   const [tipHint, setTipHint] = useState('');
 
   useEffect(() => {
+    setDetailGame(game);
+  }, [game]);
+
+  useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setNewer({ mode: '', heading: '', games: [] });
+    const uuid = getGameUuid(game);
     Promise.all([
+      // Listenzeile ohne Cover/Genre → volle games-Zeile parallel nachladen
+      uuid
+        ? fetchGameByRouteRef(supabase, uuid, globalLocale)
+        : Promise.resolve({ data: null }),
       fetchGameTrophiesWithEarned(supabase, sessionUser?.id ?? null, game, globalLocale),
       fetchGameGuideBundle(supabase, game, globalLocale),
       fetchContentCreatorsForGame(supabase, game),
       newerVersions
         ? fetchNewerVersions(supabase, game, globalLocale, { includeReady })
         : Promise.resolve({ mode: '', heading: '', games: [] }),
-    ]).then(([trophyResult, guideBundle, creatorResult, newerResult]) => {
+    ]).then(([fullGameResult, trophyResult, guideBundle, creatorResult, newerResult]) => {
       if (cancelled) return;
+      if (fullGameResult?.data) setDetailGame(fullGameResult.data);
       const nextTrophies = trophyResult.trophies ?? [];
       const nextEarned = trophyResult.earnedIds ?? new Set();
       const chapters = guideBundle.chapters ?? [];
@@ -233,7 +245,7 @@ function QuickwinGameCard({
   }, [tabs, activeTab]);
 
   const tabIndex = tabs.findIndex((tab) => tab.id === activeTab);
-  const description = getGameDescription(game, globalLocale);
+  const description = getGameDescription(detailGame, globalLocale);
 
   return (
     <div className="quickwin-detail">
@@ -252,13 +264,13 @@ function QuickwinGameCard({
                   className="quickwin-card-title"
                   onClick={(event) => {
                     event.preventDefault();
-                    openGame?.(game);
+                    openGame?.(detailGame);
                   }}
                 >
                   {title}
                   {isAdmin ? (
                     <span className="quickwin-type">
-                      {String(game.spiel_typ ?? '').trim() || '—'}
+                      {String(detailGame.spiel_typ ?? '').trim() || '—'}
                     </span>
                   ) : null}
                 </a>
@@ -267,28 +279,28 @@ function QuickwinGameCard({
                   {title}
                   {isAdmin ? (
                     <span className="quickwin-type">
-                      {String(game.spiel_typ ?? '').trim() || '—'}
+                      {String(detailGame.spiel_typ ?? '').trim() || '—'}
                     </span>
                   ) : null}
                 </p>
               )}
               <div className="quickwin-card-actions">
-                <GuideOnlineBadge game={game} visible={isAdmin} size="md" />
+                <GuideOnlineBadge game={detailGame} visible={isAdmin} size="md" />
                 <WatchlistButton gameId={gameUuid} onRequestLogin={onRequestLogin} size="md" />
               </div>
             </div>
             <div className="quickwin-card-meta">
               <div>
                 <span>Plattform</span>
-                <strong>{game[GAME_FIELDS.console] || '—'}</strong>
+                <strong>{detailGame[GAME_FIELDS.console] || '—'}</strong>
               </div>
               <div>
                 <span>Jahr</span>
-                <strong>{game[GAME_FIELDS.year] || '—'}</strong>
+                <strong>{detailGame[GAME_FIELDS.year] || '—'}</strong>
               </div>
               <div>
                 <span>Genre</span>
-                <strong>{game[GAME_FIELDS.genre] || '—'}</strong>
+                <strong>{detailGame[GAME_FIELDS.genre] || '—'}</strong>
               </div>
               <div>
                 <span>{t('studioLabel')}</span>
