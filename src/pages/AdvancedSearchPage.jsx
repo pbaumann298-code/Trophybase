@@ -14,6 +14,10 @@ import { useLocale } from '../context/LocaleContext';
 import SearchSkipQuickwins from '../components/SearchSkipQuickwins';
 import '../styles/home.css';
 
+/** Fallback-Pfade, falls App die lokalisierten URLs nicht übergibt. */
+const FALLBACK_EASY = '/easy-platins';
+const FALLBACK_SERVERTOT = '/servertot';
+
 function emptyFilters() {
   return { title: '', developer: '', genre: '', console: '' };
 }
@@ -59,6 +63,10 @@ function AdvancedSearchPage({
   onRequestLogin,
   onBack,
   onOpenQuickwins,
+  onOpenEasyPlatins,
+  onOpenServertot,
+  easyPlatinsPath = FALLBACK_EASY,
+  servertotPath = FALLBACK_SERVERTOT,
   includeReady = false,
 }) {
   const { t, globalLocale } = useLocale();
@@ -244,10 +252,16 @@ function AdvancedSearchPage({
           title={t('quickwinsTitle')}
         />
         <CatalogTile
+          linked
+          href={easyPlatinsPath}
+          onClick={onOpenEasyPlatins}
           src="/images/easy-platins-tile.jpg"
           title={t('easyPlatinsTitle')}
         />
         <CatalogTile
+          linked
+          href={servertotPath}
+          onClick={onOpenServertot}
           src="/images/unobtainable-platins-tile.jpg"
           title={t('servertotTitle')}
         />

@@ -76,6 +76,8 @@ function QuickwinGameCard({
   includeReady = false,
   serverNotice = false,
   serverNoticeText = '',
+  /** false = nur komprimierte Guide-Ansicht, kein Sprung zur Vollseite */
+  allowFullGameNav = true,
 }) {
   const { t, globalLocale } = useLocale();
   const gameUuid = getGameUuid(game);
@@ -244,21 +246,32 @@ function QuickwinGameCard({
           )}
           <div className="quickwin-card-body">
             <div className="quickwin-card-title-row">
-              <a
-                href={href}
-                className="quickwin-card-title"
-                onClick={(event) => {
-                  event.preventDefault();
-                  openGame(game);
-                }}
-              >
-                {title}
-                {isAdmin ? (
-                  <span className="quickwin-type">
-                    {String(game.spiel_typ ?? '').trim() || '—'}
-                  </span>
-                ) : null}
-              </a>
+              {allowFullGameNav ? (
+                <a
+                  href={href}
+                  className="quickwin-card-title"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    openGame?.(game);
+                  }}
+                >
+                  {title}
+                  {isAdmin ? (
+                    <span className="quickwin-type">
+                      {String(game.spiel_typ ?? '').trim() || '—'}
+                    </span>
+                  ) : null}
+                </a>
+              ) : (
+                <p className="quickwin-card-title">
+                  {title}
+                  {isAdmin ? (
+                    <span className="quickwin-type">
+                      {String(game.spiel_typ ?? '').trim() || '—'}
+                    </span>
+                  ) : null}
+                </p>
+              )}
               <div className="quickwin-card-actions">
                 <GuideOnlineBadge game={game} visible={isAdmin} size="md" />
                 <WatchlistButton gameId={gameUuid} onRequestLogin={onRequestLogin} size="md" />

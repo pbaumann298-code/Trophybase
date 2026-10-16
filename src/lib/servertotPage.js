@@ -2,55 +2,55 @@ import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 import { normalizeLocale } from './locale';
 
 /**
- * Öffentliche Servertot-Seite je Sprache: Titel, Einleitung, Hinweis, URL-Segment.
- * Die Adresse ist /{locale}/{slug}.
+ * Öffentliche Unobtainable-Platins-Seite je Sprache: Titel, Einleitung, Hinweis, URL-Segment.
+ * Die Adresse ist /{locale}/{slug}. Interner Code-Name bleibt „servertot“ (spiel_typ).
  */
 export const SERVERTOT_PAGE = {
   de: {
-    slug: 'unerreichbare-platin',
-    title: 'Unerreichbare Platin',
+    slug: 'unerreichbare-platins',
+    title: 'Unerreichbare Platins',
     lead: 'Übersicht von Spielen, deren Platin-Trophäe durch abgeschaltete Server nicht mehr erspielbar ist.',
     notice: 'Wegen Abschaltung der Server ist die Platin nicht mehr regulär erspielbar.',
   },
   en: {
-    slug: 'unobtainable-platinum',
-    title: 'Unobtainable platinum',
+    slug: 'unobtainable-platins',
+    title: 'Unobtainable platins',
     lead: 'Games whose platinum trophy can no longer be earned because the servers were shut down.',
     notice: 'Because the servers have been shut down, the platinum can no longer be earned through regular play.',
   },
   fr: {
-    slug: 'platine-inaccessible',
-    title: 'Platine inaccessible',
+    slug: 'platines-inaccessibles',
+    title: 'Platines inaccessibles',
     lead: 'Jeux dont le trophée platine ne peut plus être obtenu, les serveurs ayant été coupés.',
     notice: 'En raison de l’arrêt des serveurs, le platine n’est plus obtenable en jeu normal.',
   },
   es: {
-    slug: 'platino-inalcanzable',
-    title: 'Platino inalcanzable',
+    slug: 'platinos-inalcanzables',
+    title: 'Platinos inalcanzables',
     lead: 'Juegos cuyo trofeo de platino ya no se puede conseguir porque los servidores se han cerrado.',
     notice: 'Por el cierre de los servidores, el platino ya no se puede conseguir de forma normal.',
   },
   it: {
-    slug: 'platino-irraggiungibile',
-    title: 'Platino irraggiungibile',
+    slug: 'platini-irraggiungibili',
+    title: 'Platini irraggiungibili',
     lead: 'Giochi il cui trofeo di platino non è più ottenibile perché i server sono stati spenti.',
     notice: 'A causa della chiusura dei server, il platino non è più ottenibile normalmente.',
   },
   nl: {
-    slug: 'onbereikbaar-platina',
-    title: 'Onbereikbaar platina',
+    slug: 'onbereikbare-platina',
+    title: 'Onbereikbare platina',
     lead: 'Spellen waarvan de platinatrofee niet meer te behalen is doordat de servers zijn uitgezet.',
     notice: 'Door het uitschakelen van de servers is de platina niet meer normaal te behalen.',
   },
   pt: {
-    slug: 'platina-inalcancavel',
-    title: 'Platina inalcançável',
+    slug: 'platinas-inalcancaveis',
+    title: 'Platinas inalcançáveis',
     lead: 'Jogos cujo troféu de platina já não pode ser obtido porque os servidores foram desligados.',
     notice: 'Com o encerramento dos servidores, a platina já não pode ser obtida normalmente.',
   },
   ru: {
-    slug: 'nedostizhimaya-platina',
-    title: 'Недостижимая платина',
+    slug: 'nedostizhimye-platiny',
+    title: 'Недостижимые платины',
     lead: 'Игры, платиновый трофей которых больше нельзя получить из‑за отключения серверов.',
     notice: 'Из‑за отключения серверов платину больше нельзя получить обычным способом.',
   },
@@ -79,20 +79,37 @@ export const SERVERTOT_PAGE = {
     notice: '由于服务器关闭，白金已无法通过正常游玩获得。',
   },
   fi: {
-    slug: 'saavuttamaton-platina',
-    title: 'Saavuttamaton platina',
+    slug: 'saavuttamattomat-platinat',
+    title: 'Saavuttamattomat platina',
     lead: 'Pelit, joiden platinapokaalia ei voi enää saada, koska palvelimet on suljettu.',
     notice: 'Palvelinten sulkemisen vuoksi platinaa ei voi enää saada normaalisti pelaamalla.',
   },
   sv: {
-    slug: 'ouppnaelig-platina',
-    title: 'Ouppnåelig platina',
+    slug: 'ouppnaeliga-platinor',
+    title: 'Ouppnåeliga platinor',
     lead: 'Spel vars platinatrofé inte längre går att få eftersom servrarna har stängts.',
     notice: 'Eftersom servrarna har stängts går platinat inte längre att få genom vanligt spel.',
   },
 };
 
-const SLUGS = new Set(Object.values(SERVERTOT_PAGE).map((entry) => entry.slug));
+/** Alte Singular-Slugs bleiben gültig, damit bestehende Links nicht brechen. */
+const LEGACY_SLUGS = new Set([
+  'unerreichbare-platin',
+  'unobtainable-platinum',
+  'platine-inaccessible',
+  'platino-inalcanzable',
+  'platino-irraggiungibile',
+  'onbereikbaar-platina',
+  'platina-inalcancavel',
+  'nedostizhimaya-platina',
+  'saavuttamaton-platina',
+  'ouppnaelig-platina',
+]);
+
+const SLUGS = new Set([
+  ...Object.values(SERVERTOT_PAGE).map((entry) => entry.slug),
+  ...LEGACY_SLUGS,
+]);
 
 export function servertotPageCopy(locale) {
   const key = normalizeLocale(locale);
@@ -104,7 +121,7 @@ export function servertotPublicPath(locale) {
   return `/${normalizeLocale(locale)}/${copy.slug}`;
 }
 
-/** /de/unerreichbare-platin und die übrigen Sprachadressen. /servertot bleibt der alte Einstieg. */
+/** /de/unerreichbare-platins und die übrigen Sprachadressen. /servertot bleibt der alte Einstieg. */
 export function parseServertotPath(pathname = '') {
   const parts = String(pathname || '').split('?')[0].split('/').filter(Boolean);
   if (parts.length === 1 && parts[0] === 'servertot') {

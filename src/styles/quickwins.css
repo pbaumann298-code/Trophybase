@@ -7,6 +7,138 @@
   box-sizing: border-box;
 }
 
+.catalog-page {
+  max-width: 80rem;
+}
+
+.quickwins-form-title-only {
+  grid-column: 1 / -1;
+}
+
+/* Unter der Suche: Alphabet bleibt angepinnt, Suche scrollt weg. */
+.catalog-alpha {
+  position: sticky;
+  top: 3.75rem;
+  z-index: 40;
+  margin: 0 -0.25rem 1.25rem;
+  padding: 0.55rem 0.25rem;
+  background: rgba(18, 19, 20, 0.94);
+  border-bottom: 1px solid #27272a;
+  backdrop-filter: blur(8px);
+}
+
+.catalog-alpha-track {
+  display: flex;
+  gap: 0.2rem;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.catalog-alpha-btn {
+  flex: 0 0 auto;
+  min-width: 1.85rem;
+  height: 1.85rem;
+  padding: 0 0.35rem;
+  border-radius: 0.45rem;
+  border: 1px solid #3f3f46;
+  background: #1a1b1c;
+  color: #e4e4e7;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: ui-monospace, monospace;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.catalog-alpha-btn:hover:not(:disabled) {
+  color: #00ff66;
+  border-color: rgba(0, 255, 102, 0.4);
+}
+
+.catalog-alpha-btn.is-active {
+  color: #121314;
+  background: #00ff66;
+  border-color: #00ff66;
+}
+
+.catalog-alpha-btn.is-disabled,
+.catalog-alpha-btn:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.catalog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.catalog-letter-section {
+  scroll-margin-top: 6.5rem;
+}
+
+.catalog-letter-heading {
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fafafa;
+  letter-spacing: -0.02em;
+}
+
+.catalog-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+@media (min-width: 640px) {
+  .catalog-tile-grid {
+    grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  }
+}
+
+.catalog-tile-shell {
+  position: relative;
+}
+
+.catalog-tile {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.catalog-tile-shell .home-tile-watchlist {
+  pointer-events: auto;
+}
+
+.catalog-tile-wrap.is-open {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.catalog-tile-wrap.is-open .catalog-tile-shell {
+  max-width: 11rem;
+}
+
+p.quickwin-card-title:hover {
+  color: #fff;
+}
+
+.catalog-detail {
+  width: 100%;
+  min-width: 0;
+}
+
 .quickwins-back {
   font-size: 0.75rem;
   font-family: ui-monospace, monospace;

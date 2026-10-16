@@ -234,3 +234,40 @@ export function quickwinPublisherOptions(games, canon = null) {
   }
   return [...names].sort((a, b) => a.localeCompare(b, 'de', { sensitivity: 'base' }));
 }
+
+export const QUICKWIN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+/**
+ * Erster Buchstabe für die A–Z-Leiste. Umlaute landen unter A/O/U, Ziffern und
+ * Sonderzeichen unter „#“.
+ */
+export function titleAlphabetKey(title, locale = 'de') {
+  const raw = String(title ?? '').trim();
+  if (!raw) return '#';
+  const first = raw[0].toLocaleUpperCase(locale || 'de');
+  const base = first.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase();
+  if (base >= 'A' && base <= 'Z') return base;
+  return '#';
+}
+
+/**
+ * Spiele alphabetisch nach Titel, gruppiert für die Servertot-Übersicht.
+ * @returns {{ key: string, games: object[] }[]}
+ */
+export function groupQuickwinsByAlphabet(games, locale) {
+  const buckets = new Map();
+  for (const game of games ?? []) {
+    const key = titleAlphabetKey(getGameTitle(game, locale), locale);
+    const list = buckets.get(key);
+    if (list) list.push(game);
+    else buckets.set(key, [game]);
+  }
+
+  const order = [...QUICKWIN_ALPHABET, '#'];
+  return order
+    .filter((key) => buckets.has(key))
+    .map((key) => ({
+      key,
+      games: sortQuickwins(buckets.get(key), 'title-asc', locale),
+    }));
+}

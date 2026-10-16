@@ -35,6 +35,7 @@ import {
   navigateToSimpleSearch,
   QUICKWINS_PATH,
   SERVERTOT_PATH,
+  EASY_PLATINS_PATH,
   parseSimpleSearchParams,
   parseExcludeQuickwins,
   parseGuideTabParam,
@@ -44,7 +45,30 @@ import {
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
 import { GAME_TYPE, TABLES } from './lib/gameSchema';
-import { servertotPublicPath } from './lib/servertotPage';
+import {
+  parseServertotPath,
+  servertotPageCopy,
+  servertotPublicPath,
+} from './lib/servertotPage';
+import {
+  parseEasyPlatinsPath,
+  easyPlatinsPageCopy,
+  easyPlatinsPublicPath,
+} from './lib/easyPlatinsPage';
+
+const SERVERTOT_CATALOG = {
+  viewName: 'servertot',
+  pageCopy: servertotPageCopy,
+  publicPath: servertotPublicPath,
+  parsePath: parseServertotPath,
+};
+
+const EASY_PLATINS_CATALOG = {
+  viewName: 'easyplatins',
+  pageCopy: easyPlatinsPageCopy,
+  publicPath: easyPlatinsPublicPath,
+  parsePath: parseEasyPlatinsPath,
+};
 import ProfilePage from './pages/ProfilePage';
 import QaAdminPage from './pages/QaAdminPage';
 import { fetchGameGuideBundle, resolveGameId } from './lib/guideQueries';
@@ -622,6 +646,10 @@ function App() {
       applyPathCanonical(servertotPublicPath(globalLocale), { noIndex: true });
       return () => clearGameSeoLinks();
     }
+    if (currentView === 'easyplatins') {
+      applyPathCanonical(easyPlatinsPublicPath(globalLocale), { noIndex: true });
+      return () => clearGameSeoLinks();
+    }
     if (currentView !== 'game_info' || !selectedGame) {
       clearGameSeoLinks();
       return undefined;
@@ -691,6 +719,20 @@ function App() {
     navigateToQuickwins();
     window.scrollTo(0, 0);
   }, []);
+
+  const openServertot = useCallback(() => {
+    setCurrentView('servertot');
+    setSelectedGame(null);
+    navigateToQuickwins({}, { path: servertotPublicPath(globalLocale) });
+    window.scrollTo(0, 0);
+  }, [globalLocale]);
+
+  const openEasyPlatins = useCallback(() => {
+    setCurrentView('easyplatins');
+    setSelectedGame(null);
+    navigateToQuickwins({}, { path: easyPlatinsPublicPath(globalLocale) });
+    window.scrollTo(0, 0);
+  }, [globalLocale]);
 
   const maintenanceBypass = hasMaintenanceBypass(sessionUser);
   const isQaAdminView = currentView === 'qa_admin';
@@ -775,7 +817,8 @@ function App() {
           currentView === 'advanced-search' ||
           currentView === 'search-results' ||
           currentView === 'quickwins' ||
-          currentView === 'servertot'
+          currentView === 'servertot' ||
+          currentView === 'easyplatins'
             ? 'justify-start'
             : 'justify-center'
         }`}
@@ -833,6 +876,10 @@ function App() {
                 openGame={openGuide}
                 onBack={goHome}
                 onOpenQuickwins={openQuickwins}
+                onOpenEasyPlatins={openEasyPlatins}
+                onOpenServertot={openServertot}
+                servertotPath={servertotPublicPath(globalLocale)}
+                easyPlatinsPath={easyPlatinsPublicPath(globalLocale)}
               />
             )}
 
@@ -856,9 +903,25 @@ function App() {
                 gameType={GAME_TYPE.SERVER_DEAD}
                 basePath={SERVERTOT_PATH}
                 titleKey="servertotTitle"
-                newerVersions
-                localizedPath
                 serverNotice
+                alphabetCatalog
+                localizedCatalog={SERVERTOT_CATALOG}
+                publisherMin={1}
+              />
+            )}
+
+            {currentView === 'easyplatins' && (
+              <QuickwinsPage
+                openGame={openGuide}
+                onBack={goHome}
+                onRequestLogin={() => setCurrentView('login')}
+                isAdmin={isAdminUser(sessionUser)}
+                sessionUser={sessionUser}
+                gameType={GAME_TYPE.EASY_PLATIN}
+                basePath={EASY_PLATINS_PATH}
+                titleKey="easyPlatinsTitle"
+                alphabetCatalog
+                localizedCatalog={EASY_PLATINS_CATALOG}
                 publisherMin={1}
               />
             )}
@@ -910,6 +973,8 @@ function App() {
                     ? t('quickwinsBack')
                     : guideReturnView === 'servertot'
                       ? t('servertotBack')
+                      : guideReturnView === 'easyplatins'
+                        ? t('easyPlatinsBack')
                       : ''
                 }
               />

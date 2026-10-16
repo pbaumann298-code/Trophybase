@@ -1,4 +1,5 @@
 import { parseServertotPath, servertotPublicPath } from './servertotPage.js';
+import { parseEasyPlatinsPath, easyPlatinsPublicPath } from './easyPlatinsPage.js';
 import { resolveViewForSession } from './trophyBaseAuth.js';
 import { getLocale, normalizeLocale } from './locale.js';
 import {
@@ -20,6 +21,7 @@ export const PUBLIC_APP_VIEWS = new Set([
   'advanced-search',
   'quickwins',
   'servertot',
+  'easyplatins',
   'impressum',
   'datenschutz',
   'guide-help',
@@ -50,6 +52,9 @@ export function getViewFromPath(pathname = '', search) {
   if (path === '/kurz-erklaert') return 'guide-help';
   if (path === '/quickwins') return 'quickwins';
   if (path === '/servertot' || parseServertotPath(path)) return 'servertot';
+  if (path === '/easy-platins' || path === '/easyplatins' || parseEasyPlatinsPath(path)) {
+    return 'easyplatins';
+  }
   if (path === '/suche' || path === '/search') {
     const queryString =
       search ??
@@ -241,9 +246,12 @@ export function navigateToAdvancedSearch(filters = {}, { replace = false, page =
   writeAppPath(buildAdvancedSearchPath(filters, page, excludeQuickwins), { replace });
 }
 
-/** Vorläufiger Pfad, bis der öffentliche Slug festliegt. */
+/** Vorläufiger Pfad – Quickwins hat noch keinen sprachspezifischen Slug. */
 export const QUICKWINS_PATH = '/quickwins';
+/** Legacy-Einstieg; öffentliche Adresse ist /{locale}/unerreichbare-platins usw. */
 export const SERVERTOT_PATH = '/servertot';
+/** Legacy-Einstieg; öffentliche Adresse ist /{locale}/easy-platins usw. */
+export const EASY_PLATINS_PATH = '/easy-platins';
 
 export const QUICKWIN_SORTS = ['title-asc', 'title-desc', 'year-asc', 'year-desc'];
 
@@ -347,6 +355,11 @@ export function syncPathLocale(nextLocale) {
   }
   if (parseServertotPath(window.location.pathname)) {
     const nextPath = `${servertotPublicPath(normalized)}${window.location.search}`;
+    writeAppPath(nextPath, { replace: true });
+    return;
+  }
+  if (parseEasyPlatinsPath(window.location.pathname)) {
+    const nextPath = `${easyPlatinsPublicPath(normalized)}${window.location.search}`;
     writeAppPath(nextPath, { replace: true });
   }
 }
