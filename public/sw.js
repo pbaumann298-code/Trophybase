@@ -3,7 +3,7 @@
  * Navigations → Network, fallback /offline.html
  * Supabase / API → Network Only (keine Trophäenstände im Cache)
  */
-const CACHE_VERSION = 'tb-static-v5';
+const CACHE_VERSION = 'tb-static-v6';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [
@@ -12,11 +12,11 @@ const PRECACHE_URLS = [
   '/favicon.ico',
   '/favicon-32.png',
   '/favicon-16.png',
-  '/icons/apple-touch-icon.png',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/icon-maskable-192.png',
-  '/icons/icon-maskable-512.png',
+  '/icons/tb-apple-touch-icon.png',
+  '/icons/tb-icon-192.png',
+  '/icons/tb-icon-512.png',
+  '/icons/tb-icon-maskable-192.png',
+  '/icons/tb-icon-maskable-512.png',
   '/images/quickwins-tile.jpg',
   '/images/easy-platins-tile.jpg',
   '/images/unobtainable-platins-tile.jpg',

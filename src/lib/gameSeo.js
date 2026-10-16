@@ -9,7 +9,7 @@ export const SITE_NAME = 'TrophyBase.app';
 export const HOME_META_TITLE = 'TrophyBase.app – Trophäen-Guides für PlayStation';
 export const HOME_META_DESCRIPTION =
   'Trophäen-Guides für PlayStation: Walkthroughs, Sammelobjekte und Platin-Routen. Unabhängige, redaktionelle Guides – ohne Tracking.';
-export const DEFAULT_SHARE_IMAGE = '/icons/icon-512.png';
+export const DEFAULT_SHARE_IMAGE = '/icons/tb-icon-512.png';
 
 const OG_LOCALES = {
   ja: 'ja_JP',
