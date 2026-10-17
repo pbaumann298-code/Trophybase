@@ -25,9 +25,13 @@ function SearchResultsPage({
   onPageChange,
   onBack,
   isAdmin = false,
+  resultsTitle,
+  emptyMessage,
 }) {
   const { globalLocale, t } = useLocale();
   const paged = paginateItems(searchResults, page);
+  const heading = resultsTitle || t('searchResults');
+  const emptyText = emptyMessage || t('searchNoResults');
 
   useEffect(() => {
     if (paged.page !== page && typeof onPageChange === 'function') {
@@ -85,12 +89,12 @@ function SearchResultsPage({
       ) : null}
 
       <h3 className="text-sm font-bold text-zinc-400 mb-6 uppercase tracking-wider">
-        {t('searchResults')} ({paged.total})
+        {heading} ({paged.total})
       </h3>
 
       {paged.total === 0 ? (
         <p className="text-sm text-zinc-500 bg-[#1a1b1c] p-6 rounded-xl border border-zinc-800 text-center">
-          {t('searchNoResults')}
+          {emptyText}
         </p>
       ) : (
         <>

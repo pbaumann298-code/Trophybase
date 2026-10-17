@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react';
 import HeaderSettingsMenu from './HeaderSettingsMenu';
 import { LocaleRegister } from './LocaleSelector';
-import { useLocale } from '../context/LocaleContext';
 import { hasAdminReturnFlag, isAdminUser } from '../lib/adminAccess';
-import { navigateToHome } from '../lib/routeUtils';
+import { navigateToHome, WATCHLIST_PATH } from '../lib/routeUtils';
 
-function Header({ setCurrentView, sessionUser, onLogout }) {
-  const { t } = useLocale();
+function Header({ setCurrentView, sessionUser, onLogout, onOpenWatchlist }) {
   const [showAdminReturn, setShowAdminReturn] = useState(false);
   const isAdmin = isAdminUser(sessionUser);
 
@@ -50,22 +48,13 @@ function Header({ setCurrentView, sessionUser, onLogout }) {
               Admin
             </a>
           ) : null}
-          <HeaderSettingsMenu />
+          <HeaderSettingsMenu
+            sessionUser={sessionUser}
+            onLogout={onLogout}
+            onOpenWatchlist={onOpenWatchlist}
+            watchlistPath={WATCHLIST_PATH}
+          />
         </div>
-        {isAdmin ? (
-          <div className="flex items-center justify-end gap-2 sm:gap-3 min-w-0">
-            <span className="hidden sm:inline text-[10px] font-mono text-zinc-500 truncate max-w-[12rem]">
-              {sessionUser.email}
-            </span>
-            <button
-              type="button"
-              onClick={onLogout}
-              className="flex-shrink-0 text-xs font-medium text-red-400 bg-red-500/5 hover:bg-red-500/10 border border-red-900/30 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap"
-            >
-              {t('logout')}
-            </button>
-          </div>
-        ) : null}
       </div>
     </header>
   );

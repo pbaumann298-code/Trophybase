@@ -17,6 +17,7 @@ function HomePage({
   onCategorySearch,
   onRequestLogin,
   onOpenAdvancedSearch,
+  onOpenWatchlist,
   sessionUser = null,
   excludeQuickwins = true,
   onExcludeQuickwinsChange,
@@ -105,7 +106,7 @@ function HomePage({
         </div>
       </header>
 
-      <Dashboard openGame={openGame} />
+      <Dashboard openGame={openGame} onOpenWatchlist={onOpenWatchlist} />
 
       <div className="home-categories" role="list">
         {HOME_CATEGORIES.filter(

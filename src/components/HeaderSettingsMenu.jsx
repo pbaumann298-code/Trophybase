@@ -20,7 +20,12 @@ function GearIcon({ className }) {
   );
 }
 
-function HeaderSettingsMenu() {
+function HeaderSettingsMenu({
+  sessionUser = null,
+  onLogout,
+  onOpenWatchlist,
+  watchlistPath = '/watchlist',
+}) {
   const { t } = useLocale();
   const { displayMode, setDisplayMode, modes } = useVisibility();
   const [open, setOpen] = useState(false);
@@ -49,6 +54,17 @@ function HeaderSettingsMenu() {
   const choose = (mode) => {
     setDisplayMode(mode);
     setOpen(false);
+  };
+
+  const openWatchlist = (event) => {
+    event.preventDefault();
+    setOpen(false);
+    onOpenWatchlist?.();
+  };
+
+  const logout = () => {
+    setOpen(false);
+    onLogout?.();
   };
 
   return (
@@ -121,6 +137,36 @@ function HeaderSettingsMenu() {
               </span>
             </span>
           </button>
+
+          <div className="my-1.5 border-t border-zinc-800" role="separator" />
+
+          <a
+            href={watchlistPath}
+            role="menuitem"
+            className="block px-3 py-2 text-xs font-semibold text-[#00ff66] no-underline hover:bg-zinc-800/80"
+            onClick={openWatchlist}
+          >
+            {t('watchlistTitle')}
+          </a>
+
+          {sessionUser ? (
+            <>
+              <div className="my-1.5 border-t border-zinc-800" role="separator" />
+              {sessionUser.email ? (
+                <p className="px-3 pb-1 text-[10px] font-mono text-zinc-600 truncate" title={sessionUser.email}>
+                  {sessionUser.email}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full px-3 py-2 text-left text-xs font-medium text-red-400 hover:bg-red-500/10"
+                onClick={logout}
+              >
+                {t('logout')}
+              </button>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>

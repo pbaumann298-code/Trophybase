@@ -151,6 +151,7 @@ export const UI_STRINGS = {
     homeSub:
       'Kuratierte Reihen – vom Souls-Hardcore bis zur Familien-Platin. Wähle die Reihe, die zu deinem Gamer-Typ passt.',
     watchlistTitle: 'Watchlist',
+    watchlistBack: '← Zurück zur Watchlist',
     watchlistCountOne: '1 Spiel',
     watchlistCountMany: '{n} Spiele',
     watchlistEmpty:
@@ -318,6 +319,7 @@ export const UI_STRINGS = {
     homeSub:
       'Curated rows — from Souls hardcore to family platinums. Pick the series that fits your play style.',
     watchlistTitle: 'Watchlist',
+    watchlistBack: '← Back to watchlist',
     watchlistCountOne: '1 game',
     watchlistCountMany: '{n} games',
     watchlistEmpty:
@@ -485,6 +487,7 @@ export const UI_STRINGS = {
     homeSub:
       'Filas curadas — del hardcore Souls a platino familiar. Elige la saga que encaje contigo.',
     watchlistTitle: 'Watchlist',
+    watchlistBack: '← Volver a la watchlist',
     watchlistCountOne: '1 juego',
     watchlistCountMany: '{n} juegos',
     watchlistEmpty:

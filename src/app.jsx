@@ -5,6 +5,7 @@ import HomePage from './pages/HomePage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import AdvancedSearchPage from './pages/AdvancedSearchPage';
 import QuickwinsPage from './pages/QuickwinsPage';
+import WatchlistPage from './pages/WatchlistPage';
 import GameDetailPage from "./pages/GameDetailPage";
 import LoginPage from './pages/LoginPage';
 import SocialLinkPage from './pages/SocialLinkPage';
@@ -33,9 +34,11 @@ import {
   navigateToAdvancedSearch,
   navigateToQuickwins,
   navigateToSimpleSearch,
+  navigateToWatchlist,
   QUICKWINS_PATH,
   SERVERTOT_PATH,
   EASY_PLATINS_PATH,
+  WATCHLIST_PATH,
   parseSimpleSearchParams,
   parseExcludeQuickwins,
   parseIncludeTrophiesOnly,
@@ -758,8 +761,12 @@ function App() {
       applyPathCanonical(servertotPublicPath(globalLocale), { noIndex: true });
       return () => clearGameSeoLinks();
     }
-    if (currentView === 'easyplatins') {
+      if (currentView === 'easyplatins') {
       applyPathCanonical(easyPlatinsPublicPath(globalLocale), { noIndex: true });
+      return () => clearGameSeoLinks();
+    }
+    if (currentView === 'watchlist') {
+      applyPathCanonical(WATCHLIST_PATH, { noIndex: true });
       return () => clearGameSeoLinks();
     }
     if (currentView !== 'game_info' || !selectedGame) {
@@ -849,6 +856,13 @@ function App() {
     window.scrollTo(0, 0);
   }, [globalLocale]);
 
+  const openWatchlist = useCallback(() => {
+    setCurrentView('watchlist');
+    setSelectedGame(null);
+    navigateToWatchlist();
+    window.scrollTo(0, 0);
+  }, []);
+
   const maintenanceBypass = hasMaintenanceBypass(sessionUser);
   const isQaAdminView = currentView === 'qa_admin';
 
@@ -921,7 +935,8 @@ function App() {
       <Header 
         setCurrentView={setCurrentView} 
         sessionUser={sessionUser} 
-        onLogout={handleLogout} 
+        onLogout={handleLogout}
+        onOpenWatchlist={openWatchlist}
       />
 
       <main
@@ -933,7 +948,8 @@ function App() {
           currentView === 'search-results' ||
           currentView === 'quickwins' ||
           currentView === 'servertot' ||
-          currentView === 'easyplatins'
+          currentView === 'easyplatins' ||
+          currentView === 'watchlist'
             ? 'justify-start'
             : 'justify-center'
         }`}
@@ -956,10 +972,20 @@ function App() {
                 onCategorySearch={runSearch}
                 sessionUser={sessionUser}
                 onOpenAdvancedSearch={openAdvancedSearch}
+                onOpenWatchlist={openWatchlist}
                 excludeQuickwins={excludeQuickwins}
                 onExcludeQuickwinsChange={setExcludeQuickwins}
                 includeTrophiesOnly={includeTrophiesOnly}
                 onIncludeTrophiesOnlyChange={setIncludeTrophiesOnly}
+              />
+            )}
+
+            {currentView === 'watchlist' && (
+              <WatchlistPage
+                openGame={openGuide}
+                onBack={goHome}
+                onRequestLogin={() => setCurrentView('login')}
+                isAdmin={isAdminUser(sessionUser)}
               />
             )}
 
@@ -1100,6 +1126,8 @@ function App() {
                       ? t('servertotBack')
                       : guideReturnView === 'easyplatins'
                         ? t('easyPlatinsBack')
+                        : guideReturnView === 'watchlist'
+                          ? t('watchlistBack')
                       : ''
                 }
               />

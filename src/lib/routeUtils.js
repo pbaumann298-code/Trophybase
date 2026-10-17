@@ -22,13 +22,14 @@ export const PUBLIC_APP_VIEWS = new Set([
   'quickwins',
   'servertot',
   'easyplatins',
+  'watchlist',
   'impressum',
   'datenschutz',
   'guide-help',
 ]);
 
 /** Views die eingeloggte Nutzer auch im Wartungsmodus sehen dürfen. */
-export const AUTHENTICATED_APP_VIEWS = new Set(['home', 'profile']);
+export const AUTHENTICATED_APP_VIEWS = new Set(['home', 'profile', 'watchlist']);
 
 export function canRenderAppContent({ isMaintenanceMode, maintenanceBypass, sessionUser, currentView }) {
   if (!isMaintenanceMode) return true;
@@ -67,6 +68,7 @@ export function getViewFromPath(pathname = '', search) {
     return 'advanced-search';
   }
   if (path === '/profile') return 'profile';
+  if (path === '/watchlist') return 'watchlist';
   if (path.startsWith('/admin/qa')) return 'qa_admin';
   if (path.startsWith('/guide/')) return 'game_info';
   if (path === '/beta' || path.startsWith('/beta/')) return 'beta';
@@ -153,6 +155,12 @@ export function navigateToHome() {
 
 export function navigateToProfile() {
   writeAppPath('/profile');
+}
+
+export const WATCHLIST_PATH = '/watchlist';
+
+export function navigateToWatchlist({ replace = false } = {}) {
+  writeAppPath(WATCHLIST_PATH, { replace });
 }
 
 export function navigateToImpressum() {

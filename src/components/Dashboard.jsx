@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import { fetchGameByRouteRef, fetchGamesByIds, parseRouteGameRef } from '../lib/gameQueries';
 import { GAME_FIELDS, GAME_PLATFORM_ID } from '../lib/gameSchema';
-import { navigateToGame } from '../lib/routeUtils';
+import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
 import {
   getGameUuid,
   getPlatformGameIds,
@@ -15,13 +15,32 @@ import { useWatchlist } from '../context/WatchlistContext';
 import { useLocale } from '../context/LocaleContext';
 import { canonicalizeWatchlistIds, watchlistIdsEqual } from '../lib/localWatchlist';
 
-function Dashboard({ openGame }) {
+/** Ab so vielen Titeln lohnt die Startseiten-Leiste zum horizontalen Scrollen. */
+export const HOME_WATCHLIST_MIN = 3;
+
+const TILE_CLASS =
+  'home-carousel-tile flex-shrink-0 snap-start w-[9.5rem] sm:w-44 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-none';
+
+/**
+ * Kompakte Watchlist-Leiste auf der Startseite (nur ab HOME_WATCHLIST_MIN Einträgen).
+ * Volle Liste: /watchlist
+ */
+function Dashboard({ openGame, onOpenWatchlist }) {
   const { globalLocale, t } = useLocale();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const { toggleHidden, isHidden, getEntryState, gameKey } = useVisibility();
+  const { getEntryState, gameKey } = useVisibility();
   const { watchlistIdList, version, replaceWatchlistIds } = useWatchlist();
+  const trackRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollHints = useCallback(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 8);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,19 +53,16 @@ function Dashboard({ openGame }) {
             try {
               replaceWatchlistIds([]);
             } catch {
-              /* Quota – Slugs bleiben bis zum nächsten erfolgreichen Schreibversuch */
+              /* Quota */
             }
           }
           setItems([]);
-          setError(null);
           setLoading(false);
         }
         return;
       }
 
       setLoading(true);
-      setError(null);
-
       const { data: games, error: gamesError } = await fetchGamesByIds(
         supabase,
         ids,
@@ -56,14 +72,12 @@ function Dashboard({ openGame }) {
       if (cancelled) return;
 
       if (gamesError) {
-        setError(gamesError.message);
+        console.error('Watchlist-Leiste:', gamesError.message);
         setItems([]);
         setLoading(false);
         return;
       }
 
-      // Watchlist-Altdaten referenzieren Spiele mal per UUID, mal per NPWR –
-      // beides muss auf dasselbe Spiel zeigen.
       const byRef = new Map();
       for (const game of games || []) {
         const uuid = getGameUuid(game);
@@ -93,7 +107,7 @@ function Dashboard({ openGame }) {
         try {
           replaceWatchlistIds(canonical);
         } catch {
-          /* Quota – Anzeige nutzt trotzdem die aufgelösten Spiele */
+          /* Quota */
         }
       }
 
@@ -106,6 +120,21 @@ function Dashboard({ openGame }) {
       cancelled = true;
     };
   }, [watchlistIdList, version, globalLocale, replaceWatchlistIds]);
+
+  const visibleItems = items.filter((item) => {
+    const key = gameKey(item.gameUuid || item.routeSlug);
+    return getEntryState(key, { completed: false }).visible;
+  });
+
+  useEffect(() => {
+    if (loading || visibleItems.length < HOME_WATCHLIST_MIN) return undefined;
+    updateScrollHints();
+    const el = trackRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(updateScrollHints);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [loading, visibleItems.length, updateScrollHints]);
 
   const handleOpenGame = async (item) => {
     if (item.game) {
@@ -133,118 +162,106 @@ function Dashboard({ openGame }) {
     openGame({ id: item.gameUuid, [GAME_PLATFORM_ID]: item.routeSlug });
   };
 
-  const visibleItems = items.filter((item) => {
-    const key = gameKey(item.gameUuid || item.routeSlug);
-    return getEntryState(key, { completed: false }).visible;
-  });
+  if (loading || visibleItems.length < HOME_WATCHLIST_MIN) {
+    return null;
+  }
 
-  const countLabel =
-    visibleItems.length === 1 ? t('watchlistCountOne') : t('watchlistCountMany').replace('{n}', String(visibleItems.length));
+  const scrollByTiles = (direction) => {
+    const el = trackRef.current;
+    if (!el) return;
+    el.scrollBy({ left: Math.round(el.clientWidth * 0.85) * direction, behavior: 'smooth' });
+  };
 
   return (
-    <section className="w-full min-w-0 rounded-2xl border border-zinc-800 bg-gradient-to-b from-[#1a1b1c] to-[#161718] p-5 sm:p-6 shadow-xl">
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight">
-            {t('watchlistTitle')}
-          </h2>
+    <section className="home-category w-full min-w-0 max-w-full" aria-labelledby="home-watchlist-title">
+      <header className="home-category-header">
+        <div className="home-category-heading min-w-0">
+          {typeof onOpenWatchlist === 'function' ? (
+            <button
+              type="button"
+              id="home-watchlist-title"
+              className="home-category-title home-category-title--clickable"
+              onClick={onOpenWatchlist}
+              title={t('watchlistTitle')}
+            >
+              {t('watchlistTitle')}
+              <span className="home-category-search-hint" aria-hidden>
+                ↗
+              </span>
+            </button>
+          ) : (
+            <h2 id="home-watchlist-title" className="home-category-title">
+              {t('watchlistTitle')}
+            </h2>
+          )}
         </div>
-        {!loading && (
-          <span className="text-xs font-mono text-zinc-500 flex-shrink-0">{countLabel}</span>
-        )}
-      </div>
-
-      {loading && (
-        <div className="space-y-3 py-2">
-          {[1, 2].map((i) => (
-            <div
-              key={i}
-              className="h-20 rounded-xl bg-zinc-800/40 animate-pulse border border-zinc-800/60"
-            />
-          ))}
+        <div className="home-category-nav flex-shrink-0">
+          <button
+            type="button"
+            className="home-scroll-btn"
+            aria-label={`${t('watchlistTitle')} nach links`}
+            disabled={!canScrollLeft}
+            onClick={() => scrollByTiles(-1)}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            className="home-scroll-btn"
+            aria-label={`${t('watchlistTitle')} nach rechts`}
+            disabled={!canScrollRight}
+            onClick={() => scrollByTiles(1)}
+          >
+            ›
+          </button>
         </div>
-      )}
+      </header>
 
-      {!loading && error && (
-        <p className="text-xs text-red-400 bg-red-500/10 border border-red-900/40 rounded-lg p-3">
-          Watchlist konnte nicht geladen werden: {error}
-        </p>
-      )}
-
-      {!loading && !error && items.length === 0 && (
-        <p className="text-xs text-zinc-500 italic py-2">{t('watchlistEmpty')}</p>
-      )}
-
-      {!loading && !error && items.length > 0 && visibleItems.length === 0 && (
-        <p className="text-xs text-zinc-500 italic py-2">
-          Alle Spiele sind ausgeblendet. Öffne im Header das Zahnrad und wähle „Einblenden“, um sie ausgegraut zu
-          sehen.
-        </p>
-      )}
-
-      {!loading && !error && visibleItems.length > 0 && (
-        <ul className="flex flex-col gap-3">
-          {items.map((item) => {
-            const visKey = gameKey(item.gameUuid || item.routeSlug);
-            const { visible, dimmed } = getEntryState(visKey, { completed: false });
-            if (!visible) return null;
-
-            const title = getGameTitle(item.game, globalLocale) || item.routeSlug || 'Unbekanntes Spiel';
+      <div className="home-carousel-wrap">
+        <div
+          ref={trackRef}
+          className="home-carousel-track scrollbar-hide"
+          onScroll={updateScrollHints}
+        >
+          {visibleItems.map((item) => {
+            const title = getGameTitle(item.game, globalLocale) || item.routeSlug || '—';
             const cover = getGameCover(item.game, globalLocale);
-            const userHidden = isHidden(visKey);
-
+            const consoleLabel = item.game?.[GAME_FIELDS.console] ?? '';
+            const href = item.game ? gameGuidePath(item.game, globalLocale) : '#';
             return (
-              <li key={item.gameUuid || item.routeSlug}>
-                <div
-                  className={`group w-full min-w-0 bg-[#121314] border border-zinc-800 hover:border-[#00ff66]/30 rounded-xl p-3 sm:p-4 flex gap-3 sm:gap-4 items-stretch transition ${
-                    dimmed ? 'opacity-30' : ''
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => handleOpenGame(item)}
-                    className="flex flex-1 min-w-0 gap-3 sm:gap-4 items-stretch text-left bg-transparent border-none cursor-pointer p-0"
-                  >
-                    <div className="w-14 sm:w-[4.5rem] flex-shrink-0 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 aspect-[3/4] max-h-24">
-                      {cover ? (
-                        <img src={cover} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-600 text-lg">
-                          🎮
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
-                      <p className="text-sm sm:text-base font-bold text-zinc-100 break-words min-w-0 group-hover:text-[#00ff66] transition-colors">
-                        {title}
-                      </p>
-                      {item.game?.[GAME_FIELDS.console] && (
-                        <p className="text-[10px] text-zinc-500 font-mono mt-1 truncate">
-                          {item.game[GAME_FIELDS.console]}
-                          {item.game[GAME_FIELDS.genre]
-                            ? ` · ${item.game[GAME_FIELDS.genre]}`
-                            : ''}
-                        </p>
-                      )}
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => toggleHidden(visKey)}
-                    className="flex-shrink-0 self-center text-lg bg-transparent border-none cursor-pointer px-1"
-                    aria-label={userHidden ? 'Spiel einblenden' : 'Spiel ausblenden'}
-                    title={userHidden ? 'Einblenden' : 'Ausblenden'}
-                  >
-                    {userHidden ? '👁️‍🗨️' : '👁️'}
-                  </button>
-                </div>
-              </li>
+              <a
+                key={item.gameUuid || item.routeSlug}
+                href={href}
+                className={TILE_CLASS}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (item.game) {
+                    navigateToGame(item.game, { locale: globalLocale });
+                  }
+                  handleOpenGame(item);
+                }}
+              >
+                <article className="home-tile group h-full" style={{ '--tile-accent': '#00ff66' }}>
+                  <div className="home-tile-cover-wrap">
+                    {cover ? (
+                      <img src={cover} className="home-tile-cover" alt="" loading="lazy" />
+                    ) : (
+                      <div className="home-tile-cover home-tile-cover--empty">🎮</div>
+                    )}
+                    <div className="home-tile-shine" aria-hidden />
+                  </div>
+                  <div className="home-tile-meta">
+                    <p className="home-tile-title" title={title}>
+                      {title}
+                    </p>
+                    {consoleLabel ? <span className="home-tile-badge">{consoleLabel}</span> : null}
+                  </div>
+                </article>
+              </a>
             );
           })}
-        </ul>
-      )}
+        </div>
+      </div>
     </section>
   );
 }
