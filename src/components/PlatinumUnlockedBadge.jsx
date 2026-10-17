@@ -2,18 +2,20 @@ import { trophyTypeIcon, TROPHY_TYPE } from '../lib/trophyTypes';
 import { useLocale } from '../context/LocaleContext';
 
 /**
- * Kleiner Platin-Pokal unten links, sobald die Platin abgehakt / verdient ist.
+ * Kleiner Platin-Pokal (unten links auf dem Cover), sobald die Platin abgehakt / verdient ist.
  */
-function PlatinumUnlockedBadge({ visible = false }) {
+function PlatinumUnlockedBadge({ visible = false, size = 'md' }) {
   const { t } = useLocale();
   if (!visible) return null;
 
   const src = trophyTypeIcon(TROPHY_TYPE.PLATINUM);
   if (!src) return null;
 
+  const iconPx = size === 'sm' ? 26 : 34;
+
   return (
     <div
-      className="platinum-unlocked-badge"
+      className={`platinum-unlocked-badge platinum-unlocked-badge--${size}`}
       role="status"
       aria-label={t('platinumUnlocked')}
       title={t('platinumUnlocked')}
@@ -21,8 +23,8 @@ function PlatinumUnlockedBadge({ visible = false }) {
       <img
         src={src}
         alt=""
-        width={40}
-        height={40}
+        width={iconPx}
+        height={iconPx}
         draggable={false}
         className="platinum-unlocked-badge__icon"
       />

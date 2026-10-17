@@ -72,6 +72,18 @@ export const UI_STRINGS = {
     overallProgress: 'Gesamtfortschritt',
     releaseYear: 'Release-Jahr',
     platinumUnlocked: 'Platin freigeschaltet',
+    progressSyncTitle: 'Browser-Fortschritt speichern?',
+    progressSyncDetailEmpty:
+      'Auf diesem Gerät gibt es abgehakte Trophäen oder Guide-Schritte, im Profil noch nicht. Sollen sie in deinem Account gespeichert werden?',
+    progressSyncDetailDivergent:
+      'Die Häkchen im Browser weichen von deinem Profil ab. Browser-Daten ins Profil übernehmen (mit Profil zusammenführen)?',
+    progressSyncDetailForeign:
+      'Auf diesem Gerät liegen Fortschrittsdaten, die noch nicht zu diesem Account gehören. Im Profil speichern?',
+    progressSyncStats:
+      'Browser: {localGames} Spiele / {localSteps} Häkchen · Profil: {cloudGames} Spiele / {cloudSteps} Häkchen',
+    progressSyncAccept: 'Ja, im Profil speichern',
+    progressSyncDecline: 'Nein, Profil behalten',
+    progressSyncBusy: 'Speichern…',
     watchlistAdd: 'Zur Watchlist',
     watchlistOn: 'Auf Watchlist',
     watchlistAdded: 'Zur Watchlist hinzugefügt.',
@@ -241,6 +253,18 @@ export const UI_STRINGS = {
     overallProgress: 'Overall progress',
     releaseYear: 'Release year',
     platinumUnlocked: 'Platinum unlocked',
+    progressSyncTitle: 'Save browser progress?',
+    progressSyncDetailEmpty:
+      'This device has checked trophies or guide steps that are not in your profile yet. Save them to your account?',
+    progressSyncDetailDivergent:
+      'Browser checkmarks differ from your profile. Merge browser data into your profile?',
+    progressSyncDetailForeign:
+      'This device has progress that is not linked to this account yet. Save it to your profile?',
+    progressSyncStats:
+      'Browser: {localGames} games / {localSteps} checks · Profile: {cloudGames} games / {cloudSteps} checks',
+    progressSyncAccept: 'Yes, save to profile',
+    progressSyncDecline: 'No, keep profile',
+    progressSyncBusy: 'Saving…',
     watchlistAdd: 'Add to watchlist',
     watchlistOn: 'On watchlist',
     watchlistAdded: 'Added to watchlist.',
@@ -410,6 +434,18 @@ export const UI_STRINGS = {
     overallProgress: 'Progreso total',
     releaseYear: 'Año de lanzamiento',
     platinumUnlocked: 'Platino desbloqueado',
+    progressSyncTitle: '¿Guardar progreso del navegador?',
+    progressSyncDetailEmpty:
+      'En este dispositivo hay trofeos o pasos de guía marcados que aún no están en tu perfil. ¿Guardarlos en tu cuenta?',
+    progressSyncDetailDivergent:
+      'Las marcas del navegador no coinciden con tu perfil. ¿Fusionar los datos del navegador en el perfil?',
+    progressSyncDetailForeign:
+      'En este dispositivo hay progreso que aún no pertenece a esta cuenta. ¿Guardarlo en el perfil?',
+    progressSyncStats:
+      'Navegador: {localGames} juegos / {localSteps} marcas · Perfil: {cloudGames} juegos / {cloudSteps} marcas',
+    progressSyncAccept: 'Sí, guardar en el perfil',
+    progressSyncDecline: 'No, mantener el perfil',
+    progressSyncBusy: 'Guardando…',
     watchlistAdd: 'A la watchlist',
     watchlistOn: 'En la watchlist',
     watchlistAdded: 'Añadido a la watchlist.',

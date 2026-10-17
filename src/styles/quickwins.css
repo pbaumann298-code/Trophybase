@@ -400,13 +400,20 @@ p.quickwin-card-title:hover {
   align-items: flex-start;
 }
 
-.quickwin-card-cover {
+.quickwin-card-cover-wrap {
+  position: relative;
   width: 6rem;
   height: 8rem;
+  flex-shrink: 0;
+}
+
+.quickwin-card-cover {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   border-radius: 0.55rem;
   border: 1px solid #27272a;
-  flex-shrink: 0;
+  display: block;
 }
 
 .quickwin-card-cover--empty {

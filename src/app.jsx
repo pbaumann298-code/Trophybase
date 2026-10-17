@@ -99,7 +99,9 @@ import {
   fetchGameTrophiesWithEarned,
 } from './lib/earnedTrophyQueries';
 import { getTrophyIdKey } from './lib/trophyQueries';
-import { applyTrophyUnlockToggle } from './lib/trophyTypes';
+import { applyTrophyUnlockToggle, isPlatinumUnlocked } from './lib/trophyTypes';
+import { saveLocalPlatinumFlag, PROGRESS_SYNCED_EVENT } from './lib/localUserProgress';
+import { pushLocalGameProgressToCloud } from './lib/progressCloudBridge';
 import { getGameUuid } from './lib/gameModel';
 import { applyGameSeoLinks, applyHomeSeo, applyPathCanonical, clearGameSeoLinks } from './lib/seoHead';
 import { isGameIndexable } from './lib/guidePublication';
@@ -119,6 +121,7 @@ import {
 } from './lib/trophyProgressStorage';
 import { ErrorReportProvider } from './context/ErrorReportContext';
 import { WatchlistProvider } from './context/WatchlistContext';
+import { ProgressSyncProvider } from './context/ProgressSyncContext';
 import { useMediaConsent } from './context/MediaConsentContext';
 import SiteFooter from './components/SiteFooter';
 import MediaConsentBanner from './components/MediaConsentBanner';
@@ -681,6 +684,11 @@ function App() {
     setUnlockedTrophies((prev) => {
       const next = applyTrophyUnlockToggle(prev, id, activeTrophies, earnedTrophyIds);
       saveUnlockedTrophies(gameUuid, next, earnedTrophyIds);
+      saveLocalPlatinumFlag(
+        gameUuid,
+        isPlatinumUnlocked(activeTrophies, next, earnedTrophyIds),
+      );
+      pushLocalGameProgressToCloud(gameUuid);
       return next;
     });
   };
@@ -691,6 +699,7 @@ function App() {
       const next = { ...prev, [id]: !prev[id] };
       if (!next[id]) delete next[id];
       saveCompletedGuideItems(gameUuid, next);
+      pushLocalGameProgressToCloud(gameUuid);
       return next;
     });
   };
@@ -698,6 +707,11 @@ function App() {
   useEffect(() => {
     const gameUuid = getGameUuid(selectedGame);
     if (!gameUuid) return undefined;
+
+    const reloadLocalProgress = () => {
+      setCompletedGuideItems(readCompletedGuideItems(gameUuid));
+      setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedTrophyIds));
+    };
 
     const onStorage = (event) => {
       if (event.key === guideProgressStorageKey(gameUuid)) {
@@ -709,8 +723,14 @@ function App() {
       }
     };
 
+    const onProgressSynced = () => reloadLocalProgress();
+
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    window.addEventListener(PROGRESS_SYNCED_EVENT, onProgressSynced);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(PROGRESS_SYNCED_EVENT, onProgressSynced);
+    };
   }, [selectedGame, earnedTrophyIds]);
 
   const completedCount = useMemo(() => {
@@ -930,6 +950,7 @@ function App() {
   return (
     <ErrorReportProvider sessionUser={sessionUser}>
     <WatchlistProvider sessionUser={sessionUser}>
+    <ProgressSyncProvider sessionUser={sessionUser}>
     <div className="min-h-screen w-full max-w-full min-w-0 overflow-x-hidden flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
       
       <Header 
@@ -1160,6 +1181,7 @@ function App() {
       />
 
     </div>
+    </ProgressSyncProvider>
     </WatchlistProvider>
     </ErrorReportProvider>
   );

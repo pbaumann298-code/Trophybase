@@ -13,6 +13,8 @@ export const TABLES = {
   profiles: 'profiles',
   earnedTrophies: 'user_earned_trophies',
   watchlist: 'user_watchlist',
+  /** Guide- + manuelle Trophäen-Häkchen (siehe user_state_schema.sql). */
+  guideProgress: 'user_guide_progress',
   inbox: 'user_inbox',
   qaDashboard: 'qa_dashboard',
   inviteKeys: 'invite_keys',

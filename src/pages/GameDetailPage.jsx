@@ -738,7 +738,6 @@ function GamePageContent({
 
   return (
     <div className="w-full max-w-[1400px] min-w-0 overflow-x-hidden mx-auto px-4 md:px-8 pt-6 pb-12 box-border">
-      <PlatinumUnlockedBadge visible={platinumDone} />
       <GuideBreadcrumb game={selectedGame} title={gameTitle} onHome={onGoHome || onNavigateHome} />
       <PortraitGuideHint
         isGuideView
@@ -775,6 +774,7 @@ function GamePageContent({
               kein Cover
             </div>
           )}
+          <PlatinumUnlockedBadge visible={platinumDone} />
           <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none">
             <GuideOnlineBadge game={gameForPublication} visible={isAdmin} size="md" />
           </div>

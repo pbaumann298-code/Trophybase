@@ -28,10 +28,13 @@ import {
   saveUnlockedTrophies,
 } from '../lib/trophyProgressStorage';
 import { applyTrophyUnlockToggle, isPlatinumUnlocked } from '../lib/trophyTypes';
+import { saveLocalPlatinumFlag, PROGRESS_SYNCED_EVENT } from '../lib/localUserProgress';
+import { pushLocalGameProgressToCloud } from '../lib/progressCloudBridge';
 import PlatinumUnlockedBadge from './PlatinumUnlockedBadge';
 import {
   claimCompletedGuideItems,
   collectGuideProgressIds,
+  readCompletedGuideItems,
   saveCompletedGuideItems,
 } from '../lib/guideProgressStorage';
 import {
@@ -151,6 +154,16 @@ function QuickwinGameCard({
     };
   }, [game, gameUuid, globalLocale, sessionUser?.id, newerVersions, includeReady]);
 
+  useEffect(() => {
+    if (!gameUuid) return undefined;
+    const onSynced = () => {
+      setUnlocked(mergeUnlockedTrophies(gameUuid, earnedIds));
+      setCompletedItems(readCompletedGuideItems(gameUuid));
+    };
+    window.addEventListener(PROGRESS_SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(PROGRESS_SYNCED_EVENT, onSynced);
+  }, [gameUuid, earnedIds]);
+
   const saveGuideTip = async (achievementId, text) => {
     const { error } = await saveTrophyGuideTip(supabase, gameUuid, achievementId, globalLocale, text);
     if (error) return error;
@@ -188,6 +201,8 @@ function QuickwinGameCard({
     setUnlocked((prev) => {
       const next = applyTrophyUnlockToggle(prev, id, trophies, earnedIds);
       saveUnlockedTrophies(gameUuid, next, earnedIds);
+      saveLocalPlatinumFlag(gameUuid, isPlatinumUnlocked(trophies, next, earnedIds));
+      pushLocalGameProgressToCloud(gameUuid);
       return next;
     });
   };
@@ -197,6 +212,7 @@ function QuickwinGameCard({
       const next = { ...prev, [id]: !prev[id] };
       if (!next[id]) delete next[id];
       saveCompletedGuideItems(gameUuid, next);
+      pushLocalGameProgressToCloud(gameUuid);
       return next;
     });
   };
@@ -252,14 +268,16 @@ function QuickwinGameCard({
 
   return (
     <div className="quickwin-detail">
-      <PlatinumUnlockedBadge visible={platinumDone} />
       <article className="quickwin-card">
         <div className="quickwin-card-main">
-          {cover ? (
-            <img src={cover} className="quickwin-card-cover" alt="" />
-          ) : (
-            <div className="quickwin-card-cover quickwin-card-cover--empty" aria-hidden />
-          )}
+          <div className="quickwin-card-cover-wrap">
+            {cover ? (
+              <img src={cover} className="quickwin-card-cover" alt="" />
+            ) : (
+              <div className="quickwin-card-cover quickwin-card-cover--empty" aria-hidden />
+            )}
+            <PlatinumUnlockedBadge visible={platinumDone} size="sm" />
+          </div>
           <div className="quickwin-card-body">
             <div className="quickwin-card-title-row">
               {allowFullGameNav ? (
