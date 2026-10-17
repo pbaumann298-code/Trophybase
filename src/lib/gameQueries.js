@@ -6,6 +6,7 @@ import {
   GAME_I18N,
   GAME_TYPE,
   HOME_FEATURED_GAME_TYPES,
+  isQuickwinStyleType,
 } from './gameSchema.js';
 import { GUIDE_PUBLICATION, guideStatusKey } from './guidePublication.js';
 import { getLocale } from './locale.js';
@@ -548,6 +549,36 @@ function freeTextTokenFilter(token) {
   return parts.join(',');
 }
 
+/**
+ * Login-Suche ohne PUBLISHED-Filter (SECURITY DEFINER-RPC).
+ * Kein RLS-OR auf games – sonst Startseiten-Timeouts fuer alle Eingeloggten.
+ */
+export async function searchGamesTrophiesOnlyRpc(
+  supabase,
+  words,
+  limit = SEARCH_RESULT_CAP,
+  locale = getLocale(),
+  { excludeQuickwins = true } = {},
+) {
+  const list = (words ?? []).map((word) => String(word ?? '').trim()).filter(Boolean);
+  if (list.length === 0) {
+    return { data: [], error: new Error('Suchbegriff fehlt') };
+  }
+
+  const { data, error } = await supabase.rpc('tb_search_games_trophies_only', {
+    p_words: list,
+    p_limit: Math.min(Math.max(Number(limit) || SEARCH_RESULT_CAP, 1), 500),
+  });
+
+  if (error) return { data: [], error };
+
+  let rows = Array.isArray(data) ? data : [];
+  if (excludeQuickwins) {
+    rows = rows.filter((game) => !isQuickwinStyleType(game?.[GAME_STRUCT.gameType]));
+  }
+  return { data: mergeGameRows(rows, locale), error: null };
+}
+
 export async function searchGamesByFreeText(
   supabase,
   pattern,
@@ -558,6 +589,12 @@ export async function searchGamesByFreeText(
   const words = searchWords(pattern);
   if (words.length === 0) {
     return { data: [], error: new Error('Suchbegriff fehlt') };
+  }
+
+  if (catalog.includeTrophiesOnly) {
+    return searchGamesTrophiesOnlyRpc(supabase, words, limit, locale, {
+      excludeQuickwins: catalog.excludeQuickwins !== false,
+    });
   }
 
   const { data, error } = await fetchSearchRows(
@@ -731,6 +768,26 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
     return { data: [], error: new Error('Mindestens ein Suchfeld ausfüllen') };
   }
 
+  if (options.includeTrophiesOnly) {
+    const words = [
+      ...(title.valid ? searchWords(title.query) : []),
+      ...(developer.valid ? searchWords(developer.query) : []),
+      ...(genre.valid ? searchWords(genre.query) : []),
+    ];
+    const rpc = await searchGamesTrophiesOnlyRpc(supabase, words, limit, locale, {
+      excludeQuickwins: options.excludeQuickwins !== false,
+    });
+    if (rpc.error) return rpc;
+    let rows = rpc.data ?? [];
+    if (hardware.valid) {
+      const needle = hardware.query.toLowerCase();
+      rows = rows.filter((game) =>
+        String(game?.[GAME_STRUCT.hardware] ?? '').toLowerCase().includes(needle),
+      );
+    }
+    return { data: rows.slice(0, limit), error: null };
+  }
+
   const { data, error } = await fetchSearchRows(() => {
     let query = supabase.from(TABLES.games).select(getGameSelect());
 
@@ -755,12 +812,8 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
 
     return applyExcludeQuickwins(
       applyGuideCatalogFilter(query, {
-        includeTrophiesOnly: Boolean(options.includeTrophiesOnly),
-        includeReady: Boolean(options.includeReady) && !options.includeTrophiesOnly,
-        publishedOnly:
-          options.includeTrophiesOnly || options.includeReady
-            ? false
-            : options.publishedOnly !== false,
+        includeReady: Boolean(options.includeReady),
+        publishedOnly: options.includeReady ? false : options.publishedOnly !== false,
       }),
       options.excludeQuickwins,
     ).order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });

@@ -35,10 +35,23 @@ export async function fetchAchievementsForGame(
 
   const targetLang = resolveGuideLanguage(locale, overrideLang);
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from(TABLES.achievements)
     .select('*')
     .eq(GAME_FK, uuid);
+
+  // Unveröffentlichte Spiele: normale RLS liefert leer → Auth-RPC (kein RLS-OR).
+  if (!error && (!data || data.length === 0)) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session?.user) {
+      const rpc = await supabase.rpc('tb_fetch_achievements_for_auth', { p_game_id: uuid });
+      if (!rpc.error && Array.isArray(rpc.data) && rpc.data.length > 0) {
+        data = rpc.data;
+      }
+    }
+  }
 
   if (error) return { data: [], error };
 
