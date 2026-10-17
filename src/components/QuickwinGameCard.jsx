@@ -27,6 +27,8 @@ import {
   mergeUnlockedTrophies,
   saveUnlockedTrophies,
 } from '../lib/trophyProgressStorage';
+import { applyTrophyUnlockToggle, isPlatinumUnlocked } from '../lib/trophyTypes';
+import PlatinumUnlockedBadge from './PlatinumUnlockedBadge';
 import {
   claimCompletedGuideItems,
   collectGuideProgressIds,
@@ -184,8 +186,7 @@ function QuickwinGameCard({
   const toggleTrophy = (id) => {
     if (earnedIds.has(id)) return;
     setUnlocked((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      if (!next[id]) delete next[id];
+      const next = applyTrophyUnlockToggle(prev, id, trophies, earnedIds);
       saveUnlockedTrophies(gameUuid, next, earnedIds);
       return next;
     });
@@ -247,8 +248,11 @@ function QuickwinGameCard({
   const tabIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const description = getGameDescription(detailGame, globalLocale);
 
+  const platinumDone = isPlatinumUnlocked(trophies, unlocked, earnedIds);
+
   return (
     <div className="quickwin-detail">
+      <PlatinumUnlockedBadge visible={platinumDone} />
       <article className="quickwin-card">
         <div className="quickwin-card-main">
           {cover ? (

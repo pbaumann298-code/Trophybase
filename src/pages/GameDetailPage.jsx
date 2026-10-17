@@ -46,6 +46,7 @@ import { isGuidePublished } from '../lib/guidePublication';
 import { clearGameGuideTips, clearIntranetCover, saveTrophyGuideTip, setAchievementFlags, setIntranetIgdbCover } from '../lib/intranetGameEdits';
 import { gameGuidePath, withGuideTabParam, writeAppPath } from '../lib/routeUtils';
 import { getTrophyIdKey } from '../lib/trophyQueries';
+import { isPlatinumUnlocked } from '../lib/trophyTypes';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
   getGameCover,
@@ -55,6 +56,7 @@ import {
 } from '../lib/gameModel';
 import { useLocale } from '../context/LocaleContext';
 import { contentLocalesForGame, DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
+import PlatinumUnlockedBadge from '../components/PlatinumUnlockedBadge';
 
 const TAB_META = {
   reiter0: { icon: '🏆', labelKey: 'trophies' },
@@ -732,8 +734,11 @@ function GamePageContent({
 
   if (currentView !== 'game_info' || !selectedGame) return null;
 
+  const platinumDone = isPlatinumUnlocked(activeTrophies, unlockedTrophies, earnedTrophyIds);
+
   return (
     <div className="w-full max-w-[1400px] min-w-0 overflow-x-hidden mx-auto px-4 md:px-8 pt-6 pb-12 box-border">
+      <PlatinumUnlockedBadge visible={platinumDone} />
       <GuideBreadcrumb game={selectedGame} title={gameTitle} onHome={onGoHome || onNavigateHome} />
       <PortraitGuideHint
         isGuideView

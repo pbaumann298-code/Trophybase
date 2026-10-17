@@ -99,6 +99,7 @@ import {
   fetchGameTrophiesWithEarned,
 } from './lib/earnedTrophyQueries';
 import { getTrophyIdKey } from './lib/trophyQueries';
+import { applyTrophyUnlockToggle } from './lib/trophyTypes';
 import { getGameUuid } from './lib/gameModel';
 import { applyGameSeoLinks, applyHomeSeo, applyPathCanonical, clearGameSeoLinks } from './lib/seoHead';
 import { isGameIndexable } from './lib/guidePublication';
@@ -678,8 +679,7 @@ function App() {
     if (earnedTrophyIds.has(id)) return;
     const gameUuid = getGameUuid(selectedGame);
     setUnlockedTrophies((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      if (!next[id]) delete next[id];
+      const next = applyTrophyUnlockToggle(prev, id, activeTrophies, earnedTrophyIds);
       saveUnlockedTrophies(gameUuid, next, earnedTrophyIds);
       return next;
     });

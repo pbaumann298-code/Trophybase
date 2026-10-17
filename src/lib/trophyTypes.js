@@ -76,3 +76,60 @@ export function trophyTypeLabel(value) {
   const type = normalizeTrophyType(value) || (LABEL_BY_TYPE[value] ? value : '');
   return type ? LABEL_BY_TYPE[type] : '';
 }
+
+export function isPlatinumTrophy(trophy) {
+  return normalizeTrophyType(trophy?.trophy_type) === TROPHY_TYPE.PLATINUM;
+}
+
+function trophyKey(trophy) {
+  return String(
+    trophy?.platform_achievement_id ?? trophy?.trophy_id ?? trophy?.id ?? '',
+  ).trim();
+}
+
+/**
+ * Platin abhaken → alle übrigen Trophäen mit abhaken.
+ * Platin abwählen → nur die Platin selbst.
+ * @param {Record<string, boolean>} prev
+ * @param {string} id platform_achievement_id
+ * @param {object[]} trophies
+ * @param {Set<string>} [earnedIds]
+ */
+export function applyTrophyUnlockToggle(prev, id, trophies, earnedIds) {
+  const key = String(id ?? '').trim();
+  const earned = earnedIds instanceof Set ? earnedIds : new Set();
+  if (!key || earned.has(key)) return prev ?? {};
+
+  const list = Array.isArray(trophies) ? trophies : [];
+  const target = list.find((trophy) => trophyKey(trophy) === key);
+  const turningOn = !prev?.[key];
+
+  if (turningOn && isPlatinumTrophy(target)) {
+    const next = { ...(prev ?? {}) };
+    for (const trophy of list) {
+      const trophyId = trophyKey(trophy);
+      if (!trophyId || earned.has(trophyId)) continue;
+      next[trophyId] = true;
+    }
+    return next;
+  }
+
+  const next = { ...(prev ?? {}), [key]: turningOn };
+  if (!next[key]) delete next[key];
+  return next;
+}
+
+/**
+ * Platin verdient (PSN) oder manuell abgehakt?
+ * @param {object[]} trophies
+ * @param {Record<string, boolean>} unlockedMap
+ * @param {Set<string>} [earnedIds]
+ */
+export function isPlatinumUnlocked(trophies, unlockedMap, earnedIds) {
+  const earned = earnedIds instanceof Set ? earnedIds : new Set();
+  const platinum = (trophies ?? []).find(isPlatinumTrophy);
+  if (!platinum) return false;
+  const key = trophyKey(platinum);
+  if (!key) return false;
+  return earned.has(key) || Boolean(unlockedMap?.[key]);
+}
