@@ -101,6 +101,13 @@ create policy games_select_admin
   to authenticated
   using (public.tb_is_admin());
 
+-- Login-User: Spielezeilen fuer „inkl. nur Trophäen“ (UI ohne Tipps/Reiter).
+create policy games_select_authenticated
+  on public.games
+  for select
+  to authenticated
+  using (auth.uid() is not null);
+
 create policy games_admin_write
   on public.games
   for all
@@ -119,6 +126,12 @@ create policy game_achievements_select
   for select
   to anon, authenticated
   using (public.tb_is_admin() or public.tb_game_is_published(game_id));
+
+create policy game_achievements_select_authenticated
+  on public.game_achievements
+  for select
+  to authenticated
+  using (auth.uid() is not null);
 
 create policy game_achievements_admin_write
   on public.game_achievements

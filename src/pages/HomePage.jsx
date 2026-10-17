@@ -6,6 +6,7 @@ import { HOME_CATEGORIES, fetchAllHomeCategories } from '../lib/homeCategories';
 import { isAdminUser } from '../lib/adminAccess';
 import { useLocale } from '../context/LocaleContext';
 import SearchSkipQuickwins from '../components/SearchSkipQuickwins';
+import SearchIncludeTrophiesOnly from '../components/SearchIncludeTrophiesOnly';
 import '../styles/home.css';
 
 function HomePage({
@@ -19,6 +20,8 @@ function HomePage({
   sessionUser = null,
   excludeQuickwins = true,
   onExcludeQuickwinsChange,
+  includeTrophiesOnly = false,
+  onIncludeTrophiesOnlyChange,
 }) {
   const { globalLocale, t } = useLocale();
   const [categoryGames, setCategoryGames] = useState({});
@@ -65,11 +68,20 @@ function HomePage({
               aria-label={t('searchAria')}
             />
             <div className="home-search-submit-row">
-              <SearchSkipQuickwins
-                id="home-skip-quickwins"
-                checked={excludeQuickwins}
-                onChange={onExcludeQuickwinsChange}
-              />
+              <div className="home-search-options">
+                <SearchSkipQuickwins
+                  id="home-skip-quickwins"
+                  checked={excludeQuickwins}
+                  onChange={onExcludeQuickwinsChange}
+                />
+                {sessionUser ? (
+                  <SearchIncludeTrophiesOnly
+                    id="home-include-trophies-only"
+                    checked={includeTrophiesOnly}
+                    onChange={onIncludeTrophiesOnlyChange}
+                  />
+                ) : null}
+              </div>
               <button
                 type="button"
                 className="home-search-icon"

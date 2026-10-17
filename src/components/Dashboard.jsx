@@ -177,7 +177,7 @@ function Dashboard({ openGame }) {
 
       {!loading && !error && items.length > 0 && visibleItems.length === 0 && (
         <p className="text-xs text-zinc-500 italic py-2">
-          Alle Spiele sind ausgeblendet. Wechsle im Header auf „Einblenden“, um sie ausgegraut zu
+          Alle Spiele sind ausgeblendet. Öffne im Header das Zahnrad und wähle „Einblenden“, um sie ausgegraut zu
           sehen.
         </p>
       )}

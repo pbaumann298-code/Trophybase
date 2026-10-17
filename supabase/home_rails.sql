@@ -114,7 +114,7 @@ as $$
     from public.games g
     where
       g.status ->> 'guide_de' = 'PUBLISHED'
-      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin')
+      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot')
       and (
         'soulslike' = any(coalesce(g.home_tags, '{}'::text[]))
         or lower(coalesce(g.entwickler, '')) like '%fromsoftware%'
@@ -134,7 +134,7 @@ as $$
     from public.games g
     where
       g.status ->> 'guide_de' = 'PUBLISHED'
-      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin')
+      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot')
       and 'open_world' = any(coalesce(g.home_tags, '{}'::text[]))
     order by g.created_at desc nulls last, g.views desc
     limit 12
@@ -150,7 +150,7 @@ as $$
     from public.games g
     where
       g.status ->> 'guide_de' = 'PUBLISHED'
-      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin')
+      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot')
       and (
         lower(coalesce(g.entwickler, '')) like '%ubisoft%'
         or lower(coalesce(g.publisher, '')) like '%ubisoft%'
@@ -169,7 +169,7 @@ as $$
     from public.games g
     where
       g.status ->> 'guide_de' = 'PUBLISHED'
-      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin')
+      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot')
       and (
         lower(coalesce(g.entwickler, '')) like '%rockstar%'
         or lower(coalesce(g.publisher, '')) like '%rockstar%'
@@ -188,7 +188,7 @@ as $$
     from public.games g
     where
       g.status ->> 'guide_de' = 'PUBLISHED'
-      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin')
+      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot')
       and 'family' = any(coalesce(g.home_tags, '{}'::text[]))
     order by g.created_at desc nulls last, g.views desc
     limit 12
@@ -204,7 +204,7 @@ as $$
     from public.games g
     where
       g.status ->> 'guide_de' = 'PUBLISHED'
-      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin')
+      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot')
       and 'indie' = any(coalesce(g.home_tags, '{}'::text[]))
     order by g.created_at desc nulls last, g.views desc
     limit 12
@@ -220,7 +220,7 @@ as $$
     from public.games g
     where
       g.status ->> 'guide_de' = 'PUBLISHED'
-      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin')
+      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot')
       and 'racing' = any(coalesce(g.home_tags, '{}'::text[]))
     order by g.created_at desc nulls last, g.views desc
     limit 12
@@ -236,6 +236,7 @@ as $$
     from public.games g
     where
       g.status ->> 'guide_de' = 'PUBLISHED'
+      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot')
       and lower(coalesce(g.spieltitel::text, '')) like '%god of war%'
     order by g.created_at desc nulls last, g.views desc
     limit 12
@@ -251,6 +252,7 @@ as $$
     from public.games g
     where
       g.status ->> 'guide_de' = 'PUBLISHED'
+      and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot')
       and (
         lower(coalesce(g.spieltitel::text, '')) like '%tomb raider%'
         or lower(coalesce(g.spieltitel::text, '')) like '%lara croft%'
@@ -273,7 +275,7 @@ as $$
 $$;
 
 comment on function public.tb_get_home_rails() is
-  'Startseiten-Reihen, je max. 12, nur guide_de=PUBLISHED (oeffentliche Startseite).';
+  'Startseiten-Reihen, je max. 12, nur guide_de=PUBLISHED; ohne Quickwin/easy_platin/Servertot.';
 
 revoke all on function public.tb_get_home_rails() from public;
 grant execute on function public.tb_get_home_rails() to anon, authenticated;

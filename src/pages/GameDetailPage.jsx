@@ -93,6 +93,8 @@ function GamePageContent({
   fromSearch = false,
   backLabel = '',
   sessionUser = null,
+  /** Login-User: unveröffentlichte Spiele nur als Trophäenliste (ohne Tipps/Reiter). */
+  trophiesOnly = false,
 }) {
   const [guideRows, setGuideRows] = useState([]);
   const [chapterRows, setChapterRows] = useState([]);
@@ -328,7 +330,7 @@ function GamePageContent({
   /** Sichtbarkeit der Guide-Reiter hängt an der gerade gezeigten Sprache. */
   const guidePublished = isGuidePublished(gameForPublication, effectiveGuideLang);
   /** Admins sehen den Guide als Vorschau, Besucher erst nach der Freigabe. */
-  const canSeeGuides = guidePublished || isAdmin;
+  const canSeeGuides = !trophiesOnly && (guidePublished || isAdmin);
   const contentLocales = useMemo(
     () => contentLocalesForGame(gameForPublication, { includeReady: isAdmin }),
     [gameForPublication, isAdmin],
@@ -372,7 +374,7 @@ function GamePageContent({
     let cancelled = false;
 
     async function loadRelated() {
-      if (!selectedGame) {
+      if (!selectedGame || trophiesOnly) {
         setRelatedGuides({ creatorGames: [], similarGames: [] });
         return;
       }
@@ -392,7 +394,7 @@ function GamePageContent({
     return () => {
       cancelled = true;
     };
-  }, [selectedGame, globalLocale]);
+  }, [selectedGame, globalLocale, trophiesOnly]);
 
   const isGuideLoading = guidesLoading || loadingGuide;
 
@@ -586,7 +588,7 @@ function GamePageContent({
             </div>
           </div>
 
-          {isAdmin ? (
+          {isAdmin && !trophiesOnly ? (
             <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
               {tipHint ? <span className="text-[10px] text-zinc-500">{tipHint}</span> : null}
               <ClearGuideTipsButton onClear={clearAllGuideTips} locale={effectiveGuideLang} />
@@ -594,15 +596,15 @@ function GamePageContent({
           ) : null}
           <TrophyGroupedChecklist
             gameId={gameId}
-            trophies={isAdmin ? trophiesWithTips : activeTrophies}
+            trophies={trophiesOnly || !isAdmin ? activeTrophies : trophiesWithTips}
             unlockedTrophies={unlockedTrophies}
             earnedTrophyIds={earnedTrophyIds}
             hideCompleted={hideCompleted}
             revealHidden={hiddenTrophiesRevealed(hiddenTrophyMode)}
             onToggle={toggleTrophy}
             mainGameTitle={gameTitle || 'Hauptspiel'}
-            guideTipEditor={isAdmin ? saveGuideTip : null}
-            onTrophyFlags={isAdmin ? saveTrophyFlags : null}
+            guideTipEditor={isAdmin && !trophiesOnly ? saveGuideTip : null}
+            onTrophyFlags={isAdmin && !trophiesOnly ? saveTrophyFlags : null}
           />
         </div>
       )}
@@ -1014,14 +1016,14 @@ function GamePageContent({
           locales={contentLocales}
         />
 
-        {isAdmin && !guidePublished && hasGuideContent && (
+        {isAdmin && !guidePublished && hasGuideContent && !trophiesOnly && (
           <p className="text-xs text-amber-400 font-mono mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
             Vorschau: Dieser Guide ist noch nicht freigegeben ({effectiveGuideLang.toUpperCase()}) und
             für Besucher unsichtbar.
           </p>
         )}
 
-        {!canSeeGuides && hasGuideContent && (
+        {!canSeeGuides && hasGuideContent && !trophiesOnly && (
           <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
             Der Guide zu diesem Spiel wird derzeit redaktionell geprüft und ist noch nicht
             freigegeben.
@@ -1046,12 +1048,14 @@ function GamePageContent({
         {renderTabContent()}
       </section>
 
-      <RelatedGuides
-        creatorName={contentCreators[0]?.channelName || ''}
-        creatorGames={relatedGuides.creatorGames}
-        similarGames={relatedGuides.similarGames}
-        openGame={openGame}
-      />
+      {!trophiesOnly ? (
+        <RelatedGuides
+          creatorName={contentCreators[0]?.channelName || ''}
+          creatorGames={relatedGuides.creatorGames}
+          similarGames={relatedGuides.similarGames}
+          openGame={openGame}
+        />
+      ) : null}
     </div>
   );
 }

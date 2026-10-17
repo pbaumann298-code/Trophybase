@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import VisibilityModeToggle from './VisibilityModeToggle';
+import HeaderSettingsMenu from './HeaderSettingsMenu';
 import { LocaleRegister } from './LocaleSelector';
 import { useLocale } from '../context/LocaleContext';
 import { hasAdminReturnFlag, isAdminUser } from '../lib/adminAccess';
@@ -50,7 +50,7 @@ function Header({ setCurrentView, sessionUser, onLogout }) {
               Admin
             </a>
           ) : null}
-          <VisibilityModeToggle />
+          <HeaderSettingsMenu />
         </div>
         {isAdmin ? (
           <div className="flex items-center justify-end gap-2 sm:gap-3 min-w-0">

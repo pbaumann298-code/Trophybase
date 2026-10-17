@@ -38,13 +38,15 @@ import {
   EASY_PLATINS_PATH,
   parseSimpleSearchParams,
   parseExcludeQuickwins,
+  parseIncludeTrophiesOnly,
   parseGuideTabParam,
   navigateToGuideTab,
   withGuideTabParam,
   DEFAULT_GUIDE_TAB,
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
-import { GAME_TYPE, TABLES } from './lib/gameSchema';
+import { GAME_STRUCT, GAME_TYPE, TABLES, isServerDeadType } from './lib/gameSchema';
+import { isGuidePublished } from './lib/guidePublication';
 import {
   parseServertotPath,
   servertotPageCopy,
@@ -62,6 +64,21 @@ const SERVERTOT_CATALOG = {
   publicPath: servertotPublicPath,
   parsePath: parseServertotPath,
 };
+
+/** Eingeloggte Nicht-Admins: unveröffentlichte Spiele nur als Trophäenliste. */
+function resolveTrophiesOnlyView(game, locale, user) {
+  if (!user || isAdminUser(user)) return false;
+  return !isGuidePublished(game, locale);
+}
+
+function stripTrophyGuideExtras(trophies) {
+  return (trophies ?? []).map((trophy) => ({
+    ...trophy,
+    guide_tip: '',
+    guide_tip_long: '',
+    video_url: '',
+  }));
+}
 
 const EASY_PLATINS_CATALOG = {
   viewName: 'easyplatins',
@@ -129,6 +146,8 @@ function App() {
 
   const [searchQuery, setSearchQuery] = useState(() => parseSimpleSearchParams().q);
   const [excludeQuickwins, setExcludeQuickwins] = useState(() => parseExcludeQuickwins());
+  const [includeTrophiesOnly, setIncludeTrophiesOnly] = useState(() => parseIncludeTrophiesOnly());
+  const [trophiesOnlyView, setTrophiesOnlyView] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [searchPage, setSearchPage] = useState(() => parseSimpleSearchParams().page);
   const [loading, setLoading] = useState(false);
@@ -251,6 +270,19 @@ function App() {
     }
 
     if (gameData) {
+      if (isServerDeadType(gameData[GAME_STRUCT.gameType])) {
+        setSelectedGame(null);
+        setActiveTrophies([]);
+        setGuideItems([]);
+        setChapterItems([]);
+        setBossItems([]);
+        setGuideLoadError(null);
+        setLoadingGuide(false);
+        setCurrentView('servertot');
+        navigateToQuickwins({}, { path: servertotPublicPath(localeForPage), replace: true });
+        return;
+      }
+
       writeAppPath(
         withGuideTabParam(
           gameGuidePath(gameData, localeForPage),
@@ -265,7 +297,10 @@ function App() {
       setEarnedTrophyIds(new Set());
 
       const { data: { session } } = await supabase.auth.getSession();
-      const userId = session?.user?.id ?? null;
+      const user = session?.user ?? null;
+      const userId = user?.id ?? null;
+      const trophiesOnly = resolveTrophiesOnlyView(gameData, localeForPage, user);
+      setTrophiesOnlyView(trophiesOnly);
 
       const loadId = startTrophyLoad();
       const { trophies, earnedIds } = await fetchGameTrophiesWithEarned(
@@ -275,25 +310,32 @@ function App() {
         localeForPage,
       );
       if (loadId === trophyLoadRef.current) {
-        setActiveTrophies(trophies);
+        setActiveTrophies(trophiesOnly ? stripTrophyGuideExtras(trophies) : trophies);
         setEarnedTrophyIds(earnedIds);
         setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
       }
 
-      const { chapters, guides, bosses } = await fetchGameGuideBundle(
-        supabase,
-        gameData,
-        localeForPage,
-      );
-      setChapterItems(chapters);
-      setGuideItems(guides);
-      setBossItems(bosses);
-      setCompletedGuideItems(
-        claimCompletedGuideItems(
-          gameUuid,
-          collectGuideProgressIds(chapters, guides, bosses),
-        ),
-      );
+      if (trophiesOnly) {
+        setChapterItems([]);
+        setGuideItems([]);
+        setBossItems([]);
+        setCompletedGuideItems({});
+      } else {
+        const { chapters, guides, bosses } = await fetchGameGuideBundle(
+          supabase,
+          gameData,
+          localeForPage,
+        );
+        setChapterItems(chapters);
+        setGuideItems(guides);
+        setBossItems(bosses);
+        setCompletedGuideItems(
+          claimCompletedGuideItems(
+            gameUuid,
+            collectGuideProgressIds(chapters, guides, bosses),
+          ),
+        );
+      }
     } else {
       setCompletedGuideItems({});
       setGuideLoadError({
@@ -304,6 +346,7 @@ function App() {
       setActiveTrophies([]);
       setUnlockedTrophies({});
       setEarnedTrophyIds(new Set());
+      setTrophiesOnlyView(false);
     }
 
     setLoadingGuide(false);
@@ -346,16 +389,26 @@ function App() {
       }
 
       if (pathView === 'search-results') {
-        const { q, page, excludeQuickwins: exclude } = parseSimpleSearchParams(window.location.search);
-        const signature = `${q}\n${exclude ? '1' : '0'}`;
+        const {
+          q,
+          page,
+          excludeQuickwins: exclude,
+          includeTrophiesOnly: trophiesOnly,
+        } = parseSimpleSearchParams(window.location.search);
+        const allowTrophies = Boolean(sessionUser) && trophiesOnly;
+        const signature = `${q}\n${exclude ? '1' : '0'}\n${allowTrophies ? '1' : '0'}`;
         setSelectedGame(null);
         setCurrentView('search-results');
         setSearchQuery(q);
         setSearchPage(page);
         setExcludeQuickwins(exclude);
+        setIncludeTrophiesOnly(allowTrophies);
         if (q && lastSearchQueryRef.current !== signature) {
           setLoading(true);
-          searchGames(supabase, q, { excludeQuickwins: exclude }).then(({ data, error }) => {
+          searchGames(supabase, q, {
+            excludeQuickwins: exclude,
+            includeTrophiesOnly: allowTrophies,
+          }).then(({ data, error }) => {
             if (error) console.error('Suche:', error.message);
             lastSearchQueryRef.current = signature;
             setSearchResults(data || []);
@@ -376,7 +429,7 @@ function App() {
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [loadGameFromUrl]);
+  }, [loadGameFromUrl, sessionUser]);
 
   // Aktiver Guide-Reiter in der URL, damit Reload und geteilte Links ihn behalten.
   useEffect(() => {
@@ -459,34 +512,61 @@ function App() {
     setCurrentView(isMaintenanceMode ? 'login' : 'home');
   };
 
-  const runSearch = async (queryOverride, { updateUrl = true, page = 1, replace = false, exclude = excludeQuickwins } = {}) => {
+  const runSearch = async (
+    queryOverride,
+    {
+      updateUrl = true,
+      page = 1,
+      replace = false,
+      exclude = excludeQuickwins,
+      trophiesOnly = includeTrophiesOnly,
+    } = {},
+  ) => {
     const q = (typeof queryOverride === 'string' ? queryOverride : searchQuery).trim();
     if (!q) return;
+    const allowTrophies = Boolean(sessionUser) && trophiesOnly;
     if (typeof queryOverride === 'string') setSearchQuery(queryOverride);
     setSearchPage(page > 1 ? page : 1);
     setLoading(true);
     setCurrentView('search-results');
-    if (updateUrl) navigateToSimpleSearch(q, { page, replace, excludeQuickwins: exclude });
+    if (updateUrl) {
+      navigateToSimpleSearch(q, {
+        page,
+        replace,
+        excludeQuickwins: exclude,
+        includeTrophiesOnly: allowTrophies,
+      });
+    }
     const { data, error } = await searchGames(supabase, q, {
       locale: globalLocale,
       excludeQuickwins: exclude,
+      includeTrophiesOnly: allowTrophies,
     });
     if (error) {
       console.error('Suche:', error.message);
     }
     setSearchResults(data || []);
-    lastSearchQueryRef.current = `${q}\n${exclude ? '1' : '0'}`;
+    lastSearchQueryRef.current = `${q}\n${exclude ? '1' : '0'}\n${allowTrophies ? '1' : '0'}`;
     setLoading(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   useEffect(() => {
-    const { q, page, excludeQuickwins: exclude } = parseSimpleSearchParams();
+    if (!sessionUser) setIncludeTrophiesOnly(false);
+  }, [sessionUser]);
+
+  useEffect(() => {
+    const {
+      q,
+      page,
+      excludeQuickwins: exclude,
+      includeTrophiesOnly: trophiesOnly,
+    } = parseSimpleSearchParams();
     if (getViewFromPath(window.location.pathname, window.location.search) !== 'search-results') {
       return undefined;
     }
     if (!q) return undefined;
-    runSearch(q, { updateUrl: false, page, exclude });
+    runSearch(q, { updateUrl: false, page, exclude, trophiesOnly });
     return undefined;
     // Deep-Link / F5: Suche nur beim ersten Öffnen anstoßen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -505,6 +585,13 @@ function App() {
     const token = gameUuid || gameId || '';
     openedGameRef.current = token;
 
+    if (isServerDeadType(game?.[GAME_STRUCT.gameType])) {
+      setSelectedGame(null);
+      setCurrentView('servertot');
+      navigateToQuickwins({}, { path: servertotPublicPath(globalLocale) });
+      return;
+    }
+
     setGuideReturnView(currentView);
     setSelectedGame(game);
     setCurrentView('game_info');
@@ -515,6 +602,7 @@ function App() {
     setGuideItems([]);
     setChapterItems([]);
     setBossItems([]);
+    setTrophiesOnlyView(false);
     setUnlockedTrophies(mergeUnlockedTrophies(gameUuid));
     setEarnedTrophyIds(new Set());
 
@@ -527,9 +615,8 @@ function App() {
 
     const userId = sessionUser?.id ?? null;
     const loadId = startTrophyLoad();
-    const [trophyResult, guideBundle, fullGame] = await Promise.all([
+    const [trophyResult, fullGame] = await Promise.all([
       fetchGameTrophiesWithEarned(supabase, userId, game, globalLocale),
-      fetchGameGuideBundle(supabase, game, globalLocale),
       gameUuid
         ? fetchGameByRouteRef(supabase, gameUuid, globalLocale)
         : Promise.resolve({ data: null }),
@@ -537,14 +624,39 @@ function App() {
 
     if (openedGameRef.current !== token) return;
 
-    if (fullGame?.data) setSelectedGame(fullGame.data);
+    const resolvedGame = fullGame?.data || game;
+    if (fullGame?.data) {
+      if (isServerDeadType(fullGame.data[GAME_STRUCT.gameType])) {
+        setSelectedGame(null);
+        setLoadingGuide(false);
+        setCurrentView('servertot');
+        navigateToQuickwins({}, { path: servertotPublicPath(globalLocale), replace: true });
+        return;
+      }
+      setSelectedGame(fullGame.data);
+    }
+
+    const trophiesOnly = resolveTrophiesOnlyView(resolvedGame, globalLocale, sessionUser);
+    setTrophiesOnlyView(trophiesOnly);
 
     if (loadId === trophyLoadRef.current) {
       const { trophies, earnedIds } = trophyResult;
-      setActiveTrophies(trophies);
+      setActiveTrophies(trophiesOnly ? stripTrophyGuideExtras(trophies) : trophies);
       setEarnedTrophyIds(earnedIds);
       setUnlockedTrophies(mergeUnlockedTrophies(gameUuid, earnedIds));
     }
+
+    if (trophiesOnly) {
+      setChapterItems([]);
+      setGuideItems([]);
+      setBossItems([]);
+      setCompletedGuideItems({});
+      setLoadingGuide(false);
+      return;
+    }
+
+    const guideBundle = await fetchGameGuideBundle(supabase, resolvedGame, globalLocale);
+    if (openedGameRef.current !== token) return;
 
     const { chapters, guides, bosses } = guideBundle;
     setChapterItems(chapters);
@@ -657,10 +769,10 @@ function App() {
     applyGameSeoLinks({
       locale: globalLocale,
       game: selectedGame,
-      noIndex: !isGameIndexable(selectedGame),
+      noIndex: trophiesOnlyView || !isGameIndexable(selectedGame),
     });
     return () => clearGameSeoLinks();
-  }, [currentView, selectedGame, globalLocale]);
+  }, [currentView, selectedGame, globalLocale, trophiesOnlyView]);
 
   const goHome = useCallback(() => {
     setCurrentView('home');
@@ -709,9 +821,12 @@ function App() {
   const openAdvancedSearch = useCallback(() => {
     setCurrentView('advanced-search');
     setSelectedGame(null);
-    navigateToAdvancedSearch({}, { excludeQuickwins });
+    navigateToAdvancedSearch({}, {
+      excludeQuickwins,
+      includeTrophiesOnly: Boolean(sessionUser) && includeTrophiesOnly,
+    });
     window.scrollTo(0, 0);
-  }, [excludeQuickwins]);
+  }, [excludeQuickwins, includeTrophiesOnly, sessionUser]);
 
   const openQuickwins = useCallback(() => {
     setCurrentView('quickwins');
@@ -843,6 +958,8 @@ function App() {
                 onOpenAdvancedSearch={openAdvancedSearch}
                 excludeQuickwins={excludeQuickwins}
                 onExcludeQuickwinsChange={setExcludeQuickwins}
+                includeTrophiesOnly={includeTrophiesOnly}
+                onIncludeTrophiesOnlyChange={setIncludeTrophiesOnly}
               />
             )}
 
@@ -865,7 +982,12 @@ function App() {
                 isAdmin={isAdminUser(sessionUser)}
                 onPageChange={(nextPage) => {
                   setSearchPage(nextPage);
-                  navigateToSimpleSearch(searchQuery, { page: nextPage, replace: true, excludeQuickwins });
+                  navigateToSimpleSearch(searchQuery, {
+                    page: nextPage,
+                    replace: true,
+                    excludeQuickwins,
+                    includeTrophiesOnly: Boolean(sessionUser) && includeTrophiesOnly,
+                  });
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
               />
@@ -878,6 +1000,7 @@ function App() {
                 onOpenQuickwins={openQuickwins}
                 onOpenEasyPlatins={openEasyPlatins}
                 onOpenServertot={openServertot}
+                sessionUser={sessionUser}
                 servertotPath={servertotPublicPath(globalLocale)}
                 easyPlatinsPath={easyPlatinsPublicPath(globalLocale)}
               />
@@ -903,6 +1026,7 @@ function App() {
                 gameType={GAME_TYPE.SERVER_DEAD}
                 basePath={SERVERTOT_PATH}
                 titleKey="servertotTitle"
+                newerVersions
                 serverNotice
                 alphabetCatalog
                 localizedCatalog={SERVERTOT_CATALOG}
@@ -968,6 +1092,7 @@ function App() {
                 fromSearch={
                   guideReturnView === 'search-results' || guideReturnView === 'advanced-search'
                 }
+                trophiesOnly={trophiesOnlyView}
                 backLabel={
                   guideReturnView === 'quickwins'
                     ? t('quickwinsBack')

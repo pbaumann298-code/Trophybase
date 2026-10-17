@@ -82,8 +82,15 @@
   cursor: pointer;
 }
 
-.advanced-search-form .search-skip-quickwins {
+.advanced-search-form .search-skip-quickwins,
+.advanced-search-form .advanced-search-options {
   grid-column: 1 / -1;
+}
+
+.advanced-search-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .home-search-submit-row {
@@ -91,6 +98,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+.home-search-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .home-search-submit-row .search-skip-quickwins {

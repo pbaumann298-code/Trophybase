@@ -420,6 +420,7 @@ function QuickwinsPage({
               isAdmin={isAdmin}
               sessionUser={sessionUser}
               includeReady={includeReady}
+              newerVersions={newerVersions}
               serverNotice={serverNotice}
               serverNoticeText={pageCopy?.notice || ''}
             />

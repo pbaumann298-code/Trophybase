@@ -1,4 +1,4 @@
-import { GAME_PK, HOME_TAGS, isQuickwinStyleType } from './gameSchema';
+import { GAME_PK, HOME_TAGS, isQuickwinStyleType, isServerDeadType } from './gameSchema';
 import { getGameTitle, getRouteSlug, mergeGameRows } from './gameModel';
 import {
   SEARCH_RESULT_CAP,
@@ -60,8 +60,12 @@ function catalogOptions(includeReady, excludeQuickwins = false) {
   return catalog;
 }
 
+function withoutServerDead(games) {
+  return (games ?? []).filter((game) => !isServerDeadType(game?.spiel_typ));
+}
+
 function withoutQuickwins(games) {
-  return (games ?? []).filter((game) => !isQuickwinStyleType(game?.spiel_typ));
+  return withoutServerDead(games).filter((game) => !isQuickwinStyleType(game?.spiel_typ));
 }
 
 function titleLike(supabase, pattern, locale, includeReady, limit = LIMIT, excludeQuickwins = false) {
@@ -78,7 +82,8 @@ function titleLike(supabase, pattern, locale, includeReady, limit = LIMIT, exclu
 
 async function mergeRailRows(queries, locale, { dropQuickwins = false, limit = LIMIT } = {}) {
   const rows = await runQueries(queries);
-  const unique = dedupeGames(dropQuickwins ? withoutQuickwins(rows) : rows, locale);
+  const filtered = dropQuickwins ? withoutQuickwins(rows) : withoutServerDead(rows);
+  const unique = dedupeGames(filtered, locale);
   return unique.slice(0, limit);
 }
 
@@ -86,11 +91,11 @@ function emptyRails() {
   return Object.fromEntries(HOME_CATEGORIES.map((cat) => [cat.id, []]));
 }
 
-/** Nur Guides, die in dieser Sprache wirklich freigegeben sind. */
+/** Nur Guides, die in dieser Sprache wirklich freigegeben sind. Servertot nie. */
 function railsForLocale(byId, locale) {
   const next = {};
   for (const [id, games] of Object.entries(byId ?? {})) {
-    next[id] = (games ?? []).filter((game) => {
+    next[id] = withoutServerDead(games ?? []).filter((game) => {
       const status = game?.status;
       if (!status || typeof status !== 'object' || Array.isArray(status)) {
         return locale === 'de';
@@ -420,9 +425,9 @@ export async function searchHomeCategory(
   const fetchLimit = Math.max(Number(limit) || SEARCH_RESULT_CAP, 1);
 
   const dropRows = (rows, specDrops) => {
-    if (forceInclude) return rows ?? [];
+    if (forceInclude) return withoutServerDead(rows);
     if (forceExclude || specDrops) return withoutQuickwins(rows);
-    return rows ?? [];
+    return withoutServerDead(rows);
   };
 
   if (spec.kind === 'tag') {

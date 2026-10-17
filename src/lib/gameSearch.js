@@ -9,12 +9,11 @@ import {
 import { findHomeCategoryForQuery, searchHomeCategory } from './homeCategories';
 import { getLocale } from './locale';
 
-/** Suchreihenfolge: Evergreen, Premium, Standard, danach Servertot und Quickwins. */
+/** Suchreihenfolge: Evergreen, Premium, Standard, danach Quickwins (Servertot nie in der Suche). */
 const SEARCH_TYPE_RANK = {
   [GAME_TYPE.EVERGREEN]: 0,
   [GAME_TYPE.PREMIUM]: 1,
   [GAME_TYPE.STANDARD]: 2,
-  [GAME_TYPE.SERVER_DEAD]: 3,
   [GAME_TYPE.QUICKWIN]: 3,
   [GAME_TYPE.EASY_PLATIN]: 3,
 };
@@ -65,7 +64,7 @@ export function paginateItems(items, page, pageSize = SEARCH_PAGE_SIZE) {
  * Suche in games.spieltitel (JSONB), games.genre, games.entwickler und games.publisher.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} query
- * @param {{ limit?: number, locale?: string }} [options]
+ * @param {{ limit?: number, locale?: string, includeTrophiesOnly?: boolean }} [options]
  */
 export async function searchGames(supabase, query, options = {}) {
   const limit = options.limit ?? SEARCH_RESULT_CAP;
@@ -77,11 +76,15 @@ export async function searchGames(supabase, query, options = {}) {
   }
 
   const excludeQuickwins = options.excludeQuickwins !== false;
-  const catalog = options.includeReady
-    ? { includeReady: true, excludeQuickwins }
-    : { publishedOnly: options.publishedOnly !== false, excludeQuickwins };
+  const includeTrophiesOnly = options.includeTrophiesOnly === true;
+  const catalog = includeTrophiesOnly
+    ? { includeTrophiesOnly: true, excludeQuickwins }
+    : options.includeReady
+      ? { includeReady: true, excludeQuickwins }
+      : { publishedOnly: options.publishedOnly !== false, excludeQuickwins };
 
-  const rail = findHomeCategoryForQuery(check.query);
+  // Rail-Shortcuts sind Guide-Kataloge – bei „nur Trophäen“ freie Textsuche.
+  const rail = !includeTrophiesOnly && findHomeCategoryForQuery(check.query);
   const result = rail?.search
     ? await searchHomeCategory(
       supabase,
@@ -101,12 +104,15 @@ export async function searchGames(supabase, query, options = {}) {
  * Erweiterte Suche über einzelne Felder (UND).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {{ title?: string, developer?: string, genre?: string, console?: string }} filters
- * @param {{ limit?: number, locale?: string, includeReady?: boolean, publishedOnly?: boolean, excludeQuickwins?: boolean }} [options]
+ * @param {{ limit?: number, locale?: string, includeReady?: boolean, publishedOnly?: boolean, excludeQuickwins?: boolean, includeTrophiesOnly?: boolean }} [options]
  */
 export async function searchGamesAdvanced(supabase, filters, options = {}) {
+  const includeTrophiesOnly = options.includeTrophiesOnly === true;
   const result = await runAdvancedSearch(supabase, filters, {
     ...options,
     excludeQuickwins: options.excludeQuickwins !== false,
+    includeTrophiesOnly,
+    publishedOnly: includeTrophiesOnly ? false : options.publishedOnly,
   });
   if (result.error) return result;
   return { ...result, data: rankSearchResults(result.data) };

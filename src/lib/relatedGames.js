@@ -4,6 +4,7 @@ import {
   GAME_FK,
   GAME_STRUCT,
   GUIDE_STRUCT,
+  isServerDeadType,
 } from './gameSchema.js';
 import { getGameSelect, applyGuideCatalogFilter, excludeQuickwinStyleTypes } from './gameQueries.js';
 import { getGameUuid, mergeGameRows } from './gameModel.js';
@@ -16,6 +17,10 @@ const SIMILAR_FETCH = 20;
 
 function catalogOf(includeReady) {
   return { includeReady: Boolean(includeReady), publishedOnly: !includeReady };
+}
+
+function withoutServerDead(games) {
+  return (games ?? []).filter((game) => !isServerDeadType(game?.[GAME_STRUCT.gameType]));
 }
 
 async function loadGamesByIds(supabase, gameIds, locale, includeReady, limit) {
@@ -32,7 +37,7 @@ async function loadGamesByIds(supabase, gameIds, locale, includeReady, limit) {
     .limit(limit);
 
   if (error) return [];
-  return mergeGameRows(data ?? [], locale);
+  return withoutServerDead(mergeGameRows(data ?? [], locale));
 }
 
 /**
@@ -98,7 +103,7 @@ export async function fetchSimilarGames(supabase, { game, locale, includeReady =
       .limit(SIMILAR_FETCH);
 
     if (error) return [];
-    return mergeGameRows(data ?? [], locale);
+    return withoutServerDead(mergeGameRows(data ?? [], locale));
   }
 
   async function byStudio(column, value) {
@@ -113,7 +118,7 @@ export async function fetchSimilarGames(supabase, { game, locale, includeReady =
       .limit(SIMILAR_FETCH);
 
     if (error) return [];
-    return mergeGameRows(data ?? [], locale);
+    return withoutServerDead(mergeGameRows(data ?? [], locale));
   }
 
   const [byGenre, byDeveloper, byPublisher] = await Promise.all([

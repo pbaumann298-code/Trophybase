@@ -25,6 +25,7 @@ function CatalogLetterSection({
   isAdmin = false,
   sessionUser = null,
   includeReady = false,
+  newerVersions = false,
   serverNotice = false,
   serverNoticeText = '',
   tileAccent = '#00ff66',
@@ -148,7 +149,7 @@ function CatalogLetterSection({
               onRequestLogin={onRequestLogin}
               isAdmin={isAdmin}
               sessionUser={sessionUser}
-              newerVersions={false}
+              newerVersions={newerVersions}
               includeReady={includeReady}
               serverNotice={serverNotice}
               serverNoticeText={serverNoticeText}
@@ -236,7 +237,7 @@ function CatalogLetterSection({
                 onRequestLogin={onRequestLogin}
                 isAdmin={isAdmin}
                 sessionUser={sessionUser}
-                newerVersions={false}
+                newerVersions={newerVersions}
                 includeReady={includeReady}
                 serverNotice={serverNotice}
                 serverNoticeText={serverNoticeText}

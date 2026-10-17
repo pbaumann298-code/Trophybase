@@ -112,7 +112,7 @@ export const GAME_TYPE = {
   EVERGREEN: 'Evergreen',
   PREMIUM: 'Premium',
   STANDARD: 'Standard',
-  /** Online mit Slug, aber nicht in der Sitemap. Einbindung kommt später. */
+  /** Nur auf der Sammelseite „Unobtainable platins“, nicht in Suche/Startseite/Sitemap. */
   SERVER_DEAD: 'Servertot',
   /** Guide-Text ist nicht brauchbar. Bleibt noindex. */
   UNREADABLE: 'Unlesbar',
@@ -122,6 +122,11 @@ export const GAME_TYPE = {
 export function isQuickwinStyleType(gameType) {
   const type = String(gameType ?? '').trim();
   return type === GAME_TYPE.QUICKWIN || type === GAME_TYPE.EASY_PLATIN;
+}
+
+/** Servertot: nur Unobtainable-Platins-Seite, nirgends sonst verlinkt. */
+export function isServerDeadType(gameType) {
+  return String(gameType ?? '').trim() === GAME_TYPE.SERVER_DEAD;
 }
 
 /** Startseiten-Reihen, die nur redaktionelle Guides zeigen (keine Quickwins). */

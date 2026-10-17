@@ -193,6 +193,19 @@ function applyExcludeQuickwinsParam(params, excludeQuickwins) {
   else params.delete('quick');
 }
 
+/** true = auch Spiele ohne freigegebenen Guide (nur Trophäen). Nur für Login-User. */
+export function parseIncludeTrophiesOnly(search = '') {
+  const params = new URLSearchParams(
+    search || (typeof window !== 'undefined' ? window.location.search : ''),
+  );
+  return params.get('trophies') === '1';
+}
+
+function applyIncludeTrophiesOnlyParam(params, includeTrophiesOnly) {
+  if (includeTrophiesOnly) params.set('trophies', '1');
+  else params.delete('trophies');
+}
+
 export function parseSimpleSearchParams(search = '') {
   const source = search || (typeof window !== 'undefined' ? window.location.search : '');
   const params = new URLSearchParams(source);
@@ -200,22 +213,32 @@ export function parseSimpleSearchParams(search = '') {
     q: String(params.get('q') ?? '').trim(),
     page: parseSearchPageParam(source),
     excludeQuickwins: parseExcludeQuickwins(source),
+    includeTrophiesOnly: parseIncludeTrophiesOnly(source),
   };
 }
 
-export function buildSimpleSearchPath(query = '', page = 1, excludeQuickwins = true) {
+export function buildSimpleSearchPath(
+  query = '',
+  page = 1,
+  excludeQuickwins = true,
+  includeTrophiesOnly = false,
+) {
   const q = String(query ?? '').trim();
   const params = new URLSearchParams();
   if (q) params.set('q', q);
   applyExcludeQuickwinsParam(params, excludeQuickwins);
+  applyIncludeTrophiesOnlyParam(params, includeTrophiesOnly);
   const safePage = Number.parseInt(String(page), 10);
   if (Number.isFinite(safePage) && safePage > 1) params.set('page', String(safePage));
   const qs = params.toString();
   return qs ? `/suche?${qs}` : '/suche';
 }
 
-export function navigateToSimpleSearch(query = '', { page = 1, replace = false, excludeQuickwins = true } = {}) {
-  writeAppPath(buildSimpleSearchPath(query, page, excludeQuickwins), { replace });
+export function navigateToSimpleSearch(
+  query = '',
+  { page = 1, replace = false, excludeQuickwins = true, includeTrophiesOnly = false } = {},
+) {
+  writeAppPath(buildSimpleSearchPath(query, page, excludeQuickwins, includeTrophiesOnly), { replace });
 }
 
 export function parseAdvancedSearchParams(search = '') {
@@ -229,21 +252,33 @@ export function parseAdvancedSearchParams(search = '') {
   return filters;
 }
 
-export function buildAdvancedSearchPath(filters = {}, page = 1, excludeQuickwins = true) {
+export function buildAdvancedSearchPath(
+  filters = {},
+  page = 1,
+  excludeQuickwins = true,
+  includeTrophiesOnly = false,
+) {
   const params = new URLSearchParams();
   for (const key of ADVANCED_SEARCH_QUERY_KEYS) {
     const value = String(filters[key] ?? '').trim();
     if (value) params.set(key, value);
   }
   applyExcludeQuickwinsParam(params, excludeQuickwins);
+  applyIncludeTrophiesOnlyParam(params, includeTrophiesOnly);
   const safePage = Number.parseInt(String(page), 10);
   if (Number.isFinite(safePage) && safePage > 1) params.set('page', String(safePage));
   const qs = params.toString();
   return qs ? `/suche?${qs}` : '/suche';
 }
 
-export function navigateToAdvancedSearch(filters = {}, { replace = false, page = 1, excludeQuickwins = true } = {}) {
-  writeAppPath(buildAdvancedSearchPath(filters, page, excludeQuickwins), { replace });
+export function navigateToAdvancedSearch(
+  filters = {},
+  { replace = false, page = 1, excludeQuickwins = true, includeTrophiesOnly = false } = {},
+) {
+  writeAppPath(
+    buildAdvancedSearchPath(filters, page, excludeQuickwins, includeTrophiesOnly),
+    { replace },
+  );
 }
 
 /** Vorläufiger Pfad – Quickwins hat noch keinen sprachspezifischen Slug. */

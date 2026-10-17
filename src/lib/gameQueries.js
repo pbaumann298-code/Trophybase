@@ -444,8 +444,9 @@ async function fetchSearchRows(makeQuery, limit) {
 /**
  * Öffentliche Kataloge: nur PUBLISHED.
  * Admin-Vorschau: FERTIG oder PUBLISHED (noch nicht der ganze 20k-Katalog).
+ * inkl. nur Trophäen: kein Guide-Statusfilter (Login + RLS).
  * @param {object} query
- * @param {{ includeReady?: boolean, publishedOnly?: boolean }} [catalog]
+ * @param {{ includeReady?: boolean, publishedOnly?: boolean, includeTrophiesOnly?: boolean }} [catalog]
  */
 function guideStatusMatch(state) {
   return SUPPORTED_LOCALES
@@ -454,6 +455,7 @@ function guideStatusMatch(state) {
 }
 
 export function applyGuideCatalogFilter(query, catalog = {}) {
+  if (catalog.includeTrophiesOnly) return query;
   if (catalog.includeReady) {
     return query.or(
       `${guideStatusMatch(GUIDE_PUBLICATION.DONE)},${guideStatusMatch(GUIDE_PUBLICATION.PUBLISHED)}`,
@@ -477,20 +479,27 @@ export function applyStaffGuideScope(query, scope = 'all') {
   return query;
 }
 
-/** Lässt Quickwins und easy_platin weg, behält Spiele ohne spiel_typ. */
+/**
+ * Öffentliche Kataloge (Suche, Startseite): Servertot immer ausblenden.
+ * Optional zusätzlich Quickwin / easy_platin.
+ * Behält Spiele ohne spiel_typ.
+ */
 export function applyExcludeQuickwins(query, exclude) {
-  if (!exclude) return query;
   const column = GAME_STRUCT.gameType;
+  if (!exclude) {
+    return query.or(`${column}.is.null,${column}.neq.${GAME_TYPE.SERVER_DEAD}`);
+  }
   return query.or(
-    `${column}.is.null,and(${column}.neq.${GAME_TYPE.QUICKWIN},${column}.neq.${GAME_TYPE.EASY_PLATIN})`,
+    `${column}.is.null,and(${column}.neq.${GAME_TYPE.QUICKWIN},${column}.neq.${GAME_TYPE.EASY_PLATIN},${column}.neq.${GAME_TYPE.SERVER_DEAD})`,
   );
 }
 
-/** Ähnliche Spiele und neuere Ausgaben: keine Quickwins und kein easy_platin. */
+/** Ähnliche Spiele und neuere Ausgaben: keine Quickwins, easy_platin oder Servertot. */
 export function excludeQuickwinStyleTypes(query) {
   return query
     .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
-    .neq(GAME_STRUCT.gameType, GAME_TYPE.EASY_PLATIN);
+    .neq(GAME_STRUCT.gameType, GAME_TYPE.EASY_PLATIN)
+    .neq(GAME_STRUCT.gameType, GAME_TYPE.SERVER_DEAD);
 }
 
 async function searchLocalizedColumn(supabase, column, pattern, limit, catalog) {
@@ -746,8 +755,12 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
 
     return applyExcludeQuickwins(
       applyGuideCatalogFilter(query, {
-        includeReady: Boolean(options.includeReady),
-        publishedOnly: options.includeReady ? false : options.publishedOnly !== false,
+        includeTrophiesOnly: Boolean(options.includeTrophiesOnly),
+        includeReady: Boolean(options.includeReady) && !options.includeTrophiesOnly,
+        publishedOnly:
+          options.includeTrophiesOnly || options.includeReady
+            ? false
+            : options.publishedOnly !== false,
       }),
       options.excludeQuickwins,
     ).order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });

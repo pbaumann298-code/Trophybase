@@ -11,6 +11,7 @@ import {
   GUIDE_I18N,
   GUIDE_STRUCT,
   GUIDE_SHEET_TYPE,
+  isServerDeadType,
 } from '../src/lib/gameSchema.js';
 import { hardwareToUrlSegment, buildPrettyGamePath, hardwareLabel } from '../src/lib/gameSlug.js';
 import { localizeJsonField, localizeSonyDescription, readAiTranslation } from '../src/lib/translationUtils.js';
@@ -19,6 +20,7 @@ import { contentLocalesForGame, coerceToAvailableLocale } from '../src/lib/conte
 import { buildGameSeo } from '../src/lib/gameSeo.js';
 import { loadRelatedGuides } from '../src/lib/relatedGames.js';
 import { getGameTitle } from '../src/lib/gameModel.js';
+import { servertotPublicPath } from '../src/lib/servertotPage.js';
 import { getPublicSupabase, publicOrigin, SITE_ORIGIN } from './publicSupabase.js';
 import { parsePrettyGuidePath } from './prettyPath.js';
 import { escapeHtml, escapeAttr, paragraphsHtml } from './escapeHtml.js';
@@ -304,6 +306,16 @@ export async function handleGuideRequest(requestUrl) {
       return new Response(notFoundHtml(origin, pretty.locale), {
         status: 404,
         headers: { ...headers, 'Cache-Control': 'public, s-maxage=60' },
+      });
+    }
+
+    if (isServerDeadType(game[GAME_STRUCT.gameType])) {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: `${origin}${servertotPublicPath(pretty.locale)}`,
+          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=60',
+        },
       });
     }
 

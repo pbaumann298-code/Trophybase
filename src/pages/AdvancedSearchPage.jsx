@@ -8,10 +8,12 @@ import {
   navigateToAdvancedSearch,
   parseAdvancedSearchParams,
   parseExcludeQuickwins,
+  parseIncludeTrophiesOnly,
   parseSearchPageParam,
 } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
 import SearchSkipQuickwins from '../components/SearchSkipQuickwins';
+import SearchIncludeTrophiesOnly from '../components/SearchIncludeTrophiesOnly';
 import '../styles/home.css';
 
 /** Fallback-Pfade, falls App die lokalisierten URLs nicht übergibt. */
@@ -68,34 +70,53 @@ function AdvancedSearchPage({
   easyPlatinsPath = FALLBACK_EASY,
   servertotPath = FALLBACK_SERVERTOT,
   includeReady = false,
+  sessionUser = null,
 }) {
   const { t, globalLocale } = useLocale();
   const [filters, setFilters] = useState(() => parseAdvancedSearchParams());
   const [excludeQuickwins, setExcludeQuickwins] = useState(() => parseExcludeQuickwins());
+  const [includeTrophiesOnly, setIncludeTrophiesOnly] = useState(
+    () => Boolean(sessionUser) && parseIncludeTrophiesOnly(),
+  );
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [formError, setFormError] = useState(false);
   const [page, setPage] = useState(() => parseSearchPageParam());
 
-  const runSearch = async (nextFilters, { replace = true, updateUrl = true, exclude = excludeQuickwins } = {}) => {
+  const runSearch = async (
+    nextFilters,
+    {
+      replace = true,
+      updateUrl = true,
+      exclude = excludeQuickwins,
+      trophiesOnly = includeTrophiesOnly,
+    } = {},
+  ) => {
     if (!hasAnyFilter(nextFilters)) {
       setFormError(true);
       return;
     }
 
+    const allowTrophies = Boolean(sessionUser) && trophiesOnly;
     setFormError(false);
     setLoading(true);
     setHasSearched(true);
     if (updateUrl) {
       setPage(1);
-      navigateToAdvancedSearch(nextFilters, { replace, page: 1, excludeQuickwins: exclude });
+      navigateToAdvancedSearch(nextFilters, {
+        replace,
+        page: 1,
+        excludeQuickwins: exclude,
+        includeTrophiesOnly: allowTrophies,
+      });
     }
 
     const { data, error } = await searchGamesAdvanced(supabase, nextFilters, {
       locale: globalLocale,
-      includeReady,
+      includeReady: allowTrophies ? false : includeReady,
       excludeQuickwins: exclude,
+      includeTrophiesOnly: allowTrophies,
     });
     if (error) {
       console.error('Erweiterte Suche:', error.message);
@@ -114,21 +135,33 @@ function AdvancedSearchPage({
   }, [t]);
 
   useEffect(() => {
+    if (!sessionUser && includeTrophiesOnly) setIncludeTrophiesOnly(false);
+  }, [sessionUser, includeTrophiesOnly]);
+
+  useEffect(() => {
     const initial = parseAdvancedSearchParams();
     const initialExclude = parseExcludeQuickwins();
+    const initialTrophies = Boolean(sessionUser) && parseIncludeTrophiesOnly();
     if (hasAnyFilter(initial)) {
-      runSearch(initial, { replace: true, updateUrl: false, exclude: initialExclude });
+      runSearch(initial, {
+        replace: true,
+        updateUrl: false,
+        exclude: initialExclude,
+        trophiesOnly: initialTrophies,
+      });
     }
 
     const onPop = () => {
       if (getViewFromPath(window.location.pathname) !== 'advanced-search') return;
       const next = parseAdvancedSearchParams();
       const nextExclude = parseExcludeQuickwins();
+      const nextTrophies = Boolean(sessionUser) && parseIncludeTrophiesOnly();
       setFilters(next);
       setExcludeQuickwins(nextExclude);
+      setIncludeTrophiesOnly(nextTrophies);
       setPage(parseSearchPageParam());
       if (hasAnyFilter(next)) {
-        runSearch(next, { updateUrl: false, exclude: nextExclude });
+        runSearch(next, { updateUrl: false, exclude: nextExclude, trophiesOnly: nextTrophies });
       } else {
         setResults([]);
         setHasSearched(false);
@@ -154,10 +187,15 @@ function AdvancedSearchPage({
     const next = emptyFilters();
     setFilters(next);
     setExcludeQuickwins(true);
+    setIncludeTrophiesOnly(false);
     setResults([]);
     setHasSearched(false);
     setFormError(false);
-    navigateToAdvancedSearch(next, { replace: true, excludeQuickwins: true });
+    navigateToAdvancedSearch(next, {
+      replace: true,
+      excludeQuickwins: true,
+      includeTrophiesOnly: false,
+    });
   };
 
   return (
@@ -227,11 +265,20 @@ function AdvancedSearchPage({
           <p className="advanced-search-error">{t('advancedSearchEmpty')}</p>
         ) : null}
 
-        <SearchSkipQuickwins
-          id="advanced-skip-quickwins"
-          checked={excludeQuickwins}
-          onChange={setExcludeQuickwins}
-        />
+        <div className="advanced-search-options">
+          <SearchSkipQuickwins
+            id="advanced-skip-quickwins"
+            checked={excludeQuickwins}
+            onChange={setExcludeQuickwins}
+          />
+          {sessionUser ? (
+            <SearchIncludeTrophiesOnly
+              id="advanced-include-trophies-only"
+              checked={includeTrophiesOnly}
+              onChange={setIncludeTrophiesOnly}
+            />
+          ) : null}
+        </div>
 
         <div className="advanced-search-actions">
           <button type="submit" className="advanced-search-submit">
@@ -278,7 +325,12 @@ function AdvancedSearchPage({
           page={page}
           onPageChange={(nextPage) => {
             setPage(nextPage);
-            navigateToAdvancedSearch(filters, { replace: true, page: nextPage, excludeQuickwins });
+            navigateToAdvancedSearch(filters, {
+              replace: true,
+              page: nextPage,
+              excludeQuickwins,
+              includeTrophiesOnly: Boolean(sessionUser) && includeTrophiesOnly,
+            });
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
         />
