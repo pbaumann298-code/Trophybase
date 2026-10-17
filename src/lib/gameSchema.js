@@ -20,6 +20,8 @@ export const TABLES = {
   inbox: 'user_inbox',
   qaDashboard: 'qa_dashboard',
   inviteKeys: 'invite_keys',
+  /** Beta-Zugänge (Tester_XXXXX + Passwort). Siehe beta_testers.sql. */
+  betaTesters: 'beta_testers',
   communityReports: 'community_reports',
   contentCreators: 'content_creators',
   /** Distinct (game_id, creator_id) aus game_guides. Siehe game_guides_creator_id.sql. */

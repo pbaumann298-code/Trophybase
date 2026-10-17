@@ -1,6 +1,7 @@
-import { TABLES } from './gameSchema.js';
-
 export const BETA_TESTER_ROLE = 'beta_tester';
+
+/** Tester_ + genau 5 alphanumerische Zeichen */
+export const BETA_TESTER_ID_PATTERN = /^Tester_[A-Za-z0-9]{5}$/;
 
 export function isBetaTester(user) {
   if (!user) return false;
@@ -8,166 +9,198 @@ export function isBetaTester(user) {
   return role === BETA_TESTER_ROLE;
 }
 
-/**
- * Invite-Key einlösen und Rolle beta_tester setzen.
- * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {string} userKey
- * @param {string} currentUserId
- */
-export async function redeemInviteKey(supabase, userKey, currentUserId) {
-  const keyString = String(userKey ?? '').trim();
-  if (!keyString) {
-    return { ok: false, message: 'Bitte einen gültigen Beta-Key eingeben.' };
-  }
-
-  const { data: keyData, error: keyError } = await supabase
-    .from(TABLES.inviteKeys)
-    .select('*')
-    .eq('key_string', keyString)
-    .eq('is_used', false)
-    .maybeSingle();
-
-  if (keyError || !keyData) {
-    return { ok: false, message: 'Dieser Key ist ungültig oder wurde bereits verwendet!' };
-  }
-
-  const { error: updateKeyError } = await supabase
-    .from(TABLES.inviteKeys)
-    .update({ is_used: true, used_by_user_id: currentUserId })
-    .eq('id', keyData.id)
-    .eq('is_used', false);
-
-  if (updateKeyError) {
-    return { ok: false, message: 'Key konnte nicht eingelöst werden. Bitte erneut versuchen.' };
-  }
-
-  const { data: authData, error: updateAuthError } = await supabase.auth.updateUser({
-    data: { role: BETA_TESTER_ROLE },
-  });
-
-  if (updateAuthError) {
-    return { ok: false, message: updateAuthError.message };
-  }
-
-  return { ok: true, user: authData.user };
+export function normalizeBetaTesterId(value) {
+  return String(value ?? '').trim();
 }
 
-async function establishSessionAfterSignUp(supabase, email, password) {
-  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-    email,
-    password,
+export function betaTesterEmail(testerId) {
+  const id = normalizeBetaTesterId(testerId);
+  return `${id.toLowerCase()}@beta.trophybase.app`;
+}
+
+function mapValidateError(code) {
+  switch (code) {
+    case 'missing_credentials':
+      return 'Bitte Tester-ID und Passwort eingeben.';
+    case 'invalid_tester_id_format':
+      return 'Tester-ID muss wie Tester_A9k2M aussehen (Tester_ + 5 Zeichen).';
+    case 'invalid_credentials':
+      return 'Tester-ID oder Passwort ist falsch.';
+    case 'already_used':
+      return 'Dieser Beta-Zugang wurde bereits von jemand anderem eingelöst.';
+    case 'not_authenticated':
+      return 'Keine Session – bitte erneut anmelden.';
+    default:
+      return 'Beta-Zugang konnte nicht geprüft werden.';
+  }
+}
+
+/**
+ * RPC: Zugangsdaten gegen public.beta_testers prüfen.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ */
+export async function validateBetaTester(supabase, testerId, password) {
+  const id = normalizeBetaTesterId(testerId);
+  const pw = String(password ?? '').trim();
+
+  if (!id || !pw) {
+    return { ok: false, message: mapValidateError('missing_credentials') };
+  }
+  if (!BETA_TESTER_ID_PATTERN.test(id)) {
+    return { ok: false, message: mapValidateError('invalid_tester_id_format') };
+  }
+
+  const { data, error } = await supabase.rpc('tb_validate_beta_tester', {
+    p_tester_id: id,
+    p_password: pw,
   });
 
-  if (signInError || !signInData.session?.user) {
-    return {
-      ok: false,
-      signInError,
-      message:
-        signInError?.message ??
-        'Account wurde angelegt, aber die automatische Anmeldung ist fehlgeschlagen.',
-    };
+  if (error) {
+    return { ok: false, message: error.message || mapValidateError() };
+  }
+
+  const payload = data && typeof data === 'object' ? data : {};
+  if (!payload.ok) {
+    return { ok: false, message: mapValidateError(payload.error) };
   }
 
   return {
     ok: true,
-    user: signInData.session.user,
-    session: signInData.session,
+    testerId: payload.tester_id || id,
+    email: payload.email || betaTesterEmail(id),
+    alreadyClaimedByYou: Boolean(payload.already_claimed_by_you),
   };
 }
 
 /**
- * Beta-Registrierung:
- * 1. signUp
- * 2. Sofort signInWithPassword → aktive Session (Bypass)
- * 3. Erst dann Key-Einlösung möglich
- *
+ * RPC: Slot dem aktuellen Auth-User zuordnen.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {string} email
- * @param {string} password
  */
-export async function registerBetaAccount(supabase, email, password) {
-  const normalizedEmail = String(email ?? '').trim().toLowerCase();
-  const trimmedPassword = String(password ?? '').trim();
+export async function claimBetaTester(supabase, testerId, password) {
+  const id = normalizeBetaTesterId(testerId);
+  const pw = String(password ?? '').trim();
 
-  if (!normalizedEmail || trimmedPassword.length < 6) {
-    return {
-      ok: false,
-      message: 'E-Mail und Passwort (min. 6 Zeichen) sind erforderlich.',
-    };
-  }
-
-  const { data, error } = await supabase.auth.signUp({
-    email: normalizedEmail,
-    password: trimmedPassword,
+  const { data, error } = await supabase.rpc('tb_claim_beta_tester', {
+    p_tester_id: id,
+    p_password: pw,
   });
 
   if (error) {
-    const alreadyExists = /already registered|already exists|user already/i.test(error.message);
-
-    if (alreadyExists) {
-      const loginResult = await establishSessionAfterSignUp(
-        supabase,
-        normalizedEmail,
-        trimmedPassword,
-      );
-      if (loginResult.ok) {
-        return { ...loginResult, existingAccount: true };
-      }
-      return {
-        ok: false,
-        message: loginResult.message ?? 'Diese E-Mail ist bereits registriert. Passwort prüfen.',
-      };
-    }
-
-    return { ok: false, message: error.message };
+    return { ok: false, message: error.message || mapValidateError() };
   }
 
-  if (data.session?.user) {
-    return {
-      ok: true,
-      user: data.session.user,
-      session: data.session,
-    };
+  const payload = data && typeof data === 'object' ? data : {};
+  if (!payload.ok) {
+    return { ok: false, message: mapValidateError(payload.error) };
   }
 
-  if (data.user) {
-    const loginResult = await establishSessionAfterSignUp(
-      supabase,
-      normalizedEmail,
-      trimmedPassword,
-    );
-
-    if (loginResult.ok) {
-      return loginResult;
-    }
-
-    const needsEmailConfirm =
-      loginResult.signInError?.message?.toLowerCase().includes('email not confirmed') ||
-      loginResult.signInError?.message?.toLowerCase().includes('invalid login');
-
-    return {
-      ok: false,
-      needsEmailConfirm,
-      message: needsEmailConfirm
-        ? 'Account angelegt. Bitte E-Mail bestätigen, danach erneut mit E-Mail + Passwort einloggen und deinen Beta-Key auf /beta einlösen.'
-        : `${loginResult.message} (Tipp: In Supabase „Confirm email“ für die Beta ggf. deaktivieren.)`,
-    };
-  }
-
-  return { ok: false, message: 'Registrierung fehlgeschlagen. Bitte erneut versuchen.' };
+  return { ok: true, testerId: payload.tester_id || id, email: payload.email };
 }
 
 /**
- * Bestehenden Account einloggen und zur Key-Eingabe weiterleiten.
+ * Rolle beta_tester in user_metadata setzen.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} [testerId]
+ */
+export async function markBetaTesterRole(supabase, testerId) {
+  const { data, error } = await supabase.auth.updateUser({
+    data: {
+      role: BETA_TESTER_ROLE,
+      ...(testerId ? { tester_id: normalizeBetaTesterId(testerId) } : {}),
+    },
+  });
+  if (error) return { ok: false, message: error.message, user: null };
+  return { ok: true, user: data.user };
+}
+
+/**
+ * /beta-Login: Tester-ID + Passwort → Session + Rolle.
+ * Legt den Auth-User bei Bedarf an (Confirm-Email sollte in der Beta aus sein).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  */
-export async function signInBetaAccount(supabase, email, password) {
-  const normalizedEmail = String(email ?? '').trim().toLowerCase();
-  const trimmedPassword = String(password ?? '').trim();
+export async function signInWithBetaTesterKeys(supabase, testerId, password) {
+  const validated = await validateBetaTester(supabase, testerId, password);
+  if (!validated.ok) return validated;
 
-  const result = await establishSessionAfterSignUp(supabase, normalizedEmail, trimmedPassword);
-  if (!result.ok) {
-    return { ok: false, message: result.message ?? 'Login fehlgeschlagen.' };
+  const email = validated.email;
+  const pw = String(password ?? '').trim();
+  const id = validated.testerId;
+
+  let user = null;
+  let session = null;
+
+  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+    email,
+    password: pw,
+  });
+
+  if (!signInError && signInData?.session?.user) {
+    user = signInData.session.user;
+    session = signInData.session;
+  } else {
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password: pw,
+      options: {
+        data: {
+          role: BETA_TESTER_ROLE,
+          tester_id: id,
+        },
+      },
+    });
+
+    if (signUpError) {
+      const already =
+        /already registered|already exists|user already/i.test(signUpError.message || '');
+      if (already) {
+        return {
+          ok: false,
+          message:
+            'Zugang existiert, Login fehlgeschlagen. Passwort prüfen oder in Supabase zurücksetzen.',
+        };
+      }
+      return { ok: false, message: signUpError.message };
+    }
+
+    if (signUpData.session?.user) {
+      user = signUpData.session.user;
+      session = signUpData.session;
+    } else {
+      const retry = await supabase.auth.signInWithPassword({ email, password: pw });
+      if (retry.error || !retry.data.session?.user) {
+        return {
+          ok: false,
+          message:
+            retry.error?.message ||
+            'Account angelegt, aber keine Session. In Supabase „Confirm email“ für die Beta ggf. deaktivieren.',
+        };
+      }
+      user = retry.data.session.user;
+      session = retry.data.session;
+    }
   }
-  return { ok: true, user: result.user, session: result.session };
+
+  const claim = await claimBetaTester(supabase, id, pw);
+  if (!claim.ok) {
+    return { ok: false, message: claim.message };
+  }
+
+  if (!isBetaTester(user)) {
+    const marked = await markBetaTesterRole(supabase, id);
+    if (!marked.ok) return { ok: false, message: marked.message };
+    user = marked.user ?? user;
+  }
+
+  return { ok: true, user, session, testerId: id, email };
+}
+
+/** @deprecated Alte Invite-Key-Tabelle; bleibt für Referenz. */
+export async function redeemInviteKey(supabase, userKey, currentUserId) {
+  void supabase;
+  void userKey;
+  void currentUserId;
+  return {
+    ok: false,
+    message: 'Alte Invite-Keys sind abgelöst. Bitte Tester-ID + Passwort auf /beta nutzen.',
+  };
 }
