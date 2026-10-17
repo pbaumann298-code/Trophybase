@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import { fetchGameByRouteRef, fetchGamesByIds, parseRouteGameRef } from '../lib/gameQueries';
-import { GAME_FIELDS, GAME_PLATFORM_ID } from '../lib/gameSchema';
+import { GAME_PLATFORM_ID } from '../lib/gameSchema';
 import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
 import {
   getGameUuid,
   getPlatformGameIds,
   getRouteSlug,
-  getGameTitle,
-  getGameCover,
 } from '../lib/gameModel';
 import { useVisibility } from '../context/VisibilityContext';
 import { useWatchlist } from '../context/WatchlistContext';
 import { useLocale } from '../context/LocaleContext';
 import { canonicalizeWatchlistIds, watchlistIdsEqual } from '../lib/localWatchlist';
+import GameTile from './GameTile';
 
 /** Ab so vielen Titeln lohnt die Startseiten-Leiste zum horizontalen Scrollen. */
 export const HOME_WATCHLIST_MIN = 3;
@@ -224,40 +223,19 @@ function Dashboard({ openGame, onOpenWatchlist }) {
           onScroll={updateScrollHints}
         >
           {visibleItems.map((item) => {
-            const title = getGameTitle(item.game, globalLocale) || item.routeSlug || '—';
-            const cover = getGameCover(item.game, globalLocale);
-            const consoleLabel = item.game?.[GAME_FIELDS.console] ?? '';
-            const href = item.game ? gameGuidePath(item.game, globalLocale) : '#';
+            if (!item.game) return null;
+            const href = gameGuidePath(item.game, globalLocale);
             return (
-              <a
+              <GameTile
                 key={item.gameUuid || item.routeSlug}
+                game={item.game}
                 href={href}
                 className={TILE_CLASS}
-                onClick={(event) => {
-                  event.preventDefault();
-                  if (item.game) {
-                    navigateToGame(item.game, { locale: globalLocale });
-                  }
+                onOpen={() => {
+                  navigateToGame(item.game, { locale: globalLocale });
                   handleOpenGame(item);
                 }}
-              >
-                <article className="home-tile group h-full" style={{ '--tile-accent': '#00ff66' }}>
-                  <div className="home-tile-cover-wrap">
-                    {cover ? (
-                      <img src={cover} className="home-tile-cover" alt="" loading="lazy" />
-                    ) : (
-                      <div className="home-tile-cover home-tile-cover--empty">🎮</div>
-                    )}
-                    <div className="home-tile-shine" aria-hidden />
-                  </div>
-                  <div className="home-tile-meta">
-                    <p className="home-tile-title" title={title}>
-                      {title}
-                    </p>
-                    {consoleLabel ? <span className="home-tile-badge">{consoleLabel}</span> : null}
-                  </div>
-                </article>
-              </a>
+              />
             );
           })}
         </div>

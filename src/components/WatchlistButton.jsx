@@ -82,6 +82,28 @@ function WatchlistButton({
     );
   }
 
+  if (variant === 'cover') {
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={busy || loading}
+        title={active ? t('watchlistRemoveTitle') : t('watchlistAddTitle')}
+        aria-label={active ? t('watchlistRemoveTitle') : t('watchlistAddTitle')}
+        aria-pressed={active}
+        className={`home-tile-overlay-chip home-tile-overlay-chip--btn ${sizeClass} ${
+          active
+            ? 'home-tile-overlay-chip--watch-on text-amber-300'
+            : 'text-zinc-200/80 opacity-70 group-hover:opacity-100'
+        } ${className}`}
+      >
+        <span aria-hidden className="leading-none text-[0.95rem]">
+          {active ? '★' : '☆'}
+        </span>
+      </button>
+    );
+  }
+
   return (
     <div className={`inline-flex flex-col items-end gap-1 ${className}`}>
       <button
@@ -93,8 +115,8 @@ function WatchlistButton({
         aria-pressed={active}
         className={`${sizeClass} rounded-full border flex items-center justify-center transition-all duration-200 shadow-md disabled:opacity-50 ${
           active
-            ? 'bg-[#00ff66] border-[#00ff66] text-[#121314]'
-            : 'bg-black/60 border-zinc-700 text-zinc-200 hover:border-[#00ff66]/50 hover:text-[#00ff66]'
+            ? 'bg-amber-400/90 border-amber-300 text-[#121314]'
+            : 'bg-black/60 border-zinc-700 text-zinc-200 hover:border-amber-300/50 hover:text-amber-200'
         }`}
       >
         {active ? '★' : '☆'}

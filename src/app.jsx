@@ -122,6 +122,7 @@ import {
 import { ErrorReportProvider } from './context/ErrorReportContext';
 import { WatchlistProvider } from './context/WatchlistContext';
 import { ProgressSyncProvider } from './context/ProgressSyncContext';
+import { PlatinumStatusProvider } from './context/PlatinumStatusContext';
 import { useMediaConsent } from './context/MediaConsentContext';
 import SiteFooter from './components/SiteFooter';
 import MediaConsentBanner from './components/MediaConsentBanner';
@@ -951,6 +952,7 @@ function App() {
     <ErrorReportProvider sessionUser={sessionUser}>
     <WatchlistProvider sessionUser={sessionUser}>
     <ProgressSyncProvider sessionUser={sessionUser}>
+    <PlatinumStatusProvider sessionUser={sessionUser}>
     <div className="min-h-screen w-full max-w-full min-w-0 overflow-x-hidden flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
       
       <Header 
@@ -1181,6 +1183,7 @@ function App() {
       />
 
     </div>
+    </PlatinumStatusProvider>
     </ProgressSyncProvider>
     </WatchlistProvider>
     </ErrorReportProvider>

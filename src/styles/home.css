@@ -532,11 +532,75 @@
   z-index: 3;
 }
 
+.home-tile-platinum {
+  position: absolute;
+  left: 0.35rem;
+  bottom: 0.35rem;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.home-tile-hide {
+  position: absolute;
+  right: 0.35rem;
+  bottom: 0.35rem;
+  z-index: 3;
+}
+
 .home-tile-online {
   position: absolute;
   top: 0.35rem;
   left: 0.35rem;
   z-index: 3;
+  pointer-events: none;
+}
+
+.home-tile-overlay-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.35rem;
+  background: rgb(0 0 0 / 0.6);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgb(63 63 70 / 0.7);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease, color 0.2s ease;
+}
+
+.home-tile-overlay-chip img {
+  width: 1.15rem;
+  height: 1.15rem;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 0 4px rgba(200, 220, 255, 0.35));
+}
+
+.home-tile-overlay-chip--btn {
+  cursor: pointer;
+  color: #e4e4e7;
+}
+
+.home-tile-overlay-chip--btn:hover {
+  background: rgb(0 0 0 / 0.8);
+}
+
+.home-tile-overlay-chip--watch-on {
+  background: rgb(0 0 0 / 0.72);
+  border-color: rgb(251 191 36 / 0.55);
+  opacity: 1;
+  color: #fcd34d;
+}
+
+.home-tile--dimmed {
+  opacity: 0.42;
+  filter: grayscale(0.35);
+}
+
+.home-tile--exiting {
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 0.28s ease, transform 0.28s ease;
   pointer-events: none;
 }
 

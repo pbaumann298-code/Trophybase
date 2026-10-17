@@ -1,13 +1,120 @@
-import { useEffect } from 'react';
-import WatchlistButton from '../components/WatchlistButton';
-import GuideOnlineBadge from '../components/GuideOnlineBadge';
+import { useEffect, useState } from 'react';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
 import { publicStudioCredits } from '../lib/studioCredits';
 import { paginateItems } from '../lib/gameSearch';
 import { gameGuidePath } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
+import { useVisibility } from '../context/VisibilityContext';
+import { GameCoverOverlays } from '../components/GameTile';
 import '../styles/home.css';
+
+const FADE_MS = 280;
+
+function SearchResultRow({ game, openGame, onRequestLogin, isAdmin }) {
+  const { globalLocale, t } = useLocale();
+  const { getEntryState, gameKey } = useVisibility();
+  const [exiting, setExiting] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const gameUuid = getGameUuid(game);
+  const entry = gameUuid
+    ? getEntryState(gameKey(gameUuid), { completed: false })
+    : { visible: true, dimmed: false };
+
+  if (dismissed && !exiting) return null;
+  if (!entry.visible && !exiting) return null;
+
+  const title = getGameTitle(game, globalLocale);
+  const cover = getGameCover(game, globalLocale);
+  const href = gameGuidePath(game, globalLocale);
+  const credits = publicStudioCredits(game);
+  const watchlistId = gameUuid || getRouteSlug(game);
+
+  return (
+    <a
+      key={watchlistId}
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        openGame(game);
+      }}
+      className={`w-full min-w-0 bg-[#1a1b1c] p-4 rounded-xl border border-zinc-800 flex flex-wrap sm:flex-nowrap gap-4 sm:gap-5 cursor-pointer hover:border-zinc-700 hover:bg-[#202122] transition-all items-start no-underline text-inherit ${
+        exiting ? 'opacity-0 scale-[0.98] pointer-events-none' : ''
+      } ${entry.dimmed && !exiting ? 'opacity-40' : ''}`}
+      style={{ transitionDuration: `${FADE_MS}ms` }}
+    >
+      <div className="relative group w-24 h-32 flex-shrink-0 rounded-lg overflow-hidden shadow-lg border border-zinc-800">
+        {cover ? (
+          <img src={cover} className="w-full h-full object-cover" alt="" />
+        ) : (
+          <div className="w-full h-full bg-[#121314]" aria-hidden />
+        )}
+        <GameCoverOverlays
+          gameId={gameUuid}
+          game={game}
+          isAdmin={isAdmin}
+          size="sm"
+          onRequestLogin={onRequestLogin}
+          onHideStart={() => {
+            setExiting(true);
+            window.setTimeout(() => {
+              setExiting(false);
+              setDismissed(true);
+            }, FADE_MS);
+          }}
+        />
+      </div>
+
+      <div className="flex-1 min-w-0 flex flex-col h-full justify-between pt-1">
+        <div className="min-w-0 flex items-start justify-between gap-3">
+          <h4 className="font-bold text-white text-base md:text-lg hover:text-[#00ff66] transition break-words">
+            {title}
+            {game._translationFallback && game._locale && (
+              <span className="ml-2 text-[10px] font-mono text-zinc-500 uppercase">
+                {game._locale}
+              </span>
+            )}
+          </h4>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-4 pt-4 border-t border-zinc-800/60 text-xs min-w-0 w-full">
+          <div>
+            <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
+              Plattform
+            </span>
+            <span className="text-zinc-300 font-medium">
+              {game[GAME_FIELDS.console] || '—'}
+            </span>
+          </div>
+          <div>
+            <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
+              Jahr
+            </span>
+            <span className="text-zinc-300 font-medium">
+              {game[GAME_FIELDS.year] || '—'}
+            </span>
+          </div>
+          <div>
+            <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
+              Genre
+            </span>
+            <span className="text-zinc-300 font-medium truncate block">
+              {game[GAME_FIELDS.genre] || '—'}
+            </span>
+          </div>
+          <div>
+            <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
+              {t('studioLabel')}
+            </span>
+            <span className="text-zinc-300 font-medium truncate block">
+              {credits.studio || '—'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </a>
+  );
+}
 
 function formatPageStatus(template, page, total) {
   return String(template ?? '')
@@ -28,7 +135,7 @@ function SearchResultsPage({
   resultsTitle,
   emptyMessage,
 }) {
-  const { globalLocale, t } = useLocale();
+  const { t } = useLocale();
   const paged = paginateItems(searchResults, page);
   const heading = resultsTitle || t('searchResults');
   const emptyText = emptyMessage || t('searchNoResults');
@@ -100,94 +207,15 @@ function SearchResultsPage({
         <>
           {renderPager()}
           <div className="flex flex-col gap-4">
-            {paged.items.map((g, i) => {
-              const gameUuid = getGameUuid(g);
-              const watchlistId = gameUuid || getRouteSlug(g);
-              const title = getGameTitle(g, globalLocale);
-              const cover = getGameCover(g, globalLocale);
-              const href = gameGuidePath(g, globalLocale);
-              const credits = publicStudioCredits(g);
-              return (
-                <a
-                  key={watchlistId || i}
-                  href={href}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    openGame(g);
-                  }}
-                  className="w-full min-w-0 bg-[#1a1b1c] p-4 rounded-xl border border-zinc-800 flex flex-wrap sm:flex-nowrap gap-4 sm:gap-5 cursor-pointer hover:border-zinc-700 hover:bg-[#202122] transition items-start no-underline text-inherit"
-                >
-                  {cover ? (
-                    <img
-                      src={cover}
-                      className="w-24 h-32 object-cover rounded-lg shadow-lg flex-shrink-0 border border-zinc-800"
-                      alt=""
-                    />
-                  ) : (
-                    <div
-                      className="w-24 h-32 rounded-lg flex-shrink-0 border border-zinc-800 bg-[#121314]"
-                      aria-hidden
-                    />
-                  )}
-
-                  <div className="flex-1 min-w-0 flex flex-col h-full justify-between pt-1">
-                    <div className="min-w-0 flex items-start justify-between gap-3">
-                      <h4 className="font-bold text-white text-base md:text-lg hover:text-[#00ff66] transition break-words">
-                        {title}
-                        {g._translationFallback && g._locale && (
-                          <span className="ml-2 text-[10px] font-mono text-zinc-500 uppercase">
-                            {g._locale}
-                          </span>
-                        )}
-                      </h4>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <GuideOnlineBadge game={g} visible={isAdmin} size="md" />
-                        <WatchlistButton
-                          gameId={gameUuid}
-                          onRequestLogin={onRequestLogin}
-                          size="md"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-4 pt-4 border-t border-zinc-800/60 text-xs min-w-0 w-full">
-                      <div>
-                        <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
-                          Plattform
-                        </span>
-                        <span className="text-zinc-300 font-medium">
-                          {g[GAME_FIELDS.console] || '—'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
-                          Jahr
-                        </span>
-                        <span className="text-zinc-300 font-medium">
-                          {g[GAME_FIELDS.year] || '—'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
-                          Genre
-                        </span>
-                        <span className="text-zinc-300 font-medium truncate block">
-                          {g[GAME_FIELDS.genre] || '—'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
-                          {t('studioLabel')}
-                        </span>
-                        <span className="text-zinc-300 font-medium truncate block">
-                          {credits.studio || '—'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </a>
-              );
-            })}
+            {paged.items.map((g, i) => (
+              <SearchResultRow
+                key={getGameUuid(g) || getRouteSlug(g) || i}
+                game={g}
+                openGame={openGame}
+                onRequestLogin={onRequestLogin}
+                isAdmin={isAdmin}
+              />
+            ))}
           </div>
           {renderPager()}
         </>

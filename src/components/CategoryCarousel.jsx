@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
-import { GAME_FIELDS } from '../lib/gameSchema';
+import { getGameUuid, getRouteSlug } from '../lib/gameModel';
 import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
-import WatchlistButton from './WatchlistButton';
-import GuideOnlineBadge from './GuideOnlineBadge';
+import GameTile from './GameTile';
 
 const TILE_CLASS =
   'home-carousel-tile flex-shrink-0 snap-start w-[9.5rem] sm:w-44 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-none';
@@ -49,47 +47,20 @@ function CategoryCarousel({
   const renderTile = (g, index) => {
     const routeSlug = getRouteSlug(g);
     const watchlistGameId = getGameUuid(g);
-    const title = getGameTitle(g, globalLocale);
-    const cover = getGameCover(g, globalLocale);
-    const consoleLabel = g[GAME_FIELDS.console] ?? '';
     return (
-      <a
+      <GameTile
+        key={routeSlug || watchlistGameId || `${category.id}-${index}`}
+        game={g}
         href={gameGuidePath(g, globalLocale)}
-        key={routeSlug || watchlistGameId || `${category.id}-${index}`}        className={TILE_CLASS}
-        onClick={(e) => {
-          e.preventDefault();
+        className={TILE_CLASS}
+        accent={category.accent}
+        isAdmin={isAdmin}
+        onRequestLogin={onRequestLogin}
+        onOpen={() => {
           navigateToGame(g, { locale: globalLocale });
           openGame(g);
         }}
-      >
-        <article
-          className="home-tile group h-full"
-          style={{ '--tile-accent': category.accent }}
-        >
-          <div className="home-tile-cover-wrap">
-            {cover ? (
-              <img src={cover} className="home-tile-cover" alt="" loading="lazy" />
-            ) : (
-              <div className="home-tile-cover home-tile-cover--empty">🎮</div>
-            )}
-            <div className="home-tile-online">
-              <GuideOnlineBadge game={g} visible={isAdmin} size="sm" />
-            </div>
-            <div className="home-tile-watchlist">
-              <WatchlistButton gameId={watchlistGameId} onRequestLogin={onRequestLogin} size="sm" />
-            </div>
-            <div className="home-tile-shine" aria-hidden />
-          </div>
-          <div className="home-tile-meta">
-            <p className="home-tile-title" title={title}>
-              {title}
-            </p>
-            {consoleLabel ? (
-              <span className="home-tile-badge">{consoleLabel}</span>
-            ) : null}
-          </div>
-        </article>
-      </a>
+      />
     );
   };
 

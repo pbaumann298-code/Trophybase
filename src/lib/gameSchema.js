@@ -15,6 +15,8 @@ export const TABLES = {
   watchlist: 'user_watchlist',
   /** Guide- + manuelle Trophäen-Häkchen (siehe user_state_schema.sql). */
   guideProgress: 'user_guide_progress',
+  /** Ausgeblendete Spiele (siehe user_state_schema.sql). */
+  gameSettings: 'user_game_settings',
   inbox: 'user_inbox',
   qaDashboard: 'qa_dashboard',
   inviteKeys: 'invite_keys',

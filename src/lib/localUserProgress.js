@@ -12,6 +12,7 @@ import {
 
 export const PROGRESS_OWNER_KEY = 'tb_progress_owner';
 export const PROGRESS_SYNCED_EVENT = 'tb_progress_synced';
+export const PLATINUM_CHANGED_EVENT = 'tb_platinum_changed';
 const PLATINUM_PREFIX = 'tb_platinum:';
 const TROPHY_STEP_PREFIX = 't:';
 const GUIDE_STEP_PREFIX = 'g:';
@@ -62,6 +63,11 @@ export function saveLocalPlatinumFlag(gameId, isPlatinum) {
   try {
     if (isPlatinum) window.localStorage.setItem(key, '1');
     else window.localStorage.removeItem(key);
+    window.dispatchEvent(
+      new CustomEvent(PLATINUM_CHANGED_EVENT, {
+        detail: { gameId: String(gameId ?? '').trim(), isPlatinum: Boolean(isPlatinum) },
+      }),
+    );
   } catch {
     /* ignore */
   }

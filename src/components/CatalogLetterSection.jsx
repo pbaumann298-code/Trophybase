@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { useLocale } from '../context/LocaleContext';
-import GuideOnlineBadge from './GuideOnlineBadge';
-import WatchlistButton from './WatchlistButton';
 import QuickwinGameCard from './QuickwinGameCard';
+import GameTile, { GameCoverOverlays } from './GameTile';
 
 export const CATALOG_ROW_PREVIEW = 10;
 
@@ -72,41 +71,19 @@ function CatalogLetterSection({
 
   const renderTile = (game, index) => {
     const gameId = getGameUuid(game);
-    const title = getGameTitle(game, globalLocale);
-    const cover = getGameCover(game, globalLocale);
-    const consoleLabel = game[GAME_FIELDS.console] ?? '';
     const isOpen = Boolean(gameId) && openGameId === gameId;
     return (
       <div key={gameId || `${letter}-${index}`} className="catalog-tile-shell catalog-tile-shell--carousel">
-        <button
-          type="button"
+        <GameTile
+          game={game}
+          as="button"
           className={`catalog-tile ${TILE_CLASS}`}
+          accent={tileAccent}
+          isAdmin={isAdmin}
+          onRequestLogin={onRequestLogin}
           aria-expanded={isOpen}
-          onClick={() => onToggleGame(gameId)}
-        >
-          <article className="home-tile group h-full" style={{ '--tile-accent': tileAccent }}>
-            <div className="home-tile-cover-wrap">
-              {cover ? (
-                <img src={cover} className="home-tile-cover" alt="" loading="lazy" />
-              ) : (
-                <div className="home-tile-cover home-tile-cover--empty">🎮</div>
-              )}
-              <div className="home-tile-online">
-                <GuideOnlineBadge game={game} visible={isAdmin} size="sm" />
-              </div>
-              <div className="home-tile-shine" aria-hidden />
-            </div>
-            <div className="home-tile-meta">
-              <p className="home-tile-title" title={title}>
-                {title}
-              </p>
-              {consoleLabel ? <span className="home-tile-badge">{consoleLabel}</span> : null}
-            </div>
-          </article>
-        </button>
-        <div className="home-tile-watchlist">
-          <WatchlistButton gameId={gameId} onRequestLogin={onRequestLogin} size="sm" />
-        </div>
+          onOpen={() => onToggleGame(gameId)}
+        />
       </div>
     );
   };
@@ -125,11 +102,20 @@ function CatalogLetterSection({
           aria-expanded={isOpen}
           onClick={() => onToggleGame(gameId)}
         >
-          {cover ? (
-            <img src={cover} className="catalog-list-row-cover" alt="" loading="lazy" />
-          ) : (
-            <div className="catalog-list-row-cover catalog-list-row-cover--empty">🎮</div>
-          )}
+          <span className="catalog-list-row-cover-wrap relative group">
+            {cover ? (
+              <img src={cover} className="catalog-list-row-cover" alt="" loading="lazy" />
+            ) : (
+              <div className="catalog-list-row-cover catalog-list-row-cover--empty">🎮</div>
+            )}
+            <GameCoverOverlays
+              gameId={gameId}
+              game={game}
+              isAdmin={isAdmin}
+              size="sm"
+              onRequestLogin={onRequestLogin}
+            />
+          </span>
           <span className="catalog-list-row-meta">
             <span className="catalog-list-row-title">{title}</span>
             {consoleLabel ? <span className="catalog-list-row-console">{consoleLabel}</span> : null}
@@ -138,9 +124,6 @@ function CatalogLetterSection({
             {isOpen ? '▲' : '▼'}
           </span>
         </button>
-        <div className="catalog-list-row-watch">
-          <WatchlistButton gameId={gameId} onRequestLogin={onRequestLogin} size="sm" />
-        </div>
         {isOpen ? (
           <div className="catalog-detail">
             <QuickwinGameCard

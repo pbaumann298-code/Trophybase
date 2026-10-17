@@ -72,6 +72,8 @@ export const UI_STRINGS = {
     overallProgress: 'Gesamtfortschritt',
     releaseYear: 'Release-Jahr',
     platinumUnlocked: 'Platin freigeschaltet',
+    platinized: 'Platiniert',
+    hideGame: 'Spiel ausblenden',
     progressSyncTitle: 'Browser-Fortschritt speichern?',
     progressSyncDetailEmpty:
       'Auf diesem Gerät gibt es abgehakte Trophäen oder Guide-Schritte, im Profil noch nicht. Sollen sie in deinem Account gespeichert werden?',
@@ -253,6 +255,8 @@ export const UI_STRINGS = {
     overallProgress: 'Overall progress',
     releaseYear: 'Release year',
     platinumUnlocked: 'Platinum unlocked',
+    platinized: 'Platinum',
+    hideGame: 'Hide game',
     progressSyncTitle: 'Save browser progress?',
     progressSyncDetailEmpty:
       'This device has checked trophies or guide steps that are not in your profile yet. Save them to your account?',
@@ -434,6 +438,8 @@ export const UI_STRINGS = {
     overallProgress: 'Progreso total',
     releaseYear: 'Año de lanzamiento',
     platinumUnlocked: 'Platino desbloqueado',
+    platinized: 'Platino',
+    hideGame: 'Ocultar juego',
     progressSyncTitle: '¿Guardar progreso del navegador?',
     progressSyncDetailEmpty:
       'En este dispositivo hay trofeos o pasos de guía marcados que aún no están en tu perfil. ¿Guardarlos en tu cuenta?',

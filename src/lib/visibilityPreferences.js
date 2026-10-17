@@ -80,9 +80,47 @@ export function createVisibilityStore() {
     isHidden(id) {
       return hiddenIds.has(id);
     },
+    setHidden(id, hidden) {
+      const key = String(id ?? '').trim();
+      if (!key) return;
+      const currently = hiddenIds.has(key);
+      if (Boolean(hidden) === currently) return;
+      if (hidden) hiddenIds.add(key);
+      else hiddenIds.delete(key);
+      writeHiddenIds(hiddenIds);
+      notify();
+    },
     toggleHidden(id) {
       if (hiddenIds.has(id)) hiddenIds.delete(id);
       else hiddenIds.add(id);
+      writeHiddenIds(hiddenIds);
+      notify();
+    },
+    /** UUID-Liste aller als Spiel ausgeblendeten Einträge (`game:{uuid}`). */
+    listHiddenGameUuids() {
+      const ids = [];
+      for (const key of hiddenIds) {
+        if (!String(key).startsWith('game:')) continue;
+        const id = String(key).slice(5).trim();
+        if (id) ids.push(id);
+      }
+      return ids;
+    },
+    /**
+     * Cloud-/Merge-Ergebnis für Spiele anwenden (nur `game:`-Keys; item:-Keys bleiben).
+     * @param {Iterable<string>} gameUuids
+     */
+    replaceHiddenGameUuids(gameUuids) {
+      const next = new Set();
+      for (const key of hiddenIds) {
+        if (!String(key).startsWith('game:')) next.add(key);
+      }
+      for (const raw of gameUuids ?? []) {
+        const id = String(raw ?? '').trim();
+        if (!id) continue;
+        next.add(gameVisibilityKey(id));
+      }
+      hiddenIds = next;
       writeHiddenIds(hiddenIds);
       notify();
     },

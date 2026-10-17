@@ -10,41 +10,66 @@ import {
   scanLocalProgressByGame,
 } from '../lib/localUserProgress';
 import { setProgressCloudUser } from '../lib/progressCloudBridge';
+import { setGameHiddenCloudUser } from '../lib/gameHiddenCloudBridge';
 import {
   fetchUserGuideProgress,
   upsertUserGuideProgressBulk,
 } from '../lib/userProgressQueries';
+import { fetchHiddenGameIds, upsertGameHidden } from '../lib/userGameSettingsQueries';
+import { isUuid } from '../lib/gameModel';
+import { useVisibility } from './VisibilityContext';
 
 const ProgressSyncContext = createContext(null);
 
 export function ProgressSyncProvider({ sessionUser, children }) {
   const userId = sessionUser?.id ?? null;
+  const { listHiddenGameUuids, replaceHiddenGameUuids } = useVisibility();
   const [prompt, setPrompt] = useState(null);
   const [busy, setBusy] = useState(false);
   const runIdRef = useRef(0);
 
-  const closePrompt = useCallback(() => setPrompt(null), []);
-
   const enableCloudPush = useCallback((id) => {
     setProgressCloudUser(id);
+    setGameHiddenCloudUser(id);
     if (id) saveProgressOwner(id);
   }, []);
 
   const disableCloudPush = useCallback(() => {
     setProgressCloudUser(null);
+    // Ausblenden darf weiter syncen, auch während der Fortschritts-Abfrage.
   }, []);
 
   useEffect(() => {
     if (!userId) {
       disableCloudPush();
+      setGameHiddenCloudUser(null);
       setPrompt(null);
       return undefined;
     }
 
+    setGameHiddenCloudUser(userId);
+
     let cancelled = false;
     const runId = ++runIdRef.current;
 
+    async function reconcileHidden() {
+      const { ids: cloudHidden, error } = await fetchHiddenGameIds(supabase, userId);
+      if (cancelled || error) {
+        if (error) console.warn('Spiel-Sichtbarkeit:', error.message);
+        return;
+      }
+      const localHidden = listHiddenGameUuids().filter((id) => isUuid(id));
+      const merged = new Set([...localHidden, ...cloudHidden]);
+      replaceHiddenGameUuids(merged);
+      const toPush = localHidden.filter((id) => !cloudHidden.includes(id));
+      if (toPush.length > 0) {
+        await Promise.all(toPush.map((id) => upsertGameHidden(supabase, userId, id, true)));
+      }
+    }
+
     async function reconcile() {
+      void reconcileHidden();
+
       const localByGame = scanLocalProgressByGame();
       const { byGame: cloudByGame, error } = await fetchUserGuideProgress(supabase, userId);
       if (cancelled || runId !== runIdRef.current) return;
@@ -95,7 +120,7 @@ export function ProgressSyncProvider({ sessionUser, children }) {
     return () => {
       cancelled = true;
     };
-  }, [userId, enableCloudPush, disableCloudPush]);
+  }, [userId, enableCloudPush, disableCloudPush, listHiddenGameUuids, replaceHiddenGameUuids]);
 
   const acceptBrowser = useCallback(async () => {
     if (!userId || !prompt) return;
