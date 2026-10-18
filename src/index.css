@@ -90,31 +90,33 @@ body {
 
 .site-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-  gap: 0.75rem;
-}
-
-.site-header-left {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 0.65rem;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.site-header-right {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
-  flex: 0 0 auto;
 }
 
 .site-header-logo {
-  max-width: 100%;
+  /* ~Logo-Breite + Auslauf; Maske weicht den Hardcut nach rechts auf */
+  width: min(72vw, 22rem);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0%,
+    #000 58%,
+    rgba(0, 0, 0, 0.55) 78%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 0%,
+    #000 58%,
+    rgba(0, 0, 0, 0.55) 78%,
+    transparent 100%
+  );
+}
+
+@media (min-width: 768px) {
+  .site-header-logo {
+    width: min(48vw, 26rem);
+  }
 }
 
 #root {

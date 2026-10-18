@@ -1,6 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useVisibility } from '../context/VisibilityContext';
 import { useLocale } from '../context/LocaleContext';
+import { localeOptions } from '../lib/uiStrings';
+import { SUPPORTED_LOCALES } from '../lib/locale';
+import { DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
 
 function GearIcon({ className }) {
   return (
@@ -22,16 +25,22 @@ function GearIcon({ className }) {
 
 function HeaderSettingsMenu({
   sessionUser = null,
+  isAdmin = false,
   onLogout,
   onOpenWatchlist,
   watchlistPath = '/watchlist',
 }) {
-  const { t } = useLocale();
+  const { t, globalLocale, setGlobalLocale, availableLocales } = useLocale();
   const { displayMode, setDisplayMode, modes } = useVisibility();
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const menuId = useId();
   const isDim = displayMode === modes.DIM;
+
+  const languageCodes = isAdmin
+    ? SUPPORTED_LOCALES
+    : (availableLocales ?? DEFAULT_AVAILABLE_LOCALES);
+  const languageOptions = localeOptions(languageCodes);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -56,6 +65,11 @@ function HeaderSettingsMenu({
     setOpen(false);
   };
 
+  const chooseLanguage = (code) => {
+    setGlobalLocale(code, isAdmin ? { unlock: true } : undefined);
+    setOpen(false);
+  };
+
   const openWatchlist = (event) => {
     event.preventDefault();
     setOpen(false);
@@ -71,10 +85,10 @@ function HeaderSettingsMenu({
     <div ref={rootRef} className="header-settings relative flex-shrink-0">
       <button
         type="button"
-        className={`header-settings__trigger flex h-8 w-8 items-center justify-center rounded-lg border transition ${
+        className={`header-settings__trigger flex h-8 w-8 items-center justify-center rounded-lg border transition backdrop-blur-sm ${
           open
             ? 'border-[#00ff66]/35 bg-[#00ff66]/10 text-[#00ff66]'
-            : 'border-zinc-800 bg-[#121314] text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+            : 'border-zinc-800 bg-[#121314]/90 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
         }`}
         aria-label={t('settingsMenu')}
         aria-haspopup="menu"
@@ -90,8 +104,38 @@ function HeaderSettingsMenu({
           id={menuId}
           role="menu"
           aria-label={t('settingsMenu')}
-          className="header-settings__menu absolute right-0 top-[calc(100%+0.4rem)] z-[60] min-w-[13.5rem] rounded-xl border border-zinc-800 bg-[#121314] py-1.5 shadow-xl shadow-black/40"
+          className="header-settings__menu absolute right-0 top-[calc(100%+0.4rem)] z-[80] max-h-[min(70vh,28rem)] min-w-[13.5rem] overflow-y-auto rounded-xl border border-zinc-800 bg-[#121314] py-1.5 shadow-xl shadow-black/40"
         >
+          {languageOptions.length >= 2 ? (
+            <>
+              <p className="px-3 pb-1 pt-0.5 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                {t('language')}
+              </p>
+              {languageOptions.map((opt) => {
+                const selected = opt.code === globalLocale;
+                return (
+                  <button
+                    key={opt.code}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition ${
+                      selected
+                        ? 'bg-[#00ff66]/10 text-[#00ff66]'
+                        : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-white'
+                    }`}
+                    onClick={() => chooseLanguage(opt.code)}
+                  >
+                    <span aria-hidden>{opt.flag}</span>
+                    <span className="font-semibold">{opt.label}</span>
+                    <span className="ml-auto font-mono text-[10px] text-zinc-500">{opt.short}</span>
+                  </button>
+                );
+              })}
+              <div className="my-1.5 border-t border-zinc-800" role="separator" />
+            </>
+          ) : null}
+
           <p className="px-3 pb-1 pt-0.5 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
             {t('settingsHiddenItems')}
           </p>
