@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
-import { getSessionOrTimeout, isAdminUser } from '../lib/adminAccess';
+import {
+  getSessionOrTimeout,
+  isAdminUser,
+  readAdminTab,
+  writeAdminTab,
+} from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
 import CommunityReportsPanel from '../components/admin/CommunityReportsPanel';
 import ScriptsPanel from '../components/admin/ScriptsPanel';
@@ -14,12 +19,17 @@ const TABS = [
   { id: 'scripts', label: 'Skripte', icon: '⚙️' },
 ];
 
+const TAB_IDS = new Set(TABS.map((tab) => tab.id));
+
 function AdminApp() {
   const [sessionUser, setSessionUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [activeTab, setActiveTab] = useState('database');
+  const [activeTab, setActiveTab] = useState(() => {
+    const saved = readAdminTab('database');
+    return TAB_IDS.has(saved) ? saved : 'database';
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +53,10 @@ function AdminApp() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    writeAdminTab(activeTab);
+  }, [activeTab]);
 
   const handleLogin = async (email, password) => {
     setLoginLoading(true);

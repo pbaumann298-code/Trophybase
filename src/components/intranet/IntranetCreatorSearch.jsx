@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
+import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { getPlatformGameIds } from '../../lib/gameModel';
 import { formatPipelineStatus } from '../../lib/gamePipelineStatus';
 import {
@@ -221,6 +222,7 @@ function IntranetCreatorSearch() {
                                 href={href}
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                onClick={(event) => handleStaffGamePreviewClick(event, href)}
                                 className="text-[10px] font-bold uppercase tracking-wider text-[#00ff66] hover:underline"
                               >
                                 Öffnen

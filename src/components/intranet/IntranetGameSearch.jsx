@@ -1,5 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
+import {
+  readIntranetGameSearchState,
+  writeIntranetGameSearchState,
+} from '../../lib/adminAccess';
 import { GAME_TYPE } from '../../lib/gameSchema';
 import { INTRANET_GAME_LIMIT, INTRANET_GAME_TYPE_EMPTY, searchIntranetGames } from '../../lib/intranetQueries';
 import { PIPELINE_PRESETS, PIPELINE_STATUS_KEYS, STATUS_FILTER_MODES } from '../../lib/gamePipelineStatus';
@@ -33,6 +37,10 @@ function emptyFilters() {
   };
 }
 
+function mergeSavedFilters(saved) {
+  return { ...emptyFilters(), ...(saved && typeof saved === 'object' ? saved : {}) };
+}
+
 function Field({ id, label, value, onChange, placeholder = '', type = 'text', disabled = false }) {
   return (
     <label className={`flex flex-col gap-1.5 min-w-0 ${disabled ? 'opacity-50' : ''}`}>
@@ -54,11 +62,12 @@ function Field({ id, label, value, onChange, placeholder = '', type = 'text', di
 }
 
 function IntranetGameSearch({ sessionUser }) {
-  const [filters, setFilters] = useState(emptyFilters);
+  const savedRef = useRef(readIntranetGameSearchState());
+  const [filters, setFilters] = useState(() => mergeSavedFilters(savedRef.current?.filters));
   const [results, setResults] = useState([]);
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [hasSearched, setHasSearched] = useState(() => Boolean(savedRef.current?.hasSearched));
   const [errorMessage, setErrorMessage] = useState('');
 
   const updateField = (key) => (event) => {
@@ -69,6 +78,7 @@ function IntranetGameSearch({ sessionUser }) {
     setLoading(true);
     setErrorMessage('');
     setHasSearched(true);
+    writeIntranetGameSearchState({ filters: nextFilters, hasSearched: true });
 
     const { data, count: total, error } = await searchIntranetGames(supabase, nextFilters);
     if (error) {
@@ -82,6 +92,37 @@ function IntranetGameSearch({ sessionUser }) {
     setLoading(false);
   };
 
+  useEffect(() => {
+    const saved = savedRef.current;
+    if (!saved?.hasSearched) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      setLoading(true);
+      setErrorMessage('');
+      const nextFilters = mergeSavedFilters(saved.filters);
+      const { data, count: total, error } = await searchIntranetGames(supabase, nextFilters);
+      if (cancelled) return;
+      if (error) {
+        setErrorMessage(error.message || 'Suche fehlgeschlagen.');
+        setResults([]);
+        setCount(0);
+      } else {
+        setResults(data);
+        setCount(total);
+      }
+      setLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    writeIntranetGameSearchState({ filters, hasSearched });
+  }, [filters, hasSearched]);
+
   const handleSubmit = (event) => {
     event.preventDefault();
     runSearch(filters);
@@ -93,6 +134,7 @@ function IntranetGameSearch({ sessionUser }) {
     setCount(0);
     setHasSearched(false);
     setErrorMessage('');
+    writeIntranetGameSearchState({ filters: emptyFilters(), hasSearched: false });
   };
 
   return (

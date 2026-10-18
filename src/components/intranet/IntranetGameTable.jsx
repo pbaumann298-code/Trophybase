@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
+import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { getPlatformGameIds } from '../../lib/gameModel';
 import { GAME_TYPE } from '../../lib/gameSchema';
 import { formatIntranetTitles, intranetGameHref } from '../../lib/intranetQueries';
@@ -392,6 +393,7 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
                           href={href}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(event) => handleStaffGamePreviewClick(event, href)}
                           className="text-[10px] font-bold uppercase tracking-wider text-[#00ff66] hover:underline"
                         >
                           Öffnen
