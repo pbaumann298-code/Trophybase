@@ -11,6 +11,7 @@ const SITEMAP_COLUMNS = [
   'slug',
   'hardware',
   GAME_STRUCT.gameType,
+  GAME_STRUCT.isIndexable,
   GAME_STRUCT.createdAt,
 ].join(', ');
 
@@ -19,11 +20,10 @@ function xmlWrap(body) {
 }
 
 /**
- * Eine Sprache, ein Ausdruck: status->>guide_<lang> = PUBLISHED.
- * Die frühere ODER-Kette über alle 14 Sprachen konnte keinen Index nutzen
- * und ist an statement_timeout gelaufen.
+ * Nur status->>guide_<lang> = PUBLISHED — damit der Ausdrucksindex greifen kann.
+ * is_indexable und Servertot werden danach im JS gefiltert.
  */
-function indexablePublishedQuery(supabase, locale) {
+function publishedGuideQuery(supabase, locale) {
   return supabase
     .from('games')
     .select(SITEMAP_COLUMNS)
@@ -32,28 +32,75 @@ function indexablePublishedQuery(supabase, locale) {
       `${GAME_STRUCT.status}->>${guideStatusKey(locale)}`,
       'eq',
       GUIDE_PUBLICATION.PUBLISHED,
-    )
-    .or(`${GAME_STRUCT.isIndexable}.is.null,${GAME_STRUCT.isIndexable}.eq.true`)
-    .or(`${GAME_STRUCT.gameType}.is.null,${GAME_STRUCT.gameType}.neq.${GAME_TYPE.SERVER_DEAD}`);
+    );
 }
 
-function hasSitemapUrl(row) {
-  return Boolean(row?.slug && hardwareToUrlSegment(row.hardware));
+function isSitemapRow(row) {
+  if (!row?.slug || !hardwareToUrlSegment(row.hardware)) return false;
+  if (row[GAME_STRUCT.isIndexable] === false) return false;
+  if (row[GAME_STRUCT.gameType] === GAME_TYPE.SERVER_DEAD) return false;
+  return true;
+}
+
+function isMissingSitemapRpc(error) {
+  const code = String(error?.code ?? '');
+  const message = String(error?.message ?? '').toLowerCase();
+  return (
+    code === 'PGRST202' ||
+    code === '42883' ||
+    message.includes('tb_sitemap_locale') ||
+    message.includes('could not find the function')
+  );
+}
+
+async function loadViaRpc(supabase, locale, limit = SITEMAP_URL_CAP) {
+  const { data, error } = await supabase.rpc('tb_sitemap_locale', {
+    p_locale: locale,
+    p_limit: limit,
+  });
+  if (error) return { data: null, error };
+  return { data: (data ?? []).filter(isSitemapRow), error: null };
+}
+
+async function loadViaTable(supabase, locale) {
+  const { data, error } = await publishedGuideQuery(supabase, locale).limit(SITEMAP_URL_CAP);
+  if (error) return { data: null, error };
+  return { data: (data ?? []).filter(isSitemapRow), error: null };
 }
 
 async function loadIndexablePublishedGames(supabase, locale) {
-  const { data, error } = await indexablePublishedQuery(supabase, locale).limit(SITEMAP_URL_CAP);
-  if (error) throw error;
-  return (data ?? []).filter(hasSitemapUrl);
+  const rpc = await loadViaRpc(supabase, locale);
+  if (!rpc.error) return rpc.data;
+  if (!isMissingSitemapRpc(rpc.error)) throw rpc.error;
+
+  const table = await loadViaTable(supabase, locale);
+  if (table.error) throw table.error;
+  return table.data;
 }
 
+/**
+ * Sprachen nacheinander mit kleinem Limit prüfen.
+ * Promise.all hat bei Timeout einer Sprache den ganzen Index auf 500 gesetzt.
+ */
 async function localesWithIndexableGames(supabase) {
-  const checks = await Promise.all(SUPPORTED_LOCALES.map(async (locale) => {
-    const { data, error } = await indexablePublishedQuery(supabase, locale).limit(20);
-    if (error) throw error;
-    return (data ?? []).some(hasSitemapUrl) ? locale : null;
-  }));
-  return checks.filter(Boolean);
+  const found = [];
+  for (const locale of SUPPORTED_LOCALES) {
+    try {
+      const rpc = await loadViaRpc(supabase, locale, 40);
+      if (!rpc.error) {
+        if (rpc.data.length > 0) found.push(locale);
+        continue;
+      }
+      if (!isMissingSitemapRpc(rpc.error)) continue;
+
+      const { data, error } = await publishedGuideQuery(supabase, locale).limit(40);
+      if (error) continue;
+      if ((data ?? []).some(isSitemapRow)) found.push(locale);
+    } catch {
+      /* eine Sprache darf den Index nicht killen */
+    }
+  }
+  return found;
 }
 
 function urlset(origin, locale, games) {
