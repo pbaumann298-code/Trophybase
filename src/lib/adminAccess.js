@@ -1,5 +1,4 @@
 import { ALLOWED_ADMINS, normalizeEmail } from './maintenanceAccess';
-import { isStandaloneApp } from './reloadHistory';
 
 export const ADMIN_RETURN_STORAGE_KEY = 'tb_admin_return';
 export const ADMIN_TAB_STORAGE_KEY = 'tb_admin_tab';
@@ -78,46 +77,80 @@ export function writeAdminTab(tab) {
   }
 }
 
+/** Bleibt im JS-Kontext der Admin-Seite erhalten (auch bei Tab-Remount). */
+let intranetGameSearchMemory = null;
+
 export function readIntranetGameSearchState() {
+  if (intranetGameSearchMemory?.hasSearched) {
+    return intranetGameSearchMemory;
+  }
   try {
     const raw = localStorage.getItem(INTRANET_GAME_SEARCH_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
-    return {
+    if (!parsed || typeof parsed !== 'object' || !parsed.hasSearched) return null;
+    const state = {
       filters: parsed.filters && typeof parsed.filters === 'object' ? parsed.filters : null,
-      hasSearched: Boolean(parsed.hasSearched),
+      hasSearched: true,
+      results: Array.isArray(parsed.results) ? parsed.results : [],
+      count: Number(parsed.count) || 0,
     };
+    intranetGameSearchMemory = state;
+    return state;
   } catch {
     return null;
   }
 }
 
-export function writeIntranetGameSearchState({ filters, hasSearched }) {
-  try {
-    if (!hasSearched) {
+export function writeIntranetGameSearchState({
+  filters,
+  hasSearched,
+  results = [],
+  count = 0,
+}) {
+  if (!hasSearched) {
+    intranetGameSearchMemory = null;
+    try {
       localStorage.removeItem(INTRANET_GAME_SEARCH_STORAGE_KEY);
-      return;
+    } catch {
+      /* ignore */
     }
-    localStorage.setItem(
-      INTRANET_GAME_SEARCH_STORAGE_KEY,
-      JSON.stringify({ filters, hasSearched: true }),
-    );
+    return;
+  }
+
+  const state = {
+    filters,
+    hasSearched: true,
+    results: Array.isArray(results) ? results : [],
+    count: Number(count) || 0,
+  };
+  intranetGameSearchMemory = state;
+
+  try {
+    localStorage.setItem(INTRANET_GAME_SEARCH_STORAGE_KEY, JSON.stringify(state));
   } catch {
-    /* ignore */
+    // Quota: Filter behalten, Trefferliste weglassen
+    try {
+      localStorage.setItem(
+        INTRANET_GAME_SEARCH_STORAGE_KEY,
+        JSON.stringify({ filters, hasSearched: true, results: [], count: state.count }),
+      );
+    } catch {
+      /* ignore */
+    }
   }
 }
 
 /**
- * Spielvorschau aus Admin/Intranet: Return-Flag setzen.
- * In der installierten App im selben Fenster bleiben, damit Zurück/Admin
- * wieder zur Suche führen statt die PWA zu verlassen.
+ * Spielvorschau aus Admin/Intranet: Admin-Tab offen lassen (Suche bleibt),
+ * Return-Flag setzen. Nur wenn kein neues Fenster geht → gleiche Seite.
  */
 export function handleStaffGamePreviewClick(event, href) {
   if (!href) return;
+  event.preventDefault();
   setAdminReturnFlag(true);
-  if (isStandaloneApp()) {
-    event.preventDefault();
+  const opened = window.open(href, '_blank');
+  if (!opened) {
     window.location.assign(href);
   }
 }

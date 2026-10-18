@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import {
   readIntranetGameSearchState,
@@ -62,54 +62,90 @@ function Field({ id, label, value, onChange, placeholder = '', type = 'text', di
 }
 
 function IntranetGameSearch({ sessionUser }) {
-  const savedRef = useRef(readIntranetGameSearchState());
-  const [filters, setFilters] = useState(() => mergeSavedFilters(savedRef.current?.filters));
-  const [results, setResults] = useState([]);
-  const [count, setCount] = useState(0);
+  const initial = useMemo(() => readIntranetGameSearchState(), []);
+  const [filters, setFilters] = useState(() => mergeSavedFilters(initial?.filters));
+  const [results, setResults] = useState(() => (
+    Array.isArray(initial?.results) ? initial.results : []
+  ));
+  const [count, setCount] = useState(() => Number(initial?.count) || 0);
   const [loading, setLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(() => Boolean(savedRef.current?.hasSearched));
+  const [hasSearched, setHasSearched] = useState(() => Boolean(initial?.hasSearched));
   const [errorMessage, setErrorMessage] = useState('');
 
   const updateField = (key) => (event) => {
     setFilters((prev) => ({ ...prev, [key]: event.target.value }));
   };
 
+  const persist = (next) => {
+    writeIntranetGameSearchState({
+      filters: next.filters,
+      hasSearched: next.hasSearched,
+      results: next.results,
+      count: next.count,
+    });
+  };
+
   const runSearch = async (nextFilters) => {
     setLoading(true);
     setErrorMessage('');
     setHasSearched(true);
-    writeIntranetGameSearchState({ filters: nextFilters, hasSearched: true });
+    persist({
+      filters: nextFilters,
+      hasSearched: true,
+      results,
+      count,
+    });
 
     const { data, count: total, error } = await searchIntranetGames(supabase, nextFilters);
     if (error) {
       setErrorMessage(error.message || 'Suche fehlgeschlagen.');
       setResults([]);
       setCount(0);
+      persist({
+        filters: nextFilters,
+        hasSearched: true,
+        results: [],
+        count: 0,
+      });
     } else {
       setResults(data);
       setCount(total);
+      persist({
+        filters: nextFilters,
+        hasSearched: true,
+        results: data,
+        count: total,
+      });
     }
     setLoading(false);
   };
 
   useEffect(() => {
-    const saved = savedRef.current;
-    if (!saved?.hasSearched) return undefined;
+    if (!hasSearched) return undefined;
     let cancelled = false;
 
     (async () => {
-      setLoading(true);
+      // Trefferliste aus Storage sofort sichtbar; im Hintergrund aktualisieren
+      setLoading(results.length === 0);
       setErrorMessage('');
-      const nextFilters = mergeSavedFilters(saved.filters);
+      const nextFilters = mergeSavedFilters(filters);
       const { data, count: total, error } = await searchIntranetGames(supabase, nextFilters);
       if (cancelled) return;
       if (error) {
-        setErrorMessage(error.message || 'Suche fehlgeschlagen.');
-        setResults([]);
-        setCount(0);
+        if (results.length === 0) {
+          setErrorMessage(error.message || 'Suche fehlgeschlagen.');
+          setResults([]);
+          setCount(0);
+        }
       } else {
         setResults(data);
         setCount(total);
+        persist({
+          filters: nextFilters,
+          hasSearched: true,
+          results: data,
+          count: total,
+        });
       }
       setLoading(false);
     })();
@@ -117,11 +153,15 @@ function IntranetGameSearch({ sessionUser }) {
     return () => {
       cancelled = true;
     };
+    // Nur beim ersten Mount wiederherstellen / aktualisieren
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    writeIntranetGameSearchState({ filters, hasSearched });
-  }, [filters, hasSearched]);
+    // Nur speichern wenn aktiv gesucht — nie beim leeren Mount den Speicher löschen
+    if (!hasSearched) return;
+    persist({ filters, hasSearched: true, results, count });
+  }, [filters, hasSearched, results, count]);
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -134,7 +174,22 @@ function IntranetGameSearch({ sessionUser }) {
     setCount(0);
     setHasSearched(false);
     setErrorMessage('');
-    writeIntranetGameSearchState({ filters: emptyFilters(), hasSearched: false });
+    writeIntranetGameSearchState({
+      filters: emptyFilters(),
+      hasSearched: false,
+      results: [],
+      count: 0,
+    });
+  };
+
+  const handleGamePatch = (gameId, partial) => {
+    setResults((prev) => {
+      const next = prev.map((game) => (
+        game.id === gameId ? { ...game, ...partial } : game
+      ));
+      persist({ filters, hasSearched: true, results: next, count });
+      return next;
+    });
   };
 
   return (
@@ -147,6 +202,7 @@ function IntranetGameSearch({ sessionUser }) {
           noch offline). Spieltyp, Home-Tags und einzelne Status-Werte lassen sich direkt
           in der Zeile ändern. Die Tags kommen aus <span className="text-zinc-400 font-mono">home_tag_defs</span>.
           Leere Felder werden ignoriert. Ohne jedes Feld: bis zu {INTRANET_GAME_LIMIT} Einträge.
+          Spiele öffnen in einem neuen Fenster — die Suche hier bleibt stehen.
         </p>
       </div>
 
@@ -307,11 +363,7 @@ function IntranetGameSearch({ sessionUser }) {
         <IntranetGameTable
           games={results}
           sessionUser={sessionUser}
-          onGamePatch={(gameId, partial) => {
-            setResults((prev) => prev.map((game) => (
-              game.id === gameId ? { ...game, ...partial } : game
-            )));
-          }}
+          onGamePatch={handleGamePatch}
         />
       )}
 
