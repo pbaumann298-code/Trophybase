@@ -63,26 +63,23 @@
 }
 
 .home-hero-features {
-  max-width: 28rem;
+  max-width: 32rem;
   margin: 0 auto 1.5rem;
-  text-align: left;
+  text-align: center;
 }
 
 .home-hero-features-summary {
   list-style: none;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.65rem;
+  display: block;
   margin: 0;
-  padding: 0.35rem 0.5rem;
+  padding: 0.35rem 1.75rem;
   font-size: clamp(1.05rem, 2.8vw, 1.25rem);
   font-weight: 700;
   color: #f4f4f5;
   letter-spacing: -0.02em;
   line-height: 1.3;
-  text-align: left;
+  text-align: center;
   user-select: none;
 }
 
@@ -93,9 +90,8 @@
 .home-hero-features-copy {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.15rem;
-  min-width: 0;
 }
 
 .home-hero-features-line {
@@ -103,6 +99,8 @@
 }
 
 .home-hero-features-line--accent {
+  position: relative;
+  display: inline-block;
   color: #00ff66;
   text-decoration: underline;
   text-decoration-color: #00ff66;
@@ -111,14 +109,17 @@
 }
 
 .home-hero-features-chevron {
+  position: absolute;
+  left: calc(100% + 0.45rem);
+  bottom: -0.12em;
   display: inline-flex;
-  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  font-size: 1.45rem;
+  font-size: 1.35rem;
   line-height: 1;
   color: #00ff66;
   transition: transform 0.2s ease, color 0.15s ease;
+  transform-origin: center;
 }
 
 .home-hero-features[open] .home-hero-features-chevron {
@@ -141,6 +142,7 @@
   border: 1px solid #27272a;
   border-radius: 0.9rem;
   background: #1a1b1c;
+  text-align: left;
 }
 
 .home-hero-features-list li {

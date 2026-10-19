@@ -267,6 +267,22 @@ export const HOME_CATEGORIES = [
       fetchCategoryList({ search: { kind: 'souls' } }, supabase, locale, includeReady, LIMIT),
   },
   {
+    id: 'capcom',
+    emoji: '🎮',
+    title: 'Capcom',
+    searchMatch: /^capcom$/i,
+    search: { kind: 'studio', studio: 'Capcom', dropQuickwins: true },
+    accent: '#ef4444',
+    fetch: (supabase, locale, includeReady) =>
+      fetchCategoryList(
+        { search: { kind: 'studio', studio: 'Capcom', dropQuickwins: true } },
+        supabase,
+        locale,
+        includeReady,
+        LIMIT,
+      ),
+  },
+  {
     id: 'openworld',
     emoji: '🗺️',
     title: 'Open World',

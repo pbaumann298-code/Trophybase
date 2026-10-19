@@ -79,9 +79,9 @@ function HomePage({
               <span className="home-hero-features-line">{t('homeFeaturesToggleLead')}</span>
               <span className="home-hero-features-line home-hero-features-line--accent">
                 {t('homeFeaturesToggleAccent')}
+                <span className="home-hero-features-chevron" aria-hidden="true">▾</span>
               </span>
             </span>
-            <span className="home-hero-features-chevron" aria-hidden="true">▾</span>
           </summary>
           <ul className="home-hero-features-list">
             {HOME_FEATURE_KEYS.map(([titleKey, bodyKey], index) => {
