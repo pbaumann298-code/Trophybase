@@ -349,7 +349,7 @@ function TrophyRow({
             checked={isUnlocked}
             disabled={isEarned}
             onChange={() => !isEarned && onToggle(trophyKey)}
-            title={isEarned ? 'Von PSN synchronisiert' : undefined}
+            title={isEarned ? t('psnSyncedTitle') : undefined}
             className={`rounded-sm border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 w-4 h-4 mt-1 flex-shrink-0 ${
               isEarned ? 'cursor-default opacity-70' : 'cursor-pointer'
             }`}
@@ -390,12 +390,12 @@ function TrophyRow({
             )}
             {trophy.is_hidden && (
               <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded-sm font-mono uppercase">
-                Versteckt
+                {t('badgeHidden')}
               </span>
             )}
             {!conceal && trophy.is_missable && (
               <span className="text-[9px] bg-rose-500/10 text-rose-400 border border-rose-500/25 px-1.5 py-0.5 rounded-sm font-mono uppercase">
-                Verpassbar
+                {t('badgeMissable')}
               </span>
             )}
             {isEarned && (
@@ -405,7 +405,7 @@ function TrophyRow({
             )}
             {!conceal && trophy.is_online && (
               <span className="text-[9px] bg-sky-500/10 text-sky-400 border border-sky-500/25 px-1.5 py-0.5 rounded-sm font-mono uppercase">
-                Online Trophäe
+                {t('badgeOnline')}
               </span>
             )}
           </div>
@@ -467,7 +467,7 @@ function TrophyRow({
         <div className="mt-1 pl-4 border-l-2 border-[#00ff66]/30 flex flex-col gap-2 bg-zinc-950/40 p-2 rounded-r-xl">
           {trophy.guide_tip && (
             <p className="text-xs text-zinc-400 font-sans italic">
-              <span className="text-[#00ff66] font-mono font-bold not-italic mr-1">Tipp:</span>
+              <span className="text-[#00ff66] font-mono font-bold not-italic mr-1">{t('trophyTipPrefix')}</span>
               <Reportable
                 as="span"
                 source={gameId}
@@ -493,7 +493,7 @@ function TrophyRow({
                 aria-expanded={videoOpen}
                 className="text-[11px] text-[#00ff66] hover:underline flex items-center gap-1 font-mono font-bold bg-transparent border-none p-0 cursor-pointer text-left"
               >
-                {videoOpen ? '▲ Video ausblenden' : '🎬 Video-Guide ansehen'}
+                {videoOpen ? t('hideVideoGuide') : t('watchVideoGuide')}
               </button>
               {videoOpen ? (
                 <div className="trophy-inline-video mt-1 w-full min-w-0 overflow-hidden rounded-lg border border-zinc-800">
@@ -527,9 +527,10 @@ function TrophyList({
   onlinePickIds = null,
   onOnlinePickToggle = null,
 }) {
+  const { t } = useLocale();
   const earnedSet = earnedTrophyIds ?? new Set();
-  const visible = trophies.filter((t) => {
-    const key = getTrophyIdKey(t);
+  const visible = trophies.filter((trophy) => {
+    const key = getTrophyIdKey(trophy);
     const done = earnedSet.has(key) || unlockedTrophies[key];
     return !hideCompleted || !done;
   });
@@ -537,25 +538,25 @@ function TrophyList({
   if (visible.length === 0) {
     return (
       <p className="text-xs text-zinc-500 italic text-center py-4">
-        Keine Trophäen in diesem Abschnitt (oder alle erledigt ausgeblendet).
+        {t('trophiesSectionEmpty')}
       </p>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
-      {visible.map((t, idx) => {
-        const key = getTrophyIdKey(t) || idx;
+      {visible.map((trophy, idx) => {
+        const key = getTrophyIdKey(trophy) || idx;
         const isEarned = earnedTrophyIds?.has?.(key) ?? false;
         const isUnlocked = isEarned || !!unlockedTrophies[key];
         return (
           <TrophyRow
             key={key}
             gameId={gameId}
-            trophy={t}
+            trophy={trophy}
             isUnlocked={isUnlocked}
             isEarned={isEarned}
-            conceal={Boolean(t.is_hidden) && !revealHidden && !isUnlocked}
+            conceal={Boolean(trophy.is_hidden) && !revealHidden && !isUnlocked}
             onToggle={onToggle}
             guideTipEditor={guideTipEditor}
             onTrophyVideo={onTrophyVideo}
@@ -578,7 +579,7 @@ function TrophyGroupedChecklist({
   hideCompleted,
   revealHidden = false,
   onToggle,
-  mainGameTitle = 'Hauptspiel',
+  mainGameTitle = null,
   /** Kein zusätzlicher Karten-Reiter, wenn die Liste schon in einer Zeile steckt. */
   flat = false,
   guideTipEditor = null,
@@ -588,6 +589,8 @@ function TrophyGroupedChecklist({
   onlinePickIds = null,
   onOnlinePickToggle = null,
 }) {
+  const { t } = useLocale();
+  const resolvedMainTitle = mainGameTitle || t('mainGame');
   const { mainGame, dlcGroups } = useMemo(
     () => groupTrophiesByPack(trophies),
     [trophies],
@@ -603,7 +606,7 @@ function TrophyGroupedChecklist({
   if (trophies.length === 0) {
     return (
       <p className="text-xs text-zinc-500 italic text-center py-6">
-        Keine Trophäen für dieses Spiel in der Datenbank.
+        {t('trophiesGameEmpty')}
       </p>
     );
   }
@@ -640,7 +643,7 @@ function TrophyGroupedChecklist({
               key={dlc.gruppe}
               sectionId={`trophies-dlc-${dlc.gruppe}`}
               title={dlc.title}
-              badge={`${dlcProgress}/${dlc.trophies.length} · ${dlc.trophies.length} Trophäen`}
+              badge={`${dlcProgress}/${dlc.trophies.length} · ${t('trophiesCountBadge').replaceAll('{count}', String(dlc.trophies.length))}`}
               defaultOpen={false}
               accent="purple"
             >
@@ -671,8 +674,10 @@ function TrophyGroupedChecklist({
       {mainGame.length > 0 && (
         <CollapsibleSectionCard
           sectionId="trophies-main"
-          title={mainGameTitle}
-          badge={`${mainProgress}/${mainGame.length} freigeschaltet`}
+          title={resolvedMainTitle}
+          badge={t('trophiesUnlockedBadge')
+            .replaceAll('{unlocked}', String(mainProgress))
+            .replaceAll('{total}', String(mainGame.length))}
           defaultOpen
           accent="green"
         >
@@ -706,7 +711,7 @@ function TrophyGroupedChecklist({
             key={dlc.gruppe}
             sectionId={`trophies-dlc-${dlc.gruppe}`}
             title={dlc.title}
-            badge={`${dlcProgress}/${dlc.trophies.length} · ${dlc.trophies.length} Trophäen`}
+            badge={`${dlcProgress}/${dlc.trophies.length} · ${t('trophiesCountBadge').replaceAll('{count}', String(dlc.trophies.length))}`}
             defaultOpen={false}
             accent="purple"
           >
@@ -731,7 +736,7 @@ function TrophyGroupedChecklist({
 
       {mainGame.length === 0 && dlcGroups.length === 0 && (
         <p className="text-xs text-zinc-500 italic text-center py-6">
-          Keine gruppierten Trophäen gefunden.
+          {t('trophiesGroupedEmpty')}
         </p>
       )}
     </div>

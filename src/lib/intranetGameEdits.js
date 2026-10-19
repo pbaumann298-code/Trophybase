@@ -7,11 +7,21 @@ import {
   GAME_PK,
   GAME_STRUCT,
   GAME_TYPE,
+  GUIDE_I18N,
+  GUIDE_PK,
+  GUIDE_SHEET_TYPE,
+  GUIDE_STRUCT,
   TABLES,
 } from './gameSchema';
 import { formatHardwareValue } from './gameSlug';
-import { parseStatusMap, publishingFieldsFromStatus } from './guidePublication';
-import { normalizeTrophyVideoInput } from '../utils/videoUrl';
+import {
+  GUIDE_PUBLICATION,
+  guideStatusKey,
+  parseStatusMap,
+  publishingFieldsFromStatus,
+} from './guidePublication';
+import { normalizeLocale } from './locale';
+import { normalizeTrophyVideoInput, getYouTubeVideoId } from '../utils/videoUrl';
 
 /** Pipeline-Schlüssel, die einen vorhandenen Guide markieren und mit ihm wegfallen. */
 const GUIDE_DISCARD_KEYS = new Set(['fertig', 'fertig_de', 'fertig_en']);
@@ -537,4 +547,243 @@ export async function clearIntranetCover(supabase, gameId) {
 
   if (error) return { status: null, error };
   return { status: parseStatusMap(data?.[GAME_STRUCT.status] ?? statusMap), error: null };
+}
+
+function parsePlaytimeHours(value) {
+  const raw = String(value ?? '').trim().replace(',', '.');
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Speichert Spielzeit-Spalten auf public.games.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {{ hauptstory?: unknown, komplett?: unknown }} values
+ */
+export async function saveGamePlaytime(supabase, gameId, { hauptstory, komplett } = {}) {
+  const id = String(gameId ?? '').trim();
+  if (!id) return { hauptstory: null, komplett: null, error: new Error('Kein Spiel ausgewählt.') };
+
+  const nextHauptstory = parsePlaytimeHours(hauptstory);
+  const nextKomplett = parsePlaytimeHours(komplett);
+
+  const { data, error } = await supabase
+    .from(TABLES.games)
+    .update({
+      spielzeit_hauptstory: nextHauptstory,
+      spielzeit_komplettierer: nextKomplett,
+    })
+    .eq(GAME_PK, id)
+    .select('spielzeit_hauptstory, spielzeit_komplettierer')
+    .maybeSingle();
+
+  if (error) return { hauptstory: null, komplett: null, error };
+  return {
+    hauptstory: data?.spielzeit_hauptstory ?? nextHauptstory,
+    komplett: data?.spielzeit_komplettierer ?? nextKomplett,
+    error: null,
+  };
+}
+
+const QUICK_GUIDE_TS = /(?:\d{1,2}:)?\d{1,2}:\d{2}/;
+
+/**
+ * Zerlegt mehrzeiligen YouTube-Timestamp-Text in Guide-Schritte.
+ * Zeilen mit `# Gruppenname` setzen die Gruppe für nachfolgende Zeilen.
+ * @param {string} rawText
+ * @param {string} [defaultGroup]
+ * @returns {{ timestamp: string|null, name: string, group: string }[]}
+ */
+export function parseQuickGuideText(rawText, defaultGroup = 'Allgemein') {
+  let group = String(defaultGroup ?? 'Allgemein').trim() || 'Allgemein';
+  const steps = [];
+
+  for (const rawLine of String(rawText ?? '').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    if (line.startsWith('#')) {
+      const next = line.replace(/^#+\s*/, '').trim();
+      if (next) group = next;
+      continue;
+    }
+
+    let timestamp = null;
+    let name = line;
+
+    const startMatch = line.match(new RegExp(`^(${QUICK_GUIDE_TS.source})\\s*[-–—:]?\\s*(.*)$`));
+    if (startMatch) {
+      timestamp = startMatch[1];
+      name = String(startMatch[2] ?? '').trim() || line;
+    } else {
+      const endMatch = line.match(new RegExp(`^(.*?)[\\s\\-–—:]+(${QUICK_GUIDE_TS.source})$`));
+      if (endMatch) {
+        name = String(endMatch[1] ?? '').trim() || line;
+        timestamp = endMatch[2];
+      }
+    }
+
+    steps.push({ timestamp, name, group });
+  }
+
+  return steps;
+}
+
+function cleanWatchUrl(videoUrl) {
+  const raw = String(videoUrl ?? '').trim();
+  if (!raw) return null;
+  const { video_url, error } = normalizeTrophyVideoInput(raw, '');
+  if (error || !video_url) {
+    const ytId = getYouTubeVideoId(raw);
+    return ytId ? `https://www.youtube.com/watch?v=${ytId}` : null;
+  }
+  return video_url || null;
+}
+
+/**
+ * Fügt geparste Guide-Schritte in public.game_guides ein.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {object} params
+ */
+export async function insertQuickGuideSteps(
+  supabase,
+  {
+    gameId,
+    platformGameId,
+    locale,
+    sheetType,
+    videoUrl,
+    creatorId,
+    trophyId,
+    steps,
+  },
+) {
+  const id = String(gameId ?? '').trim();
+  const lang = normalizeLocale(locale);
+  const sheet = Number(sheetType);
+  const list = Array.isArray(steps) ? steps : [];
+
+  if (!id) return { inserted: 0, status: null, error: new Error('Kein Spiel ausgewählt.') };
+  if (!lang) return { inserted: 0, status: null, error: new Error('Keine Sprache gewählt.') };
+  if (
+    ![GUIDE_SHEET_TYPE.WALKTHROUGH, GUIDE_SHEET_TYPE.COLLECTIBLES, GUIDE_SHEET_TYPE.BOSSES].includes(
+      sheet,
+    )
+  ) {
+    return { inserted: 0, status: null, error: new Error('Ungültiger Ziel-Reiter.') };
+  }
+  if (list.length === 0) {
+    return { inserted: 0, status: null, error: new Error('Keine Schritte erkannt.') };
+  }
+
+  const { data: existing, error: readError } = await supabase
+    .from(TABLES.guides)
+    .select(GUIDE_STRUCT.guideId)
+    .eq(GAME_FK, id);
+
+  if (readError) return { inserted: 0, status: null, error: readError };
+
+  let maxId = 0;
+  for (const row of existing ?? []) {
+    const match = String(row?.[GUIDE_STRUCT.guideId] ?? '').match(/\d+/);
+    if (match) maxId = Math.max(maxId, Number(match[0]));
+  }
+
+  const watchUrl = cleanWatchUrl(videoUrl);
+  const platformId = String(platformGameId ?? '').trim() || null;
+  const creator = String(creatorId ?? '').trim() || null;
+  const trophy = String(trophyId ?? '').trim() || null;
+  const useCategory = sheet === GUIDE_SHEET_TYPE.COLLECTIBLES;
+
+  const rows = list.map((step, index) => {
+    const name = String(step?.name ?? '').trim() || `Schritt ${index + 1}`;
+    const group = String(step?.group ?? 'Allgemein').trim() || 'Allgemein';
+    const ts = String(step?.timestamp ?? '').trim() || null;
+    const row = {
+      [GAME_FK]: id,
+      [GUIDE_STRUCT.platformGameId]: platformId,
+      [GUIDE_STRUCT.guideId]: String(maxId + index + 1),
+      [GUIDE_I18N.sheetType]: [sheet],
+      [GUIDE_I18N.itemName]: { [lang]: name },
+      [GUIDE_STRUCT.videoUrl]: watchUrl,
+      [GUIDE_STRUCT.timestamp]: ts,
+      [GUIDE_STRUCT.creatorId]: creator,
+      [GUIDE_STRUCT.trophyId]: trophy,
+      [GUIDE_STRUCT.isTrophyRelevant]: trophy ? 'Ja' : null,
+    };
+    if (useCategory) {
+      row[GUIDE_I18N.categoryGroup] = { [lang]: group };
+    } else {
+      row[GUIDE_I18N.chronologicalGroup] = { [lang]: group };
+    }
+    return row;
+  });
+
+  const { error: insertError } = await supabase.from(TABLES.guides).insert(rows);
+  if (insertError) return { inserted: 0, status: null, error: insertError };
+
+  const { data: current, error: statusReadError } = await supabase
+    .from(TABLES.games)
+    .select(GAME_STRUCT.status)
+    .eq(GAME_PK, id)
+    .maybeSingle();
+
+  if (statusReadError) {
+    return { inserted: rows.length, status: null, error: statusReadError };
+  }
+
+  const statusMap = { ...parseStatusMap(current?.[GAME_STRUCT.status]) };
+  const key = guideStatusKey(lang);
+  let statusChanged = false;
+
+  if (String(statusMap[key] ?? '').trim().toUpperCase() !== GUIDE_PUBLICATION.PUBLISHED) {
+    if (statusMap[key] !== GUIDE_PUBLICATION.DONE) {
+      statusMap[key] = GUIDE_PUBLICATION.DONE;
+      statusChanged = true;
+    }
+  }
+  if (watchUrl && statusMap.guides !== 'HAS_VIDEO') {
+    statusMap.guides = 'HAS_VIDEO';
+    statusChanged = true;
+  }
+
+  if (!statusChanged) {
+    return { inserted: rows.length, status: statusMap, error: null };
+  }
+
+  const { data: updated, error: statusError } = await supabase
+    .from(TABLES.games)
+    .update({ [GAME_STRUCT.status]: statusMap })
+    .eq(GAME_PK, id)
+    .select(GAME_STRUCT.status)
+    .maybeSingle();
+
+  if (statusError) return { inserted: rows.length, status: statusMap, error: statusError };
+  return {
+    inserted: rows.length,
+    status: parseStatusMap(updated?.[GAME_STRUCT.status] ?? statusMap),
+    error: null,
+  };
+}
+
+/**
+ * Löscht eine einzelne Guide-Zeile.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {string} guideRowId game_guides.id (UUID)
+ */
+export async function deleteSingleGuideStep(supabase, gameId, guideRowId) {
+  const id = String(gameId ?? '').trim();
+  const rowId = String(guideRowId ?? '').trim();
+  if (!id || !rowId) return { error: new Error('Schritt konnte nicht gelöscht werden.') };
+
+  const { error } = await supabase
+    .from(TABLES.guides)
+    .delete()
+    .eq(GUIDE_PK, rowId)
+    .eq(GAME_FK, id);
+
+  return { error: error ?? null };
 }

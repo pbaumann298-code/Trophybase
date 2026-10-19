@@ -463,7 +463,12 @@ export function applyGuideCatalogFilter(query, catalog = {}) {
     );
   }
   if (catalog.publishedOnly) {
-    return query.or(guideStatusMatch(GUIDE_PUBLICATION.PUBLISHED));
+    const locale = catalog.locale || getLocale();
+    return query.filter(
+      `${GAME_STRUCT.status}->>${guideStatusKey(locale)}`,
+      'eq',
+      GUIDE_PUBLICATION.PUBLISHED,
+    );
   }
   return query;
 }
@@ -657,6 +662,7 @@ export async function searchGamesByColumn(
     includeReady: Boolean(options.includeReady),
     publishedOnly: Boolean(options.publishedOnly) && !options.includeReady,
     excludeQuickwins: Boolean(options.excludeQuickwins),
+    locale,
   });
   if (error) return { data: [], error };
 
@@ -689,6 +695,7 @@ export async function searchGamesByHomeTag(
         applyGuideCatalogFilter(query, {
           includeReady: Boolean(options.includeReady),
           publishedOnly: Boolean(options.publishedOnly) && !options.includeReady,
+          locale,
         }),
         options.excludeQuickwins,
       );
@@ -717,6 +724,7 @@ export async function searchGamesByStudio(
   const catalog = {
     includeReady: Boolean(options.includeReady),
     publishedOnly: Boolean(options.publishedOnly) && !options.includeReady,
+    locale,
   };
 
   const run = (withPublisher) =>
@@ -814,6 +822,7 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
       applyGuideCatalogFilter(query, {
         includeReady: Boolean(options.includeReady),
         publishedOnly: options.includeReady ? false : options.publishedOnly !== false,
+        locale,
       }),
       options.excludeQuickwins,
     ).order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
@@ -867,6 +876,7 @@ export async function fetchGamesByType(supabase, gameType, locale = getLocale(),
   const catalog = {
     includeReady,
     publishedOnly: !includeReady,
+    locale,
   };
 
   const buildQuery = (columns) => {
@@ -969,6 +979,7 @@ async function fetchFeaturedHomeGames(supabase, options) {
   const catalog = {
     includeReady: Boolean(options.includeReady),
     publishedOnly: !options.includeReady,
+    locale,
   };
 
   const run = (column) =>
@@ -1098,8 +1109,9 @@ export async function updateGameLocalizedFields(supabase, gameUuid, locale, valu
     description: GAME_I18N.description,
   };
 
+  // Leere Strings bewusst erlaubt (z. B. Beschreibung einer Sprache leeren).
   const entries = Object.entries(values ?? {}).filter(
-    ([key, value]) => columns[key] && String(value ?? '').trim(),
+    ([key, value]) => columns[key] && value != null,
   );
   if (entries.length === 0) return { error: null };
 

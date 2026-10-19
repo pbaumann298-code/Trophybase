@@ -6,11 +6,28 @@ import { findReportableElement } from '../lib/reportableAttrs';
 
 const ErrorReportContext = createContext(null);
 
+const SELECTION_DEBOUNCE_MS = 180;
+
+function isCoarsePointer() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(pointer: coarse)').matches;
+}
+
 function computeBubblePosition(rect) {
   const padding = 8;
   const left = rect.left + rect.width / 2;
+
+  if (isCoarsePointer()) {
+    return {
+      left,
+      top: Math.min(window.innerHeight - 48, rect.bottom + 10),
+      placement: 'below',
+    };
+  }
+
   const top = Math.max(padding, rect.top - padding);
-  return { left, top };
+  return { left, top, placement: 'above' };
 }
 
 export function ErrorReportProvider({ children, sessionUser }) {
@@ -18,6 +35,7 @@ export function ErrorReportProvider({ children, sessionUser }) {
   const [markedContent, setMarkedContent] = useState('');
   const [modalDraft, setModalDraft] = useState(null);
   const pendingRef = useRef(null);
+  const selectionTimerRef = useRef(null);
 
   const clearBubble = useCallback(() => {
     setBubblePos(null);
@@ -90,6 +108,14 @@ export function ErrorReportProvider({ children, sessionUser }) {
     setBubblePos(computeBubblePosition(rect));
   }, [clearBubble]);
 
+  const scheduleSelectionCheck = useCallback(() => {
+    if (selectionTimerRef.current) window.clearTimeout(selectionTimerRef.current);
+    selectionTimerRef.current = window.setTimeout(() => {
+      selectionTimerRef.current = null;
+      handleSelection();
+    }, SELECTION_DEBOUNCE_MS);
+  }, [handleSelection]);
+
   const handleMediaClick = useCallback(
     (event) => {
       const target = event.target;
@@ -122,6 +148,14 @@ export function ErrorReportProvider({ children, sessionUser }) {
       window.requestAnimationFrame(handleSelection);
     };
 
+    const onTouchEnd = () => {
+      window.requestAnimationFrame(scheduleSelectionCheck);
+    };
+
+    const onSelectionChange = () => {
+      scheduleSelectionCheck();
+    };
+
     const onScroll = () => {
       if (bubblePos) clearBubble();
     };
@@ -134,17 +168,22 @@ export function ErrorReportProvider({ children, sessionUser }) {
     };
 
     document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
+    document.addEventListener('selectionchange', onSelectionChange);
     document.addEventListener('click', handleMediaClick, true);
     document.addEventListener('scroll', onScroll, true);
     document.addEventListener('keydown', onKeyDown);
 
     return () => {
+      if (selectionTimerRef.current) window.clearTimeout(selectionTimerRef.current);
       document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('selectionchange', onSelectionChange);
       document.removeEventListener('click', handleMediaClick, true);
       document.removeEventListener('scroll', onScroll, true);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [handleSelection, handleMediaClick, bubblePos, clearBubble]);
+  }, [handleSelection, scheduleSelectionCheck, handleMediaClick, bubblePos, clearBubble]);
 
   const value = {
     openReportForElement: (element, content) => {

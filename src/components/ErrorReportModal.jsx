@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLocale } from '../context/LocaleContext';
 import {
   detectContentKind,
   submitErrorReport,
@@ -8,7 +9,7 @@ import { supabase } from '../pages/supabaseClient';
 
 const MAX_EVIDENCE_FILES = 8;
 
-function EvidencePreview({ item, onRemove }) {
+function EvidencePreview({ item, onRemove, removeLabel }) {
   return (
     <div className="relative group w-24 h-24 flex-shrink-0">
       <img
@@ -20,8 +21,8 @@ function EvidencePreview({ item, onRemove }) {
         type="button"
         onClick={() => onRemove(item.id)}
         className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-red-500 hover:bg-red-400 text-white text-sm font-bold leading-none shadow-md flex items-center justify-center transition-colors"
-        aria-label={`${item.file.name} entfernen`}
-        title="Entfernen"
+        aria-label={`${item.file.name} – ${removeLabel}`}
+        title={removeLabel}
       >
         ×
       </button>
@@ -33,6 +34,7 @@ function EvidencePreview({ item, onRemove }) {
 }
 
 function ErrorReportModal({ draft, sessionUser, onClose }) {
+  const { t } = useLocale();
   const [suggestion, setSuggestion] = useState('');
   const [evidenceItems, setEvidenceItems] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -98,7 +100,7 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
     setFeedback(null);
 
     if (!suggestion.trim()) {
-      setFeedback({ type: 'error', text: 'Bitte einen Änderungsvorschlag eingeben (Pflichtfeld).' });
+      setFeedback({ type: 'error', text: t('reportSuggestionRequired') });
       return;
     }
 
@@ -118,7 +120,7 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
         setSubmitting(false);
         setFeedback({
           type: 'error',
-          text: 'Beleg konnte nicht hochgeladen werden. Meldung ohne Bild senden oder erneut versuchen.',
+          text: t('reportUploadFailed'),
         });
         return;
       }
@@ -138,14 +140,14 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
     if (error) {
       setFeedback({
         type: 'error',
-        text: error.message || 'Meldung konnte nicht gespeichert werden.',
+        text: error.message || t('reportFailed'),
       });
       return;
     }
 
     setFeedback({
       type: 'success',
-      text: 'Danke! Deine Fehlermeldung wurde übermittelt.',
+      text: t('reportSuccess'),
     });
     setTimeout(() => onClose(), 1400);
   };
@@ -164,15 +166,15 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 bg-[#121314]">
           <div>
             <h2 id="error-report-title" className="text-sm font-bold text-[#00ff66] font-mono uppercase tracking-wider">
-              Fehler melden
+              {t('reportError')}
             </h2>
-            <p className="text-xs text-zinc-500 mt-0.5">Datenkorrektur für TrophyBase</p>
+            <p className="text-xs text-zinc-500 mt-0.5">{t('reportErrorSubtitle')}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="text-zinc-500 hover:text-zinc-200 text-xl leading-none px-2"
-            aria-label="Schließen"
+            aria-label={t('reportClose')}
           >
             ×
           </button>
@@ -184,7 +186,9 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
               <span className="text-zinc-500">original_text</span>
               <span className="text-zinc-300 text-right break-all max-w-[65%]">
                 {contentKind === 'image' || contentKind === 'video' ? (
-                  <span className="font-mono text-sky-400">{contentKind === 'image' ? 'Bild' : 'Video'}</span>
+                  <span className="font-mono text-sky-400">
+                    {contentKind === 'image' ? t('reportImage') : t('reportVideo')}
+                  </span>
                 ) : (
                   `"${markedContent?.slice(0, 120)}${markedContent?.length > 120 ? '…' : ''}"`
                 )}
@@ -207,7 +211,7 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
               <span className="text-zinc-300 font-mono">{metadata.sourceIdentifier}</span>
             </div>
             <div className="flex justify-between gap-2 text-[10px] text-zinc-600 pt-1 border-t border-zinc-800">
-              <span>DB-Hinweis</span>
+              <span>DB</span>
               <span className="text-right font-mono">
                 {metadata.sourceTable}.{metadata.sourceColumn}
               </span>
@@ -216,19 +220,19 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
 
           {!sessionUser?.id && evidenceItems.length > 0 && (
             <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-              Für Beleg-Upload empfohlen: anmelden (Storage-Pfad).
+              {t('reportLoginHint')}
             </p>
           )}
 
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-              Dein Änderungsvorschlag
+              {t('reportSuggestion')}
             </span>
             <textarea
               value={suggestion}
               onChange={(e) => setSuggestion(e.target.value)}
               rows={4}
-              placeholder="z. B. korrekte Übersetzung, richtiger Eigenname, …"
+              placeholder={t('reportSuggestionPlaceholder')}
               className="w-full rounded-xl border border-zinc-700 bg-[#121314] text-sm text-zinc-200 px-3 py-2.5 focus:outline-hidden focus:border-[#00ff66]/50 resize-y min-h-[96px]"
             />
           </label>
@@ -236,7 +240,7 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                Belege (Screenshots / Fotos)
+                {t('reportEvidence')}
               </span>
               <span className="text-[10px] font-mono text-zinc-600">
                 {evidenceItems.length}/{MAX_EVIDENCE_FILES}
@@ -257,18 +261,25 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
                 disabled={evidenceItems.length >= MAX_EVIDENCE_FILES}
                 className="text-xs font-mono font-bold uppercase px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Bilder auswählen
+                {t('reportSelectImages')}
               </button>
               {evidenceItems.length > 0 && (
                 <span className="text-xs text-zinc-500">
-                  {evidenceItems.length} {evidenceItems.length === 1 ? 'Bild' : 'Bilder'}
+                  {evidenceItems.length === 1
+                    ? t('reportImagesOne')
+                    : t('reportImagesMany').replaceAll('{n}', String(evidenceItems.length))}
                 </span>
               )}
             </div>
             {evidenceItems.length > 0 && (
               <div className="flex flex-wrap gap-3 pt-1">
                 {evidenceItems.map((item) => (
-                  <EvidencePreview key={item.id} item={item} onRemove={removeEvidence} />
+                  <EvidencePreview
+                    key={item.id}
+                    item={item}
+                    onRemove={removeEvidence}
+                    removeLabel={t('reportRemove')}
+                  />
                 ))}
               </div>
             )}
@@ -292,14 +303,14 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
               onClick={onClose}
               className="flex-1 py-2.5 rounded-xl border border-zinc-700 text-zinc-400 text-sm hover:bg-zinc-800/50 transition-colors"
             >
-              Abbrechen
+              {t('reportCancel')}
             </button>
             <button
               type="submit"
               disabled={submitting}
               className="flex-1 py-2.5 rounded-xl bg-[#00ff66] text-[#121314] text-sm font-bold hover:bg-[#00dd55] disabled:opacity-50 transition-colors"
             >
-              {submitting ? 'Senden…' : 'Meldung senden'}
+              {submitting ? t('reportSubmitting') : t('reportSubmit')}
             </button>
           </div>
         </form>

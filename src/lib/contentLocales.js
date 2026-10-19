@@ -1,19 +1,25 @@
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 import { isGuidePublished, isGuideReady } from './guidePublication.js';
 
-export const DEFAULT_AVAILABLE_LOCALES = [DEFAULT_LOCALE];
+/** Öffentlich wählbare Website-/Guide-Sprachen. Weitere Codes hier ergänzen. */
+export const PUBLIC_SITE_LOCALES = ['de', 'en'];
+
+export const DEFAULT_AVAILABLE_LOCALES = PUBLIC_SITE_LOCALES;
 
 /**
  * Sprachen mit eigener Freigabe (status.guide_<lang> = PUBLISHED bzw. FERTIG).
- * EN/ES erscheinen erst, wenn sie selbst veröffentlicht sind – nicht mehr
- * automatisch mit Deutsch.
+ * Normale Besucher sehen nur PUBLISHED innerhalb von PUBLIC_SITE_LOCALES.
+ * Admins (`includeReady`) sehen alle SUPPORTED_LOCALES mit FERTIG/PUBLISHED.
  */
 export function contentLocalesForGame(game, { includeReady = false } = {}) {
   if (!game) return [...DEFAULT_AVAILABLE_LOCALES];
   const found = SUPPORTED_LOCALES.filter((lang) =>
     includeReady ? isGuideReady(game, lang) : isGuidePublished(game, lang),
   );
-  return found.length > 0 ? found : [...DEFAULT_AVAILABLE_LOCALES];
+  const scoped = includeReady
+    ? found
+    : found.filter((lang) => PUBLIC_SITE_LOCALES.includes(lang));
+  return scoped.length > 0 ? scoped : [...DEFAULT_AVAILABLE_LOCALES];
 }
 
 export function coerceToAvailableLocale(locale, available) {

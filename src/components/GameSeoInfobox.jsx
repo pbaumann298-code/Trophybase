@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react';
 import { useLocale } from '../context/LocaleContext';
+import { updateGameLocalizedFields } from '../lib/gameQueries';
+import { supabase } from '../pages/supabaseClient';
 
 function YoutubeIcon() {
   return (
@@ -11,7 +14,16 @@ function YoutubeIcon() {
   );
 }
 
-function GameSeoInfobox({ title, description, creator = null, creators = null }) {
+function GameSeoInfobox({
+  title,
+  description,
+  creator = null,
+  creators = null,
+  isAdmin = false,
+  gameUuid = '',
+  locale = '',
+  onDescriptionSaved,
+}) {
   const { globalLocale, t } = useLocale();
   const text = typeof description === 'string' ? description.trim() : '';
   const list = (Array.isArray(creators) ? creators : [creator]).filter(Boolean);
@@ -42,9 +54,44 @@ function GameSeoInfobox({ title, description, creator = null, creators = null })
         : `${names.slice(0, -1).join(', ')} ${andWord} ${names[names.length - 1]}`;
   const credit = nameLabel ? t('creatorCredit').replaceAll('{name}', nameLabel) : '';
 
-  if (!text && !credit && withYoutube.length === 0) return null;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setEditing(false);
+    setError('');
+  }, [gameUuid, locale]);
+
+  if (!text && !credit && withYoutube.length === 0 && !isAdmin) return null;
 
   const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+
+  const startEdit = () => {
+    setDraft(typeof description === 'string' ? description : '');
+    setError('');
+    setEditing(true);
+  };
+
+  const handleSave = async () => {
+    if (!gameUuid || !locale || saving) return;
+    setSaving(true);
+    setError('');
+    const { error: saveError } = await updateGameLocalizedFields(
+      supabase,
+      gameUuid,
+      locale,
+      { description: draft },
+    );
+    setSaving(false);
+    if (saveError) {
+      setError(saveError.message || 'Beschreibung konnte nicht gespeichert werden.');
+      return;
+    }
+    onDescriptionSaved?.(draft);
+    setEditing(false);
+  };
 
   return (
     <section
@@ -71,18 +118,64 @@ function GameSeoInfobox({ title, description, creator = null, creators = null })
               {title}
             </h3>
           )}
+          {isAdmin && !editing ? (
+            <button
+              type="button"
+              onClick={startEdit}
+              className="ml-auto rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
+            >
+              {text ? 'Beschreibung bearbeiten' : '+ Beschreibung hinzufügen'}
+            </button>
+          ) : null}
         </div>
 
-        {paragraphs.length > 0 && (
-          <div className="space-y-3 text-sm leading-relaxed text-zinc-300 md:text-[15px]">
-            {paragraphs.map((paragraph, index) => (
-              <p key={index}>{paragraph}</p>
-            ))}
+        {editing ? (
+          <div className="space-y-3">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={8}
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm leading-relaxed text-zinc-200"
+              placeholder="Spielbeschreibung…"
+            />
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                disabled={saving}
+                className="rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider text-zinc-400"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-[#00ff66]"
+              >
+                {saving ? '…' : 'Speichern'}
+              </button>
+            </div>
+            {error ? <p className="text-xs text-red-400">{error}</p> : null}
           </div>
+        ) : (
+          <>
+            {paragraphs.length > 0 && (
+              <div className="space-y-3 text-sm leading-relaxed text-zinc-300 md:text-[15px]">
+                {paragraphs.map((paragraph, index) => (
+                  <p key={index}>{paragraph}</p>
+                ))}
+              </div>
+            )}
+
+            {!text && isAdmin ? (
+              <p className="text-sm italic text-zinc-500">Noch keine Beschreibung für diese Sprache.</p>
+            ) : null}
+          </>
         )}
 
-        {(credit || withYoutube.length > 0) && (
-          <div className={paragraphs.length > 0 ? 'mt-5 pt-5 border-t border-zinc-800/80' : ''}>
+        {(credit || withYoutube.length > 0) && !editing && (
+          <div className={paragraphs.length > 0 || (!text && isAdmin) ? 'mt-5 pt-5 border-t border-zinc-800/80' : ''}>
             {credit ? (
               <p className="text-sm leading-relaxed text-white">{credit}</p>
             ) : null}

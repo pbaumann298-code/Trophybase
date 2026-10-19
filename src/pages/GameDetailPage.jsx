@@ -3,6 +3,8 @@ import { supabase } from './supabaseClient';
 import { CollectibleKacheln, BossKacheln } from './CollectibleKacheln';
 import GameSeoInfobox from '../components/GameSeoInfobox';
 import AdminGameOverview from '../components/AdminGameOverview';
+import AdminQuickGuideModal from '../components/AdminQuickGuideModal';
+import AdminRohmaterialTinderBar from '../components/AdminRohmaterialTinderBar';
 import GuideLanguageSelector from '../components/GuideLanguageSelector';
 import GuideBreadcrumb from '../components/GuideBreadcrumb';
 import RelatedGuides from '../components/RelatedGuides';
@@ -24,7 +26,7 @@ import { guideTabId, guideTabPanelId } from '../lib/guideTabs';
 import { useTabNavigation } from '../hooks/useTabNavigation';
 import { useTabScrollMemory } from '../hooks/useTabScrollMemory';
 import { GuideVideoProvider, useGuideVideo } from '../context/GuideVideoContext';
-import { GAME_FIELDS, GAME_STRUCT } from '../lib/gameSchema';
+import { GAME_FIELDS, GAME_STRUCT, GUIDE_SHEET_TYPE } from '../lib/gameSchema';
 import { publicStudioCredits } from '../lib/studioCredits';
 import {
   buildBossOverviewData,
@@ -43,7 +45,22 @@ import {
 } from '../lib/hiddenTrophyPreference';
 import { isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished } from '../lib/guidePublication';
-import { clearGameGuideTips, clearIntranetCover, saveTrophyGuideTip, saveTrophyVideo, setAchievementFlags, setAchievementsOnline, setIntranetIgdbCover } from '../lib/intranetGameEdits';
+import {
+  clearGameGuideTips,
+  clearIntranetCover,
+  deleteSingleGuideStep,
+  saveTrophyGuideTip,
+  saveTrophyVideo,
+  setAchievementFlags,
+  setAchievementsOnline,
+  setIntranetIgdbCover,
+} from '../lib/intranetGameEdits';
+import {
+  discardRohmaterialBatch,
+  fetchRohmaterialBatchesForGame,
+  matchRohmaterialBatchForPc,
+  promoteRohmaterialBatchToGuide,
+} from '../lib/rohmaterialQueries';
 import { gameGuidePath, withGuideTabParam, writeAppPath } from '../lib/routeUtils';
 import { getTrophyIdKey } from '../lib/trophyQueries';
 import { isPlatinumUnlocked } from '../lib/trophyTypes';
@@ -53,9 +70,10 @@ import {
   getGameDescription,
   getGameTitle,
   getGameUuid,
+  getPlatformGameId,
 } from '../lib/gameModel';
 import { useLocale } from '../context/LocaleContext';
-import { contentLocalesForGame, DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
+import { contentLocalesForGame } from '../lib/contentLocales';
 import PlatinumUnlockedBadge from '../components/PlatinumUnlockedBadge';
 
 const TAB_META = {
@@ -102,7 +120,7 @@ function GamePageContent({
   const [chapterRows, setChapterRows] = useState([]);
   const [bossRows, setBossRows] = useState([]);
   const [guidesLoading, setGuidesLoading] = useState(false);
-  const { globalLocale, t, setAvailableLocales } = useLocale();
+  const { globalLocale, t } = useLocale();
   const [guideLanguageOverride, setGuideLanguageOverride] = useState(null);
   const [contentCreators, setContentCreators] = useState([]);
   const [relatedGuides, setRelatedGuides] = useState({ creatorGames: [], similarGames: [] });
@@ -115,6 +133,15 @@ function GamePageContent({
   const [igdbPrompt, setIgdbPrompt] = useState(false);
   const [igdbLink, setIgdbLink] = useState('');
   const [playtime, setPlaytime] = useState(null);
+  const [descriptionOverrides, setDescriptionOverrides] = useState({});
+  const [quickGuideOpen, setQuickGuideOpen] = useState(false);
+  const [guideReloadToken, setGuideReloadToken] = useState(0);
+  const [rohBatches, setRohBatches] = useState([]);
+  /** 'auto' | 'productive' | 'rohmaterial' */
+  const [rohMode, setRohMode] = useState('auto');
+  const [rohIndex, setRohIndex] = useState(0);
+  const [rohBusy, setRohBusy] = useState(false);
+  const [rohReloadToken, setRohReloadToken] = useState(0);
   const { notifyVideoCleared } = useGuideVideo();
 
   useEffect(() => {
@@ -145,6 +172,17 @@ function GamePageContent({
     setCoverError('');
     setIgdbPrompt(false);
     setIgdbLink('');
+    setDescriptionOverrides({});
+    setQuickGuideOpen(false);
+    setRohBatches([]);
+    setRohMode(
+      typeof window !== 'undefined'
+        && new URLSearchParams(window.location.search).get('rohmaterial') === '1'
+        ? 'rohmaterial'
+        : 'auto',
+    );
+    setRohIndex(0);
+    setRohBusy(false);
   }, [selectedGame?.id, selectedGame?.platform_game_id]);
 
   useEffect(() => {
@@ -222,16 +260,51 @@ function GamePageContent({
     return () => {
       cancelled = true;
     };
-  }, [selectedGame, globalLocale, guideLanguageOverride, sessionUser?.id, onActiveTrophies, startTrophyLoad]);
+  }, [
+    selectedGame,
+    globalLocale,
+    guideLanguageOverride,
+    sessionUser?.id,
+    onActiveTrophies,
+    startTrophyLoad,
+    guideReloadToken,
+  ]);
+
+  const hasProductiveGuide =
+    chapterRows.length > 0 || guideRows.length > 0 || bossRows.length > 0;
+
+  const resolvedRohMode = useMemo(() => {
+    if (rohBatches.length === 0) return 'productive';
+    if (rohMode === 'productive' || rohMode === 'rohmaterial') return rohMode;
+    if (guidesLoading) return 'productive';
+    return hasProductiveGuide ? 'productive' : 'rohmaterial';
+  }, [rohBatches.length, rohMode, hasProductiveGuide, guidesLoading]);
+
+  const activeRohBatch = useMemo(() => {
+    if (resolvedRohMode !== 'rohmaterial' || rohBatches.length === 0) return null;
+    const index = Math.min(Math.max(rohIndex, 0), rohBatches.length - 1);
+    return rohBatches[index] ?? null;
+  }, [resolvedRohMode, rohBatches, rohIndex]);
+
+  const displayChapterRows = activeRohBatch?.chapters ?? chapterRows;
+  const displayGuideRows = activeRohBatch?.guides ?? guideRows;
+  const displayBossRows = activeRohBatch?.bosses ?? bossRows;
+  const inRohmaterialPreview = Boolean(activeRohBatch);
 
   const chronologicalGuideData = useMemo(
-    () => buildChronologicalGuideData(chapterRows),
-    [chapterRows],
+    () => buildChronologicalGuideData(displayChapterRows),
+    [displayChapterRows],
   );
 
-  const byTypeGuideData = useMemo(() => buildByTypeGuideData(guideRows), [guideRows]);
+  const byTypeGuideData = useMemo(
+    () => buildByTypeGuideData(displayGuideRows),
+    [displayGuideRows],
+  );
 
-  const bossOverviewData = useMemo(() => buildBossOverviewData(bossRows), [bossRows]);
+  const bossOverviewData = useMemo(
+    () => buildBossOverviewData(displayBossRows),
+    [displayBossRows],
+  );
 
   /**
    * Nachschlagewerk für game_guides.trophy_id → Trophäe. Die Trophäen sind für
@@ -389,19 +462,49 @@ function GamePageContent({
   /** Sichtbarkeit der Guide-Reiter hängt an der gerade gezeigten Sprache. */
   const guidePublished = isGuidePublished(gameForPublication, effectiveGuideLang);
   /** Admins sehen den Guide als Vorschau, Besucher erst nach der Freigabe. */
-  const canSeeGuides = !trophiesOnly && (guidePublished || isAdmin);
+  const canSeeGuides = !trophiesOnly && (guidePublished || isAdmin || inRohmaterialPreview);
   const contentLocales = useMemo(
     () => contentLocalesForGame(gameForPublication, { includeReady: isAdmin }),
     [gameForPublication, isAdmin],
   );
 
   useEffect(() => {
-    setAvailableLocales(contentLocales);
-  }, [contentLocales, setAvailableLocales]);
+    if (!isAdmin || trophiesOnly || !selectedGame) {
+      setRohBatches([]);
+      return undefined;
+    }
 
-  useEffect(() => {
-    return () => setAvailableLocales(DEFAULT_AVAILABLE_LOCALES);
-  }, [setAvailableLocales]);
+    let cancelled = false;
+    async function loadRohmaterial() {
+      const { data, error } = await fetchRohmaterialBatchesForGame(
+        supabase,
+        selectedGame,
+        effectiveGuideLang,
+      );
+      if (cancelled) return;
+      if (error) {
+        console.error('game_guides_rohmaterial:', error.message);
+        setRohBatches([]);
+        return;
+      }
+      setRohBatches(data ?? []);
+      setRohIndex((index) => {
+        const max = Math.max((data ?? []).length - 1, 0);
+        return Math.min(index, max);
+      });
+    }
+
+    loadRohmaterial();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isAdmin,
+    trophiesOnly,
+    selectedGame,
+    effectiveGuideLang,
+    rohReloadToken,
+  ]);
 
   useEffect(() => {
     if (!gameUuid) {
@@ -504,7 +607,169 @@ function GamePageContent({
     setIgdbLink('');
     rememberCoverStatus(status);
   };
-  const gameDescription = getGameDescription(selectedGame, effectiveGuideLang);
+  const gameDescription = Object.prototype.hasOwnProperty.call(
+    descriptionOverrides,
+    effectiveGuideLang,
+  )
+    ? descriptionOverrides[effectiveGuideLang]
+    : getGameDescription(selectedGame, effectiveGuideLang);
+
+  const handleDeleteGuideStep = useCallback(
+    async (item) => {
+      const rowId = String(item?.guide_id ?? item?.id ?? '').trim();
+      if (!gameUuid || !rowId) return;
+      // Synthetische Anzeige-IDs (walkthrough-<uuid>) auf UUID zurückführen
+      const uuidMatch = rowId.match(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,
+      );
+      const guideRowId = uuidMatch?.[0] || rowId;
+      if (!window.confirm('Diesen Guide-Schritt wirklich löschen?')) return;
+
+      const { error } = await deleteSingleGuideStep(supabase, gameUuid, guideRowId);
+      if (error) {
+        window.alert(error.message || 'Schritt konnte nicht gelöscht werden.');
+        return;
+      }
+
+      const keep = (rows) =>
+        (rows ?? []).filter((row) => {
+          const id = String(row?.id ?? '');
+          const gid = String(row?.guide_id ?? '');
+          return id !== guideRowId && gid !== guideRowId;
+        });
+      setChapterRows(keep);
+      setGuideRows(keep);
+      setBossRows(keep);
+    },
+    [gameUuid],
+  );
+
+  const handleQuickGuideSaved = useCallback(
+    async ({ sheetType, status }) => {
+      if (status && gameUuid) {
+        setPublicationOverride((prev) => ({
+          uuid: gameUuid,
+          status,
+          slug: prev?.uuid === gameUuid ? prev.slug : undefined,
+          gameType: prev?.uuid === gameUuid ? prev.gameType : undefined,
+          homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
+        }));
+      }
+
+      const { data: creators } = await fetchContentCreatorsForGame(supabase, gameUuid);
+      setContentCreators(creators ?? []);
+
+      const tab =
+        Number(sheetType) === GUIDE_SHEET_TYPE.COLLECTIBLES
+          ? 'reiter2'
+          : Number(sheetType) === GUIDE_SHEET_TYPE.BOSSES
+            ? 'reiter3'
+            : 'reiter1';
+      // Loading sofort setzen, damit der Ziel-Reiter sichtbar bleibt, bevor Daten nachladen.
+      setGuidesLoading(true);
+      setActiveTab(tab);
+      setGuideReloadToken((n) => n + 1);
+    },
+    [gameUuid, setActiveTab],
+  );
+
+  const handleRohDiscard = useCallback(async (batch) => {
+    const key = batch?.batchKey;
+    if (!key || rohBusy) return;
+    if (!window.confirm(`Kandidat „${key}" verwerfen?`)) return;
+
+    setRohBusy(true);
+    const { error } = await discardRohmaterialBatch(supabase, key);
+    setRohBusy(false);
+    if (error) {
+      window.alert(error.message || 'Batch konnte nicht gelöscht werden.');
+      return;
+    }
+
+    setRohBatches((prev) => {
+      const idx = prev.findIndex((item) => item.batchKey === key);
+      const next = prev.filter((item) => item.batchKey !== key);
+      if (next.length === 0) {
+        setRohMode('productive');
+        setRohIndex(0);
+      } else {
+        setRohIndex(Math.min(Math.max(idx, 0), next.length - 1));
+      }
+      return next;
+    });
+  }, [rohBusy]);
+
+  const handleRohMatch = useCallback(async (batch) => {
+    const key = batch?.batchKey;
+    if (!key || rohBusy) return;
+
+    const others = rohBatches
+      .map((item) => item.batchKey)
+      .filter((item) => item && item !== key);
+    const clearOthers =
+      others.length > 0
+      && window.confirm('Übrige Rohmaterial-Kandidaten dieses Spiels auch löschen?');
+
+    setRohBusy(true);
+    const { error } = await matchRohmaterialBatchForPc(
+      supabase,
+      key,
+      clearOthers ? others : [],
+    );
+    setRohBusy(false);
+    if (error) {
+      window.alert(error.message || 'Match konnte nicht gesetzt werden.');
+      return;
+    }
+
+    setRohBatches((prev) => {
+      let next = prev.map((item) => (
+        item.batchKey === key ? { ...item, batchStatus: 'MATCHED' } : item
+      ));
+      if (clearOthers) next = next.filter((item) => item.batchKey === key);
+      setRohIndex(0);
+      return next;
+    });
+  }, [rohBusy, rohBatches]);
+
+  const handleRohPromote = useCallback(async (batch) => {
+    const key = batch?.batchKey;
+    if (!key || !gameUuid || rohBusy) return;
+    if (!window.confirm(`Kandidat „${key}" direkt als produktiven Guide übernehmen?`)) return;
+
+    setRohBusy(true);
+    const { status, error } = await promoteRohmaterialBatchToGuide(supabase, {
+      gameId: gameUuid,
+      batchKey: key,
+      locale: effectiveGuideLang,
+      clearOtherBatches: true,
+    });
+    setRohBusy(false);
+    if (error) {
+      window.alert(error.message || 'Übernahme fehlgeschlagen.');
+      return;
+    }
+
+    if (status) {
+      setPublicationOverride((prev) => ({
+        uuid: gameUuid,
+        status,
+        slug: prev?.uuid === gameUuid ? prev.slug : undefined,
+        gameType: prev?.uuid === gameUuid ? prev.gameType : undefined,
+        homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
+      }));
+    }
+
+    setRohBatches([]);
+    setRohMode('productive');
+    setRohIndex(0);
+    setGuidesLoading(true);
+    setGuideReloadToken((n) => n + 1);
+    setRohReloadToken((n) => n + 1);
+
+    const { data: creators } = await fetchContentCreatorsForGame(supabase, gameUuid);
+    setContentCreators(creators ?? []);
+  }, [gameUuid, rohBusy, effectiveGuideLang]);
 
   const tabCounts = {
     reiter0: activeTrophies.length,
@@ -673,7 +938,7 @@ function GamePageContent({
             hideCompleted={hideCompleted}
             revealHidden={hiddenTrophiesRevealed(hiddenTrophyMode)}
             onToggle={toggleTrophy}
-            mainGameTitle={gameTitle || 'Hauptspiel'}
+            mainGameTitle={gameTitle || t('mainGame')}
             guideTipEditor={isAdmin && !trophiesOnly ? saveGuideTip : null}
             onTrophyVideo={isAdmin && !trophiesOnly ? saveGuideVideo : null}
             onTrophyFlags={isAdmin && !trophiesOnly ? saveTrophyFlags : null}
@@ -694,14 +959,14 @@ function GamePageContent({
         >
           {chronologicalGuideData.length === 0 && !isGuideLoading ? (
             <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-              Kein Walkthrough für dieses Spiel (sheet_type 1 / chronological_group).
+              {t('walkthroughEmpty')}
             </p>
           ) : (
             <CollapsibleSectionCard
               sectionId="guide-walkthrough"
-              title="Walkthrough"
-              subtitle="Chronologisch nach Gebieten"
-              badge={`${chronologicalGuideData.length} Einträge`}
+              title={t('fullGameplay')}
+              subtitle={t('walkthroughByAreas')}
+              badge={t('entriesCount').replaceAll('{count}', String(chronologicalGuideData.length))}
               defaultOpen
               accent="green"
             >
@@ -712,13 +977,18 @@ function GamePageContent({
                 trophyById={trophyById}
                 groupByField="chronological_group"
                 groupHeaderIcon="📍"
-                listTitle="Walkthrough"
+                listTitle={t('fullGameplay')}
                 hideCompleted={hideCompleted}
                 setHideCompleted={setHideCompleted}
                 completedItems={completedGuideItems}
                 toggleCompleted={toggleGuideItemCompleted}
-                emptyVideoMessage="Kein Video für dieses Gebiet oder alle Einträge ausgeblendet."
+                emptyVideoMessage={t('walkthroughNoVideo')}
                 embedInAccordion
+                onDeleteStep={
+                  isAdmin && !trophiesOnly && !inRohmaterialPreview
+                    ? handleDeleteGuideStep
+                    : null
+                }
               />
             </CollapsibleSectionCard>
           )}
@@ -735,14 +1005,14 @@ function GamePageContent({
         >
           {byTypeGuideData.length === 0 && !isGuideLoading ? (
             <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-              Keine Sammelobjekte für dieses Spiel (sheet_type 2 / category_group).
+              {t('collectiblesEmpty')}
             </p>
           ) : (
             <CollapsibleSectionCard
               sectionId="guide-collectibles"
-              title="Sammelobjekte"
-              subtitle="Nach Kategorien"
-              badge={`${byTypeGuideData.length} Einträge`}
+              title={t('completion')}
+              subtitle={t('collectiblesByCategory')}
+              badge={t('entriesCount').replaceAll('{count}', String(byTypeGuideData.length))}
               defaultOpen
               accent="amber"
             >
@@ -753,13 +1023,18 @@ function GamePageContent({
                 trophyById={trophyById}
                 groupByField="category_group"
                 groupHeaderIcon="📦"
-                listTitle="Sammelobjekte"
+                listTitle={t('completion')}
                 hideCompleted={hideCompleted}
                 setHideCompleted={setHideCompleted}
                 completedItems={completedGuideItems}
                 toggleCompleted={toggleGuideItemCompleted}
-                emptyVideoMessage="Kein Video für diese Kategorie oder alle Gegenstände ausgeblendet."
+                emptyVideoMessage={t('collectiblesNoVideo')}
                 embedInAccordion
+                onDeleteStep={
+                  isAdmin && !trophiesOnly && !inRohmaterialPreview
+                    ? handleDeleteGuideStep
+                    : null
+                }
               />
             </CollapsibleSectionCard>
           )}
@@ -776,14 +1051,14 @@ function GamePageContent({
         >
           {bossOverviewData.length === 0 && !isGuideLoading ? (
             <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
-              Keine Bosse für dieses Spiel (sheet_type 3 / chronological_group).
+              {t('bossesEmpty')}
             </p>
           ) : (
             <CollapsibleSectionCard
               sectionId="guide-bosses"
-              title="Bosse"
-              subtitle="Nach Gebieten"
-              badge={`${bossOverviewData.length} Bosse`}
+              title={t('bosses')}
+              subtitle={t('bossesByAreas')}
+              badge={t('bossesCount').replaceAll('{count}', String(bossOverviewData.length))}
               defaultOpen
               accent="purple"
             >
@@ -791,12 +1066,17 @@ function GamePageContent({
                 gameId={gameId}
                 bossesData={bossOverviewData}
                 trophyById={trophyById}
-                listTitle="Bosse"
+                listTitle={t('bosses')}
                 hideCompleted={hideCompleted}
                 setHideCompleted={setHideCompleted}
                 completedItems={completedGuideItems}
                 toggleCompleted={toggleGuideItemCompleted}
                 embedInAccordion
+                onDeleteStep={
+                  isAdmin && !trophiesOnly && !inRohmaterialPreview
+                    ? handleDeleteGuideStep
+                    : null
+                }
               />
             </CollapsibleSectionCard>
           )}
@@ -1077,27 +1357,69 @@ function GamePageContent({
         game={gameForPublication}
         title={gameTitle}
         playtime={playtime}
+        isAdmin={isAdmin && !trophiesOnly}
+        gameId={gameUuid}
+        onPlaytimeSaved={(next) => setPlaytime(next)}
       />
 
       <GameSeoInfobox
         title={gameTitle}
         description={gameDescription}
         creators={contentCreators}
+        isAdmin={isAdmin && !trophiesOnly}
+        gameUuid={gameUuid}
+        locale={effectiveGuideLang}
+        onDescriptionSaved={(next) =>
+          setDescriptionOverrides((prev) => ({ ...prev, [effectiveGuideLang]: next }))
+        }
       />
 
       <section ref={guideSectionRef} className="mt-8 w-full min-w-0">
-        <GuideLanguageSelector
-          guideLanguageOverride={guideLanguageOverride}
-          onGuideLanguageOverride={setGuideLanguageOverride}
-          locales={contentLocales}
-        />
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <GuideLanguageSelector
+            className="!mb-0 min-w-0 flex-1"
+            guideLanguageOverride={guideLanguageOverride}
+            onGuideLanguageOverride={setGuideLanguageOverride}
+            locales={contentLocales}
+          />
+          {isAdmin && !trophiesOnly ? (
+            <button
+              type="button"
+              onClick={() => setQuickGuideOpen(true)}
+              className="shrink-0 rounded-xl border border-[#00ff66]/35 bg-[#00ff66]/10 px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider text-[#00ff66] hover:bg-[#00ff66]/15"
+            >
+              + Guide-Schritte
+            </button>
+          ) : null}
+        </div>
 
-        {isAdmin && !guidePublished && hasGuideContent && !trophiesOnly && (
+        {isAdmin && !trophiesOnly && rohBatches.length > 0 ? (
+          <AdminRohmaterialTinderBar
+            batches={rohBatches}
+            mode={resolvedRohMode}
+            activeIndex={rohIndex}
+            hasProductiveGuide={hasProductiveGuide}
+            busy={rohBusy}
+            onModeChange={(next) => setRohMode(next)}
+            onIndexChange={setRohIndex}
+            onDiscard={handleRohDiscard}
+            onMatch={handleRohMatch}
+            onPromote={handleRohPromote}
+          />
+        ) : null}
+
+        {isAdmin && !guidePublished && hasGuideContent && !trophiesOnly && !inRohmaterialPreview && (
           <p className="text-xs text-amber-400 font-mono mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
             Vorschau: Dieser Guide ist noch nicht freigegeben ({effectiveGuideLang.toUpperCase()}) und
             für Besucher unsichtbar.
           </p>
         )}
+
+        {inRohmaterialPreview ? (
+          <p className="text-xs text-amber-300 font-mono mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
+            Rohmaterial-Vorschau – noch nicht in game_guides. Videos und Reiter 1:1 wie im fertigen Guide.
+          </p>
+        ) : null}
 
         {!canSeeGuides && hasGuideContent && !trophiesOnly && (
           <p className="text-xs text-zinc-500 italic text-center py-8 bg-[#1a1b1c] rounded-xl border border-zinc-800">
@@ -1130,6 +1452,18 @@ function GamePageContent({
           creatorGames={relatedGuides.creatorGames}
           similarGames={relatedGuides.similarGames}
           openGame={openGame}
+        />
+      ) : null}
+
+      {isAdmin && !trophiesOnly ? (
+        <AdminQuickGuideModal
+          open={quickGuideOpen}
+          onClose={() => setQuickGuideOpen(false)}
+          gameId={gameUuid}
+          platformGameId={getPlatformGameId(selectedGame)}
+          locale={effectiveGuideLang}
+          trophies={activeTrophies}
+          onSaved={handleQuickGuideSaved}
         />
       ) : null}
     </div>

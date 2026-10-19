@@ -80,7 +80,7 @@ function SearchResultRow({ game, openGame, onRequestLogin, isAdmin }) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-4 pt-4 border-t border-zinc-800/60 text-xs min-w-0 w-full">
           <div>
             <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
-              Plattform
+              {t('searchConsole')}
             </span>
             <span className="text-zinc-300 font-medium">
               {game[GAME_FIELDS.console] || '—'}
@@ -88,7 +88,7 @@ function SearchResultRow({ game, openGame, onRequestLogin, isAdmin }) {
           </div>
           <div>
             <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
-              Jahr
+              {t('yearLabel')}
             </span>
             <span className="text-zinc-300 font-medium">
               {game[GAME_FIELDS.year] || '—'}

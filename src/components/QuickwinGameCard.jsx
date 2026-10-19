@@ -369,11 +369,11 @@ function QuickwinGameCard({
             </div>
             <div className="quickwin-card-meta">
               <div>
-                <span>Plattform</span>
+                <span>{t('searchConsole')}</span>
                 <strong>{detailGame[GAME_FIELDS.console] || '—'}</strong>
               </div>
               <div>
-                <span>Jahr</span>
+                <span>{t('yearLabel')}</span>
                 <strong>{detailGame[GAME_FIELDS.year] || '—'}</strong>
               </div>
               <div>
@@ -482,7 +482,7 @@ function QuickwinGameCard({
                 hideCompleted={hideCompleted}
                 revealHidden={hiddenTrophiesRevealed(hiddenMode)}
                 onToggle={toggleTrophy}
-                mainGameTitle={title || 'Hauptspiel'}
+                mainGameTitle={title || t('mainGame')}
                 guideTipEditor={isAdmin ? saveGuideTip : null}
                 onTrophyVideo={isAdmin ? saveGuideVideo : null}
                 onTrophyFlags={isAdmin ? saveTrophyFlags : null}

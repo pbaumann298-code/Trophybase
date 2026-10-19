@@ -5,6 +5,7 @@ import AdminLoginForm from '../components/admin/AdminLoginForm';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch';
 import IntranetFollowups from '../components/intranet/IntranetFollowups';
+import IntranetRohmaterial from '../components/intranet/IntranetRohmaterial';
 import { useAdminFollowups } from '../hooks/useAdminFollowups';
 
 class IntranetErrorBoundary extends Component {
@@ -33,6 +34,7 @@ const TABS = [
   { id: 'games', label: 'Spiele', icon: '🎮' },
   { id: 'followups', label: 'Wiedervorlage', icon: '⚑' },
   { id: 'creators', label: 'Creator', icon: '▶' },
+  { id: 'rohmaterial', label: 'Rohmaterial', icon: '🧪' },
 ];
 
 function IntranetApp() {
@@ -187,6 +189,7 @@ function IntranetApp() {
           {activeTab === 'games' && <IntranetGameSearch sessionUser={sessionUser} />}
           {activeTab === 'followups' && <IntranetFollowups sessionUser={sessionUser} />}
           {activeTab === 'creators' && <IntranetCreatorSearch />}
+          {activeTab === 'rohmaterial' && <IntranetRohmaterial />}
         </IntranetErrorBoundary>
       </main>
     </div>

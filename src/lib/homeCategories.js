@@ -23,7 +23,7 @@ const HOME_RAILS_RPC_ENABLED = true;
 const HOME_RAILS_LEGACY_CONCURRENCY = 2;
 const HOME_RAILS_CACHE_MS = 30_000;
 
-/** @type {Promise<Record<string, object[]>|null>|null} */
+/** @type {{ locale: string, promise: Promise<Record<string, object[]>|null> }|null} */
 let homeRailsInflight = null;
 
 /** @type {{ locale: string, at: number, rails: Record<string, object[]> }|null} */
@@ -54,8 +54,10 @@ async function runQueries(queries) {
   return rows;
 }
 
-function catalogOptions(includeReady, excludeQuickwins = false) {
-  const catalog = includeReady ? { includeReady: true } : { publishedOnly: true };
+function catalogOptions(includeReady, excludeQuickwins = false, locale = getLocale()) {
+  const catalog = includeReady
+    ? { includeReady: true, locale }
+    : { publishedOnly: true, locale };
   if (excludeQuickwins) catalog.excludeQuickwins = true;
   return catalog;
 }
@@ -76,7 +78,7 @@ function titleLike(supabase, pattern, locale, includeReady, limit = LIMIT, exclu
     pattern,
     limit,
     locale,
-    catalogOptions(includeReady, excludeQuickwins),
+    catalogOptions(includeReady, excludeQuickwins, locale),
   );
 }
 
@@ -162,10 +164,10 @@ function parseHomeRailsRpcRows(data, locale) {
  * @returns {Promise<Record<string, object[]>|null>} null = RPC fehlt/timeout, Legacy nutzen
  */
 async function fetchHomeRailsViaRpc(supabase, locale) {
-  if (homeRailsInflight) return homeRailsInflight;
+  if (homeRailsInflight?.locale === locale) return homeRailsInflight.promise;
 
-  homeRailsInflight = (async () => {
-    const runOnce = () => supabase.rpc('tb_get_home_rails');
+  const promise = (async () => {
+    const runOnce = () => supabase.rpc('tb_get_home_rails', { p_locale: locale });
 
     let { data, error } = await runOnce();
     if (error && shouldFallbackHomeRailsRpc(error)) {
@@ -185,10 +187,11 @@ async function fetchHomeRailsViaRpc(supabase, locale) {
 
     return parseHomeRailsRpcRows(data, locale);
   })().finally(() => {
-    homeRailsInflight = null;
+    if (homeRailsInflight?.promise === promise) homeRailsInflight = null;
   });
 
-  return homeRailsInflight;
+  homeRailsInflight = { locale, promise };
+  return promise;
 }
 
 async function mapPool(items, concurrency, worker) {
@@ -232,6 +235,7 @@ export const HOME_CATEGORIES = [
     id: 'beliebt',
     emoji: '🔥',
     title: 'Beliebt',
+    titleKey: 'homeCatBeliebt',
     accent: '#ff6b35',
     fetch: async (supabase, locale = getLocale(), includeReady = false) => {
       const { data, error } = await fetchPopularGames(supabase, LIMIT, locale, includeReady);
@@ -246,6 +250,7 @@ export const HOME_CATEGORIES = [
     id: 'neu',
     emoji: '✨',
     title: 'Neue Guides',
+    titleKey: 'homeCatNeu',
     accent: '#a3e635',
     fetch: async (supabase, locale = getLocale(), includeReady = false) => {
       const { data, error } = await fetchNewGuideGames(supabase, LIMIT, locale, includeReady);
@@ -260,6 +265,7 @@ export const HOME_CATEGORIES = [
     id: 'souls',
     emoji: '💀',
     title: 'Souls / Soulslike',
+    titleKey: 'homeCatSouls',
     searchMatch: /^(souls(\s*\/\s*soulslike)?|soulslike)$/i,
     search: { kind: 'souls' },
     accent: '#a855f7',
@@ -270,6 +276,7 @@ export const HOME_CATEGORIES = [
     id: 'capcom',
     emoji: '🎮',
     title: 'Capcom',
+    titleKey: 'homeCatCapcom',
     searchMatch: /^capcom$/i,
     search: { kind: 'studio', studio: 'Capcom', dropQuickwins: true },
     accent: '#ef4444',
@@ -286,6 +293,7 @@ export const HOME_CATEGORIES = [
     id: 'openworld',
     emoji: '🗺️',
     title: 'Open World',
+    titleKey: 'homeCatOpenWorld',
     searchMatch: /^(open[_\s-]?world)$/i,
     search: { kind: 'tag', tag: HOME_TAGS.OPEN_WORLD },
     accent: '#34d399',
@@ -302,6 +310,7 @@ export const HOME_CATEGORIES = [
     id: 'ubisoft',
     emoji: '🦅',
     title: 'Ubisoft-Welten',
+    titleKey: 'homeCatUbisoft',
     searchMatch: /^(ubisoft([- ]welten)?)$/i,
     search: { kind: 'studio', studio: 'Ubisoft', dropQuickwins: true },
     accent: '#38bdf8',
@@ -318,6 +327,7 @@ export const HOME_CATEGORIES = [
     id: 'rockstar',
     emoji: '⭐️',
     title: 'Rockstar Games',
+    titleKey: 'homeCatRockstar',
     searchMatch: /^(rockstar(\s+games)?)$/i,
     search: { kind: 'studio', studio: 'Rockstar', dropQuickwins: true },
     accent: '#facc15',
@@ -334,6 +344,7 @@ export const HOME_CATEGORIES = [
     id: 'family',
     emoji: '🧸',
     title: 'Familienspaß & Easy Platin',
+    titleKey: 'homeCatFamily',
     searchMatch: /^(familienspa[sß].*|easy platin)$/i,
     search: { kind: 'tag', tag: HOME_TAGS.FAMILY },
     accent: '#4ade80',
@@ -350,6 +361,7 @@ export const HOME_CATEGORIES = [
     id: 'indie',
     emoji: '🕹️',
     title: 'Indie-Perlen',
+    titleKey: 'homeCatIndie',
     searchMatch: /^(indie([- ]perlen)?)$/i,
     search: { kind: 'tag', tag: HOME_TAGS.INDIE },
     accent: '#f472b6',
@@ -366,6 +378,7 @@ export const HOME_CATEGORIES = [
     id: 'racing',
     emoji: '⏱️',
     title: 'Highspeed & Asphalt',
+    titleKey: 'homeCatRacing',
     searchMatch: /^(highspeed.*|asphalt|racing)$/i,
     search: { kind: 'tag', tag: HOME_TAGS.RACING },
     accent: '#22d3ee',
@@ -382,6 +395,7 @@ export const HOME_CATEGORIES = [
     id: 'godofwar',
     emoji: '⚔️',
     title: 'God of War',
+    titleKey: 'homeCatGodOfWar',
     searchMatch: /^god of war$/i,
     search: { kind: 'titles', titles: ['%God of War%'] },
     accent: '#c4a35a',
@@ -398,6 +412,7 @@ export const HOME_CATEGORIES = [
     id: 'tombraider',
     emoji: '🏹',
     title: 'Tomb Raider',
+    titleKey: 'homeCatTombRaider',
     searchMatch: /^tomb raider$/i,
     search: { kind: 'titles', titles: ['%Tomb Raider%', '%Lara Croft%'] },
     accent: '#14b8a6',
@@ -437,7 +452,7 @@ export async function searchHomeCategory(
 
   const forceExclude = excludeQuickwins === true;
   const forceInclude = excludeQuickwins === false;
-  const opts = catalogOptions(includeReady, forceExclude);
+  const opts = catalogOptions(includeReady, forceExclude, locale);
   const fetchLimit = Math.max(Number(limit) || SEARCH_RESULT_CAP, 1);
 
   const dropRows = (rows, specDrops) => {

@@ -179,6 +179,8 @@ function SplitScreenGuideKacheln({
   reportKeyField = 'guide_id',
   /** Kachel-Überschrift weglassen: die umgebende Zeile ist schon die Gruppe. */
   hideGroupHeader = false,
+  /** Admin: Schritt löschen (item) => void|Promise */
+  onDeleteStep = null,
 }) {
   const { t } = useLocale();
   const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
@@ -417,6 +419,29 @@ function SplitScreenGuideKacheln({
                               {renderNameAddon ? renderNameAddon(item, rowDimmed) : null}
                             </button>
                             {renderRowAction ? renderRowAction(item, rowDimmed) : null}
+                            {typeof onDeleteStep === 'function' ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteStep(item);
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  color: '#71717a',
+                                  fontSize: '16px',
+                                  lineHeight: 1,
+                                  padding: '0 2px',
+                                  flexShrink: 0,
+                                }}
+                                aria-label="Schritt löschen"
+                                title="Schritt löschen"
+                              >
+                                ×
+                              </button>
+                            ) : null}
                           </div>
                           {renderRowDetail ? renderRowDetail(item, rowDimmed) : null}
                           </div>
@@ -449,14 +474,14 @@ function SplitScreenGuideKacheln({
                     <span className="youtube-poster__hint">
                       {activeVideo
                         ? emptyVideoMessage
-                        : 'Klicke auf ein Item oder das Vorschaubild, um das Video zu laden.'}
+                        : t('videoPosterHintPreview')}
                     </span>
                   </button>
                 ) : (
                   <div className="youtube-consent-gate">
                     {activeVideo
                       ? emptyVideoMessage
-                      : 'Klicke auf ein Item, um das Video hier abzuspielen.'}
+                      : t('videoPosterHintItem')}
                   </div>
                 )}
               </div>
@@ -613,8 +638,8 @@ export function CollectibleKacheln({
   groupByField = 'category_group',
   groupHeaderIcon = '📍',
   localisationHeaderIcon = '🗺️',
-  emptyVideoMessage = 'Klicke auf ein Item mit Video – der Player erscheint hier.',
-  listTitle = 'Guide-Checkliste',
+  emptyVideoMessage,
+  listTitle,
   hideCompleted,
   setHideCompleted,
   completedItems,
@@ -624,7 +649,9 @@ export function CollectibleKacheln({
   reportEntityType = 'guide_item',
   trophyById,
   hideGroupHeader = false,
+  onDeleteStep = null,
 }) {
+  const { t } = useLocale();
   const { renderNameAddon, renderGroupAddon, renderRowAction, renderRowDetail } =
     useTrophyRowExtras(trophyById);
 
@@ -632,16 +659,16 @@ export function CollectibleKacheln({
     <SplitScreenGuideKacheln
       itemsData={collectiblesData}
       getDisplayName={(item) => item.item_name}
-      nameColumnHeader="Sammelgegenstand"
+      nameColumnHeader={t('collectibleColumn')}
       renderNameAddon={renderNameAddon}
       renderGroupAddon={renderGroupAddon}
       renderRowAction={renderRowAction}
       renderRowDetail={renderRowDetail}
-      emptyVideoMessage={emptyVideoMessage}
+      emptyVideoMessage={emptyVideoMessage || t('videoEmptyCollectible')}
       groupHeaderIcon={groupHeaderIcon}
       localisationHeaderIcon={localisationHeaderIcon}
       groupByField={groupByField}
-      listTitle={listTitle}
+      listTitle={listTitle || t('completion')}
       hideCompleted={hideCompleted}
       setHideCompleted={setHideCompleted}
       completedItems={completedItems}
@@ -651,13 +678,14 @@ export function CollectibleKacheln({
       reportEntityType={reportEntityType}
       reportKeyField="guide_id"
       hideGroupHeader={hideGroupHeader}
+      onDeleteStep={onDeleteStep}
     />
   );
 }
 
 export function BossKacheln({
   bossesData,
-  listTitle = 'Boss-Checkliste',
+  listTitle,
   hideCompleted,
   setHideCompleted,
   completedItems,
@@ -665,7 +693,9 @@ export function BossKacheln({
   embedInAccordion = false,
   gameId = '',
   trophyById,
+  onDeleteStep = null,
 }) {
+  const { t } = useLocale();
   const trophyExtras = useTrophyRowExtras(trophyById);
 
   // Liegt eine verknüpfte Trophäe vor, gewinnt ihr Bild. Ohne trophy_id bleibt
@@ -677,7 +707,7 @@ export function BossKacheln({
     if (item.is_trophy_relevant !== 'Ja') return null;
     return (
       <span
-        title="Dieser Boss liefert direkt eine Trophäe"
+        title={t('bossTrophyTitle')}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -696,7 +726,7 @@ export function BossKacheln({
         }}
       >
         <span aria-hidden>🏆</span>
-        Trophäe
+        {t('bossTrophyBadge')}
       </span>
     );
   };
@@ -705,16 +735,16 @@ export function BossKacheln({
     <SplitScreenGuideKacheln
       itemsData={bossesData}
       getDisplayName={(item) => item.item_name || item.boss_name}
-      nameColumnHeader="Bossgegner"
+      nameColumnHeader={t('bossColumn')}
       renderNameAddon={renderTrophyBadge}
       renderGroupAddon={trophyExtras.renderGroupAddon}
       renderRowAction={trophyExtras.renderRowAction}
       renderRowDetail={trophyExtras.renderRowDetail}
-      emptyVideoMessage="Klicke auf einen Boss mit Video – der Player erscheint hier."
+      emptyVideoMessage={t('videoEmptyBoss')}
       groupHeaderIcon="⚔️"
       localisationHeaderIcon="🗺️"
       groupByField="chronological_group"
-      listTitle={listTitle}
+      listTitle={listTitle || t('bosses')}
       hideCompleted={hideCompleted}
       setHideCompleted={setHideCompleted}
       completedItems={completedItems}
@@ -723,6 +753,7 @@ export function BossKacheln({
       gameId={gameId}
       reportEntityType="boss"
       reportKeyField="guide_id"
+      onDeleteStep={onDeleteStep}
     />
   );
 }

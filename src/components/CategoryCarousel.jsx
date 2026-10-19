@@ -16,10 +16,13 @@ function CategoryCarousel({
   onRequestLogin,
   isAdmin = false,
 }) {
-  const { globalLocale } = useLocale();
+  const { globalLocale, t } = useLocale();
   const trackRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const displayTitle = category.titleKey ? t(category.titleKey) : category.title;
+  const searchTerm = category.searchTerm || category.title;
 
   const updateScrollHints = useCallback(() => {
     const el = trackRef.current;
@@ -73,13 +76,13 @@ function CategoryCarousel({
               type="button"
               id={`cat-${category.id}`}
               className="home-category-title home-category-title--clickable"
-              onClick={() => onCategorySearch(category.title)}
-              title={`Alle Spiele zu „${category.title}“ anzeigen`}
+              onClick={() => onCategorySearch(searchTerm)}
+              title={t('homeCategoryShowAll').replaceAll('{title}', displayTitle)}
             >
               <span className="home-category-emoji" aria-hidden>
                 {category.emoji}
               </span>
-              {category.title}
+              {displayTitle}
               <span className="home-category-search-hint" aria-hidden>
                 ↗
               </span>
@@ -89,7 +92,7 @@ function CategoryCarousel({
               <span className="home-category-emoji" aria-hidden>
                 {category.emoji}
               </span>
-              {category.title}
+              {displayTitle}
             </h2>
           )}
         </div>
@@ -97,7 +100,7 @@ function CategoryCarousel({
           <button
             type="button"
             className="home-scroll-btn"
-            aria-label={`${category.title} nach links`}
+            aria-label={t('homeCategoryScrollLeft').replaceAll('{title}', displayTitle)}
             disabled={!canScrollLeft}
             onClick={() => scrollByTiles(-1)}
           >
@@ -106,7 +109,7 @@ function CategoryCarousel({
           <button
             type="button"
             className="home-scroll-btn"
-            aria-label={`${category.title} nach rechts`}
+            aria-label={t('homeCategoryScrollRight').replaceAll('{title}', displayTitle)}
             disabled={!canScrollRight}
             onClick={() => scrollByTiles(1)}
           >
@@ -124,7 +127,7 @@ function CategoryCarousel({
           </div>
         ) : games.length === 0 ? (
           <p className="home-category-empty">
-            Noch keine Treffer in dieser Kategorie – Datenbank wächst.
+            {t('homeCategoryEmpty')}
           </p>
         ) : (
           <div

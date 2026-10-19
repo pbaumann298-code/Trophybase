@@ -10,6 +10,11 @@ export const TABLES = {
   games: 'games',
   achievements: 'game_achievements',
   guides: 'game_guides',
+  /**
+   * Staging-/Hilfstabelle: Rohmaterial-Kandidaten aus Scraper Ultra (Tinder-Review).
+   * Siehe game_guides_rohmaterial – gleiche Guide-Spalten plus batch_key/batch_status.
+   */
+  guidesRohmaterial: 'game_guides_rohmaterial',
   profiles: 'profiles',
   earnedTrophies: 'user_earned_trophies',
   watchlist: 'user_watchlist',

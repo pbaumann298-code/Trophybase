@@ -78,10 +78,10 @@ export async function searchGames(supabase, query, options = {}) {
   const excludeQuickwins = options.excludeQuickwins !== false;
   const includeTrophiesOnly = options.includeTrophiesOnly === true;
   const catalog = includeTrophiesOnly
-    ? { includeTrophiesOnly: true, excludeQuickwins }
+    ? { includeTrophiesOnly: true, excludeQuickwins, locale }
     : options.includeReady
-      ? { includeReady: true, excludeQuickwins }
-      : { publishedOnly: options.publishedOnly !== false, excludeQuickwins };
+      ? { includeReady: true, excludeQuickwins, locale }
+      : { publishedOnly: options.publishedOnly !== false, excludeQuickwins, locale };
 
   // Rail-Shortcuts sind Guide-Kataloge – bei „nur Trophäen“ freie Textsuche.
   const rail = !includeTrophiesOnly && findHomeCategoryForQuery(check.query);
