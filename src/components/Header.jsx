@@ -19,20 +19,19 @@ function Header({ setCurrentView, sessionUser, onLogout, onOpenWatchlist }) {
 
   return (
     <header className="site-header relative w-full max-w-full min-w-0 h-[57px] md:h-[69px] bg-[#1a1b1c] border-b border-zinc-800/80 sticky top-0 z-50">
-      {/* Banner-Logo: volle Höhe, links/oben, weicher Auslauf nach rechts */}
       <a
         href="/"
         onClick={handleHomeClick}
         aria-label="TrophyBase.app – Startseite"
-        className="site-header-logo absolute inset-y-0 left-0 z-0 block overflow-hidden no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#00ff66]/60"
+        className="site-header-logo absolute inset-y-0 left-0 z-0 flex items-center pl-3 md:pl-4 no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#00ff66]/60"
       >
         <img
-          src="/images/logo-header.jpg"
-          alt="TrophyBase.app"
-          width={826}
-          height={276}
+          src="/images/logo-mark.jpg"
+          alt=""
+          width={512}
+          height={512}
           decoding="async"
-          className="site-header-logo__img block h-full w-auto max-w-none object-cover object-left select-none pointer-events-none"
+          className="site-header-logo__img block h-9 w-9 md:h-11 md:w-11 rounded-lg object-cover select-none pointer-events-none"
           draggable={false}
         />
       </a>

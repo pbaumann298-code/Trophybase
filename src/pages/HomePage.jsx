@@ -13,11 +13,11 @@ const HOME_FEATURE_KEYS = [
   ['homeFeatureChecklistsTitle', 'homeFeatureChecklistsBody'],
   ['homeFeatureVideoTitle', 'homeFeatureVideoBody'],
   ['homeFeatureFeedTitle', 'homeFeatureFeedBody'],
-  ['homeFeatureReportTitle', 'homeFeatureReportBody'],
   ['homeFeatureSpamTitle', 'homeFeatureSpamBody'],
+  ['homeFeatureReportTitle', 'homeFeatureReportBody'],
 ];
 
-const HOME_FEATURE_EMOJIS = ['✅', '🎬', '👁️‍🗨️', '🛠️', '🛡️'];
+const HOME_FEATURE_EMOJIS = ['✅', '🎬', '👁️‍🗨️', '🛡️', '🛠️'];
 
 function HomePage({
   openGame,
@@ -75,7 +75,12 @@ function HomePage({
 
         <details className="home-hero-features">
           <summary className="home-hero-features-summary">
-            <span>{t('homeFeaturesToggle')}</span>
+            <span className="home-hero-features-copy">
+              <span className="home-hero-features-line">{t('homeFeaturesToggleLead')}</span>
+              <span className="home-hero-features-line home-hero-features-line--accent">
+                {t('homeFeaturesToggleAccent')}
+              </span>
+            </span>
             <span className="home-hero-features-chevron" aria-hidden="true">▾</span>
           </summary>
           <ul className="home-hero-features-list">

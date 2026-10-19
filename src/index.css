@@ -95,28 +95,7 @@ body {
 }
 
 .site-header-logo {
-  /* ~Logo-Breite + Auslauf; Maske weicht den Hardcut nach rechts auf */
-  width: min(72vw, 22rem);
-  -webkit-mask-image: linear-gradient(
-    to right,
-    #000 0%,
-    #000 58%,
-    rgba(0, 0, 0, 0.55) 78%,
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    #000 0%,
-    #000 58%,
-    rgba(0, 0, 0, 0.55) 78%,
-    transparent 100%
-  );
-}
-
-@media (min-width: 768px) {
-  .site-header-logo {
-    width: min(48vw, 26rem);
-  }
+  width: auto;
 }
 
 #root {
