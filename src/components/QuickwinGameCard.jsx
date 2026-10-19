@@ -3,7 +3,7 @@ import WatchlistButton from './WatchlistButton';
 import GuideOnlineBadge from './GuideOnlineBadge';
 import GuideTabBar from './GuideTabBar';
 import CollapsibleSectionCard from './CollapsibleSectionCard';
-import TrophyGroupedChecklist, { ClearGuideTipsButton } from './TrophyGroupedChecklist';
+import TrophyGroupedChecklist, { ClearGuideTipsButton, MarkOnlineBulkButton } from './TrophyGroupedChecklist';
 import GameSeoInfobox from './GameSeoInfobox';
 import { BossKacheln, CollectibleKacheln } from '../pages/CollectibleKacheln';
 import { GuideVideoProvider } from '../context/GuideVideoContext';
@@ -14,7 +14,7 @@ import { publicStudioCredits } from '../lib/studioCredits';
 import { gameGuidePath } from '../lib/routeUtils';
 import { fetchGameGuideBundle } from '../lib/guideQueries';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
-import { clearGameGuideTips, saveTrophyGuideTip, setAchievementFlags } from '../lib/intranetGameEdits';
+import { clearGameGuideTips, saveTrophyGuideTip, saveTrophyVideo, setAchievementFlags, setAchievementsOnline } from '../lib/intranetGameEdits';
 import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
 import {
   buildBossOverviewData,
@@ -107,6 +107,9 @@ function QuickwinGameCard({
   const [activeTab, setActiveTab] = useState('reiter0');
   const [newer, setNewer] = useState({ mode: '', heading: '', games: [] });
   const [tipHint, setTipHint] = useState('');
+  const [onlinePickMode, setOnlinePickMode] = useState(false);
+  const [onlinePickIds, setOnlinePickIds] = useState(() => new Set());
+  const [onlinePickBusy, setOnlinePickBusy] = useState(false);
 
   useEffect(() => {
     setDetailGame(game);
@@ -176,6 +179,21 @@ function QuickwinGameCard({
     return null;
   };
 
+  const saveGuideVideo = async (achievementId, video) => {
+    const { error, video: saved } = await saveTrophyVideo(supabase, gameUuid, achievementId, video);
+    if (error) return error;
+    setTrophies((prev) => prev.map((trophy) => (
+      getTrophyIdKey(trophy) === achievementId
+        ? {
+          ...trophy,
+          video_url: saved?.video_url ?? '',
+          timestamp: saved?.timestamp ?? '',
+        }
+        : trophy
+    )));
+    return null;
+  };
+
   const saveTrophyFlags = async (trophy, patch) => {
     const achievementId = getTrophyIdKey(trophy);
     const { error } = await setAchievementFlags(supabase, gameUuid, achievementId, patch);
@@ -194,6 +212,44 @@ function QuickwinGameCard({
     }
     setTrophies((prev) => prev.map((trophy) => ({ ...trophy, guide_tip: '', guide_tip_long: '' })));
     setTipHint(t('trophyTipSaved'));
+  };
+
+  const toggleOnlinePick = (trophyKey) => {
+    const key = String(trophyKey ?? '').trim();
+    if (!key) return;
+    setOnlinePickIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const cancelOnlinePick = () => {
+    setOnlinePickMode(false);
+    setOnlinePickIds(new Set());
+    setOnlinePickBusy(false);
+  };
+
+  const confirmOnlinePick = async () => {
+    const ids = [...onlinePickIds];
+    if (!ids.length || onlinePickBusy) return;
+    const message = t('markOnlineBulkConfirm').replaceAll('{count}', String(ids.length));
+    if (!window.confirm(message)) return;
+    setOnlinePickBusy(true);
+    setTipHint('');
+    const { error } = await setAchievementsOnline(supabase, gameUuid, ids, true);
+    setOnlinePickBusy(false);
+    if (error) {
+      setTipHint(error.message || t('markOnlineBulkFailed'));
+      return;
+    }
+    const marked = new Set(ids);
+    setTrophies((prev) => prev.map((row) => (
+      marked.has(getTrophyIdKey(row)) ? { ...row, is_online: true } : row
+    )));
+    cancelOnlinePick();
+    setTipHint(t('markOnlineBulkSaved'));
   };
 
   const toggleTrophy = (id) => {
@@ -403,6 +459,18 @@ function QuickwinGameCard({
               {isAdmin ? (
                 <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
                   {tipHint ? <span className="text-[10px] text-zinc-500">{tipHint}</span> : null}
+                  <MarkOnlineBulkButton
+                    active={onlinePickMode}
+                    selectedCount={onlinePickIds.size}
+                    busy={onlinePickBusy}
+                    onStart={() => {
+                      setOnlinePickMode(true);
+                      setOnlinePickIds(new Set());
+                      setTipHint('');
+                    }}
+                    onCancel={cancelOnlinePick}
+                    onConfirm={confirmOnlinePick}
+                  />
                   <ClearGuideTipsButton onClear={clearAllGuideTips} locale={globalLocale} />
                 </div>
               ) : null}
@@ -416,7 +484,11 @@ function QuickwinGameCard({
                 onToggle={toggleTrophy}
                 mainGameTitle={title || 'Hauptspiel'}
                 guideTipEditor={isAdmin ? saveGuideTip : null}
+                onTrophyVideo={isAdmin ? saveGuideVideo : null}
                 onTrophyFlags={isAdmin ? saveTrophyFlags : null}
+                onlinePickMode={onlinePickMode}
+                onlinePickIds={onlinePickIds}
+                onOnlinePickToggle={toggleOnlinePick}
               />
             </div>
           )}

@@ -7,7 +7,7 @@ import GuideLanguageSelector from '../components/GuideLanguageSelector';
 import GuideBreadcrumb from '../components/GuideBreadcrumb';
 import RelatedGuides from '../components/RelatedGuides';
 import CollapsibleSectionCard from '../components/CollapsibleSectionCard';
-import TrophyGroupedChecklist, { ClearGuideTipsButton } from '../components/TrophyGroupedChecklist';
+import TrophyGroupedChecklist, { ClearGuideTipsButton, MarkOnlineBulkButton } from '../components/TrophyGroupedChecklist';
 import WatchlistButton from '../components/WatchlistButton';
 import ShareButton from '../components/ShareButton';
 import GuidePublishButton from '../components/GuidePublishButton';
@@ -43,7 +43,7 @@ import {
 } from '../lib/hiddenTrophyPreference';
 import { isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished } from '../lib/guidePublication';
-import { clearGameGuideTips, clearIntranetCover, saveTrophyGuideTip, setAchievementFlags, setIntranetIgdbCover } from '../lib/intranetGameEdits';
+import { clearGameGuideTips, clearIntranetCover, saveTrophyGuideTip, saveTrophyVideo, setAchievementFlags, setAchievementsOnline, setIntranetIgdbCover } from '../lib/intranetGameEdits';
 import { gameGuidePath, withGuideTabParam, writeAppPath } from '../lib/routeUtils';
 import { getTrophyIdKey } from '../lib/trophyQueries';
 import { isPlatinumUnlocked } from '../lib/trophyTypes';
@@ -254,6 +254,9 @@ function GamePageContent({
   const [hiddenTrophyMode, setHiddenTrophyMode] = useState(() => loadHiddenTrophyMode(gameId));
   const [tipOverrides, setTipOverrides] = useState({ locale: '', values: {} });
   const [tipHint, setTipHint] = useState('');
+  const [onlinePickMode, setOnlinePickMode] = useState(false);
+  const [onlinePickIds, setOnlinePickIds] = useState(() => new Set());
+  const [onlinePickBusy, setOnlinePickBusy] = useState(false);
 
   useEffect(() => {
     setHiddenTrophyMode(loadHiddenTrophyMode(gameId));
@@ -285,6 +288,21 @@ function GamePageContent({
     return null;
   };
 
+  const saveGuideVideo = async (achievementId, video) => {
+    const { error, video: saved } = await saveTrophyVideo(supabase, gameId, achievementId, video);
+    if (error) return error;
+    onReplaceTrophies?.((rows) => rows.map((row) => (
+      getTrophyIdKey(row) === achievementId
+        ? {
+          ...row,
+          video_url: saved?.video_url ?? '',
+          timestamp: saved?.timestamp ?? '',
+        }
+        : row
+    )));
+    return null;
+  };
+
   const saveTrophyFlags = async (trophy, patch) => {
     const achievementId = getTrophyIdKey(trophy);
     const { totals, error } = await setAchievementFlags(supabase, gameId, achievementId, patch);
@@ -306,6 +324,45 @@ function GamePageContent({
     for (const trophy of activeTrophies) values[getTrophyIdKey(trophy)] = '';
     setTipOverrides({ locale: effectiveGuideLang, values });
     setTipHint(t('trophyTipSaved'));
+  };
+
+  const toggleOnlinePick = (trophyKey) => {
+    const key = String(trophyKey ?? '').trim();
+    if (!key) return;
+    setOnlinePickIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const cancelOnlinePick = () => {
+    setOnlinePickMode(false);
+    setOnlinePickIds(new Set());
+    setOnlinePickBusy(false);
+  };
+
+  const confirmOnlinePick = async () => {
+    const ids = [...onlinePickIds];
+    if (!ids.length || onlinePickBusy) return;
+    const message = t('markOnlineBulkConfirm').replaceAll('{count}', String(ids.length));
+    if (!window.confirm(message)) return;
+    setOnlinePickBusy(true);
+    setTipHint('');
+    const { totals, error } = await setAchievementsOnline(supabase, gameId, ids, true);
+    setOnlinePickBusy(false);
+    if (error) {
+      setTipHint(error.message || t('markOnlineBulkFailed'));
+      return;
+    }
+    const marked = new Set(ids);
+    onReplaceTrophies?.((rows) => rows.map((row) => (
+      marked.has(getTrophyIdKey(row)) ? { ...row, is_online: true } : row
+    )));
+    if (totals) onGameChange?.(totals);
+    cancelOnlinePick();
+    setTipHint(t('markOnlineBulkSaved'));
   };
 
   const gameUuid = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
@@ -347,7 +404,7 @@ function GamePageContent({
   }, [setAvailableLocales]);
 
   useEffect(() => {
-    if (!isAdmin || !gameUuid) {
+    if (!gameUuid) {
       setPlaytime(null);
       return undefined;
     }
@@ -370,7 +427,7 @@ function GamePageContent({
     return () => {
       cancelled = true;
     };
-  }, [isAdmin, gameUuid]);
+  }, [gameUuid]);
 
   useEffect(() => {
     let cancelled = false;
@@ -593,6 +650,18 @@ function GamePageContent({
           {isAdmin && !trophiesOnly ? (
             <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
               {tipHint ? <span className="text-[10px] text-zinc-500">{tipHint}</span> : null}
+              <MarkOnlineBulkButton
+                active={onlinePickMode}
+                selectedCount={onlinePickIds.size}
+                busy={onlinePickBusy}
+                onStart={() => {
+                  setOnlinePickMode(true);
+                  setOnlinePickIds(new Set());
+                  setTipHint('');
+                }}
+                onCancel={cancelOnlinePick}
+                onConfirm={confirmOnlinePick}
+              />
               <ClearGuideTipsButton onClear={clearAllGuideTips} locale={effectiveGuideLang} />
             </div>
           ) : null}
@@ -606,7 +675,11 @@ function GamePageContent({
             onToggle={toggleTrophy}
             mainGameTitle={gameTitle || 'Hauptspiel'}
             guideTipEditor={isAdmin && !trophiesOnly ? saveGuideTip : null}
+            onTrophyVideo={isAdmin && !trophiesOnly ? saveGuideVideo : null}
             onTrophyFlags={isAdmin && !trophiesOnly ? saveTrophyFlags : null}
+            onlinePickMode={onlinePickMode}
+            onlinePickIds={onlinePickIds}
+            onOnlinePickToggle={toggleOnlinePick}
           />
         </div>
       )}
@@ -999,14 +1072,12 @@ function GamePageContent({
         </div>
       </div>
 
-      {isAdmin ? (
-        <AdminGameOverview
-          className="mb-8"
-          game={gameForPublication}
-          title={gameTitle}
-          playtime={playtime}
-        />
-      ) : null}
+      <AdminGameOverview
+        className="mb-8"
+        game={gameForPublication}
+        title={gameTitle}
+        playtime={playtime}
+      />
 
       <GameSeoInfobox
         title={gameTitle}

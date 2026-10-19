@@ -139,3 +139,60 @@ export function getYouTubeEmbedUrl(url, timecode, { autoplay = false } = {}) {
   const sep = embedUrl.includes('?') ? '&' : '?';
   return `${embedUrl}${sep}${query}`;
 }
+
+/**
+ * Formatiert Sekunden als MM:SS oder HH:MM:SS.
+ * @param {number} seconds
+ * @returns {string}
+ */
+export function formatSecondsToTimecode(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hh = Math.floor(total / 3600);
+  const mm = Math.floor((total % 3600) / 60);
+  const ss = total % 60;
+  if (hh > 0) {
+    return `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  }
+  return `${mm}:${String(ss).padStart(2, '0')}`;
+}
+
+/**
+ * YouTube-URL und Zeitstempel für game_achievements normalisieren.
+ * `t`/`start` aus der URL wandern in timestamp; die gespeicherte URL bleibt ohne Startzeit.
+ * @param {string} url
+ * @param {string|number|null|undefined} timestamp
+ * @returns {{ video_url: string, timestamp: string, error: Error|null }}
+ */
+export function normalizeTrophyVideoInput(url, timestamp) {
+  const rawUrl = String(url ?? '').trim();
+  let ts = String(timestamp ?? '').trim();
+  if (!rawUrl) {
+    return { video_url: '', timestamp: '', error: null };
+  }
+
+  const videoId = getYouTubeVideoId(rawUrl);
+  if (!videoId) {
+    return {
+      video_url: rawUrl,
+      timestamp: ts,
+      error: new Error('Nur YouTube-URLs werden unterstützt.'),
+    };
+  }
+
+  if (!ts) {
+    const fromUrl = extractYouTubeStartSeconds(rawUrl);
+    if (fromUrl != null && fromUrl > 0) ts = formatSecondsToTimecode(fromUrl);
+  } else if (parseTimecodeToSeconds(ts) == null) {
+    return {
+      video_url: rawUrl,
+      timestamp: ts,
+      error: new Error('Zeitstempel als MM:SS oder HH:MM:SS angeben.'),
+    };
+  }
+
+  return {
+    video_url: `https://www.youtube.com/watch?v=${videoId}`,
+    timestamp: ts,
+    error: null,
+  };
+}

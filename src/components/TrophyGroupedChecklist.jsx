@@ -78,6 +78,128 @@ function TrophyTipEditor({ trophy, onSave }) {
   );
 }
 
+function TrophyVideoEditor({ trophy, onSave }) {
+  const { t } = useLocale();
+  const savedUrl = String(trophy.video_url ?? '');
+  const savedTs = String(trophy.timestamp ?? '');
+  const hasVideo = Boolean(savedUrl.trim());
+  const [open, setOpen] = useState(hasVideo);
+  const [urlDraft, setUrlDraft] = useState(savedUrl);
+  const [tsDraft, setTsDraft] = useState(savedTs);
+  const [busy, setBusy] = useState(false);
+  const [hint, setHint] = useState('');
+
+  useEffect(() => {
+    setUrlDraft(savedUrl);
+    setTsDraft(savedTs);
+    if (hasVideo) setOpen(true);
+  }, [savedUrl, savedTs, hasVideo]);
+
+  const dirty =
+    urlDraft.trim() !== savedUrl.trim() || tsDraft.trim() !== savedTs.trim();
+
+  const commit = async (nextUrl, nextTs) => {
+    if (busy) return;
+    setBusy(true);
+    setHint('');
+    const error = await onSave({ video_url: nextUrl, timestamp: nextTs });
+    setBusy(false);
+    if (error) {
+      setHint(error.message || t('trophyVideoFailed'));
+      return;
+    }
+    setHint(t('trophyVideoSaved'));
+    if (!String(nextUrl ?? '').trim()) setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+        >
+          {hasVideo ? t('trophyVideoEdit') : t('trophyVideoAdd')}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-[12rem] flex-1">
+          <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+            {t('trophyVideoUrlLabel')}
+          </span>
+          <input
+            type="url"
+            value={urlDraft}
+            disabled={busy}
+            placeholder={t('trophyVideoUrlPlaceholder')}
+            onChange={(event) => setUrlDraft(event.target.value)}
+            className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66]/40 focus:outline-hidden"
+          />
+        </label>
+        <label className="w-24 shrink-0">
+          <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+            {t('trophyVideoTimestampLabel')}
+          </span>
+          <input
+            type="text"
+            value={tsDraft}
+            disabled={busy}
+            placeholder={t('trophyVideoTimestampPlaceholder')}
+            onChange={(event) => setTsDraft(event.target.value)}
+            className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66]/40 focus:outline-hidden"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={busy || !dirty}
+          onClick={() => commit(urlDraft, tsDraft)}
+          className="rounded-md border border-[#00ff66]/30 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66] hover:border-[#00ff66]/50 disabled:opacity-30"
+        >
+          {busy ? '…' : t('trophyVideoSave')}
+        </button>
+        {hasVideo ? (
+          <button
+            type="button"
+            title={t('trophyVideoDelete')}
+            aria-label={t('trophyVideoDelete')}
+            disabled={busy}
+            onClick={() => {
+              if (!window.confirm(t('trophyVideoDeleteConfirm'))) return;
+              setUrlDraft('');
+              setTsDraft('');
+              commit('', '');
+            }}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-700 text-zinc-400 hover:border-red-500/40 hover:text-red-300 disabled:opacity-30"
+          >
+            <TrashIcon />
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setUrlDraft(savedUrl);
+              setTsDraft(savedTs);
+              setHint('');
+              setOpen(false);
+            }}
+            className="rounded-md border border-zinc-700 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+          >
+            {t('trophyVideoCancel')}
+          </button>
+        )}
+      </div>
+      {hint ? <span className="mt-1 block text-[10px] text-zinc-500">{hint}</span> : null}
+    </div>
+  );
+}
+
 function TrophyKindMenu({ trophy, onChange }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -148,7 +270,20 @@ function TrophyKindMenu({ trophy, onChange }) {
   );
 }
 
-function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, guideTipEditor, onTrophyFlags }) {
+function TrophyRow({
+  trophy,
+  gameId,
+  isUnlocked,
+  isEarned,
+  conceal,
+  onToggle,
+  guideTipEditor,
+  onTrophyVideo = null,
+  onTrophyFlags,
+  onlinePickMode = false,
+  onlinePicked = false,
+  onOnlinePickToggle = null,
+}) {
   const { t } = useLocale();
   const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
   const [videoOpen, setVideoOpen] = useState(false);
@@ -156,8 +291,10 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, gu
   const trophyDesc = getTrophyDescription(trophy);
   const trophyTranslation = getTrophyAiTranslation(trophy);
   const embedUrl = useMemo(
-    () => (trophy.video_url ? getYouTubeEmbedUrl(trophy.video_url, null, { autoplay: true }) : null),
-    [trophy.video_url],
+    () => (trophy.video_url
+      ? getYouTubeEmbedUrl(trophy.video_url, trophy.timestamp, { autoplay: true })
+      : null),
+    [trophy.video_url, trophy.timestamp],
   );
 
   useEffect(() => {
@@ -169,25 +306,55 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, gu
     return () => notifyVideoCleared();
   }, [videoOpen, notifyVideoStarted, notifyVideoCleared]);
 
+  const rowTone = onlinePickMode
+    ? onlinePicked
+      ? 'bg-sky-500/10 border-sky-500/40 ring-1 ring-sky-500/30'
+      : 'bg-[#121314] border-zinc-800 hover:border-sky-500/40 cursor-pointer'
+    : isUnlocked
+      ? 'bg-[#121314]/40 border-zinc-800/40 opacity-60'
+      : 'bg-[#121314] border-zinc-800 hover:border-zinc-700';
+
   return (
     <div
-      className={`flex flex-col gap-3 p-4 rounded-xl border transition-all duration-300 ${
-        isUnlocked
-          ? 'bg-[#121314]/40 border-zinc-800/40 opacity-60'
-          : 'bg-[#121314] border-zinc-800 hover:border-zinc-700'
-      }`}
+      className={`flex flex-col gap-3 p-4 rounded-xl border transition-all duration-300 ${rowTone}`}
+      onClick={onlinePickMode && !conceal ? () => onOnlinePickToggle?.(trophyKey) : undefined}
+      onKeyDown={
+        onlinePickMode && !conceal
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onOnlinePickToggle?.(trophyKey);
+              }
+            }
+          : undefined
+      }
+      role={onlinePickMode && !conceal ? 'button' : undefined}
+      tabIndex={onlinePickMode && !conceal ? 0 : undefined}
+      aria-pressed={onlinePickMode ? onlinePicked : undefined}
     >
       <div className="flex items-start gap-4">
-        <input
-          type="checkbox"
-          checked={isUnlocked}
-          disabled={isEarned}
-          onChange={() => !isEarned && onToggle(trophyKey)}
-          title={isEarned ? 'Von PSN synchronisiert' : undefined}
-          className={`rounded-sm border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 w-4 h-4 mt-1 flex-shrink-0 ${
-            isEarned ? 'cursor-default opacity-70' : 'cursor-pointer'
-          }`}
-        />
+        {onlinePickMode ? (
+          <input
+            type="checkbox"
+            checked={onlinePicked}
+            disabled={conceal}
+            onClick={(event) => event.stopPropagation()}
+            onChange={() => !conceal && onOnlinePickToggle?.(trophyKey)}
+            title={t('markOnlineBulk')}
+            className="mt-1 h-4 w-4 flex-shrink-0 cursor-pointer rounded-sm border-zinc-700 bg-[#1a1b1c] text-sky-400 focus:ring-0 disabled:cursor-default disabled:opacity-40"
+          />
+        ) : (
+          <input
+            type="checkbox"
+            checked={isUnlocked}
+            disabled={isEarned}
+            onChange={() => !isEarned && onToggle(trophyKey)}
+            title={isEarned ? 'Von PSN synchronisiert' : undefined}
+            className={`rounded-sm border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 w-4 h-4 mt-1 flex-shrink-0 ${
+              isEarned ? 'cursor-default opacity-70' : 'cursor-pointer'
+            }`}
+          />
+        )}
         <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0">
           {conceal ? (
             <div className="flex h-full w-full items-center justify-center text-lg text-zinc-600" aria-hidden="true">
@@ -274,7 +441,7 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, gu
               )}
             </div>
           )}
-          {onTrophyFlags && !conceal ? (
+          {onTrophyFlags && !conceal && !onlinePickMode ? (
             <TrophyKindMenu trophy={trophy} onChange={(patch) => onTrophyFlags(trophy, patch)} />
           ) : null}
           <span className="inline-flex items-center mt-2">
@@ -282,13 +449,21 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, gu
           </span>
         </div>
       </div>
-      {guideTipEditor ? (
-        <TrophyTipEditor
-          trophy={trophy}
-          onSave={(text) => guideTipEditor(getTrophyIdKey(trophy), text)}
-        />
+      {guideTipEditor && !onlinePickMode ? (
+        <>
+          <TrophyTipEditor
+            trophy={trophy}
+            onSave={(text) => guideTipEditor(getTrophyIdKey(trophy), text)}
+          />
+          {onTrophyVideo ? (
+            <TrophyVideoEditor
+              trophy={trophy}
+              onSave={(video) => onTrophyVideo(getTrophyIdKey(trophy), video)}
+            />
+          ) : null}
+        </>
       ) : null}
-      {!guideTipEditor && !conceal && !isUnlocked && (trophy.guide_tip || trophy.video_url) && (
+      {!guideTipEditor && !onlinePickMode && !conceal && !isUnlocked && (trophy.guide_tip || trophy.video_url) && (
         <div className="mt-1 pl-4 border-l-2 border-[#00ff66]/30 flex flex-col gap-2 bg-zinc-950/40 p-2 rounded-r-xl">
           {trophy.guide_tip && (
             <p className="text-xs text-zinc-400 font-sans italic">
@@ -337,7 +512,21 @@ function TrophyRow({ trophy, gameId, isUnlocked, isEarned, conceal, onToggle, gu
   );
 }
 
-function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, hideCompleted, revealHidden, onToggle, guideTipEditor, onTrophyFlags }) {
+function TrophyList({
+  gameId,
+  trophies,
+  unlockedTrophies,
+  earnedTrophyIds,
+  hideCompleted,
+  revealHidden,
+  onToggle,
+  guideTipEditor,
+  onTrophyVideo,
+  onTrophyFlags,
+  onlinePickMode = false,
+  onlinePickIds = null,
+  onOnlinePickToggle = null,
+}) {
   const earnedSet = earnedTrophyIds ?? new Set();
   const visible = trophies.filter((t) => {
     const key = getTrophyIdKey(t);
@@ -369,7 +558,11 @@ function TrophyList({ gameId, trophies, unlockedTrophies, earnedTrophyIds, hideC
             conceal={Boolean(t.is_hidden) && !revealHidden && !isUnlocked}
             onToggle={onToggle}
             guideTipEditor={guideTipEditor}
+            onTrophyVideo={onTrophyVideo}
             onTrophyFlags={onTrophyFlags}
+            onlinePickMode={onlinePickMode}
+            onlinePicked={Boolean(onlinePickIds?.has?.(key))}
+            onOnlinePickToggle={onOnlinePickToggle}
           />
         );
       })}
@@ -389,7 +582,11 @@ function TrophyGroupedChecklist({
   /** Kein zusätzlicher Karten-Reiter, wenn die Liste schon in einer Zeile steckt. */
   flat = false,
   guideTipEditor = null,
+  onTrophyVideo = null,
   onTrophyFlags = null,
+  onlinePickMode = false,
+  onlinePickIds = null,
+  onOnlinePickToggle = null,
 }) {
   const { mainGame, dlcGroups } = useMemo(
     () => groupTrophiesByPack(trophies),
@@ -424,7 +621,11 @@ function TrophyGroupedChecklist({
             revealHidden={revealHidden}
             onToggle={onToggle}
             guideTipEditor={guideTipEditor}
+            onTrophyVideo={onTrophyVideo}
             onTrophyFlags={onTrophyFlags}
+            onlinePickMode={onlinePickMode}
+            onlinePickIds={onlinePickIds}
+            onOnlinePickToggle={onOnlinePickToggle}
           />
         )}
         {dlcGroups.map((dlc) => {
@@ -452,7 +653,11 @@ function TrophyGroupedChecklist({
                 revealHidden={revealHidden}
                 onToggle={onToggle}
                 guideTipEditor={guideTipEditor}
+                onTrophyVideo={onTrophyVideo}
                 onTrophyFlags={onTrophyFlags}
+                onlinePickMode={onlinePickMode}
+                onlinePickIds={onlinePickIds}
+                onOnlinePickToggle={onOnlinePickToggle}
               />
             </CollapsibleSectionCard>
           );
@@ -480,7 +685,11 @@ function TrophyGroupedChecklist({
             revealHidden={revealHidden}
             onToggle={onToggle}
             guideTipEditor={guideTipEditor}
+            onTrophyVideo={onTrophyVideo}
             onTrophyFlags={onTrophyFlags}
+            onlinePickMode={onlinePickMode}
+            onlinePickIds={onlinePickIds}
+            onOnlinePickToggle={onOnlinePickToggle}
           />
         </CollapsibleSectionCard>
       )}
@@ -510,7 +719,11 @@ function TrophyGroupedChecklist({
               revealHidden={revealHidden}
               onToggle={onToggle}
               guideTipEditor={guideTipEditor}
+              onTrophyVideo={onTrophyVideo}
               onTrophyFlags={onTrophyFlags}
+              onlinePickMode={onlinePickMode}
+              onlinePickIds={onlinePickIds}
+              onOnlinePickToggle={onOnlinePickToggle}
             />
           </CollapsibleSectionCard>
         );
@@ -540,6 +753,55 @@ export function ClearGuideTipsButton({ onClear, locale = '', className = '' }) {
       <TrashIcon />
       {t('trophyTipsDeleteAll').replaceAll('{lang}', lang)}
     </button>
+  );
+}
+
+/** Admin: Auswahlmodus starten, abbrechen oder ausgewählte Trophäen als Online speichern. */
+export function MarkOnlineBulkButton({
+  active = false,
+  selectedCount = 0,
+  busy = false,
+  onStart,
+  onCancel,
+  onConfirm,
+  className = '',
+}) {
+  const { t } = useLocale();
+  const btn =
+    'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider disabled:opacity-40';
+
+  if (!active) {
+    return (
+      <button
+        type="button"
+        onClick={onStart}
+        className={`${btn} border-zinc-700 text-sky-300 hover:border-sky-500/40 hover:text-sky-200 ${className}`}
+      >
+        {t('markOnlineBulk')}
+      </button>
+    );
+  }
+
+  return (
+    <div className={`inline-flex flex-wrap items-center gap-2 ${className}`}>
+      <span className="text-[10px] text-sky-300/80">{t('markOnlineBulkHint')}</span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onCancel}
+        className={`${btn} border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200`}
+      >
+        {t('markOnlineBulkCancel')}
+      </button>
+      <button
+        type="button"
+        disabled={busy || selectedCount < 1}
+        onClick={onConfirm}
+        className={`${btn} border-sky-500/40 text-sky-300 hover:border-sky-400 hover:text-sky-200`}
+      >
+        {busy ? '…' : t('markOnlineBulkApply').replaceAll('{count}', String(selectedCount))}
+      </button>
+    </div>
   );
 }
 

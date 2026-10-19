@@ -25,7 +25,7 @@ function FactRow({ label, value, emphasize = false }) {
 }
 
 /**
- * Admin-Prototyp. Trophäen-Zahlen kommen aus games, Spielzeit aus den Spielzeit-Spalten.
+ * Guide-Überblick. Trophäen-Zahlen kommen aus games, Spielzeit aus den Spielzeit-Spalten.
  */
 function AdminGameOverview({ game, title = '', playtime = null, className = '' }) {
   const { globalLocale, t } = useLocale();

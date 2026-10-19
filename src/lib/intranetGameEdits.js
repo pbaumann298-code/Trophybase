@@ -11,6 +11,7 @@ import {
 } from './gameSchema';
 import { formatHardwareValue } from './gameSlug';
 import { parseStatusMap, publishingFieldsFromStatus } from './guidePublication';
+import { normalizeTrophyVideoInput } from '../utils/videoUrl';
 
 /** Pipeline-Schlüssel, die einen vorhandenen Guide markieren und mit ihm wegfallen. */
 const GUIDE_DISCARD_KEYS = new Set(['fertig', 'fertig_de', 'fertig_en']);
@@ -96,31 +97,11 @@ export async function setGameHardware(supabase, gameId, segments) {
 }
 
 /**
- * Online und Verpassbar einer Trophäe. Versteckt bleibt Sony-Bestand.
- * Zählt danach die Spiel-Summen neu, damit die Übersicht mitzieht.
+ * Zählt Online-/Verpassbar-Flags neu und schreibt die Spiel-Summen.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {string} gameId
- * @param {string} achievementId
- * @param {{ is_online?: boolean, is_missable?: boolean }} flags
+ * @param {string} game
  */
-export async function setAchievementFlags(supabase, gameId, achievementId, flags) {
-  const game = String(gameId ?? '').trim();
-  const achievement = String(achievementId ?? '').trim();
-  if (!game || !achievement) return { totals: null, error: new Error('Trophäe fehlt.') };
-
-  const patch = {};
-  if (typeof flags?.is_online === 'boolean') patch[ACHIEVEMENT_STRUCT.isOnline] = flags.is_online;
-  if (typeof flags?.is_missable === 'boolean') patch[ACHIEVEMENT_STRUCT.isMissable] = flags.is_missable;
-  if (!Object.keys(patch).length) return { totals: null, error: new Error('Keine Trophäen-Art gewählt.') };
-
-  const { error: writeError } = await supabase
-    .from(TABLES.achievements)
-    .update(patch)
-    .eq(GAME_FK, game)
-    .eq(ACHIEVEMENT_PK, achievement);
-
-  if (writeError) return { totals: null, error: writeError };
-
+async function recountTrophyFlagTotals(supabase, game) {
   const { data, error: readError } = await supabase
     .from(TABLES.achievements)
     .select(`${ACHIEVEMENT_STRUCT.isMissable}, ${ACHIEVEMENT_STRUCT.isOnline}`)
@@ -145,6 +126,60 @@ export async function setAchievementFlags(supabase, gameId, achievementId, flags
 
   if (gameError) return { totals: null, error: gameError };
   return { totals, error: null };
+}
+
+/**
+ * Online und Verpassbar einer Trophäe. Versteckt bleibt Sony-Bestand.
+ * Zählt danach die Spiel-Summen neu, damit die Übersicht mitzieht.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {string} achievementId
+ * @param {{ is_online?: boolean, is_missable?: boolean }} flags
+ */
+export async function setAchievementFlags(supabase, gameId, achievementId, flags) {
+  const game = String(gameId ?? '').trim();
+  const achievement = String(achievementId ?? '').trim();
+  if (!game || !achievement) return { totals: null, error: new Error('Trophäe fehlt.') };
+
+  const patch = {};
+  if (typeof flags?.is_online === 'boolean') patch[ACHIEVEMENT_STRUCT.isOnline] = flags.is_online;
+  if (typeof flags?.is_missable === 'boolean') patch[ACHIEVEMENT_STRUCT.isMissable] = flags.is_missable;
+  if (!Object.keys(patch).length) return { totals: null, error: new Error('Keine Trophäen-Art gewählt.') };
+
+  const { error: writeError } = await supabase
+    .from(TABLES.achievements)
+    .update(patch)
+    .eq(GAME_FK, game)
+    .eq(ACHIEVEMENT_PK, achievement);
+
+  if (writeError) return { totals: null, error: writeError };
+  return recountTrophyFlagTotals(supabase, game);
+}
+
+/**
+ * Setzt is_online für mehrere Trophäen eines Spiels und aktualisiert die Summen einmal.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {string[]} achievementIds
+ * @param {boolean} [isOnline=true]
+ */
+export async function setAchievementsOnline(supabase, gameId, achievementIds, isOnline = true) {
+  const game = String(gameId ?? '').trim();
+  const ids = [...new Set(
+    (Array.isArray(achievementIds) ? achievementIds : [])
+      .map((id) => String(id ?? '').trim())
+      .filter(Boolean),
+  )];
+  if (!game || !ids.length) return { totals: null, error: new Error('Trophäen fehlen.') };
+
+  const { error: writeError } = await supabase
+    .from(TABLES.achievements)
+    .update({ [ACHIEVEMENT_STRUCT.isOnline]: Boolean(isOnline) })
+    .eq(GAME_FK, game)
+    .in(ACHIEVEMENT_PK, ids);
+
+  if (writeError) return { totals: null, error: writeError };
+  return recountTrophyFlagTotals(supabase, game);
 }
 
 function asTipMap(value) {
@@ -174,6 +209,34 @@ function localeClearPatch(row, locale) {
   if (tip !== undefined) patch[ACHIEVEMENT_I18N.guideTip] = tip;
   if (longTip !== undefined) patch[ACHIEVEMENT_I18N.guideTipLong] = longTip;
   return patch;
+}
+
+/**
+ * Schreibt video_url und timestamp einer Trophäe (YouTube).
+ * Leere URL löscht beide Felder.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {string} achievementId
+ * @param {{ video_url?: string, timestamp?: string }} video
+ */
+export async function saveTrophyVideo(supabase, gameId, achievementId, video) {
+  const game = String(gameId ?? '').trim();
+  const achievement = String(achievementId ?? '').trim();
+  if (!game || !achievement) return { error: new Error('Trophäe fehlt.') };
+
+  const normalized = normalizeTrophyVideoInput(video?.video_url, video?.timestamp);
+  if (normalized.error) return { error: normalized.error };
+
+  const { error } = await supabase
+    .from(TABLES.achievements)
+    .update({
+      [ACHIEVEMENT_STRUCT.videoUrl]: normalized.video_url || null,
+      [ACHIEVEMENT_STRUCT.timestamp]: normalized.timestamp || null,
+    })
+    .eq(GAME_FK, game)
+    .eq(ACHIEVEMENT_PK, achievement);
+
+  return { error: error ?? null, video: normalized };
 }
 
 /**

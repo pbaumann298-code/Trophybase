@@ -134,6 +134,7 @@ export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LA
     is_online: Boolean(row[ACHIEVEMENT_STRUCT.isOnline]),
     is_story_related: Boolean(row[ACHIEVEMENT_STRUCT.isStoryRelated]),
     video_url: row[ACHIEVEMENT_STRUCT.videoUrl] ?? '',
+    timestamp: row[ACHIEVEMENT_STRUCT.timestamp] ?? '',
     _locale: namePick.locale,
     _translationFallback: namePick.usedFallback,
   };
