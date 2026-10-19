@@ -184,6 +184,23 @@ export const UI_STRINGS = {
     homeTitle: 'Finde deinen nächsten Platin-Run',
     homeSub:
       'Kuratierte Reihen – vom Souls-Hardcore bis zur Familien-Platin. Wähle die Reihe, die zu deinem Gamer-Typ passt.',
+    homeFeaturesToggle: 'Mehr als nur Text: Dein interaktives Platin-Werkzeug',
+    homeFeatureChecklistsTitle: 'Interaktive Checklisten:',
+    homeFeatureChecklistsBody:
+      'Hake Trophäen, Schritte und Collectibles direkt im Guide ab – behalte deinen Fortschritt jederzeit im Blick.',
+    homeFeatureVideoTitle: 'Guides mit Video:',
+    homeFeatureVideoBody:
+      'Keine trockenen Textwüsten. Viele unserer Spielguides sind direkt an den richtigen Stellen mit Videos unterlegt.',
+    homeFeatureFeedTitle: 'Dein persönlicher Feed:',
+    homeFeatureFeedBody:
+      'Schon auf Platin oder kein Interesse? Blende fertige und uninteressante Spiele einfach per Klick aus.',
+    homeFeatureReportTitle: 'Direkter Draht zu uns:',
+    homeFeatureReportBody:
+      'Falls doch mal etwas verrutscht ist oder ein Fehler auftaucht, {link} – wir kümmern uns drum!',
+    homeFeatureReportLink: 'sag uns so kurz Bescheid',
+    homeFeatureSpamTitle: 'Integrierter Spamschutz:',
+    homeFeatureSpamBody:
+      'Schluss mit Shovelware – filtere Micro-Platins mit einem Klick komplett aus deiner Ansicht.',
     watchlistTitle: 'Watchlist',
     watchlistBack: '← Zurück zur Watchlist',
     watchlistCountOne: '1 Spiel',
@@ -386,6 +403,23 @@ export const UI_STRINGS = {
     homeTitle: 'Find your next platinum run',
     homeSub:
       'Curated rows — from Souls hardcore to family platinums. Pick the series that fits your play style.',
+    homeFeaturesToggle: 'More than text: your interactive platinum toolkit',
+    homeFeatureChecklistsTitle: 'Interactive checklists:',
+    homeFeatureChecklistsBody:
+      'Tick trophies, steps and collectibles right in the guide – keep your progress in view at all times.',
+    homeFeatureVideoTitle: 'Guides with video:',
+    homeFeatureVideoBody:
+      'No dry walls of text. Many of our game guides have videos placed exactly where you need them.',
+    homeFeatureFeedTitle: 'Your personal feed:',
+    homeFeatureFeedBody:
+      'Already platinumed or not interested? Hide finished and unwanted games with one click.',
+    homeFeatureReportTitle: 'Direct line to us:',
+    homeFeatureReportBody:
+      'If something is off or you spot a mistake, {link} – we\'ll take care of it!',
+    homeFeatureReportLink: 'just let us know',
+    homeFeatureSpamTitle: 'Built-in spam filter:',
+    homeFeatureSpamBody:
+      'No more shovelware – filter micro-platinums out of your view with one click.',
     watchlistTitle: 'Watchlist',
     watchlistBack: '← Back to watchlist',
     watchlistCountOne: '1 game',
@@ -588,6 +622,23 @@ export const UI_STRINGS = {
     homeTitle: 'Encuentra tu próxima platino',
     homeSub:
       'Filas curadas — del hardcore Souls a platino familiar. Elige la saga que encaje contigo.',
+    homeFeaturesToggle: 'Más que texto: tu herramienta interactiva de platino',
+    homeFeatureChecklistsTitle: 'Listas interactivas:',
+    homeFeatureChecklistsBody:
+      'Marca trofeos, pasos y coleccionables directamente en la guía – mantén tu progreso siempre a la vista.',
+    homeFeatureVideoTitle: 'Guías con vídeo:',
+    homeFeatureVideoBody:
+      'Nada de paredes de texto. Muchas guías llevan vídeos justo donde los necesitas.',
+    homeFeatureFeedTitle: 'Tu feed personal:',
+    homeFeatureFeedBody:
+      '¿Ya platino o sin interés? Oculta juegos terminados o irrelevantes con un clic.',
+    homeFeatureReportTitle: 'Línea directa con nosotros:',
+    homeFeatureReportBody:
+      'Si algo se ha torcido o hay un error, {link} – nos ocupamos.',
+    homeFeatureReportLink: 'avísanos en un momento',
+    homeFeatureSpamTitle: 'Antispam integrado:',
+    homeFeatureSpamBody:
+      'Adiós al shovelware – filtra los micro-platinos de tu vista con un clic.',
     watchlistTitle: 'Watchlist',
     watchlistBack: '← Volver a la watchlist',
     watchlistCountOne: '1 juego',

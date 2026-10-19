@@ -987,8 +987,8 @@ function App() {
         }) ? (
           <>
             {currentView === 'home' && (
-              <HomePage 
-                openGame={openGuide} 
+              <HomePage
+                openGame={openGuide}
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
                 handleSearchSubmit={handleSearchSubmit}
@@ -996,6 +996,7 @@ function App() {
                 sessionUser={sessionUser}
                 onOpenAdvancedSearch={openAdvancedSearch}
                 onOpenWatchlist={openWatchlist}
+                onOpenGuideHelp={openGuideHelp}
                 excludeQuickwins={excludeQuickwins}
                 onExcludeQuickwinsChange={setExcludeQuickwins}
                 includeTrophiesOnly={includeTrophiesOnly}

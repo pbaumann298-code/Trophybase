@@ -9,6 +9,16 @@ import SearchSkipQuickwins from '../components/SearchSkipQuickwins';
 import SearchIncludeTrophiesOnly from '../components/SearchIncludeTrophiesOnly';
 import '../styles/home.css';
 
+const HOME_FEATURE_KEYS = [
+  ['homeFeatureChecklistsTitle', 'homeFeatureChecklistsBody'],
+  ['homeFeatureVideoTitle', 'homeFeatureVideoBody'],
+  ['homeFeatureFeedTitle', 'homeFeatureFeedBody'],
+  ['homeFeatureReportTitle', 'homeFeatureReportBody'],
+  ['homeFeatureSpamTitle', 'homeFeatureSpamBody'],
+];
+
+const HOME_FEATURE_EMOJIS = ['✅', '🎬', '👁️‍🗨️', '🛠️', '🛡️'];
+
 function HomePage({
   openGame,
   searchQuery,
@@ -18,6 +28,7 @@ function HomePage({
   onRequestLogin,
   onOpenAdvancedSearch,
   onOpenWatchlist,
+  onOpenGuideHelp,
   sessionUser = null,
   excludeQuickwins = true,
   onExcludeQuickwinsChange,
@@ -55,9 +66,55 @@ function HomePage({
   return (
     <div className="home-landing w-full min-w-0 overflow-x-hidden box-border">
       <header className="home-hero">
-        <span className="home-hero-kicker">{t('homeKicker')}</span>
-        <h1 className="home-hero-title">{t('homeTitle')}</h1>
-        <p className="home-hero-sub">{t('homeSub')}</p>
+        <h1 className="home-hero-brand">
+          <a href="/" className="tb-brand" aria-label="TrophyBase.app">
+            <span className="tb-name">TrophyBase</span>
+            <span className="tb-tld">.app</span>
+          </a>
+        </h1>
+
+        <details className="home-hero-features">
+          <summary className="home-hero-features-summary">
+            <span>{t('homeFeaturesToggle')}</span>
+            <span className="home-hero-features-chevron" aria-hidden="true">▾</span>
+          </summary>
+          <ul className="home-hero-features-list">
+            {HOME_FEATURE_KEYS.map(([titleKey, bodyKey], index) => {
+              let body = t(bodyKey);
+              if (titleKey === 'homeFeatureReportTitle') {
+                const [before = '', after = ''] = t('homeFeatureReportBody').split('{link}');
+                body = (
+                  <>
+                    {before}
+                    <a
+                      href="/kurz-erklaert#fehler"
+                      className="home-hero-features-link"
+                      onClick={(event) => {
+                        if (!onOpenGuideHelp) return;
+                        event.preventDefault();
+                        onOpenGuideHelp('fehler');
+                      }}
+                    >
+                      {t('homeFeatureReportLink')}
+                    </a>
+                    {after}
+                  </>
+                );
+              }
+              return (
+                <li key={titleKey}>
+                  <span className="home-hero-features-emoji" aria-hidden="true">
+                    {HOME_FEATURE_EMOJIS[index]}
+                  </span>
+                  <strong>{t(titleKey)}</strong>
+                  {' '}
+                  {body}
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+
         <div className="home-search-block">
           <form ref={searchFormRef} onSubmit={handleSearchSubmit} className="home-search">
             <input
