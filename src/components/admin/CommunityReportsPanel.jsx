@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
-import { fetchCommunityReports, setReportStatus } from '../../lib/communityReportAdmin';
+import {
+  fetchCommunityReports,
+  formatReportDisplayKey,
+  formatReportGameTitle,
+  formatReportNpwr,
+  setReportStatus,
+} from '../../lib/communityReportAdmin';
 import { parseReportImageUrls } from '../../lib/errorReport';
 
 function formatDate(iso) {
@@ -40,19 +46,39 @@ function ReportEvidenceLinks({ imageUrl }) {
   );
 }
 
+function ReportIdentity({ report }) {
+  const title = formatReportGameTitle(report.spieltitel);
+  const npwr = formatReportNpwr(report.platform_game_id);
+  const lang = String(report.language_code ?? '').trim().toUpperCase() || '—';
+  const keyLabel = formatReportDisplayKey(report);
+
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className="text-sm font-bold text-white truncate" title={title}>
+        {title}
+      </p>
+      <p className="text-[11px] font-mono text-zinc-400 flex flex-wrap gap-x-2 gap-y-0.5">
+        <span>{npwr}</span>
+        <span className="text-zinc-600">·</span>
+        <span>{lang}</span>
+        <span className="text-zinc-600">·</span>
+        <span>{keyLabel}</span>
+      </p>
+    </div>
+  );
+}
+
 function ReportCard({ report, onAction, busyId }) {
   const isBusy = busyId === report.id;
 
   return (
     <article className="rounded-xl border border-zinc-800 bg-[#121314] p-4 space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-[10px] font-mono text-zinc-500 uppercase">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-mono text-zinc-500 uppercase mb-1">
             #{report.id} · {report.content_type} · {report.field_name}
           </p>
-          <p className="text-xs font-mono text-zinc-400 mt-0.5">
-            {report.source_identifier} / key {report.content_key}
-          </p>
+          <ReportIdentity report={report} />
         </div>
         <span className="text-[10px] font-mono text-zinc-600">{formatDate(report.created_at)}</span>
       </div>
@@ -99,6 +125,10 @@ function LogRow({ report }) {
     report.status === 'approved'
       ? 'text-[#00ff66] border-[#00ff66]/30 bg-[#00ff66]/5'
       : 'text-red-400 border-red-500/30 bg-red-500/5';
+  const title = formatReportGameTitle(report.spieltitel);
+  const npwr = formatReportNpwr(report.platform_game_id);
+  const lang = String(report.language_code ?? '').trim().toUpperCase() || '—';
+  const keyLabel = formatReportDisplayKey(report);
 
   return (
     <tr className="border-b border-zinc-800/80 hover:bg-zinc-900/30">
@@ -108,7 +138,12 @@ function LogRow({ report }) {
           {report.status}
         </span>
       </td>
-      <td className="py-2.5 px-3 text-xs font-mono text-zinc-400">{report.source_identifier}</td>
+      <td className="py-2.5 px-3 text-xs min-w-[180px]">
+        <p className="font-semibold text-zinc-200 truncate" title={title}>{title}</p>
+        <p className="text-[10px] font-mono text-zinc-500 mt-0.5">
+          {npwr} · {lang} · {keyLabel}
+        </p>
+      </td>
       <td className="py-2.5 px-3 text-xs text-zinc-300 max-w-[200px] truncate" title={report.original_text}>
         {report.original_text}
       </td>

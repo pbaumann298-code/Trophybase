@@ -7,7 +7,10 @@ import {
 } from '../lib/errorReport';
 import { supabase } from '../pages/supabaseClient';
 
-const MAX_EVIDENCE_FILES = 8;
+const MAX_EVIDENCE_FILES = 2;
+const SANDBOX_MIN_MS = 1800;
+const SANDBOX_FAKE_WAIT_MS = 1100;
+const SUCCESS_CLOSE_MS = 1400;
 
 function EvidencePreview({ item, onRemove, removeLabel }) {
   return (
@@ -39,8 +42,10 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
   const [evidenceItems, setEvidenceItems] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [honeypot, setHoneypot] = useState('');
   const fileInputRef = useRef(null);
   const evidenceItemsRef = useRef([]);
+  const openedAtRef = useRef(0);
 
   const revokeAllPreviews = (items) => {
     items.forEach((item) => {
@@ -50,11 +55,13 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
 
   useEffect(() => {
     setSuggestion('');
+    setHoneypot('');
     setEvidenceItems((prev) => {
       revokeAllPreviews(prev);
       return [];
     });
     setFeedback(null);
+    openedAtRef.current = Date.now();
   }, [draft]);
 
   useEffect(() => {
@@ -95,6 +102,16 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
   const { metadata, markedContent, element } = draft;
   const contentKind = detectContentKind(element, markedContent);
 
+  const showSandboxSuccess = async () => {
+    await new Promise((resolve) => setTimeout(resolve, SANDBOX_FAKE_WAIT_MS));
+    setSubmitting(false);
+    setFeedback({
+      type: 'success',
+      text: t('reportSuccess'),
+    });
+    setTimeout(() => onClose(), SUCCESS_CLOSE_MS);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFeedback(null);
@@ -106,7 +123,11 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
 
     setSubmitting(true);
 
-    await supabase.auth.getSession();
+    const elapsedMs = Date.now() - (openedAtRef.current || 0);
+    if (honeypot.trim() !== '' || elapsedMs < SANDBOX_MIN_MS) {
+      await showSandboxSuccess();
+      return;
+    }
 
     let imageUrls = [];
     if (evidenceItems.length > 0) {
@@ -133,6 +154,8 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
       contentKind,
       suggestion,
       imageUrls,
+      honeypot,
+      elapsedMs,
     });
 
     setSubmitting(false);
@@ -149,8 +172,15 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
       type: 'success',
       text: t('reportSuccess'),
     });
-    setTimeout(() => onClose(), 1400);
+    setTimeout(() => onClose(), SUCCESS_CLOSE_MS);
   };
+
+  const markedLabel =
+    contentKind === 'image' || contentKind === 'video'
+      ? contentKind === 'image'
+        ? t('reportImage')
+        : t('reportVideo')
+      : `"${markedContent?.slice(0, 160)}${markedContent?.length > 160 ? '…' : ''}"`;
 
   return (
     <div
@@ -180,49 +210,40 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
-          <div className="rounded-xl border border-zinc-800 bg-[#121314] p-4 text-xs space-y-2">
-            <div className="flex justify-between gap-2">
-              <span className="text-zinc-500">original_text</span>
-              <span className="text-zinc-300 text-right break-all max-w-[65%]">
-                {contentKind === 'image' || contentKind === 'video' ? (
-                  <span className="font-mono text-sky-400">
-                    {contentKind === 'image' ? t('reportImage') : t('reportVideo')}
-                  </span>
-                ) : (
-                  `"${markedContent?.slice(0, 120)}${markedContent?.length > 120 ? '…' : ''}"`
-                )}
-              </span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-zinc-500">content_type</span>
-              <span className="text-zinc-300 font-mono">{metadata.contentType}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-zinc-500">field_name</span>
-              <span className="text-zinc-300 font-mono">{metadata.fieldName}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-zinc-500">content_key</span>
-              <span className="text-zinc-300 font-mono">{metadata.contentKey}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-zinc-500">source_identifier</span>
-              <span className="text-zinc-300 font-mono">{metadata.sourceIdentifier}</span>
-            </div>
-            <div className="flex justify-between gap-2 text-[10px] text-zinc-600 pt-1 border-t border-zinc-800">
-              <span>DB</span>
-              <span className="text-right font-mono">
-                {metadata.sourceTable}.{metadata.sourceColumn}
-              </span>
-            </div>
+        <form onSubmit={handleSubmit} className="p-5 flex flex-col gap-4 max-h-[70vh] overflow-y-auto relative">
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: '-9999px',
+              width: '1px',
+              height: '1px',
+              overflow: 'hidden',
+              opacity: 0,
+              pointerEvents: 'none',
+            }}
+          >
+            <label htmlFor="tb-verification-ref">
+              Bestätigungs-Referenz (Pflichtfeld, bitte ausfüllen) *
+            </label>
+            <input
+              id="tb-verification-ref"
+              name="tb_verification_ref"
+              type="text"
+              tabIndex={-1}
+              autoComplete="new-password"
+              aria-required="true"
+              value={honeypot}
+              onChange={(event) => setHoneypot(event.target.value)}
+            />
           </div>
 
-          {!sessionUser?.id && evidenceItems.length > 0 && (
-            <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-              {t('reportLoginHint')}
+          <div className="rounded-xl border border-zinc-800 bg-[#121314] p-4">
+            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500 mb-2">
+              Markierte Stelle
             </p>
-          )}
+            <p className="text-sm text-zinc-200 break-words leading-relaxed">{markedLabel}</p>
+          </div>
 
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">

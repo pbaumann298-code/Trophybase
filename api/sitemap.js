@@ -11,12 +11,21 @@ export default async function handler(req, res) {
 }
 
 function toUrl(req) {
+  let url;
   if (req?.url && typeof req.url === 'string' && req.url.startsWith('http')) {
-    return new URL(req.url);
+    url = new URL(req.url);
+  } else {
+    const host = req?.headers?.host || 'trophybase.app';
+    const path = req?.url || '/sitemap.xml';
+    url = new URL(path, `https://${host}`);
   }
-  const host = req?.headers?.host || 'trophybase.app';
-  const path = req?.url || '/sitemap.xml';
-  return new URL(path, `https://${host}`);
+
+  // Vercel-Rewrite für /sitemap-de.xml → /api/sitemap?locale=de
+  if (req.query?.locale && !url.searchParams.has('locale')) {
+    url.searchParams.set('locale', String(req.query.locale));
+  }
+
+  return url;
 }
 
 async function send(res, response) {

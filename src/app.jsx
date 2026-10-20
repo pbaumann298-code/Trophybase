@@ -775,15 +775,15 @@ function App() {
       return () => clearGameSeoLinks();
     }
     if (currentView === 'quickwins') {
-      applyPathCanonical(QUICKWINS_PATH, { noIndex: true });
+      applyPathCanonical(QUICKWINS_PATH, { noIndex: false });
       return () => clearGameSeoLinks();
     }
     if (currentView === 'servertot') {
-      applyPathCanonical(servertotPublicPath(globalLocale), { noIndex: true });
+      applyPathCanonical(servertotPublicPath(globalLocale), { noIndex: false });
       return () => clearGameSeoLinks();
     }
-      if (currentView === 'easyplatins') {
-      applyPathCanonical(easyPlatinsPublicPath(globalLocale), { noIndex: true });
+    if (currentView === 'easyplatins') {
+      applyPathCanonical(easyPlatinsPublicPath(globalLocale), { noIndex: false });
       return () => clearGameSeoLinks();
     }
     if (currentView === 'watchlist') {

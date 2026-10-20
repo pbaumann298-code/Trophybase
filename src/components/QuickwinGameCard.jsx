@@ -9,7 +9,13 @@ import { BossKacheln, CollectibleKacheln } from '../pages/CollectibleKacheln';
 import { GuideVideoProvider } from '../context/GuideVideoContext';
 import { useLocale } from '../context/LocaleContext';
 import { GAME_FIELDS } from '../lib/gameSchema';
-import { getGameCover, getGameDescription, getGameTitle, getGameUuid } from '../lib/gameModel';
+import {
+  getGameCover,
+  getGameDescription,
+  getGameTitle,
+  getGameUuid,
+  getPlatformGameId,
+} from '../lib/gameModel';
 import { publicStudioCredits } from '../lib/studioCredits';
 import { gameGuidePath } from '../lib/routeUtils';
 import { fetchGameGuideBundle } from '../lib/guideQueries';
@@ -88,6 +94,11 @@ function QuickwinGameCard({
   const { t, globalLocale } = useLocale();
   const [detailGame, setDetailGame] = useState(game);
   const gameUuid = getGameUuid(detailGame) || getGameUuid(game);
+  const reportSource =
+    getPlatformGameId(detailGame) ||
+    getPlatformGameId(game) ||
+    String(detailGame?.slug || game?.slug || '').trim() ||
+    gameUuid;
   const title = getGameTitle(detailGame, globalLocale);
   const cover = getGameCover(detailGame, globalLocale);
   const credits = publicStudioCredits(detailGame);
@@ -475,7 +486,7 @@ function QuickwinGameCard({
                 </div>
               ) : null}
               <TrophyGroupedChecklist
-                gameId={gameUuid}
+                gameId={reportSource}
                 trophies={trophies}
                 unlockedTrophies={unlocked}
                 earnedTrophyIds={earnedIds}
@@ -503,7 +514,7 @@ function QuickwinGameCard({
                 accent="green"
               >
                 <CollectibleKacheln
-                  gameId={gameUuid}
+                  gameId={reportSource}
                   reportEntityType="guide_step"
                   collectiblesData={walkthrough}
                   trophyById={trophyById}
@@ -530,7 +541,7 @@ function QuickwinGameCard({
                 accent="amber"
               >
                 <CollectibleKacheln
-                  gameId={gameUuid}
+                  gameId={reportSource}
                   reportEntityType="guide_item"
                   collectiblesData={collectibles}
                   trophyById={trophyById}
@@ -568,7 +579,7 @@ function QuickwinGameCard({
                 accent="purple"
               >
                 <BossKacheln
-                  gameId={gameUuid}
+                  gameId={reportSource}
                   bossesData={bosses}
                   trophyById={trophyById}
                   listTitle={t('bosses')}

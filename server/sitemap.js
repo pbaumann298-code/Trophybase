@@ -1,7 +1,10 @@
 import { SUPPORTED_LOCALES } from '../shared/countryLocaleMap.js';
+import { PUBLIC_SITE_LOCALES } from '../src/lib/contentLocales.js';
 import { GAME_STRUCT, GAME_TYPE } from '../src/lib/gameSchema.js';
 import { hardwareToUrlSegment, buildPrettyGamePath } from '../src/lib/gameSlug.js';
 import { GUIDE_PUBLICATION, guideStatusKey } from '../src/lib/guidePublication.js';
+import { servertotPublicPath } from '../src/lib/servertotPage.js';
+import { easyPlatinsPublicPath } from '../src/lib/easyPlatinsPage.js';
 import { getPublicSupabase, publicOrigin } from './publicSupabase.js';
 import { parseSitemapLocale } from './prettyPath.js';
 import { escapeHtml } from './escapeHtml.js';
@@ -21,7 +24,7 @@ function xmlWrap(body) {
 
 /**
  * Nur status->>guide_<lang> = PUBLISHED — damit der Ausdrucksindex greifen kann.
- * is_indexable und Servertot werden danach im JS gefiltert.
+ * Quickwins / easy_platin / Servertot und noindex-Spiele bleiben draußen.
  */
 function publishedGuideQuery(supabase, locale) {
   return supabase
@@ -32,13 +35,19 @@ function publishedGuideQuery(supabase, locale) {
       `${GAME_STRUCT.status}->>${guideStatusKey(locale)}`,
       'eq',
       GUIDE_PUBLICATION.PUBLISHED,
-    );
+    )
+    .neq(GAME_STRUCT.isIndexable, false)
+    .neq(GAME_STRUCT.gameType, GAME_TYPE.SERVER_DEAD)
+    .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
+    .neq(GAME_STRUCT.gameType, GAME_TYPE.EASY_PLATIN);
 }
 
 function isSitemapRow(row) {
   if (!row?.slug || !hardwareToUrlSegment(row.hardware)) return false;
   if (row[GAME_STRUCT.isIndexable] === false) return false;
   if (row[GAME_STRUCT.gameType] === GAME_TYPE.SERVER_DEAD) return false;
+  if (row[GAME_STRUCT.gameType] === GAME_TYPE.QUICKWIN) return false;
+  if (row[GAME_STRUCT.gameType] === GAME_TYPE.EASY_PLATIN) return false;
   return true;
 }
 
@@ -81,6 +90,7 @@ async function loadIndexablePublishedGames(supabase, locale) {
 /**
  * Sprachen nacheinander mit kleinem Limit prüfen.
  * Promise.all hat bei Timeout einer Sprache den ganzen Index auf 500 gesetzt.
+ * PUBLIC_SITE_LOCALES (de/en) stehen immer im Index, damit sitemap-*.xml nie leer bleibt.
  */
 async function localesWithIndexableGames(supabase) {
   const found = [];
@@ -100,31 +110,55 @@ async function localesWithIndexableGames(supabase) {
       /* eine Sprache darf den Index nicht killen */
     }
   }
-  return found;
+
+  const ensured = new Set([...PUBLIC_SITE_LOCALES, ...found]);
+  return SUPPORTED_LOCALES.filter((locale) => ensured.has(locale));
+}
+
+function urlEntry(loc, lastmod = '') {
+  return [
+    '  <url>',
+    `    <loc>${escapeHtml(loc)}</loc>`,
+    lastmod ? `    <lastmod>${escapeHtml(lastmod)}</lastmod>` : '',
+    '    <changefreq>weekly</changefreq>',
+    '  </url>',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/** Statische Sammelseiten – immer vor den Einzelspielen. */
+function staticCollectionUrls(origin, locale) {
+  const urls = [];
+  if (locale === 'de') {
+    urls.push(`${origin}/`);
+    urls.push(`${origin}/quickwins`);
+  }
+  urls.push(`${origin}${servertotPublicPath(locale)}`);
+  urls.push(`${origin}${easyPlatinsPublicPath(locale)}`);
+  return urls;
 }
 
 function urlset(origin, locale, games) {
-  const urls = games
+  const staticPart = staticCollectionUrls(origin, locale)
+    .map((loc) => urlEntry(loc))
+    .join('\n');
+
+  const gamePart = games
     .map((game) => {
       const hardware = hardwareToUrlSegment(game.hardware);
       const loc = buildPrettyGamePath(locale, hardware, game.slug);
       if (!loc) return '';
       const lastmod = String(game[GAME_STRUCT.createdAt] ?? '').slice(0, 10);
-      return [
-        '  <url>',
-        `    <loc>${escapeHtml(`${origin}${loc}`)}</loc>`,
-        lastmod ? `    <lastmod>${escapeHtml(lastmod)}</lastmod>` : '',
-        '    <changefreq>weekly</changefreq>',
-        '  </url>',
-      ]
-        .filter(Boolean)
-        .join('\n');
+      return urlEntry(`${origin}${loc}`, lastmod);
     })
     .filter(Boolean)
     .join('\n');
 
+  const body = [staticPart, gamePart].filter(Boolean).join('\n');
+
   return xmlWrap(
-    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`,
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>`,
   );
 }
 

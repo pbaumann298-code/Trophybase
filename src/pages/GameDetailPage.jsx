@@ -76,6 +76,14 @@ import { useLocale } from '../context/LocaleContext';
 import { contentLocalesForGame } from '../lib/contentLocales';
 import PlatinumUnlockedBadge from '../components/PlatinumUnlockedBadge';
 
+function reportSourceForGame(game) {
+  return (
+    getPlatformGameId(game) ||
+    String(game?.slug ?? '').trim() ||
+    getGameUuid(game)
+  );
+}
+
 const TAB_META = {
   reiter0: { icon: '🏆', labelKey: 'trophies' },
   reiter1: { icon: '📖', labelKey: 'fullGameplay' },
@@ -322,6 +330,8 @@ function GamePageContent({
   const watchlistGameId = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
 
   const gameId = watchlistGameId;
+  /** Außen sichtbare Spiel-Referenz für Fehlermeldungen (NPWR, kein UUID). */
+  const reportSource = useMemo(() => reportSourceForGame(selectedGame), [selectedGame]);
   /** Sprache des angezeigten Guides. Freigabe und Tipp-Änderungen gelten nur für diese Sprache. */
   const effectiveGuideLang = resolveGuideLanguage(globalLocale, guideLanguageOverride);
   const [hiddenTrophyMode, setHiddenTrophyMode] = useState(() => loadHiddenTrophyMode(gameId));
@@ -931,7 +941,7 @@ function GamePageContent({
             </div>
           ) : null}
           <TrophyGroupedChecklist
-            gameId={gameId}
+            gameId={reportSource}
             trophies={trophiesOnly || !isAdmin ? activeTrophies : trophiesWithTips}
             unlockedTrophies={unlockedTrophies}
             earnedTrophyIds={earnedTrophyIds}
@@ -971,7 +981,7 @@ function GamePageContent({
               accent="green"
             >
               <CollectibleKacheln
-                gameId={gameId}
+                gameId={reportSource}
                 reportEntityType="guide_step"
                 collectiblesData={chronologicalGuideData}
                 trophyById={trophyById}
@@ -1017,7 +1027,7 @@ function GamePageContent({
               accent="amber"
             >
               <CollectibleKacheln
-                gameId={gameId}
+                gameId={reportSource}
                 reportEntityType="guide_item"
                 collectiblesData={byTypeGuideData}
                 trophyById={trophyById}
@@ -1063,7 +1073,7 @@ function GamePageContent({
               accent="purple"
             >
               <BossKacheln
-                gameId={gameId}
+                gameId={reportSource}
                 bossesData={bossOverviewData}
                 trophyById={trophyById}
                 listTitle={t('bosses')}

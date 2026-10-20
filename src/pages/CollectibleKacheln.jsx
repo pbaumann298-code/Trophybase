@@ -323,7 +323,9 @@ function SplitScreenGuideKacheln({
                     const { dimmed } = getEntryState(visKey);
                     const isCompleted = isItemCompleted(item);
                     const displayName = getDisplayName(item);
-                    const reportKey = String(item[reportKeyField] ?? item.id ?? '');
+                    const reportKey = String(
+                      item.guide_sequence ?? item[reportKeyField] ?? item.id ?? '',
+                    );
                     const userHidden = isHidden(visKey);
                     const isActive = activeVideo?.itemId === item.id;
                     const hasVideo = !!item.video_url;

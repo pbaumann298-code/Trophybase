@@ -183,13 +183,13 @@ export function getPlatformGameId(game) {
 }
 
 /**
- * URL-Segment: UUID bevorzugt. Die NPWR-Liste aus games ist mehrdeutig und
- * taugt nicht als Route.
+ * URL-Segment für Fallback-Routen: NPWR bevorzugt (keine UUID in der Adresse).
+ * Pretty-Slugs greifen separat über gameGuidePath, sobald der Guide veröffentlicht ist.
  */
 export function getRouteSlug(gameOrId) {
   if (!gameOrId) return '';
   if (typeof gameOrId === 'string') return gameOrId.trim();
-  return getGameUuid(gameOrId) || getPlatformGameId(gameOrId);
+  return getPlatformGameId(gameOrId) || getGameUuid(gameOrId);
 }
 
 /**

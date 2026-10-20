@@ -8,6 +8,7 @@ import {
   GUIDE_STRUCT,
   GAME_TYPE,
 } from './gameSchema';
+import { getPlatformGameId } from './gameModel';
 import { applyStaffGuideScope, searchWords, validateSearchQuery } from './gameQueries';
 import { applyPipelineStatusFilters } from './gamePipelineStatus';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
@@ -68,7 +69,10 @@ export function formatIntranetTitles(spieltitel) {
 }
 
 export function intranetGameHref(game) {
-  const id = String(game?.[GAME_PK] ?? '').trim();
+  const id =
+    getPlatformGameId(game) ||
+    String(game?.slug ?? '').trim() ||
+    String(game?.[GAME_PK] ?? '').trim();
   return id ? `/guide/${encodeURIComponent(id)}` : '';
 }
 

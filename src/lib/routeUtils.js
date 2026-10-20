@@ -79,7 +79,7 @@ export function getViewFromPath(pathname = '', search) {
 
 /**
  * Pretty-URL nur für veröffentlichte Guides (statische HTML-Seite).
- * Unveröffentlichte Admin-Vorschau bleibt /guide/{uuid} in der SPA.
+ * Unveröffentlichte Vorschau: /guide/{NPWR} statt /guide/{uuid}.
  */
 export function gameGuidePath(gameOrRef, locale = getLocale()) {
   if (!gameOrRef) return '/';
@@ -89,7 +89,7 @@ export function gameGuidePath(gameOrRef, locale = getLocale()) {
     return id ? `/guide/${id}` : '/';
   }
 
-  const id = getGameUuid(gameOrRef) || getPlatformGameId(gameOrRef);
+  const id = getPlatformGameId(gameOrRef) || getGameUuid(gameOrRef);
   const publishedLocales = publishedGuideLocales(gameOrRef);
   if (publishedLocales.length > 0) {
     const slug = String(gameOrRef.slug ?? '').trim();

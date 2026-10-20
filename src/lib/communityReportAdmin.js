@@ -1,9 +1,87 @@
-import { TABLES, ACHIEVEMENT_PK, GAME_FK, GUIDE_PK, GUIDE_I18N } from './gameSchema';
+import {
+  TABLES,
+  ACHIEVEMENT_PK,
+  GAME_FK,
+  GAME_I18N,
+  GAME_PK,
+  GAME_PLATFORM_ID,
+  GUIDE_PK,
+  GUIDE_I18N,
+  GUIDE_STRUCT,
+} from './gameSchema';
 import { getLocale } from './locale';
+import { isUuid } from './gameModel';
+import { resolveGameUuid } from './gameQueries';
 import { mergeLocalizedValue } from './translationUtils';
 import { REPORT_ENTITY_MAP } from './errorReport';
+import { formatIntranetTitles } from './intranetQueries';
 
 const DEFAULT_REPORT_LANG = 'de';
+
+function hasDisplayValue(value) {
+  if (value == null || value === '') return false;
+  if (typeof value === 'object') {
+    if (Array.isArray(value)) return value.some((item) => String(item ?? '').trim());
+    return Object.values(value).some((item) => String(item ?? '').trim());
+  }
+  return Boolean(String(value).trim());
+}
+
+/**
+ * Lesbare NPWR aus JSONB-Array oder String.
+ * @param {unknown} value
+ */
+export function formatReportNpwr(value) {
+  if (Array.isArray(value)) {
+    const first = value.map((item) => String(item ?? '').trim()).find(Boolean);
+    return first || '—';
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '—';
+    if (trimmed.startsWith('[')) {
+      try {
+        return formatReportNpwr(JSON.parse(trimmed));
+      } catch {
+        return trimmed;
+      }
+    }
+    return trimmed;
+  }
+  return '—';
+}
+
+/**
+ * Spieltitel aus community_reports.spieltitel (JSONB oder String).
+ * @param {unknown} value
+ */
+export function formatReportGameTitle(value) {
+  const label = formatIntranetTitles(value);
+  if (label && label !== '—') {
+    // formatIntranetTitles liefert "DE Title · EN Title" – für die Karte reicht der erste.
+    return label.split(' · ')[0].replace(/^[A-Z]{2}\s+/, '') || label;
+  }
+  return '—';
+}
+
+/**
+ * Lesbare Positionsangabe (Trophäe #14 / Guide-Schritt #5).
+ * @param {object} report
+ */
+export function formatReportDisplayKey(report) {
+  const explicit = String(report?.display_key ?? '').trim();
+  if (explicit) return explicit;
+
+  const key = String(report?.content_key ?? '').trim();
+  if (!key) return '—';
+
+  const type = String(report?.content_type ?? '').trim();
+  if (type === 'trophy') return `Trophäe #${key}`;
+  if (type === 'guide_step' || type === 'item_name' || type === 'guide_item') {
+    return `Guide-Schritt #${key}`;
+  }
+  return key;
+}
 
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
@@ -11,7 +89,14 @@ const DEFAULT_REPORT_LANG = 'de';
  */
 export async function resolveApplyTarget(supabase, report) {
   const { content_type, field_name, content_key, source_identifier } = report;
-  const lang = getLocale() || DEFAULT_REPORT_LANG;
+  const lang = report.language_code || getLocale() || DEFAULT_REPORT_LANG;
+
+  const { uuid: gameId, error: resolveError } = await resolveGameUuid(
+    supabase,
+    source_identifier,
+  );
+  if (resolveError) return { target: null, error: resolveError.message };
+  if (!gameId) return { target: null, error: 'Spiel zur Meldung nicht gefunden.' };
 
   if (content_type === 'trophy') {
     const jsonField = REPORT_ENTITY_MAP.trophy.jsonLangFields[field_name];
@@ -26,12 +111,12 @@ export async function resolveApplyTarget(supabase, report) {
       target: {
         table: TABLES.achievements,
         pkColumns: {
-          [GAME_FK]: source_identifier,
+          [GAME_FK]: gameId,
           [ACHIEVEMENT_PK]: content_key,
         },
         column,
         jsonLang: jsonField ? lang : null,
-        gameId: source_identifier,
+        gameId,
       },
       error: null,
     };
@@ -40,17 +125,18 @@ export async function resolveApplyTarget(supabase, report) {
   if (content_type === 'guide_step' || content_type === 'item_name') {
     const column =
       REPORT_ENTITY_MAP.guide_item.jsonLangFields?.[field_name] || GUIDE_I18N.itemName;
+    const key = String(content_key ?? '').trim();
+    const pkColumns = isUuid(key)
+      ? { [GAME_FK]: gameId, [GUIDE_PK]: key }
+      : { [GAME_FK]: gameId, [GUIDE_STRUCT.guideId]: key };
 
     return {
       target: {
         table: TABLES.guides,
-        pkColumns: {
-          [GAME_FK]: source_identifier,
-          [GUIDE_PK]: content_key,
-        },
+        pkColumns,
         column,
         jsonLang: lang,
-        gameId: source_identifier,
+        gameId,
       },
       error: null,
     };
@@ -72,7 +158,49 @@ export async function fetchCommunityReports(supabase) {
     .select('*')
     .order('created_at', { ascending: false });
 
-  return { reports: data ?? [], error };
+  if (error) return { reports: [], error };
+
+  const reports = data ?? [];
+  const uuidIds = [
+    ...new Set(
+      reports
+        .filter(
+          (row) =>
+            isUuid(row.source_identifier) &&
+            (!hasDisplayValue(row.spieltitel) || !hasDisplayValue(row.platform_game_id)),
+        )
+        .map((row) => String(row.source_identifier).trim()),
+    ),
+  ];
+
+  if (uuidIds.length === 0) return { reports, error: null };
+
+  const { data: games, error: gamesError } = await supabase
+    .from(TABLES.games)
+    .select([GAME_PK, GAME_I18N.title, GAME_PLATFORM_ID].join(', '))
+    .in(GAME_PK, uuidIds);
+
+  if (gamesError) {
+    // Meldungen trotzdem zeigen – nur Anzeige-Anreicherung fehlt.
+    console.error('community_reports game lookup:', gamesError.message);
+    return { reports, error: null };
+  }
+
+  const byId = new Map((games ?? []).map((game) => [game[GAME_PK], game]));
+  const enriched = reports.map((row) => {
+    if (!isUuid(row.source_identifier)) return row;
+    const game = byId.get(row.source_identifier);
+    if (!game) return row;
+    return {
+      ...row,
+      spieltitel: hasDisplayValue(row.spieltitel) ? row.spieltitel : game[GAME_I18N.title],
+      platform_game_id: hasDisplayValue(row.platform_game_id)
+        ? row.platform_game_id
+        : game[GAME_PLATFORM_ID],
+    };
+  });
+
+  return { reports: enriched, error: null };
 }
 
 /**
