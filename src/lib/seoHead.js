@@ -4,6 +4,7 @@ import {
   SITE_NAME,
   HOME_META_TITLE,
   buildGameSeo,
+  buildHomeJsonLd,
   hreflangCluster,
 } from './gameSeo';
 
@@ -195,6 +196,24 @@ export function applyGameSeoLinks({ locale, hardware, slug, game, noIndex = fals
   appendJsonLd(seo.jsonLd);
 }
 
+function syncHomeJsonLd() {
+  if (typeof document === 'undefined') return;
+  const origin = getCanonicalOrigin().replace(/\/$/, '');
+  const json = JSON.stringify(buildHomeJsonLd(origin));
+  const existing = document.querySelector(
+    `script[${HOME_SEO_ATTR}][type="application/ld+json"]`,
+  );
+  if (existing) {
+    existing.textContent = json;
+    return;
+  }
+  const el = document.createElement('script');
+  el.setAttribute(HOME_SEO_ATTR, 'true');
+  el.type = 'application/ld+json';
+  el.textContent = json;
+  document.head.appendChild(el);
+}
+
 export function applyHomeSeo() {
   if (typeof document === 'undefined') return;
   applyRobotsNoIndex(false);
@@ -202,6 +221,7 @@ export function applyHomeSeo() {
   removeSeoMeta();
   restoreHomeSeo();
   setDocumentTitle(HOME_META_TITLE);
+  syncHomeJsonLd();
 }
 
 export function applyPathCanonical(path, { noIndex = false } = {}) {

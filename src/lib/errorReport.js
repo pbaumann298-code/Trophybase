@@ -37,6 +37,7 @@ export const REPORT_ENTITY_MAP = {
       description: ACHIEVEMENT_I18N.desc,
       ai_translation: ACHIEVEMENT_I18N.aiTranslation,
       guide_tip: ACHIEVEMENT_I18N.guideTip,
+      guide_tip_long: ACHIEVEMENT_I18N.guideTipLong,
     },
     structFields: {
       video_url: ACHIEVEMENT_STRUCT.videoUrl,

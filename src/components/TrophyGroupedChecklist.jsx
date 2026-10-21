@@ -78,6 +78,84 @@ function TrophyTipEditor({ trophy, onSave }) {
   );
 }
 
+function TrophyLongTipEditor({ trophy, onSave }) {
+  const { t } = useLocale();
+  const saved = String(trophy.guide_tip_long ?? '');
+  const hasTip = Boolean(saved.trim());
+  const [open, setOpen] = useState(hasTip);
+  const [draft, setDraft] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const [hint, setHint] = useState('');
+
+  useEffect(() => {
+    setDraft(saved);
+    if (hasTip) setOpen(true);
+  }, [saved, hasTip]);
+
+  const commit = async (text) => {
+    if (text.trim() === saved.trim() || busy) return;
+    setBusy(true);
+    setHint('');
+    const error = await onSave(text);
+    setBusy(false);
+    if (error) {
+      setHint(t('trophyLongTipFailed'));
+      return;
+    }
+    setHint(t('trophyLongTipSaved'));
+    if (!String(text ?? '').trim()) setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+        >
+          {t('trophyLongTipAdd')}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex items-start gap-2">
+      <label className="min-w-0 flex-1">
+        <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66]">
+          {t('trophyLongTipLabel')}
+        </span>
+        <textarea
+          value={draft}
+          rows={4}
+          placeholder={t('trophyLongTipPlaceholder')}
+          disabled={busy}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => commit(draft)}
+          className="w-full resize-y rounded-lg border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66]/40 focus:outline-hidden"
+        />
+        {hint ? <span className="mt-1 block text-[10px] text-zinc-500">{hint}</span> : null}
+      </label>
+      <button
+        type="button"
+        title={t('trophyLongTipDelete')}
+        aria-label={t('trophyLongTipDelete')}
+        disabled={busy || !draft.trim()}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          if (!window.confirm(t('trophyLongTipDeleteConfirm'))) return;
+          setDraft('');
+          commit('');
+        }}
+        className="mt-5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-700 text-zinc-400 hover:border-red-500/40 hover:text-red-300 disabled:opacity-30"
+      >
+        <TrashIcon />
+      </button>
+    </div>
+  );
+}
+
 function TrophyVideoEditor({ trophy, onSave }) {
   const { t } = useLocale();
   const savedUrl = String(trophy.video_url ?? '');
@@ -278,6 +356,7 @@ function TrophyRow({
   conceal,
   onToggle,
   guideTipEditor,
+  guideTipLongEditor = null,
   onTrophyVideo = null,
   onTrophyFlags,
   onlinePickMode = false,
@@ -449,12 +528,20 @@ function TrophyRow({
           </span>
         </div>
       </div>
-      {guideTipEditor && !onlinePickMode ? (
+      {(guideTipEditor || guideTipLongEditor) && !onlinePickMode ? (
         <>
-          <TrophyTipEditor
-            trophy={trophy}
-            onSave={(text) => guideTipEditor(getTrophyIdKey(trophy), text)}
-          />
+          {guideTipEditor ? (
+            <TrophyTipEditor
+              trophy={trophy}
+              onSave={(text) => guideTipEditor(getTrophyIdKey(trophy), text)}
+            />
+          ) : null}
+          {guideTipLongEditor ? (
+            <TrophyLongTipEditor
+              trophy={trophy}
+              onSave={(text) => guideTipLongEditor(getTrophyIdKey(trophy), text)}
+            />
+          ) : null}
           {onTrophyVideo ? (
             <TrophyVideoEditor
               trophy={trophy}
@@ -463,7 +550,8 @@ function TrophyRow({
           ) : null}
         </>
       ) : null}
-      {!guideTipEditor && !onlinePickMode && !conceal && !isUnlocked && (trophy.guide_tip || trophy.video_url) && (
+      {!guideTipEditor && !guideTipLongEditor && !onlinePickMode && !conceal && !isUnlocked
+        && (trophy.guide_tip || trophy.guide_tip_long || trophy.video_url) && (
         <div className="mt-1 pl-4 border-l-2 border-[#00ff66]/30 flex flex-col gap-2 bg-zinc-950/40 p-2 rounded-r-xl">
           {trophy.guide_tip && (
             <p className="text-xs text-zinc-400 font-sans italic">
@@ -476,6 +564,20 @@ function TrophyRow({
                 field="guide_tip"
               >
                 {trophy.guide_tip}
+              </Reportable>
+            </p>
+          )}
+          {trophy.guide_tip_long && (
+            <p className="text-xs text-zinc-400 font-sans italic">
+              <span className="text-[#00ff66] font-mono font-bold not-italic mr-1">{t('trophyLongTipPrefix')}</span>
+              <Reportable
+                as="span"
+                source={gameId}
+                type="trophy"
+                reportKey={trophyKey}
+                field="guide_tip_long"
+              >
+                {trophy.guide_tip_long}
               </Reportable>
             </p>
           )}
@@ -521,6 +623,7 @@ function TrophyList({
   revealHidden,
   onToggle,
   guideTipEditor,
+  guideTipLongEditor = null,
   onTrophyVideo,
   onTrophyFlags,
   onlinePickMode = false,
@@ -559,6 +662,7 @@ function TrophyList({
             conceal={Boolean(trophy.is_hidden) && !revealHidden && !isUnlocked}
             onToggle={onToggle}
             guideTipEditor={guideTipEditor}
+            guideTipLongEditor={guideTipLongEditor}
             onTrophyVideo={onTrophyVideo}
             onTrophyFlags={onTrophyFlags}
             onlinePickMode={onlinePickMode}
@@ -583,6 +687,7 @@ function TrophyGroupedChecklist({
   /** Kein zusätzlicher Karten-Reiter, wenn die Liste schon in einer Zeile steckt. */
   flat = false,
   guideTipEditor = null,
+  guideTipLongEditor = null,
   onTrophyVideo = null,
   onTrophyFlags = null,
   onlinePickMode = false,
@@ -624,6 +729,7 @@ function TrophyGroupedChecklist({
             revealHidden={revealHidden}
             onToggle={onToggle}
             guideTipEditor={guideTipEditor}
+            guideTipLongEditor={guideTipLongEditor}
             onTrophyVideo={onTrophyVideo}
             onTrophyFlags={onTrophyFlags}
             onlinePickMode={onlinePickMode}
@@ -656,6 +762,7 @@ function TrophyGroupedChecklist({
                 revealHidden={revealHidden}
                 onToggle={onToggle}
                 guideTipEditor={guideTipEditor}
+                guideTipLongEditor={guideTipLongEditor}
                 onTrophyVideo={onTrophyVideo}
                 onTrophyFlags={onTrophyFlags}
                 onlinePickMode={onlinePickMode}
@@ -690,6 +797,7 @@ function TrophyGroupedChecklist({
             revealHidden={revealHidden}
             onToggle={onToggle}
             guideTipEditor={guideTipEditor}
+            guideTipLongEditor={guideTipLongEditor}
             onTrophyVideo={onTrophyVideo}
             onTrophyFlags={onTrophyFlags}
             onlinePickMode={onlinePickMode}
@@ -724,6 +832,7 @@ function TrophyGroupedChecklist({
               revealHidden={revealHidden}
               onToggle={onToggle}
               guideTipEditor={guideTipEditor}
+              guideTipLongEditor={guideTipLongEditor}
               onTrophyVideo={onTrophyVideo}
               onTrophyFlags={onTrophyFlags}
               onlinePickMode={onlinePickMode}

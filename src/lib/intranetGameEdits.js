@@ -21,6 +21,7 @@ import {
   publishingFieldsFromStatus,
 } from './guidePublication';
 import { normalizeLocale } from './locale';
+import { mergeLocalizedValue } from './translationUtils';
 import { normalizeTrophyVideoInput, getYouTubeVideoId } from '../utils/videoUrl';
 
 /** Pipeline-Schlüssel, die einen vorhandenen Guide markieren und mit ihm wegfallen. */
@@ -211,12 +212,18 @@ function columnWithoutLocale(value, locale) {
   return Object.keys(map).length ? map : null;
 }
 
-/** Kurz- und Langfassung nur für diese Sprache leeren. Andere Schlüssel bleiben. */
+/** Nur guide_tip für diese Sprache leeren. Guide-Tip-lang bleibt unangetastet. */
 function localeClearPatch(row, locale) {
   const patch = {};
   const tip = columnWithoutLocale(row?.[ACHIEVEMENT_I18N.guideTip], locale);
-  const longTip = columnWithoutLocale(row?.[ACHIEVEMENT_I18N.guideTipLong], locale);
   if (tip !== undefined) patch[ACHIEVEMENT_I18N.guideTip] = tip;
+  return patch;
+}
+
+/** Nur Guide-Tip-lang für diese Sprache leeren. */
+function localeClearLongTipPatch(row, locale) {
+  const patch = {};
+  const longTip = columnWithoutLocale(row?.[ACHIEVEMENT_I18N.guideTipLong], locale);
   if (longTip !== undefined) patch[ACHIEVEMENT_I18N.guideTipLong] = longTip;
   return patch;
 }
@@ -250,8 +257,8 @@ export async function saveTrophyVideo(supabase, gameId, achievementId, video) {
 }
 
 /**
- * Schreibt den Guide-Tipp einer Trophäe in der aktuellen Sprache.
- * Leerer Text löscht Kurz- und Langfassung nur in dieser Sprache.
+ * Schreibt den kurzen Guide-Tipp einer Trophäe in der aktuellen Sprache.
+ * Leerer Text löscht nur guide_tip in dieser Sprache – Guide-Tip-lang bleibt.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
  * @param {string} achievementId
@@ -271,7 +278,7 @@ export async function saveTrophyGuideTip(supabase, gameId, achievementId, locale
   if (!next) {
     const { data, error: readError } = await supabase
       .from(TABLES.achievements)
-      .select('*')
+      .select(ACHIEVEMENT_I18N.guideTip)
       .eq(GAME_FK, game)
       .eq(ACHIEVEMENT_PK, achievement)
       .maybeSingle();
@@ -311,6 +318,67 @@ export async function saveTrophyGuideTip(supabase, gameId, achievementId, locale
 }
 
 /**
+ * Schreibt Guide-Tip-lang einer Trophäe in der aktuellen Sprache.
+ * Leerer Text entfernt nur diesen Sprachschlüssel in Guide-Tip-lang.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {string} achievementId
+ * @param {string} locale
+ * @param {string} text
+ */
+export async function saveTrophyGuideTipLong(supabase, gameId, achievementId, locale, text) {
+  const game = String(gameId ?? '').trim();
+  const achievement = String(achievementId ?? '').trim();
+  const lang = String(locale ?? '').trim();
+  const next = String(text ?? '').trim();
+  if (!game || !achievement) {
+    return { error: new Error('Trophäe fehlt.') };
+  }
+  if (!lang) return { error: new Error('Keine Sprache ausgewählt.') };
+
+  if (!next) {
+    const { data, error: readError } = await supabase
+      .from(TABLES.achievements)
+      .select(ACHIEVEMENT_I18N.guideTipLong)
+      .eq(GAME_FK, game)
+      .eq(ACHIEVEMENT_PK, achievement)
+      .maybeSingle();
+
+    if (readError) return { error: readError };
+
+    const patch = localeClearLongTipPatch(data, lang);
+    if (!Object.keys(patch).length) return { error: null };
+
+    const { error } = await supabase
+      .from(TABLES.achievements)
+      .update(patch)
+      .eq(GAME_FK, game)
+      .eq(ACHIEVEMENT_PK, achievement);
+    return { error: error ?? null };
+  }
+
+  const { data, error: readError } = await supabase
+    .from(TABLES.achievements)
+    .select(ACHIEVEMENT_I18N.guideTipLong)
+    .eq(GAME_FK, game)
+    .eq(ACHIEVEMENT_PK, achievement)
+    .maybeSingle();
+
+  if (readError) return { error: readError };
+
+  const map = asTipMap(data?.[ACHIEVEMENT_I18N.guideTipLong]);
+  map[lang] = next;
+
+  const { error } = await supabase
+    .from(TABLES.achievements)
+    .update({ [ACHIEVEMENT_I18N.guideTipLong]: map })
+    .eq(GAME_FK, game)
+    .eq(ACHIEVEMENT_PK, achievement);
+
+  return { error: error ?? null };
+}
+
+/**
  * Löscht Kurz- und Langfassung der Guide-Tipps eines Spiels in einer Sprache.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
@@ -331,7 +399,10 @@ export async function clearGameGuideTips(supabase, gameId, locale) {
 
   const pending = [];
   for (const row of data ?? []) {
-    const patch = localeClearPatch(row, lang);
+    const patch = {
+      ...localeClearPatch(row, lang),
+      ...localeClearLongTipPatch(row, lang),
+    };
     if (!Object.keys(patch).length) continue;
     pending.push({ id: row[ACHIEVEMENT_PK], patch });
   }
@@ -557,14 +628,26 @@ function parsePlaytimeHours(value) {
 }
 
 /**
- * Speichert Spielzeit-Spalten auf public.games.
+ * Speichert Spielzeit-Spalten auf public.games und optional den Kurztext
+ * status_explanation_localized für eine Sprache.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
- * @param {{ hauptstory?: unknown, komplett?: unknown }} values
+ * @param {{ hauptstory?: unknown, komplett?: unknown, statusExplanation?: string, locale?: string }} values
  */
-export async function saveGamePlaytime(supabase, gameId, { hauptstory, komplett } = {}) {
+export async function saveGamePlaytime(
+  supabase,
+  gameId,
+  { hauptstory, komplett, statusExplanation, locale } = {},
+) {
   const id = String(gameId ?? '').trim();
-  if (!id) return { hauptstory: null, komplett: null, error: new Error('Kein Spiel ausgewählt.') };
+  if (!id) {
+    return {
+      hauptstory: null,
+      komplett: null,
+      statusExplanation: null,
+      error: new Error('Kein Spiel ausgewählt.'),
+    };
+  }
 
   const nextHauptstory = parsePlaytimeHours(hauptstory);
   const nextKomplett = parsePlaytimeHours(komplett);
@@ -579,10 +662,54 @@ export async function saveGamePlaytime(supabase, gameId, { hauptstory, komplett 
     .select('spielzeit_hauptstory, spielzeit_komplettierer')
     .maybeSingle();
 
-  if (error) return { hauptstory: null, komplett: null, error };
+  if (error) {
+    return { hauptstory: null, komplett: null, statusExplanation: null, error };
+  }
+
+  let nextExplanation =
+    statusExplanation === undefined ? null : String(statusExplanation ?? '');
+
+  if (statusExplanation !== undefined && locale) {
+    const { data: current, error: readError } = await supabase
+      .from(TABLES.games)
+      .select(GAME_I18N.statusExplanation)
+      .eq(GAME_PK, id)
+      .maybeSingle();
+    if (readError) {
+      return {
+        hauptstory: data?.spielzeit_hauptstory ?? nextHauptstory,
+        komplett: data?.spielzeit_komplettierer ?? nextKomplett,
+        statusExplanation: null,
+        error: readError,
+      };
+    }
+
+    const patch = {
+      [GAME_I18N.statusExplanation]: mergeLocalizedValue(
+        current?.[GAME_I18N.statusExplanation],
+        locale,
+        String(statusExplanation).trim(),
+      ),
+    };
+    const { error: explError } = await supabase
+      .from(TABLES.games)
+      .update(patch)
+      .eq(GAME_PK, id);
+    if (explError) {
+      return {
+        hauptstory: data?.spielzeit_hauptstory ?? nextHauptstory,
+        komplett: data?.spielzeit_komplettierer ?? nextKomplett,
+        statusExplanation: null,
+        error: explError,
+      };
+    }
+    nextExplanation = String(statusExplanation).trim();
+  }
+
   return {
     hauptstory: data?.spielzeit_hauptstory ?? nextHauptstory,
     komplett: data?.spielzeit_komplettierer ?? nextKomplett,
+    statusExplanation: nextExplanation,
     error: null,
   };
 }

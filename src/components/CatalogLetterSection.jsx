@@ -136,7 +136,6 @@ function CatalogLetterSection({
               includeReady={includeReady}
               serverNotice={serverNotice}
               serverNoticeText={serverNoticeText}
-              allowFullGameNav={false}
             />
           </div>
         ) : null}
@@ -224,7 +223,6 @@ function CatalogLetterSection({
                 includeReady={includeReady}
                 serverNotice={serverNotice}
                 serverNoticeText={serverNoticeText}
-                allowFullGameNav={false}
               />
             </div>
           ) : null}

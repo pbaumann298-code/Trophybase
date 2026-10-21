@@ -48,7 +48,7 @@ import {
   DEFAULT_GUIDE_TAB,
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
-import { GAME_STRUCT, GAME_TYPE, TABLES, isServerDeadType } from './lib/gameSchema';
+import { GAME_STRUCT, GAME_TYPE, TABLES } from './lib/gameSchema';
 import { isGuidePublished } from './lib/guidePublication';
 import {
   parseServertotPath,
@@ -278,19 +278,6 @@ function App() {
     }
 
     if (gameData) {
-      if (isServerDeadType(gameData[GAME_STRUCT.gameType])) {
-        setSelectedGame(null);
-        setActiveTrophies([]);
-        setGuideItems([]);
-        setChapterItems([]);
-        setBossItems([]);
-        setGuideLoadError(null);
-        setLoadingGuide(false);
-        setCurrentView('servertot');
-        navigateToQuickwins({}, { path: servertotPublicPath(localeForPage), replace: true });
-        return;
-      }
-
       writeAppPath(
         withGuideTabParam(
           gameGuidePath(gameData, localeForPage),
@@ -593,13 +580,6 @@ function App() {
     const token = gameUuid || gameId || '';
     openedGameRef.current = token;
 
-    if (isServerDeadType(game?.[GAME_STRUCT.gameType])) {
-      setSelectedGame(null);
-      setCurrentView('servertot');
-      navigateToQuickwins({}, { path: servertotPublicPath(globalLocale) });
-      return;
-    }
-
     setGuideReturnView(currentView);
     setSelectedGame(game);
     setCurrentView('game_info');
@@ -634,13 +614,6 @@ function App() {
 
     const resolvedGame = fullGame?.data || game;
     if (fullGame?.data) {
-      if (isServerDeadType(fullGame.data[GAME_STRUCT.gameType])) {
-        setSelectedGame(null);
-        setLoadingGuide(false);
-        setCurrentView('servertot');
-        navigateToQuickwins({}, { path: servertotPublicPath(globalLocale), replace: true });
-        return;
-      }
       setSelectedGame(fullGame.data);
     }
 

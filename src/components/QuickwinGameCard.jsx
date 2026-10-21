@@ -20,7 +20,14 @@ import { publicStudioCredits } from '../lib/studioCredits';
 import { gameGuidePath } from '../lib/routeUtils';
 import { fetchGameGuideBundle } from '../lib/guideQueries';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
-import { clearGameGuideTips, saveTrophyGuideTip, saveTrophyVideo, setAchievementFlags, setAchievementsOnline } from '../lib/intranetGameEdits';
+import {
+  clearGameGuideTips,
+  saveTrophyGuideTip,
+  saveTrophyGuideTipLong,
+  saveTrophyVideo,
+  setAchievementFlags,
+  setAchievementsOnline,
+} from '../lib/intranetGameEdits';
 import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
 import {
   buildBossOverviewData,
@@ -184,7 +191,25 @@ function QuickwinGameCard({
     const next = text.trim();
     setTrophies((prev) => prev.map((trophy) => (
       getTrophyIdKey(trophy) === achievementId
-        ? { ...trophy, guide_tip: next, guide_tip_long: next ? trophy.guide_tip_long : '' }
+        ? { ...trophy, guide_tip: next }
+        : trophy
+    )));
+    return null;
+  };
+
+  const saveGuideTipLong = async (achievementId, text) => {
+    const { error } = await saveTrophyGuideTipLong(
+      supabase,
+      gameUuid,
+      achievementId,
+      globalLocale,
+      text,
+    );
+    if (error) return error;
+    const next = text.trim();
+    setTrophies((prev) => prev.map((trophy) => (
+      getTrophyIdKey(trophy) === achievementId
+        ? { ...trophy, guide_tip_long: next }
         : trophy
     )));
     return null;
@@ -420,29 +445,26 @@ function QuickwinGameCard({
             <div className="quickwin-tab">
               {serverNotice ? (
                 <p className="quickwin-server-notice">{serverNoticeText}</p>
-              ) : (
-                <>
-                  <div className="quickwin-progress">
-                    <div className="quickwin-progress-label">
-                      <span>{t('overallProgress')}</span>
-                      <strong>
-                        {progressPercent}% ({doneCount}/{trophies.length})
-                      </strong>
-                    </div>
-                    <div className="quickwin-progress-track">
-                      <div style={{ width: `${progressPercent}%` }} />
-                    </div>
-                  </div>
-                  <label className="quickwin-hide-done">
-                    <input
-                      type="checkbox"
-                      checked={hideCompleted}
-                      onChange={(event) => setHideCompleted(event.target.checked)}
-                    />
-                    {t('hideCompleted')}
-                  </label>
-                </>
-              )}
+              ) : null}
+              <div className="quickwin-progress">
+                <div className="quickwin-progress-label">
+                  <span>{t('overallProgress')}</span>
+                  <strong>
+                    {progressPercent}% ({doneCount}/{trophies.length})
+                  </strong>
+                </div>
+                <div className="quickwin-progress-track">
+                  <div style={{ width: `${progressPercent}%` }} />
+                </div>
+              </div>
+              <label className="quickwin-hide-done">
+                <input
+                  type="checkbox"
+                  checked={hideCompleted}
+                  onChange={(event) => setHideCompleted(event.target.checked)}
+                />
+                {t('hideCompleted')}
+              </label>
               {hasHidden && (
                 <fieldset className="quickwin-hidden">
                   <legend>{t('hiddenTrophies')}</legend>
@@ -495,6 +517,7 @@ function QuickwinGameCard({
                 onToggle={toggleTrophy}
                 mainGameTitle={title || t('mainGame')}
                 guideTipEditor={isAdmin ? saveGuideTip : null}
+                guideTipLongEditor={isAdmin ? saveGuideTipLong : null}
                 onTrophyVideo={isAdmin ? saveGuideVideo : null}
                 onTrophyFlags={isAdmin ? saveTrophyFlags : null}
                 onlinePickMode={onlinePickMode}

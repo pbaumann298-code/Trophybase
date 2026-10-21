@@ -55,6 +55,23 @@ function useTrophyRowExtras(trophyById) {
       );
     };
 
+    const trophyIdOf = (trophy) =>
+      String(trophy?.platform_achievement_id ?? trophy?.trophy_id ?? '').trim();
+
+    /**
+     * Homogene Gruppe: alle Einträge zeigen auf dieselbe Trophäe.
+     * @returns {{ trophy: object, tip: string }|null}
+     */
+    const sharedGroupTrophy = (items) => {
+      const trophies = (items ?? []).map(trophyFor).filter(Boolean);
+      if (trophies.length === 0) return null;
+      const ids = new Set(trophies.map(trophyIdOf).filter(Boolean));
+      if (ids.size !== 1) return null;
+      const trophy = trophies[0];
+      const tip = String(trophy?.guide_tip_long ?? '').trim();
+      return tip ? { trophy, tip } : { trophy, tip: '' };
+    };
+
     const renderNameAddon = (item) => renderTrophyArt(trophyFor(item));
 
     /**
@@ -63,18 +80,51 @@ function useTrophyRowExtras(trophyById) {
      * (Bosse) bleiben ohne Header-Bild – dort sitzt das Icon an der Zeile.
      */
     const renderGroupAddon = (items) => {
-      const trophies = (items ?? []).map(trophyFor).filter(Boolean);
-      if (trophies.length === 0) return null;
-      const ids = new Set(
-        trophies.map((trophy) =>
-          String(trophy.platform_achievement_id ?? trophy.trophy_id ?? '').trim(),
-        ),
-      );
-      if (ids.size !== 1) return null;
-      return renderTrophyArt(trophies[0], 22);
+      const shared = sharedGroupTrophy(items);
+      if (!shared) return null;
+      return renderTrophyArt(shared.trophy, 22);
     };
 
-    const renderRowAction = (item) => {
+    /**
+     * Einmaliger Lang-Tipp im geöffneten Gruppenkopf, wenn die ganze Gruppe
+     * dieselbe Trophäe teilt. Sonst null → Tipps bleiben an den Zeilen.
+     */
+    const renderGroupDetail = (items) => {
+      const shared = sharedGroupTrophy(items);
+      if (!shared?.tip) return null;
+      const name = String(shared.trophy.trophy_name ?? '').trim();
+      return (
+        <div
+          style={{
+            margin: '0 16px 10px',
+            padding: '8px 12px',
+            borderLeft: '2px solid rgba(0, 255, 102, 0.3)',
+            backgroundColor: 'rgba(9, 9, 11, 0.5)',
+            borderRadius: '0 6px 6px 0',
+            fontSize: '11px',
+            lineHeight: 1.6,
+            color: '#a1a1aa',
+          }}
+        >
+          {name && (
+            <span
+              style={{
+                color: '#00ff66',
+                fontFamily: 'monospace',
+                fontWeight: 'bold',
+                marginRight: '6px',
+              }}
+            >
+              {name}:
+            </span>
+          )}
+          {shared.tip}
+        </div>
+      );
+    };
+
+    const renderRowAction = (item, _dimmed, ctx = {}) => {
+      if (ctx.sharedGroupTip) return null;
       const trophy = trophyFor(item);
       const tip = String(trophy?.guide_tip_long ?? '').trim();
       if (!tip) return null;
@@ -108,7 +158,8 @@ function useTrophyRowExtras(trophyById) {
       );
     };
 
-    const renderRowDetail = (item) => {
+    const renderRowDetail = (item, _dimmed, ctx = {}) => {
+      if (ctx.sharedGroupTip) return null;
       if (!expanded.has(item.id)) return null;
       const trophy = trophyFor(item);
       const tip = String(trophy?.guide_tip_long ?? '').trim();
@@ -145,7 +196,13 @@ function useTrophyRowExtras(trophyById) {
       );
     };
 
-    return { renderNameAddon, renderGroupAddon, renderRowAction, renderRowDetail };
+    return {
+      renderNameAddon,
+      renderGroupAddon,
+      renderGroupDetail,
+      renderRowAction,
+      renderRowDetail,
+    };
   }, [trophyFor, expanded, toggle]);
 }
 
@@ -160,6 +217,8 @@ function SplitScreenGuideKacheln({
   renderNameAddon,
   /** Icon auf der Gruppenkachel, wenn die ganze Gruppe eine Trophäe teilt. */
   renderGroupAddon,
+  /** Einmaliger Lang-Tipp oben im geöffneten Gruppenkopf (homogene trophy_id). */
+  renderGroupDetail,
   /** Interaktives Element neben dem Namen – gehört NICHT in den Namens-Button. */
   renderRowAction,
   /** Aufklappbarer Block unter der Zeile. */
@@ -249,6 +308,9 @@ function SplitScreenGuideKacheln({
 
     if (items.length === 0) return null;
 
+    const groupTipNode = renderGroupDetail ? renderGroupDetail(items) : null;
+    const rowTipCtx = { sharedGroupTip: Boolean(groupTipNode) };
+
     return (
       <div
         key={group.key}
@@ -303,6 +365,7 @@ function SplitScreenGuideKacheln({
         {isExpanded && (
           <div className="guide-split guide-split--expanded">
             <div className="guide-split__list">
+              {groupTipNode}
               <table className="guide-split__table">
                 <thead className="guide-split__thead">
                   <tr
@@ -420,7 +483,7 @@ function SplitScreenGuideKacheln({
                               )}
                               {renderNameAddon ? renderNameAddon(item, rowDimmed) : null}
                             </button>
-                            {renderRowAction ? renderRowAction(item, rowDimmed) : null}
+                            {renderRowAction ? renderRowAction(item, rowDimmed, rowTipCtx) : null}
                             {typeof onDeleteStep === 'function' ? (
                               <button
                                 type="button"
@@ -445,7 +508,7 @@ function SplitScreenGuideKacheln({
                               </button>
                             ) : null}
                           </div>
-                          {renderRowDetail ? renderRowDetail(item, rowDimmed) : null}
+                          {renderRowDetail ? renderRowDetail(item, rowDimmed, rowTipCtx) : null}
                           </div>
                         </td>
                       </tr>
@@ -654,8 +717,13 @@ export function CollectibleKacheln({
   onDeleteStep = null,
 }) {
   const { t } = useLocale();
-  const { renderNameAddon, renderGroupAddon, renderRowAction, renderRowDetail } =
-    useTrophyRowExtras(trophyById);
+  const {
+    renderNameAddon,
+    renderGroupAddon,
+    renderGroupDetail,
+    renderRowAction,
+    renderRowDetail,
+  } = useTrophyRowExtras(trophyById);
 
   return (
     <SplitScreenGuideKacheln
@@ -664,6 +732,7 @@ export function CollectibleKacheln({
       nameColumnHeader={t('collectibleColumn')}
       renderNameAddon={renderNameAddon}
       renderGroupAddon={renderGroupAddon}
+      renderGroupDetail={renderGroupDetail}
       renderRowAction={renderRowAction}
       renderRowDetail={renderRowDetail}
       emptyVideoMessage={emptyVideoMessage || t('videoEmptyCollectible')}
@@ -740,6 +809,7 @@ export function BossKacheln({
       nameColumnHeader={t('bossColumn')}
       renderNameAddon={renderTrophyBadge}
       renderGroupAddon={trophyExtras.renderGroupAddon}
+      renderGroupDetail={trophyExtras.renderGroupDetail}
       renderRowAction={trophyExtras.renderRowAction}
       renderRowDetail={trophyExtras.renderRowDetail}
       emptyVideoMessage={t('videoEmptyBoss')}

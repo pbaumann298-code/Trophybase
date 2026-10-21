@@ -50,6 +50,7 @@ import {
   clearIntranetCover,
   deleteSingleGuideStep,
   saveTrophyGuideTip,
+  saveTrophyGuideTipLong,
   saveTrophyVideo,
   setAchievementFlags,
   setAchievementsOnline,
@@ -353,7 +354,7 @@ function GamePageContent({
       const id = getTrophyIdKey(trophy);
       if (!Object.prototype.hasOwnProperty.call(tipOverrides.values, id)) return trophy;
       const guide_tip = tipOverrides.values[id];
-      return { ...trophy, guide_tip, guide_tip_long: guide_tip ? trophy.guide_tip_long : '' };
+      return { ...trophy, guide_tip };
     })
   ), [activeTrophies, tipOverrides, effectiveGuideLang]);
 
@@ -368,6 +369,22 @@ function GamePageContent({
         [achievementId]: next,
       },
     }));
+    return null;
+  };
+
+  const saveGuideTipLong = async (achievementId, text) => {
+    const { error } = await saveTrophyGuideTipLong(
+      supabase,
+      gameId,
+      achievementId,
+      effectiveGuideLang,
+      text,
+    );
+    if (error) return error;
+    const next = text.trim();
+    onReplaceTrophies?.((rows) => rows.map((row) => (
+      getTrophyIdKey(row) === achievementId ? { ...row, guide_tip_long: next } : row
+    )));
     return null;
   };
 
@@ -950,6 +967,7 @@ function GamePageContent({
             onToggle={toggleTrophy}
             mainGameTitle={gameTitle || t('mainGame')}
             guideTipEditor={isAdmin && !trophiesOnly ? saveGuideTip : null}
+            guideTipLongEditor={isAdmin && !trophiesOnly ? saveGuideTipLong : null}
             onTrophyVideo={isAdmin && !trophiesOnly ? saveGuideVideo : null}
             onTrophyFlags={isAdmin && !trophiesOnly ? saveTrophyFlags : null}
             onlinePickMode={onlinePickMode}
@@ -1369,6 +1387,7 @@ function GamePageContent({
         playtime={playtime}
         isAdmin={isAdmin && !trophiesOnly}
         gameId={gameUuid}
+        locale={effectiveGuideLang}
         onPlaytimeSaved={(next) => setPlaytime(next)}
       />
 

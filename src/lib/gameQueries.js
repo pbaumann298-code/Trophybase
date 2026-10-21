@@ -1100,13 +1100,14 @@ export async function resolveGameUuid(supabase, gameOrRef) {
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameUuid
  * @param {string} locale
- * @param {Partial<Record<'title'|'coverUrl'|'description', string>>} values
+ * @param {Partial<Record<'title'|'coverUrl'|'description'|'statusExplanation', string>>} values
  */
 export async function updateGameLocalizedFields(supabase, gameUuid, locale, values) {
   const columns = {
     title: GAME_I18N.title,
     coverUrl: GAME_I18N.coverUrl,
     description: GAME_I18N.description,
+    statusExplanation: GAME_I18N.statusExplanation,
   };
 
   // Leere Strings bewusst erlaubt (z. B. Beschreibung einer Sprache leeren).

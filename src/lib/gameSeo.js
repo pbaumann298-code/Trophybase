@@ -4,6 +4,7 @@ import { publicStudioCredits } from './studioCredits.js';
 import { getGameCover, getGameDescription, getGameTitle } from './gameModel.js';
 import { buildPrettyGamePath, hardwareLabel, hardwareToUrlSegment } from './gameSlug.js';
 import { contentLocalesForGame } from './contentLocales.js';
+import { guideDescriptionFallback } from './gameOverviewCopy.js';
 
 export const SITE_NAME = 'TrophyBase.app';
 export const HOME_META_TITLE = 'TrophyBase.app – Trophäen-Guides für PlayStation';
@@ -78,8 +79,8 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
   const canonical = path ? `${base}${path}` : '';
   const title = getGameTitle(game, canonicalLocale) || gameSlug || SITE_NAME;
   const rawDescription =
-    getGameDescription(game, canonicalLocale) || `${title} – Trophäen-Guide auf TrophyBase.`;
-  const description = clipMetaText(rawDescription);
+    getGameDescription(game, canonicalLocale) ||
+    guideDescriptionFallback(title, canonicalLocale);  const description = clipMetaText(rawDescription);
   const cover = absoluteUrl(base, getGameCover(game, canonicalLocale));
   const year = game?.[GAME_STRUCT.releaseYear] ? String(game[GAME_STRUCT.releaseYear]) : '';
   const credits = publicStudioCredits(game);
@@ -166,14 +167,59 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
   };
 }
 
+/** Kernfeatures der Web-App (DE/EN) für JSON-LD featureList. */
+export const HOME_FEATURE_LIST = [
+  'Interaktive Echtzeit-Checklisten für Trophäen / Interactive real-time trophy checklists',
+  'Walkthroughs, Sammelobjekte und Bosse / Walkthroughs, collectibles and bosses',
+  'Punktgenaue Video-Timestamps im Split-Screen-Querformat / Precise video timestamps in landscape split-screen',
+  'Shovelware- und Micro-Platin-Filter / Shovelware and micro-platinum filter',
+  'Direkter Community-Fehlerreport / Direct community error reporting',
+];
+
+/**
+ * Erweitertes Startseiten-JSON-LD als @graph (WebSite + WebApplication + Organization).
+ * Muss mit dem Script in index.html übereinstimmen.
+ */
 export function buildHomeJsonLd(origin) {
-  const base = String(origin || '').replace(/\/$/, '');
+  const base = String(origin || '').replace(/\/$/, '') || 'https://trophybase.app';
+  const homeUrl = `${base}/`;
+
   return {
     '@context': 'https://schema.org',
-    '@type': 'WebSite',
-    name: SITE_NAME,
-    url: `${base}/`,
-    inLanguage: 'de',
-    description: HOME_META_DESCRIPTION,
+    '@graph': [
+      {
+        '@type': 'WebSite',
+        '@id': `${homeUrl}#website`,
+        name: SITE_NAME,
+        url: homeUrl,
+        inLanguage: ['de', 'en'],
+        description: HOME_META_DESCRIPTION,
+        publisher: { '@id': `${homeUrl}#organization` },
+      },
+      {
+        '@type': 'WebApplication',
+        '@id': `${homeUrl}#app`,
+        name: SITE_NAME,
+        url: homeUrl,
+        applicationCategory: 'GameApplication',
+        operatingSystem: 'All',
+        inLanguage: ['de', 'en'],
+        description: HOME_META_DESCRIPTION,
+        offers: {
+          '@type': 'Offer',
+          price: '0',
+          priceCurrency: 'EUR',
+        },
+        featureList: HOME_FEATURE_LIST,
+        publisher: { '@id': `${homeUrl}#organization` },
+      },
+      {
+        '@type': 'Organization',
+        '@id': `${homeUrl}#organization`,
+        name: 'TrophyBase GmbH & Co. KG',
+        url: homeUrl,
+        logo: `${base}/icons/tb-icon-512.png`,
+      },
+    ],
   };
 }

@@ -31,11 +31,47 @@
     <script data-tb-home-seo type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "TrophyBase.app",
-        "url": "https://trophybase.app/",
-        "inLanguage": "de",
-        "description": "Trophäen-Guides für PlayStation: Walkthroughs, Sammelobjekte und Platin-Routen. Unabhängige, redaktionelle Guides – ohne Tracking."
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://trophybase.app/#website",
+            "name": "TrophyBase.app",
+            "url": "https://trophybase.app/",
+            "inLanguage": ["de", "en"],
+            "description": "Trophäen-Guides für PlayStation: Walkthroughs, Sammelobjekte und Platin-Routen. Unabhängige, redaktionelle Guides – ohne Tracking.",
+            "publisher": { "@id": "https://trophybase.app/#organization" }
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "https://trophybase.app/#app",
+            "name": "TrophyBase.app",
+            "url": "https://trophybase.app/",
+            "applicationCategory": "GameApplication",
+            "operatingSystem": "All",
+            "inLanguage": ["de", "en"],
+            "description": "Trophäen-Guides für PlayStation: Walkthroughs, Sammelobjekte und Platin-Routen. Unabhängige, redaktionelle Guides – ohne Tracking.",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "EUR"
+            },
+            "featureList": [
+              "Interaktive Echtzeit-Checklisten für Trophäen / Interactive real-time trophy checklists",
+              "Walkthroughs, Sammelobjekte und Bosse / Walkthroughs, collectibles and bosses",
+              "Punktgenaue Video-Timestamps im Split-Screen-Querformat / Precise video timestamps in landscape split-screen",
+              "Shovelware- und Micro-Platin-Filter / Shovelware and micro-platinum filter",
+              "Direkter Community-Fehlerreport / Direct community error reporting"
+            ],
+            "publisher": { "@id": "https://trophybase.app/#organization" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://trophybase.app/#organization",
+            "name": "TrophyBase GmbH & Co. KG",
+            "url": "https://trophybase.app/",
+            "logo": "https://trophybase.app/icons/tb-icon-512.png"
+          }
+        ]
       }
     </script>
     <meta name="theme-color" content="#121314" />
@@ -50,7 +86,37 @@
     <link rel="apple-touch-icon" href="/icons/tb-apple-touch-icon.png" />
   </head>
   <body class="bg-slate-950 w-full max-w-full overflow-x-hidden">
-    <div id="root"></div>
+    <div id="root">
+      <!-- Crawler-/No-JS-Fallback: vor React-Mount im DOM, visuell versteckt; createRoot().render() ersetzt #root. -->
+      <div
+        style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)"
+        data-tb-home-fallback
+      >
+        <h1>TrophyBase.app – Interaktive PlayStation Trophäen-Guides (PS3, PS4, PS5)</h1>
+        <p>
+          TrophyBase ist eine moderne, werbefreie Web-App für Trophäen-Jäger: interaktive
+          Echtzeit-Checklisten für Trophäen, Walkthroughs, Sammelobjekte und Bosse,
+          punktgenaue Video-Timestamps im Split-Screen-Querformat, integrierter
+          Shovelware-/Micro-Platin-Filter sowie direkter Community-Fehlerreport.
+        </p>
+        <p lang="en">
+          TrophyBase is a modern, ad-free web app for trophy hunters: interactive real-time
+          checklists for trophies, walkthroughs, collectibles and bosses, precise video
+          timestamps in landscape split-screen, a built-in shovelware/micro-platinum filter,
+          and direct community error reporting.
+        </p>
+        <nav aria-label="Katalog">
+          <ul>
+            <li><a href="/quickwins">Quickwins</a></li>
+            <li><a href="/de/easy-platins">Easy Platins (DE)</a></li>
+            <li><a href="/en/easy-platins">Easy Platins (EN)</a></li>
+            <li><a href="/de/unerreichbare-platins">Unerreichbare Platins (DE)</a></li>
+            <li><a href="/en/unobtainable-platins">Unobtainable Platins (EN)</a></li>
+            <li><a href="/kurz-erklaert">Kurz erklärt</a></li>
+          </ul>
+        </nav>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
       /* Scheitert das Modul beim Laden, bleibt #root leer und die Seite waere
