@@ -24,16 +24,12 @@ import sys
 import requests
 
 
-def env_first(*names: str) -> str:
-    for name in names:
-        value = str(os.environ.get(name, "")).strip()
-        if value:
-            return value
-    return ""
-
-
-SUPABASE_URL = env_first("SUPABASE_URL", "VITE_SUPABASE_URL").rstrip("/")
-SUPABASE_ANON_KEY = env_first("SUPABASE_ANON_KEY", "VITE_SUPABASE_ANON_KEY")
+SUPABASE_URL = (
+    os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL") or ""
+).strip().rstrip("/")
+SUPABASE_ANON_KEY = (
+    os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("VITE_SUPABASE_ANON_KEY") or ""
+).strip()
 LOGIN_ENDPOINT = (
     f"{SUPABASE_URL}/auth/v1/token?grant_type=password" if SUPABASE_URL else ""
 )

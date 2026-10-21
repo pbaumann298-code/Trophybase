@@ -209,18 +209,24 @@ export function groupQuickwinsByPublisher(games, locale, emptyLabel, canon = nul
     const bucketKey = identity.key || '';
     const list = buckets.get(bucketKey);
     if (list) list.games.push(game);
-    else buckets.set(bucketKey, { label: identity.label, games: [game] });
+    else buckets.set(bucketKey, { label: identity.label, sortPos: identity.sortPos, games: [game] });
   }
 
   const groups = [...buckets.entries()].map(([key, bucket]) => ({
     key,
     label: bucket.label || emptyLabel,
+    sortPos: bucket.sortPos,
     games: bucket.games,
   }));
 
   groups.sort((a, b) => {
     if (!a.key) return 1;
     if (!b.key) return -1;
+    const posA = Number.isFinite(Number(a.sortPos)) ? Number(a.sortPos) : null;
+    const posB = Number.isFinite(Number(b.sortPos)) ? Number(b.sortPos) : null;
+    if (posA !== null && posB !== null && posA !== posB) return posA - posB;
+    if (posA !== null && posB === null) return -1;
+    if (posA === null && posB !== null) return 1;
     return a.label.localeCompare(b.label, locale || 'de', { sensitivity: 'base' });
   });
   return groups;

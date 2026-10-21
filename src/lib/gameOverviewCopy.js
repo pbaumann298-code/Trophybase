@@ -1,6 +1,6 @@
-import { GAME_FIELDS, GAME_I18N, GAME_STRUCT, isServerDeadType } from './gameSchema';
-import { normalizeLocale } from './locale';
-import { localizeJsonField } from './translationUtils';
+import { GAME_FIELDS, GAME_I18N, GAME_STRUCT, isServerDeadType } from './gameSchema.js';
+import { normalizeLocale } from './locale.js';
+import { localizeJsonField } from './translationUtils.js';
 
 function parseCount(value) {
   if (value == null || value === '') return null;

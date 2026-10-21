@@ -1,5 +1,5 @@
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
-import { normalizeLocale } from './locale';
+import { normalizeLocale } from './locale.js';
 
 /**
  * Öffentliche Unobtainable-Platins-Seite je Sprache: Titel, Einleitung, Hinweis, URL-Segment.

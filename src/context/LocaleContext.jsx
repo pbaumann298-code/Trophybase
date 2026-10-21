@@ -17,6 +17,7 @@ import {
 import { parsePrettyGamePath } from '../lib/gameSlug';
 import { parseServertotPath } from '../lib/servertotPage';
 import { parseEasyPlatinsPath } from '../lib/easyPlatinsPage';
+import { parseQuickwinsPath } from '../lib/quickwinsPage';
 import { syncPathLocale } from '../lib/routeUtils';
 import { t } from '../lib/uiStrings';
 import { DEFAULT_AVAILABLE_LOCALES, coerceToAvailableLocale } from '../lib/contentLocales';
@@ -37,6 +38,10 @@ export function LocaleProvider({ children }) {
       const easyPlatins = parseEasyPlatinsPath(window.location.pathname);
       if (easyPlatins?.locale) {
         return persistLocale(easyPlatins.locale, { skipEvent: true });
+      }
+      const quickwins = parseQuickwinsPath(window.location.pathname);
+      if (quickwins?.locale) {
+        return persistLocale(quickwins.locale, { skipEvent: true });
       }
       return bootstrapGlobalLocaleSync();
     }

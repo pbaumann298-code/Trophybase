@@ -544,7 +544,7 @@ function QuickwinGameCard({
                   groupByField="chronological_group"
                   listTitle={t('fullGameplay')}
                   hideCompleted={hideCompleted}
-                  setHideCompleted={serverNotice ? undefined : setHideCompleted}
+                  setHideCompleted={setHideCompleted}
                   completedItems={completedItems}
                   toggleCompleted={toggleGuideItem}
                   embedInAccordion
@@ -571,7 +571,7 @@ function QuickwinGameCard({
                   groupByField="category_group"
                   listTitle={newerVersions || serverNotice ? t('collectGuide') : t('completion')}
                   hideCompleted={hideCompleted}
-                  setHideCompleted={serverNotice ? undefined : setHideCompleted}
+                  setHideCompleted={setHideCompleted}
                   completedItems={completedItems}
                   toggleCompleted={toggleGuideItem}
                   embedInAccordion
@@ -607,7 +607,7 @@ function QuickwinGameCard({
                   trophyById={trophyById}
                   listTitle={t('bosses')}
                   hideCompleted={hideCompleted}
-                  setHideCompleted={serverNotice ? undefined : setHideCompleted}
+                  setHideCompleted={setHideCompleted}
                   completedItems={completedItems}
                   toggleCompleted={toggleGuideItem}
                   embedInAccordion

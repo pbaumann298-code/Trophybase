@@ -1,5 +1,5 @@
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
-import { normalizeLocale } from './locale';
+import { normalizeLocale } from './locale.js';
 
 /**
  * Öffentliche Easy-Platins-Seite je Sprache.

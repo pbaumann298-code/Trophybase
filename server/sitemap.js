@@ -5,6 +5,7 @@ import { hardwareToUrlSegment, buildPrettyGamePath } from '../src/lib/gameSlug.j
 import { GUIDE_PUBLICATION, guideStatusKey } from '../src/lib/guidePublication.js';
 import { servertotPublicPath } from '../src/lib/servertotPage.js';
 import { easyPlatinsPublicPath } from '../src/lib/easyPlatinsPage.js';
+import { quickwinsPublicPath } from '../src/lib/quickwinsPage.js';
 import { getPublicSupabase, publicOrigin } from './publicSupabase.js';
 import { parseSitemapLocale } from './prettyPath.js';
 import { escapeHtml } from './escapeHtml.js';
@@ -51,26 +52,6 @@ function isSitemapRow(row) {
   return true;
 }
 
-function isMissingSitemapRpc(error) {
-  const code = String(error?.code ?? '');
-  const message = String(error?.message ?? '').toLowerCase();
-  return (
-    code === 'PGRST202' ||
-    code === '42883' ||
-    message.includes('tb_sitemap_locale') ||
-    message.includes('could not find the function')
-  );
-}
-
-async function loadViaRpc(supabase, locale, limit = SITEMAP_URL_CAP) {
-  const { data, error } = await supabase.rpc('tb_sitemap_locale', {
-    p_locale: locale,
-    p_limit: limit,
-  });
-  if (error) return { data: null, error };
-  return { data: (data ?? []).filter(isSitemapRow), error: null };
-}
-
 async function loadViaTable(supabase, locale) {
   const { data, error } = await publishedGuideQuery(supabase, locale).limit(SITEMAP_URL_CAP);
   if (error) return { data: null, error };
@@ -78,40 +59,24 @@ async function loadViaTable(supabase, locale) {
 }
 
 async function loadIndexablePublishedGames(supabase, locale) {
-  const rpc = await loadViaRpc(supabase, locale);
-  if (!rpc.error) return rpc.data;
-  if (!isMissingSitemapRpc(rpc.error)) throw rpc.error;
-
   const table = await loadViaTable(supabase, locale);
   if (table.error) throw table.error;
   return table.data;
 }
 
-/**
- * Sprachen nacheinander mit kleinem Limit prüfen.
- * Promise.all hat bei Timeout einer Sprache den ganzen Index auf 500 gesetzt.
- * PUBLIC_SITE_LOCALES (de/en) stehen immer im Index, damit sitemap-*.xml nie leer bleibt.
- */
 async function localesWithIndexableGames(supabase) {
-  const found = [];
-  for (const locale of SUPPORTED_LOCALES) {
-    try {
-      const rpc = await loadViaRpc(supabase, locale, 40);
-      if (!rpc.error) {
-        if (rpc.data.length > 0) found.push(locale);
-        continue;
+  const checks = await Promise.all(
+    SUPPORTED_LOCALES.map(async (locale) => {
+      try {
+        const { data, error } = await publishedGuideQuery(supabase, locale).limit(1);
+        if (error) return null;
+        return (data ?? []).some(isSitemapRow) ? locale : null;
+      } catch {
+        return null;
       }
-      if (!isMissingSitemapRpc(rpc.error)) continue;
-
-      const { data, error } = await publishedGuideQuery(supabase, locale).limit(40);
-      if (error) continue;
-      if ((data ?? []).some(isSitemapRow)) found.push(locale);
-    } catch {
-      /* eine Sprache darf den Index nicht killen */
-    }
-  }
-
-  const ensured = new Set([...PUBLIC_SITE_LOCALES, ...found]);
+    }),
+  );
+  const ensured = new Set([...PUBLIC_SITE_LOCALES, ...checks.filter(Boolean)]);
   return SUPPORTED_LOCALES.filter((locale) => ensured.has(locale));
 }
 
@@ -132,8 +97,8 @@ function staticCollectionUrls(origin, locale) {
   const urls = [];
   if (locale === 'de') {
     urls.push(`${origin}/`);
-    urls.push(`${origin}/quickwins`);
   }
+  urls.push(`${origin}${quickwinsPublicPath(locale)}`);
   urls.push(`${origin}${servertotPublicPath(locale)}`);
   urls.push(`${origin}${easyPlatinsPublicPath(locale)}`);
   return urls;

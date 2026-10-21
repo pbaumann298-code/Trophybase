@@ -17,6 +17,7 @@ import SearchIncludeTrophiesOnly from '../components/SearchIncludeTrophiesOnly';
 import '../styles/home.css';
 
 /** Fallback-Pfade, falls App die lokalisierten URLs nicht übergibt. */
+const FALLBACK_QUICKWINS = '/quickwins';
 const FALLBACK_EASY = '/easy-platins';
 const FALLBACK_SERVERTOT = '/servertot';
 
@@ -67,6 +68,7 @@ function AdvancedSearchPage({
   onOpenQuickwins,
   onOpenEasyPlatins,
   onOpenServertot,
+  quickwinsPath = FALLBACK_QUICKWINS,
   easyPlatinsPath = FALLBACK_EASY,
   servertotPath = FALLBACK_SERVERTOT,
   includeReady = false,
@@ -293,7 +295,7 @@ function AdvancedSearchPage({
       <div className="advanced-search-tiles" aria-label={t('advancedSearch')}>
         <CatalogTile
           linked
-          href={QUICKWINS_PATH}
+          href={quickwinsPath}
           onClick={onOpenQuickwins}
           src="/images/quickwins-tile.jpg"
           title={t('quickwinsTitle')}

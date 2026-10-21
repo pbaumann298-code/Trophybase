@@ -11,7 +11,9 @@ import {
   filterQuickwins,
   groupQuickwinsByAlphabet,
   groupQuickwinsByPublisher,
+  quickwinBrandCore,
   quickwinPublisherIdentity,
+  quickwinPublisherKey,
   quickwinPublisherOptions,
   sortQuickwins,
 } from '../lib/quickwinCatalog';
@@ -73,6 +75,7 @@ function QuickwinsPage({
     alphabetCatalog ? { ...initial, publisher: '', sort: 'title-asc' } : initial
   ));
   const [games, setGames] = useState([]);
+  const [publisherDefs, setPublisherDefs] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -219,6 +222,25 @@ function QuickwinsPage({
   }, [listPaged, hasMore, loading, loadingMore, loadMoreCatalog]);
 
   useEffect(() => {
+    if (alphabetCatalog) return undefined;
+    let cancelled = false;
+    supabase
+      .from('quickwin_publisher_defs')
+      .select('match_key, publisher, published, sort_pos')
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error || !data || data.length === 0) {
+          setPublisherDefs(null);
+        } else {
+          setPublisherDefs(data);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [alphabetCatalog]);
+
+  useEffect(() => {
     const onPop = () => {
       if (getViewFromPath(window.location.pathname) !== catalogViewName) return;
       const next = parseQuickwinsParams();
@@ -229,13 +251,61 @@ function QuickwinsPage({
     return () => window.removeEventListener('popstate', onPop);
   }, [alphabetCatalog, catalogViewName]);
 
-  const canon = useMemo(
-    () => (alphabetCatalog || isAdmin ? null : buildQuickwinPublisherCanon(games)),
-    [games, isAdmin, alphabetCatalog],
-  );
+  const defMap = useMemo(() => {
+    if (alphabetCatalog || !publisherDefs || publisherDefs.length === 0) return null;
+    const map = new Map();
+    for (const def of publisherDefs) {
+      if (!def?.match_key) continue;
+      const core = quickwinBrandCore(def.match_key);
+      const entry = {
+        key: def.match_key,
+        label: def.publisher || def.match_key,
+        published: Boolean(def.published),
+        sortPos: Number.isFinite(Number(def.sort_pos)) ? Number(def.sort_pos) : null,
+      };
+      if (core) map.set(core, entry);
+      map.set(def.match_key, entry);
+    }
+    return map.size > 0 ? map : null;
+  }, [publisherDefs, alphabetCatalog]);
+
+  const canon = useMemo(() => {
+    if (alphabetCatalog) return null;
+    if (defMap) {
+      const map = new Map();
+      for (const game of games) {
+        const rawKey = quickwinPublisherKey(game);
+        if (!rawKey) continue;
+        const core = quickwinBrandCore(rawKey);
+        const def = defMap.get(core) || defMap.get(rawKey);
+        if (def) {
+          map.set(rawKey, {
+            key: def.key,
+            label: def.label,
+            published: def.published,
+            sortPos: def.sortPos,
+          });
+        }
+      }
+      return map;
+    }
+    if (isAdmin) return null;
+    return buildQuickwinPublisherCanon(games);
+  }, [games, isAdmin, alphabetCatalog, defMap]);
 
   const visibleGames = useMemo(() => {
-    if (alphabetCatalog || isAdmin) return games;
+    if (alphabetCatalog) return games;
+    if (defMap) {
+      return games.filter((game) => {
+        const rawKey = quickwinPublisherKey(game);
+        if (!rawKey) return false;
+        const identity = quickwinPublisherIdentity(game, canon);
+        if (!identity || !identity.key) return false;
+        if (!isAdmin && identity.published !== true) return false;
+        return true;
+      });
+    }
+    if (isAdmin) return games;
     const counts = new Map();
     for (const game of games) {
       const identity = quickwinPublisherIdentity(game, canon);
@@ -246,7 +316,7 @@ function QuickwinsPage({
       const identity = quickwinPublisherIdentity(game, canon);
       return identity.key && (counts.get(identity.key) || 0) >= publisherMin;
     });
-  }, [games, canon, isAdmin, publisherMin, alphabetCatalog]);
+  }, [games, canon, isAdmin, publisherMin, alphabetCatalog, defMap]);
 
   const publishers = useMemo(
     () => (alphabetCatalog ? [] : quickwinPublisherOptions(visibleGames, canon)),

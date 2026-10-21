@@ -63,8 +63,10 @@ function useTrophyRowExtras(trophyById) {
      * @returns {{ trophy: object, tip: string }|null}
      */
     const sharedGroupTrophy = (items) => {
-      const trophies = (items ?? []).map(trophyFor).filter(Boolean);
-      if (trophies.length === 0) return null;
+      const validItems = (items ?? []).filter((item) => String(item?.trophy_id ?? '').trim());
+      if (validItems.length === 0) return null;
+      const trophies = validItems.map(trophyFor).filter(Boolean);
+      if (trophies.length !== validItems.length) return null;
       const ids = new Set(trophies.map(trophyIdOf).filter(Boolean));
       if (ids.size !== 1) return null;
       const trophy = trophies[0];

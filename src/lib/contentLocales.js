@@ -16,10 +16,7 @@ export function contentLocalesForGame(game, { includeReady = false } = {}) {
   const found = SUPPORTED_LOCALES.filter((lang) =>
     includeReady ? isGuideReady(game, lang) : isGuidePublished(game, lang),
   );
-  const scoped = includeReady
-    ? found
-    : found.filter((lang) => PUBLIC_SITE_LOCALES.includes(lang));
-  return scoped.length > 0 ? scoped : [...DEFAULT_AVAILABLE_LOCALES];
+  return found.length > 0 ? found : [...DEFAULT_AVAILABLE_LOCALES];
 }
 
 export function coerceToAvailableLocale(locale, available) {

@@ -1,5 +1,6 @@
 import { parseServertotPath, servertotPublicPath } from './servertotPage.js';
 import { parseEasyPlatinsPath, easyPlatinsPublicPath } from './easyPlatinsPage.js';
+import { parseQuickwinsPath, quickwinsPublicPath } from './quickwinsPage.js';
 import { resolveViewForSession } from './trophyBaseAuth.js';
 import { getLocale, normalizeLocale } from './locale.js';
 import {
@@ -51,7 +52,7 @@ export function getViewFromPath(pathname = '', search) {
   if (path === '/impressum') return 'impressum';
   if (path === '/datenschutz' || path === '/privacy') return 'datenschutz';
   if (path === '/kurz-erklaert') return 'guide-help';
-  if (path === '/quickwins') return 'quickwins';
+  if (path === '/quickwins' || parseQuickwinsPath(path)) return 'quickwins';
   if (path === '/servertot' || parseServertotPath(path)) return 'servertot';
   if (path === '/easy-platins' || path === '/easyplatins' || parseEasyPlatinsPath(path)) {
     return 'easyplatins';
@@ -403,6 +404,11 @@ export function syncPathLocale(nextLocale) {
   }
   if (parseEasyPlatinsPath(window.location.pathname)) {
     const nextPath = `${easyPlatinsPublicPath(normalized)}${window.location.search}`;
+    writeAppPath(nextPath, { replace: true });
+    return;
+  }
+  if (parseQuickwinsPath(window.location.pathname)) {
+    const nextPath = `${quickwinsPublicPath(normalized)}${window.location.search}`;
     writeAppPath(nextPath, { replace: true });
   }
 }

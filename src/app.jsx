@@ -60,6 +60,18 @@ import {
   easyPlatinsPageCopy,
   easyPlatinsPublicPath,
 } from './lib/easyPlatinsPage';
+import {
+  parseQuickwinsPath,
+  quickwinsPageCopy,
+  quickwinsPublicPath,
+} from './lib/quickwinsPage';
+
+const QUICKWINS_CATALOG = {
+  viewName: 'quickwins',
+  pageCopy: quickwinsPageCopy,
+  publicPath: quickwinsPublicPath,
+  parsePath: parseQuickwinsPath,
+};
 
 const SERVERTOT_CATALOG = {
   viewName: 'servertot',
@@ -832,9 +844,9 @@ function App() {
   const openQuickwins = useCallback(() => {
     setCurrentView('quickwins');
     setSelectedGame(null);
-    navigateToQuickwins();
+    navigateToQuickwins({}, { path: quickwinsPublicPath(globalLocale) });
     window.scrollTo(0, 0);
-  }, []);
+  }, [globalLocale]);
 
   const openServertot = useCallback(() => {
     setCurrentView('servertot');
@@ -1024,6 +1036,7 @@ function App() {
                 onOpenEasyPlatins={openEasyPlatins}
                 onOpenServertot={openServertot}
                 sessionUser={sessionUser}
+                quickwinsPath={quickwinsPublicPath(globalLocale)}
                 servertotPath={servertotPublicPath(globalLocale)}
                 easyPlatinsPath={easyPlatinsPublicPath(globalLocale)}
               />
@@ -1036,6 +1049,7 @@ function App() {
                 onRequestLogin={() => setCurrentView('login')}
                 isAdmin={isAdminUser(sessionUser)}
                 sessionUser={sessionUser}
+                localizedCatalog={QUICKWINS_CATALOG}
               />
             )}
 

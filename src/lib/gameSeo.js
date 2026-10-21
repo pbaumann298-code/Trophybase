@@ -1,5 +1,5 @@
 import { DEFAULT_LOCALE, hreflangOf } from '../../shared/countryLocaleMap.js';
-import { GAME_STRUCT } from './gameSchema.js';
+import { GAME_STRUCT, isServerDeadType } from './gameSchema.js';
 import { publicStudioCredits } from './studioCredits.js';
 import { getGameCover, getGameDescription, getGameTitle } from './gameModel.js';
 import { buildPrettyGamePath, hardwareLabel, hardwareToUrlSegment } from './gameSlug.js';
@@ -62,6 +62,153 @@ function absoluteUrl(origin, pathOrUrl) {
   return raw.startsWith('/') ? `${base}${raw}` : `${base}/${raw}`;
 }
 
+function buildGameFaq(game, title, canonicalLocale) {
+  if (!game) return [];
+  const isServerDead = isServerDeadType(game[GAME_STRUCT.gameType] ?? game.spiel_typ);
+  if (game[GAME_STRUCT.isIndexable] === false || isServerDead) {
+    return [];
+  }
+
+  const isDe = canonicalLocale === 'de';
+
+  const parseNum = (val) => {
+    if (val == null || val === '') return null;
+    const n = Number(val);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const totalTrophies = parseNum(game[GAME_STRUCT.trophyCount] ?? game.anzahl_trophaeen);
+  const missable = parseNum(game[GAME_STRUCT.totalMissableTrophies] ?? game.total_missable_trophies);
+  const online = parseNum(game[GAME_STRUCT.totalOnlineTrophies] ?? game.total_online_trophies);
+  const storyTime = parseNum(game.spielzeit_hauptstory);
+  const compTime = parseNum(game.spielzeit_komplettierer);
+
+  const questions = [];
+
+  // Q1: How many trophies
+  if (totalTrophies != null && totalTrophies > 0) {
+    let answerText = isDe
+      ? `${title} hat insgesamt ${totalTrophies} Trophäen.`
+      : `${title} has a total of ${totalTrophies} trophies.`;
+
+    if (missable != null && online != null) {
+      if (isDe) {
+        const mText = missable === 0 ? 'keine verpassbar' : `${missable} verpassbar`;
+        const oText = online === 0 ? 'keine erfordern eine Online-Verbindung' : `${online} erfordern eine Online-Verbindung`;
+        answerText += ` Davon sind ${mText} und ${oText}.`;
+      } else {
+        const mText = missable === 0 ? 'none are missable' : missable === 1 ? '1 is missable' : `${missable} are missable`;
+        const oText = online === 0 ? 'none require an online connection' : online === 1 ? '1 requires an online connection' : `${online} require an online connection`;
+        answerText += ` Of these, ${mText} and ${oText}.`;
+      }
+    } else if (missable != null) {
+      if (isDe) {
+        answerText += missable === 0
+          ? ' Davon ist keine verpassbar.'
+          : ` Davon sind ${missable} verpassbar.`;
+      } else {
+        answerText += missable === 0
+          ? ' Of these, none are missable.'
+          : missable === 1
+            ? ' Of these, 1 is missable.'
+            : ` Of these, ${missable} are missable.`;
+      }
+    } else if (online != null) {
+      if (isDe) {
+        answerText += online === 0
+          ? ' Alle Trophäen sind offline erspielbar.'
+          : ` Davon erfordern ${online} eine Online-Verbindung.`;
+      } else {
+        answerText += online === 0
+          ? ' All trophies can be earned offline.'
+          : online === 1
+            ? ' Of these, 1 requires an online connection.'
+            : ` Of these, ${online} require an online connection.`;
+      }
+    }
+
+    questions.push({
+      '@type': 'Question',
+      name: isDe ? `Wie viele Trophäen hat ${title}?` : `How many trophies does ${title} have?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: answerText,
+      },
+    });
+  }
+
+  // Q2: Missable trophies
+  if (missable != null) {
+    const answerText = isDe
+      ? (missable === 0
+          ? `Nein, ${title} hat keine verpassbaren Trophäen.`
+          : `Ja, in ${title} gibt es ${missable} verpassbare ${missable === 1 ? 'Trophäe' : 'Trophäen'}.`)
+      : (missable === 0
+          ? `No, ${title} has no missable trophies.`
+          : `Yes, there ${missable === 1 ? 'is 1 missable trophy' : `are ${missable} missable trophies`} in ${title}.`);
+
+    questions.push({
+      '@type': 'Question',
+      name: isDe ? `Gibt es verpassbare Trophäen in ${title}?` : `Are there any missable trophies in ${title}?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: answerText,
+      },
+    });
+  }
+
+  // Q3: Online trophies
+  if (online != null) {
+    const answerText = isDe
+      ? (online === 0
+          ? `Nein, alle Trophäen in ${title} sind offline erspielbar.`
+          : `Ja, ${title} enthält ${online} Online-${online === 1 ? 'Trophäe' : 'Trophäen'}.`)
+      : (online === 0
+          ? `No, all trophies in ${title} can be earned offline.`
+          : `Yes, ${title} contains ${online} online ${online === 1 ? 'trophy' : 'trophies'}.`);
+
+    questions.push({
+      '@type': 'Question',
+      name: isDe ? `Hat ${title} Online-Trophäen?` : `Does ${title} have online trophies?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: answerText,
+      },
+    });
+  }
+
+  // Q4: Playtime
+  if ((storyTime != null && storyTime > 0) || (compTime != null && compTime > 0)) {
+    let answerText = '';
+    if (compTime != null && compTime > 0 && storyTime != null && storyTime > 0) {
+      answerText = isDe
+        ? `Für die Platin-Trophäe in ${title} benötigt man ca. ${compTime} Stunden (für die Hauptstory ca. ${storyTime} Stunden).`
+        : `Obtaining the platinum trophy in ${title} takes approximately ${compTime} hours (around ${storyTime} hours for the main story alone).`;
+    } else if (compTime != null && compTime > 0) {
+      answerText = isDe
+        ? `Die Platin-Trophäe in ${title} dauert ca. ${compTime} Stunden.`
+        : `Obtaining the platinum trophy in ${title} takes approximately ${compTime} hours.`;
+    } else if (storyTime != null && storyTime > 0) {
+      answerText = isDe
+        ? `Die Hauptstory von ${title} dauert ca. ${storyTime} Stunden.`
+        : `The main story of ${title} takes approximately ${storyTime} hours.`;
+    }
+
+    if (answerText) {
+      questions.push({
+        '@type': 'Question',
+        name: isDe ? `Wie lange dauert die Platin-Trophäe in ${title}?` : `How long does it take to platinum ${title}?`,
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: answerText,
+        },
+      });
+    }
+  }
+
+  return questions;
+}
+
 /**
  * Titel, Canonical, Open Graph und JSON-LD für eine Guide-Seite.
  */
@@ -80,7 +227,8 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
   const title = getGameTitle(game, canonicalLocale) || gameSlug || SITE_NAME;
   const rawDescription =
     getGameDescription(game, canonicalLocale) ||
-    guideDescriptionFallback(title, canonicalLocale);  const description = clipMetaText(rawDescription);
+    guideDescriptionFallback(title, canonicalLocale);
+  const description = clipMetaText(rawDescription);
   const cover = absoluteUrl(base, getGameCover(game, canonicalLocale));
   const year = game?.[GAME_STRUCT.releaseYear] ? String(game[GAME_STRUCT.releaseYear]) : '';
   const credits = publicStudioCredits(game);
@@ -132,24 +280,34 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
     ].filter(Boolean),
   };
 
+  const jsonLdGraph = [
+    {
+      '@type': 'ItemPage',
+      name: pageTitle,
+      description: description || undefined,
+      url: canonical || undefined,
+      inLanguage: hreflangOf(canonicalLocale),
+      isPartOf: {
+        '@type': 'WebSite',
+        name: SITE_NAME,
+        url: `${base}/`,
+      },
+      mainEntity: videoGame,
+    },
+    breadcrumbs,
+  ];
+
+  const faqQuestions = buildGameFaq(game, title, canonicalLocale);
+  if (faqQuestions.length >= 2) {
+    jsonLdGraph.push({
+      '@type': 'FAQPage',
+      mainEntity: faqQuestions,
+    });
+  }
+
   const jsonLd = {
     '@context': 'https://schema.org',
-    '@graph': [
-      {
-        '@type': 'ItemPage',
-        name: pageTitle,
-        description: description || undefined,
-        url: canonical || undefined,
-        inLanguage: hreflangOf(canonicalLocale),
-        isPartOf: {
-          '@type': 'WebSite',
-          name: SITE_NAME,
-          url: `${base}/`,
-        },
-        mainEntity: videoGame,
-      },
-      breadcrumbs,
-    ],
+    '@graph': jsonLdGraph,
   };
 
   return {
