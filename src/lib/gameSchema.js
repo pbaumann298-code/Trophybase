@@ -97,7 +97,6 @@ export const GAME_STRUCT = {
   homeTagsLocked: 'home_tags_locked',
   /** Platin-Anforderungsprofil (6-Achsen-DNA) */
   radarProfile: 'radar_profile',
-  radarDna: 'radar_dna',
 };
 
 /** Allowlist-Slugs für games.home_tags (muss mit home_tag_defs übereinstimmen). */

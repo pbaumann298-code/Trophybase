@@ -543,7 +543,7 @@ function GamePageContent({
     let cancelled = false;
     supabase
       .from('games')
-      .select('spielzeit_hauptstory, spielzeit_komplettierer, radar_profile, radar_dna')
+      .select('spielzeit_hauptstory, spielzeit_komplettierer, radar_profile')
       .eq('id', gameUuid)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -568,7 +568,7 @@ function GamePageContent({
           hauptstory: data?.spielzeit_hauptstory ?? null,
           komplett: data?.spielzeit_komplettierer ?? null,
         });
-        setRadarProfileData(data?.radar_profile || data?.radar_dna || null);
+        setRadarProfileData(data?.radar_profile || null);
       });
     return () => {
       cancelled = true;
@@ -1405,10 +1405,8 @@ function GamePageContent({
           radarProfileData ||
           selectedGame?.radar_profile ||
           selectedGame?.radarProfile ||
-          selectedGame?.radar_dna ||
           gameForPublication?.radar_profile ||
-          gameForPublication?.radarProfile ||
-          gameForPublication?.radar_dna
+          gameForPublication?.radarProfile
         }
         isAdmin={isAdmin && !trophiesOnly}
         gameId={gameUuid}

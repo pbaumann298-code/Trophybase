@@ -89,7 +89,6 @@ function AdminGameOverview({
     radarProfile ??
     game?.radar_profile ??
     game?.radarProfile ??
-    game?.radar_dna ??
     null;
 
   const profile = useMemo(() => {
