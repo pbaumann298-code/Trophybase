@@ -60,20 +60,46 @@ export function toBoolFlag(value) {
   return ['ja', 'yes', 'true', '1', 'si', 'sí'].includes(raw);
 }
 
+function isValidIconUrl(url) {
+  return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/'));
+}
+
 /**
  * Eine Bild-URL. Der Crawler speichert Text. Liegt noch eine Sprachmap vor,
  * reicht ein beliebiger Eintrag: das Bild ist in jeder Sprache dasselbe.
+ * Härtet Strings wie '{}' oder serialisierte JSON-Maps ab.
  * @param {unknown} value
  * @returns {string}
  */
 export function trophyIconUrl(value) {
   if (value == null) return '';
-  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
-  if (typeof value !== 'object' || Array.isArray(value)) return '';
-  for (const entry of Object.values(value)) {
-    const text = String(entry ?? '').trim();
-    if (text) return text;
+
+  let candidate = value;
+
+  if (typeof candidate === 'string') {
+    const trimmed = candidate.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        candidate = JSON.parse(trimmed);
+      } catch {
+        // Falls JSON.parse fehlschlägt, als raw String belassen
+      }
+    } else {
+      candidate = trimmed;
+    }
   }
+
+  if (typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate)) {
+    for (const entry of Object.values(candidate)) {
+      const text = String(entry ?? '').trim();
+      if (isValidIconUrl(text)) return text;
+    }
+    return '';
+  }
+
+  const text = String(candidate ?? '').trim();
+  if (isValidIconUrl(text)) return text;
+
   return '';
 }
 

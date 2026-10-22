@@ -2,7 +2,7 @@ import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from '../../shared/countryLocaleMap
 import { isGuidePublished, isGuideReady } from './guidePublication.js';
 
 /** Öffentlich wählbare Website-/Guide-Sprachen. Weitere Codes hier ergänzen. */
-export const PUBLIC_SITE_LOCALES = ['de', 'en'];
+export const PUBLIC_SITE_LOCALES = [...SUPPORTED_LOCALES];
 
 export const DEFAULT_AVAILABLE_LOCALES = PUBLIC_SITE_LOCALES;
 
