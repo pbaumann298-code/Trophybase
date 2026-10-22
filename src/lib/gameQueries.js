@@ -48,6 +48,8 @@ export const GAME_SELECT = [
   GAME_I18N.coverUrl,
   GAME_I18N.description,
   GAME_I18N.statusExplanation,
+  GAME_STRUCT.radarProfile,
+  GAME_STRUCT.radarDna,
 ].join(', ');
 
 const GAME_SELECT_NO_PUBLISHER = GAME_SELECT.split(', ')
@@ -134,9 +136,33 @@ function demoteMissingHomeTags(error) {
   return demoteMissingColumn(error, GAME_STRUCT.homeTags, next);
 }
 
+function demoteMissingRadarProfile(error) {
+  if (!activeGameSelect.includes(GAME_STRUCT.radarProfile) && !activeGameSelect.includes(GAME_STRUCT.radarDna)) {
+    return false;
+  }
+  const code = String(error?.code ?? '');
+  const message = String(error?.message ?? '').toLowerCase();
+  const missing =
+    code === '42703' ||
+    code === 'PGRST204' ||
+    message.includes('radar_profile') ||
+    message.includes('radar_dna');
+  if (!missing) return false;
+  activeGameSelect = activeGameSelect
+    .split(', ')
+    .filter((col) => col !== GAME_STRUCT.radarProfile && col !== GAME_STRUCT.radarDna)
+    .join(', ');
+  return true;
+}
+
 async function runSelect(build) {
   let result = await build();
-  if (result?.error && (demoteMissingPublisher(result.error) || demoteMissingHomeTags(result.error))) {
+  if (
+    result?.error &&
+    (demoteMissingPublisher(result.error) ||
+      demoteMissingHomeTags(result.error) ||
+      demoteMissingRadarProfile(result.error))
+  ) {
     result = await build();
   }
   return result;

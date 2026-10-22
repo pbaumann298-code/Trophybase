@@ -95,6 +95,9 @@ export const GAME_STRUCT = {
   homeTags: 'home_tags',
   /** true = Modell darf home_tags nicht überschreiben */
   homeTagsLocked: 'home_tags_locked',
+  /** Platin-Anforderungsprofil (6-Achsen-DNA) */
+  radarProfile: 'radar_profile',
+  radarDna: 'radar_dna',
 };
 
 /** Allowlist-Slugs für games.home_tags (muss mit home_tag_defs übereinstimmen). */
@@ -323,6 +326,7 @@ export const GAME_FIELDS = {
   description: 'description',
   statusExplanation: 'status_explanation',
   platformGameId: 'platform_game_id',
+  radarProfile: 'radar_profile',
 };
 
 export const ACTIVE_WATCHLIST_STATUSES = ['active', 'aktiv', 'playing'];

@@ -142,6 +142,7 @@ function GamePageContent({
   const [igdbPrompt, setIgdbPrompt] = useState(false);
   const [igdbLink, setIgdbLink] = useState('');
   const [playtime, setPlaytime] = useState(null);
+  const [radarProfileData, setRadarProfileData] = useState(null);
   const [descriptionOverrides, setDescriptionOverrides] = useState({});
   const [quickGuideOpen, setQuickGuideOpen] = useState(false);
   const [guideReloadToken, setGuideReloadToken] = useState(0);
@@ -536,23 +537,38 @@ function GamePageContent({
   useEffect(() => {
     if (!gameUuid) {
       setPlaytime(null);
+      setRadarProfileData(null);
       return undefined;
     }
     let cancelled = false;
     supabase
       .from('games')
-      .select('spielzeit_hauptstory, spielzeit_komplettierer')
+      .select('spielzeit_hauptstory, spielzeit_komplettierer, radar_profile, radar_dna')
       .eq('id', gameUuid)
       .maybeSingle()
       .then(({ data, error }) => {
-        if (cancelled || error) {
-          if (!cancelled) setPlaytime(null);
+        if (cancelled) return;
+        if (error) {
+          supabase
+            .from('games')
+            .select('spielzeit_hauptstory, spielzeit_komplettierer')
+            .eq('id', gameUuid)
+            .maybeSingle()
+            .then(({ data: fallbackData }) => {
+              if (cancelled) return;
+              setPlaytime({
+                hauptstory: fallbackData?.spielzeit_hauptstory ?? null,
+                komplett: fallbackData?.spielzeit_komplettierer ?? null,
+              });
+              setRadarProfileData(null);
+            });
           return;
         }
         setPlaytime({
           hauptstory: data?.spielzeit_hauptstory ?? null,
           komplett: data?.spielzeit_komplettierer ?? null,
         });
+        setRadarProfileData(data?.radar_profile || data?.radar_dna || null);
       });
     return () => {
       cancelled = true;
@@ -1385,7 +1401,15 @@ function GamePageContent({
         game={gameForPublication}
         title={gameTitle}
         playtime={playtime}
-        radarProfile={selectedGame?.radar_profile || selectedGame?.radarProfile || gameForPublication?.radar_profile || gameForPublication?.radarProfile}
+        radarProfile={
+          radarProfileData ||
+          selectedGame?.radar_profile ||
+          selectedGame?.radarProfile ||
+          selectedGame?.radar_dna ||
+          gameForPublication?.radar_profile ||
+          gameForPublication?.radarProfile ||
+          gameForPublication?.radar_dna
+        }
         isAdmin={isAdmin && !trophiesOnly}
         gameId={gameUuid}
         locale={effectiveGuideLang}

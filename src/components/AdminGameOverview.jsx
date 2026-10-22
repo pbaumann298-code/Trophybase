@@ -85,12 +85,46 @@ function AdminGameOverview({
     return resolveStatusExplanation(game, locale);
   }, [game, gameWithoutStoredExplanation, locale, explanationOverride]);
 
-  const profile =
+  const rawProfile =
     radarProfile ??
     game?.radar_profile ??
     game?.radarProfile ??
     game?.radar_dna ??
     null;
+
+  const profile = useMemo(() => {
+    if (!rawProfile) return null;
+    let parsed = rawProfile;
+    if (typeof parsed === 'string') {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        return null;
+      }
+    }
+    if (!parsed || typeof parsed !== 'object') return null;
+
+    const langKey = locale || 'de';
+    if (parsed[langKey] && typeof parsed[langKey] === 'object' && Array.isArray(parsed[langKey].axes)) {
+      return parsed[langKey];
+    }
+    if (parsed.de && typeof parsed.de === 'object' && Array.isArray(parsed.de.axes)) {
+      return parsed.de;
+    }
+    if (parsed.en && typeof parsed.en === 'object' && Array.isArray(parsed.en.axes)) {
+      return parsed.en;
+    }
+
+    if (Array.isArray(parsed.axes)) {
+      return parsed;
+    }
+
+    if (Array.isArray(parsed)) {
+      return { axes: parsed };
+    }
+
+    return null;
+  }, [rawProfile, locale]);
 
   if (!game) return null;
 
