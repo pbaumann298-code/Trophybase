@@ -8,6 +8,8 @@ import {
 } from '../lib/gameOverviewCopy';
 import { saveGamePlaytime } from '../lib/intranetGameEdits';
 import { supabase } from '../pages/supabaseClient';
+import CollapsibleSectionCard from './CollapsibleSectionCard';
+import GameRadarCard from './GameRadarCard';
 
 function formatCount(value) {
   if (value == null || value === '') return '—';
@@ -33,12 +35,14 @@ function FactRow({ label, value, emphasize = false }) {
 }
 
 /**
- * Guide-Überblick. Trophäen-Zahlen kommen aus games, Spielzeit aus den Spielzeit-Spalten.
+ * Guide-Überblick. Trophäen-Zahlen kommen aus games, Spielzeit aus den Spielzeit-Spalten,
+ * sowie das Platin-Anforderungsprofil (6-Achsen-DNA Radar Chart).
  */
 function AdminGameOverview({
   game,
   title = '',
   playtime = null,
+  radarProfile = null,
   className = '',
   isAdmin = false,
   gameId = '',
@@ -81,6 +85,13 @@ function AdminGameOverview({
     return resolveStatusExplanation(game, locale);
   }, [game, gameWithoutStoredExplanation, locale, explanationOverride]);
 
+  const profile =
+    radarProfile ??
+    game?.radar_profile ??
+    game?.radarProfile ??
+    game?.radar_dna ??
+    null;
+
   if (!game) return null;
 
   const serverDead = String(game[GAME_STRUCT.gameType] ?? '').trim() === GAME_TYPE.SERVER_DEAD;
@@ -89,6 +100,10 @@ function AdminGameOverview({
   const hasStory = hasPlaytimeValue(playtime?.hauptstory);
   const hasComplete = hasPlaytimeValue(playtime?.komplett);
   const showPlaytimeBlock = isAdmin || hasStory || hasComplete;
+
+  const storageKey = gameId
+    ? `trophybase_guide_overview_open_${gameId}`
+    : 'trophybase_guide_overview_open';
 
   const startEdit = () => {
     setDraftStory(playtime?.hauptstory != null ? String(playtime.hauptstory) : '');
@@ -132,21 +147,29 @@ function AdminGameOverview({
     setEditing(false);
   };
 
-  return (
-    <section className={`rounded-2xl border border-zinc-800 bg-[#1a1b1c] px-4 py-3 ${className}`}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-base font-bold tracking-tight text-white md:text-lg">{heading}</h3>
-        {isAdmin && !editing ? (
-          <button
-            type="button"
-            onClick={startEdit}
-            className="rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
-          >
-            Bearbeiten
-          </button>
-        ) : null}
-      </div>
+  const headerActions = isAdmin && !editing ? (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        startEdit();
+      }}
+      className="rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
+    >
+      Bearbeiten
+    </button>
+  ) : null;
 
+  return (
+    <CollapsibleSectionCard
+      sectionId="guide-overview"
+      title={heading}
+      defaultOpen={true}
+      accent="green"
+      className={className}
+      storageKey={storageKey}
+      headerActions={headerActions}
+    >
       {serverDead ? (
         <p className="mb-3 text-sm font-semibold leading-relaxed text-red-500">
           {t('serverDeadPlatinum')}
@@ -267,7 +290,9 @@ function AdminGameOverview({
           {error ? <p className="w-full text-xs text-red-400">{error}</p> : null}
         </div>
       ) : null}
-    </section>
+
+      <GameRadarCard profile={profile} isAdmin={isAdmin} embedded />
+    </CollapsibleSectionCard>
   );
 }
 

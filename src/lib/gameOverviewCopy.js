@@ -1,6 +1,7 @@
 import { GAME_FIELDS, GAME_I18N, GAME_STRUCT, isServerDeadType } from './gameSchema.js';
 import { normalizeLocale } from './locale.js';
 import { localizeJsonField } from './translationUtils.js';
+import { t } from './uiStrings.js';
 
 function parseCount(value) {
   if (value == null || value === '') return null;
@@ -147,65 +148,26 @@ export function guideDescriptionFallback(title, locale = 'de') {
 }
 
 /**
- * UI-Labels für den Crawler-Guide (de/en/es).
+ * UI-Labels für den Crawler-Guide.
  * @param {string} locale
  */
 export function guidePageLabels(locale = 'de') {
-  const lang = normalizeLocale(locale);
-  if (lang === 'en') {
-    return {
-      crumbs: 'Breadcrumb',
-      overview: 'Guide overview',
-      trophiesTotal: 'Trophies total',
-      trophiesMissable: 'Missable trophies',
-      trophiesOnline: 'Online trophies',
-      playtimeTitle: 'Playtime',
-      playtimeStory: 'Main story only',
-      playtimeComplete: 'Completionist',
-      playtimeHours: (n) => `${n} h`,
-      trophies: 'Trophies',
-      mainGame: 'Main game',
-      walkthrough: 'Walkthrough',
-      collectibles: 'Collectibles',
-      bosses: 'Bosses',
-      footer: 'Independent trophy guide. Not an official Sony product.',
-    };
-  }
-  if (lang === 'es') {
-    return {
-      crumbs: 'Migas de pan',
-      overview: 'Resumen de la guía',
-      trophiesTotal: 'Trofeos en total',
-      trophiesMissable: 'Trofeos perdibles',
-      trophiesOnline: 'Trofeos en línea',
-      playtimeTitle: 'Duración',
-      playtimeStory: 'Solo historia principal',
-      playtimeComplete: 'Completista',
-      playtimeHours: (n) => `${n} h`,
-      trophies: 'Trofeos',
-      mainGame: 'Juego principal',
-      walkthrough: 'Walkthrough',
-      collectibles: 'Coleccionables',
-      bosses: 'Jefes',
-      footer: 'Guía de trofeos independiente. No es un producto oficial de Sony.',
-    };
-  }
   return {
-    crumbs: 'Brotkrumen',
-    overview: 'Guide-Überblick',
-    trophiesTotal: 'Trophäen gesamt',
-    trophiesMissable: 'Verpassbare Trophäen',
-    trophiesOnline: 'Online-Trophäen',
-    playtimeTitle: 'Spieldauer',
-    playtimeStory: 'Nur Hauptstory',
-    playtimeComplete: 'Komplettierer',
-    playtimeHours: (n) => `${n} Std.`,
-    trophies: 'Trophäen',
-    mainGame: 'Hauptspiel',
-    walkthrough: 'Walkthrough',
-    collectibles: 'Sammelobjekte',
-    bosses: 'Bosse',
-    footer: 'Unabhängiger Trophäen-Guide. Kein offizielles Sony-Angebot.',
+    crumbs: t(locale, 'breadcrumbNav'),
+    overview: t(locale, 'gameOverview').replace('{title}', '').trim(),
+    trophiesTotal: t(locale, 'trophiesTotal'),
+    trophiesMissable: t(locale, 'trophiesMissable'),
+    trophiesOnline: t(locale, 'trophiesOnline'),
+    playtimeTitle: t(locale, 'playtimeTitle'),
+    playtimeStory: t(locale, 'playtimeStory'),
+    playtimeComplete: t(locale, 'playtimeComplete'),
+    playtimeHours: (n) => t(locale, 'playtimeHours').replace('{n}', String(n)),
+    trophies: t(locale, 'trophies'),
+    mainGame: t(locale, 'mainGame'),
+    walkthrough: t(locale, 'fullGameplay'),
+    collectibles: t(locale, 'completion'),
+    bosses: t(locale, 'bosses'),
+    footer: t(locale, 'fairUseNote'),
   };
 }
 
@@ -214,10 +176,10 @@ export function formatPlaytimeHours(value, locale = 'de') {
   const number = Number(value);
   if (!Number.isFinite(number)) return '';
   const lang = normalizeLocale(locale);
-  const shown = number.toLocaleString(lang === 'en' ? 'en' : lang === 'es' ? 'es' : 'de', {
+  const shown = number.toLocaleString(lang, {
     maximumFractionDigits: 1,
   });
-  return guidePageLabels(lang).playtimeHours(shown);
+  return t(locale, 'playtimeHours').replace('{n}', shown);
 }
 
 export function hasPlaytimeValue(value) {

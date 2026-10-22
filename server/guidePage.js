@@ -19,6 +19,7 @@ import { contentLocalesForGame, coerceToAvailableLocale } from '../src/lib/conte
 import { buildGameSeo } from '../src/lib/gameSeo.js';
 import { loadRelatedGuides } from '../src/lib/relatedGames.js';
 import { getGameTitle, toBoolFlag } from '../src/lib/gameModel.js';
+import { t } from '../src/lib/uiStrings.js';
 import {
   formatPlaytimeHours,
   guideDescriptionFallback,
@@ -94,13 +95,11 @@ function listSection(title, items) {
 }
 
 function trophyFlagLabels(locale) {
-  if (locale === 'en') {
-    return { missable: '[Missable]', online: '[Online]', hidden: '[Hidden]' };
-  }
-  if (locale === 'es') {
-    return { missable: '[Perdible]', online: '[Online]', hidden: '[Oculto]' };
-  }
-  return { missable: '[Verpassbar]', online: '[Online]', hidden: '[Versteckt]' };
+  return {
+    missable: `[${t(locale, 'badgeMissable')}]`,
+    online: `[${t(locale, 'badgeOnline')}]`,
+    hidden: `[${t(locale, 'badgeHidden')}]`,
+  };
 }
 
 function mapTrophyItem(row, locale) {
@@ -147,7 +146,7 @@ function trophySectionsHtml(trophies, locale, labels) {
   const blocks = [];
   if (mainGame.length) {
     const heading = dlcGroups.length
-      ? `<h3>${escapeHtml(labels.mainGame)}</h3>`
+      ? `<h3>${escapeHtml(t(locale, 'mainGame'))}</h3>`
       : '';
     const rows = mainGame.map((row) => mapTrophyItem(row, locale));
     blocks.push(
@@ -167,7 +166,7 @@ function trophySectionsHtml(trophies, locale, labels) {
     );
   }
 
-  return `<section><h2>${escapeHtml(labels.trophies)}</h2>${blocks.join('')}</section>`;
+  return `<section><h2>${escapeHtml(t(locale, 'trophies'))}</h2>${blocks.join('')}</section>`;
 }
 
 async function fetchGameTrophies(supabase, gameId) {
@@ -191,13 +190,11 @@ async function fetchGameTrophies(supabase, gameId) {
 
 function relatedHeading(kind, name, locale) {
   if (kind === 'creator') {
-    if (locale === 'es') return name ? `Más guías de ${name}` : 'Más guías de estos creadores';
-    if (locale === 'en') return name ? `More guides by ${name}` : 'More guides by these creators';
-    return name ? `Weitere Guides von ${name}` : 'Weitere Guides der Creator';
+    return name
+      ? t(locale, 'moreFromCreator').replace('{name}', name)
+      : t(locale, 'moreFromCreators');
   }
-  if (locale === 'es') return 'Guías similares';
-  if (locale === 'en') return 'Similar guides';
-  return 'Ähnliche Guides';
+  return t(locale, 'similarGuides');
 }
 
 function relatedSection(heading, games, origin, locale) {
@@ -386,20 +383,20 @@ function renderHtml({
     </header>
     <main>
       <article>
-        ${breadcrumbHtml({ origin, hardware, genre, title, crumbsLabel: labels.crumbs })}
+        ${breadcrumbHtml({ origin, hardware, genre, title, crumbsLabel: t(locale, 'breadcrumbNav') })}
         <h1>${escapeHtml(title)}</h1>
         <p class="meta">${escapeHtml([hardware.toUpperCase(), year, studioLine].filter(Boolean).join(' · '))}</p>
         ${paragraphsHtml(description)}
         ${overviewHtml(game, locale, labels)}
         ${trophySectionsHtml(trophies, locale, labels)}
-        ${listSection(labels.walkthrough, walkthrough)}
-        ${listSection(labels.collectibles, collectibles)}
-        ${listSection(labels.bosses, bosses)}
+        ${listSection(t(locale, 'fullGameplay'), walkthrough)}
+        ${listSection(t(locale, 'completion'), collectibles)}
+        ${listSection(t(locale, 'bosses'), bosses)}
         ${relatedSection(creatorHeading, creatorGames, origin, locale)}
         ${relatedSection(similarHeading, similarGames, origin, locale)}
       </article>
     </main>
-    <footer>${escapeHtml(labels.footer)}</footer>
+    <footer>${escapeHtml(t(locale, 'fairUseNote'))}</footer>
   </body>
 </html>`;
 }
@@ -528,19 +525,23 @@ export async function handleGuideRequest(requestUrl) {
 
     return new Response(html, { status: 200, headers });
   } catch (error) {
-    return new Response(errorHtml(origin, error?.message), {
+    return new Response(errorHtml(origin, error?.message, pretty?.locale || DEFAULT_LOCALE), {
       status: 500,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
   }
 }
 
-function notFoundHtml(origin, locale) {
-  return `<!DOCTYPE html><html lang="${escapeAttr(locale)}"><head><meta charset="UTF-8" /><meta name="robots" content="noindex" /><title>Guide nicht gefunden</title></head><body style="background:#121314;color:#e4e4e7;font:16px system-ui;padding:2rem"><p>Zu diesem Link gibt es keinen veröffentlichten Guide.</p><p><a href="${escapeAttr(origin)}/" style="color:#00ff66">Zur Startseite</a></p></body></html>`;
+function notFoundHtml(origin, locale = 'de') {
+  const title = t(locale, 'guideNotFoundTitle');
+  const body = t(locale, 'guideNotFoundBody');
+  const home = t(locale, 'breadcrumbHome');
+  return `<!DOCTYPE html><html lang="${escapeAttr(locale)}"><head><meta charset="UTF-8" /><meta name="robots" content="noindex" /><title>${escapeHtml(title)}</title></head><body style="background:#121314;color:#e4e4e7;font:16px system-ui;padding:2rem"><p>${escapeHtml(body)}</p><p><a href="${escapeAttr(origin)}/" style="color:#00ff66">${escapeHtml(home)}</a></p></body></html>`;
 }
 
-function errorHtml(origin, message) {
-  return `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8" /><meta name="robots" content="noindex" /><title>Fehler</title></head><body style="background:#121314;color:#e4e4e7;font:16px system-ui;padding:2rem"><p>${escapeHtml(message || 'Seite konnte nicht gebaut werden.')}</p><p><a href="${escapeAttr(origin || SITE_ORIGIN)}/" style="color:#00ff66">Zur Startseite</a></p></body></html>`;
+function errorHtml(origin, message, locale = 'de') {
+  const home = t(locale, 'breadcrumbHome');
+  return `<!DOCTYPE html><html lang="${escapeAttr(locale)}"><head><meta charset="UTF-8" /><meta name="robots" content="noindex" /><title>Error</title></head><body style="background:#121314;color:#e4e4e7;font:16px system-ui;padding:2rem"><p>${escapeHtml(message || 'Seite konnte nicht gebaut werden.')}</p><p><a href="${escapeAttr(origin || SITE_ORIGIN)}/" style="color:#00ff66">${escapeHtml(home)}</a></p></body></html>`;
 }
 
 export async function warmPublishedGuide(origin, hardware, slug, locales = [DEFAULT_LOCALE]) {

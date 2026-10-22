@@ -12,8 +12,31 @@ function CollapsibleSectionCard({
   accent = 'green',
   children,
   className = '',
+  storageKey = null,
+  headerActions = null,
 }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [isOpen, setIsOpen] = useState(() => {
+    if (storageKey && typeof window !== 'undefined' && window.localStorage) {
+      const saved = localStorage.getItem(storageKey);
+      if (saved === 'closed') return false;
+      if (saved === 'open') return true;
+    }
+    return defaultOpen;
+  });
+
+  const toggleOpen = () => {
+    setIsOpen((prev) => {
+      const next = !prev;
+      if (storageKey && typeof window !== 'undefined' && window.localStorage) {
+        try {
+          localStorage.setItem(storageKey, next ? 'open' : 'closed');
+        } catch (e) {
+          console.error('Failed to save collapsible state:', e);
+        }
+      }
+      return next;
+    });
+  };
 
   const accentStyles =
     accent === 'purple'
@@ -30,10 +53,17 @@ function CollapsibleSectionCard({
       id={sectionId}
       className={`rounded-2xl border border-zinc-800 bg-[#1a1b1c] shadow-xl overflow-hidden transition-all duration-300 ${accentStyles} ${className}`}
     >
-      <button
-        type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        className="w-full flex items-center justify-between gap-4 px-5 py-4 bg-[#121314] border-b border-zinc-800/80 text-left cursor-pointer transition-colors duration-300 hover:bg-zinc-900/80"
+      <div
+        onClick={toggleOpen}
+        className="w-full flex items-center justify-between gap-4 px-5 py-4 bg-[#121314] border-b border-zinc-800/80 text-left cursor-pointer transition-colors duration-300 hover:bg-zinc-900/80 select-none"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggleOpen();
+          }
+        }}
         aria-expanded={isOpen}
       >
         <div className="min-w-0 flex-1">
@@ -51,13 +81,20 @@ function CollapsibleSectionCard({
             <p className="text-xs text-zinc-500 mt-1 truncate">{subtitle}</p>
           )}
         </div>
-        <span
-          className="text-zinc-500 text-sm flex-shrink-0 transition-transform duration-300"
-          aria-hidden
-        >
-          {isOpen ? '▲' : '▼'}
-        </span>
-      </button>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {headerActions && (
+            <div onClick={(e) => e.stopPropagation()}>
+              {headerActions}
+            </div>
+          )}
+          <span
+            className="text-zinc-500 text-sm flex-shrink-0 transition-transform duration-300"
+            aria-hidden
+          >
+            {isOpen ? '▲' : '▼'}
+          </span>
+        </div>
+      </div>
 
       <div
         className={`grid transition-all duration-300 ease-in-out ${

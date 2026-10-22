@@ -1385,6 +1385,7 @@ function GamePageContent({
         game={gameForPublication}
         title={gameTitle}
         playtime={playtime}
+        radarProfile={selectedGame?.radar_profile || selectedGame?.radarProfile || gameForPublication?.radar_profile || gameForPublication?.radarProfile}
         isAdmin={isAdmin && !trophiesOnly}
         gameId={gameUuid}
         locale={effectiveGuideLang}
