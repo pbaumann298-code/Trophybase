@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import SearchResultsPage from './SearchResultsPage';
 import { CONSOLE_FILTER_OPTIONS, searchGamesAdvanced } from '../lib/gameSearch';
+import { fetchHomeTagDefs, translateHomeTag } from '../lib/homeTagDefs';
 import {
   QUICKWINS_PATH,
   getViewFromPath,
@@ -22,7 +23,7 @@ const FALLBACK_EASY = '/easy-platins';
 const FALLBACK_SERVERTOT = '/servertot';
 
 function emptyFilters() {
-  return { title: '', developer: '', genre: '', console: '' };
+  return { title: '', developer: '', genre: '', console: '', tag: '', onlineMode: '' };
 }
 
 function hasAnyFilter(filters) {
@@ -76,6 +77,7 @@ function AdvancedSearchPage({
 }) {
   const { t, globalLocale } = useLocale();
   const [filters, setFilters] = useState(() => parseAdvancedSearchParams());
+  const [tagOptions, setTagOptions] = useState([]);
   const [excludeQuickwins, setExcludeQuickwins] = useState(() => parseExcludeQuickwins());
   const [includeTrophiesOnly, setIncludeTrophiesOnly] = useState(
     () => Boolean(sessionUser) && parseIncludeTrophiesOnly(),
@@ -127,6 +129,18 @@ function AdvancedSearchPage({
     setLoading(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchHomeTagDefs(supabase).then(({ data }) => {
+      if (!cancelled && data) {
+        setTagOptions(data);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const previous = document.title;
@@ -252,7 +266,7 @@ function AdvancedSearchPage({
           <label htmlFor="advanced-console">{t('searchConsole')}</label>
           <select
             id="advanced-console"
-            value={filters.console}
+            value={filters.console || ''}
             onChange={updateField('console')}
           >
             {CONSOLE_FILTER_OPTIONS.map((option) => (
@@ -260,6 +274,33 @@ function AdvancedSearchPage({
                 {option.labelKey ? t(option.labelKey) : option.label}
               </option>
             ))}
+          </select>
+        </div>
+        <div className="advanced-search-field">
+          <label htmlFor="advanced-tag">{t('searchCategoryLabel')}</label>
+          <select
+            id="advanced-tag"
+            value={filters.tag || ''}
+            onChange={updateField('tag')}
+          >
+            <option value="">{t('searchCategoryAll')}</option>
+            {tagOptions.map((opt) => (
+              <option key={opt.slug} value={opt.slug}>
+                {translateHomeTag(opt.slug, globalLocale, opt.label)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="advanced-search-field">
+          <label htmlFor="advanced-online">{t('searchOnlineLabel')}</label>
+          <select
+            id="advanced-online"
+            value={filters.onlineMode || ''}
+            onChange={updateField('onlineMode')}
+          >
+            <option value="">{t('searchOnlineAll')}</option>
+            <option value="offline">{t('searchOnlineOffline')}</option>
+            <option value="online">{t('searchOnlineWith')}</option>
           </select>
         </div>
 

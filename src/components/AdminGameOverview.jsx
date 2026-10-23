@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocale } from '../context/LocaleContext';
 import { GAME_FIELDS, GAME_I18N, GAME_STRUCT, GAME_TYPE } from '../lib/gameSchema';
 import {
+  buildPlatinumQuickFacts,
   hasPlaytimeValue,
   resolveStatusExplanation,
   storedStatusExplanation,
@@ -34,12 +35,33 @@ function FactRow({ label, value, emphasize = false }) {
   );
 }
 
+function QuickFactChip({ icon, text, tone = 'neutral' }) {
+  const toneClass =
+    tone === 'green'
+      ? 'border-[#00ff66]/30 bg-[#00ff66]/10 text-[#00ff66]'
+      : tone === 'amber'
+        ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+        : tone === 'blue'
+          ? 'border-sky-500/30 bg-sky-500/10 text-sky-300'
+          : 'border-zinc-700/80 bg-zinc-900/80 text-zinc-200';
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium leading-snug ${toneClass}`}
+    >
+      <span aria-hidden="true">{icon}</span>
+      <span>{text}</span>
+    </span>
+  );
+}
+
 /**
  * Guide-Überblick. Trophäen-Zahlen kommen aus games, Spielzeit aus den Spielzeit-Spalten,
  * sowie das Platin-Anforderungsprofil (6-Achsen-DNA Radar Chart).
  */
 function AdminGameOverview({
   game,
+  trophies = [],
   title = '',
   playtime = null,
   radarProfile = null,
@@ -76,14 +98,12 @@ function AdminGameOverview({
     [game],
   );
 
-  const displayExplanation = useMemo(() => {
+  const manualExplanation = useMemo(() => {
     if (explanationOverride?.locale === locale) {
-      const text = String(explanationOverride.text ?? '').trim();
-      if (text) return text;
-      return resolveStatusExplanation(gameWithoutStoredExplanation, locale);
+      return String(explanationOverride.text ?? '').trim();
     }
-    return resolveStatusExplanation(game, locale);
-  }, [game, gameWithoutStoredExplanation, locale, explanationOverride]);
+    return storedStatusExplanation(game, locale);
+  }, [game, locale, explanationOverride]);
 
   const rawProfile =
     radarProfile ??
@@ -105,25 +125,56 @@ function AdminGameOverview({
 
     const langKey = locale || 'de';
     if (parsed[langKey] && typeof parsed[langKey] === 'object' && Array.isArray(parsed[langKey].axes)) {
-      return parsed[langKey];
-    }
-    if (parsed.de && typeof parsed.de === 'object' && Array.isArray(parsed.de.axes)) {
-      return parsed.de;
-    }
-    if (parsed.en && typeof parsed.en === 'object' && Array.isArray(parsed.en.axes)) {
-      return parsed.en;
+      return { ...parsed[langKey], _resolvedLocale: langKey };
     }
 
-    if (Array.isArray(parsed.axes)) {
-      return parsed;
-    }
-
-    if (Array.isArray(parsed)) {
-      return { axes: parsed };
+    // Rein deutsches radar_profile nur auf deutschen Seiten anzeigen
+    if (langKey === 'de') {
+      if (parsed.de && typeof parsed.de === 'object' && Array.isArray(parsed.de.axes)) {
+        return { ...parsed.de, _resolvedLocale: 'de' };
+      }
+      if (Array.isArray(parsed.axes)) {
+        return { ...parsed, _resolvedLocale: 'de' };
+      }
+      if (Array.isArray(parsed)) {
+        return { axes: parsed, _resolvedLocale: 'de' };
+      }
     }
 
     return null;
   }, [rawProfile, locale]);
+
+  const trophyCounts = useMemo(() => {
+    const list = Array.isArray(trophies) ? trophies : [];
+    const dbTotal = game?.[GAME_STRUCT.trophyCount];
+    const dbMissable = game?.[GAME_STRUCT.totalMissableTrophies];
+    const dbOnline = game?.[GAME_STRUCT.totalOnlineTrophies];
+
+    const total = dbTotal != null && dbTotal !== ''
+      ? dbTotal
+      : list.length > 0
+        ? list.length
+        : null;
+
+    const missable = dbMissable != null && dbMissable !== ''
+      ? dbMissable
+      : list.length > 0
+        ? list.filter((tr) => Boolean(tr?.is_missable)).length
+        : (game?.[GAME_STRUCT.hasMissableTrophies] === false ? 0 : null);
+
+    const online = dbOnline != null && dbOnline !== ''
+      ? dbOnline
+      : list.length > 0
+        ? list.filter((tr) => Boolean(tr?.is_online)).length
+        : (game?.[GAME_STRUCT.hasOnlineTrophies] === false ? 0 : null);
+
+    return { total, missable, online };
+  }, [game, trophies]);
+
+  const quickFacts = useMemo(
+    () => buildPlatinumQuickFacts(game, trophies, profile ?? rawProfile, locale),
+    [game, trophies, profile, rawProfile, locale],
+  );
 
   if (!game) return null;
 
@@ -209,8 +260,21 @@ function AdminGameOverview({
         </p>
       ) : null}
 
-      {!serverDead && displayExplanation && !editing ? (
-        <p className="mb-3 text-sm leading-relaxed text-zinc-300">{displayExplanation}</p>
+      {!serverDead && quickFacts.length > 0 ? (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {quickFacts.map((fact) => (
+            <QuickFactChip
+              key={fact.key}
+              icon={fact.icon}
+              text={fact.text}
+              tone={fact.tone}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {!serverDead && manualExplanation && !editing ? (
+        <p className="mb-4 text-sm leading-relaxed text-zinc-300">{manualExplanation}</p>
       ) : null}
 
       {editing ? (
@@ -233,9 +297,9 @@ function AdminGameOverview({
 
       <div className={`grid gap-x-8 ${showPlaytimeBlock ? 'sm:grid-cols-2' : ''}`}>
         <dl className="text-sm">
-          <FactRow label={t('trophiesTotal')} value={formatCount(game[GAME_STRUCT.trophyCount])} emphasize />
-          <FactRow label={t('trophiesMissable')} value={formatCount(game[GAME_STRUCT.totalMissableTrophies])} />
-          <FactRow label={t('trophiesOnline')} value={formatCount(game[GAME_STRUCT.totalOnlineTrophies])} />
+          <FactRow label={t('trophiesTotal')} value={formatCount(trophyCounts.total)} emphasize />
+          <FactRow label={t('trophiesMissable')} value={formatCount(trophyCounts.missable)} />
+          <FactRow label={t('trophiesOnline')} value={formatCount(trophyCounts.online)} />
         </dl>
         {showPlaytimeBlock ? (
           <dl className="text-sm">

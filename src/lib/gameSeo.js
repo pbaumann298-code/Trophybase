@@ -2,6 +2,7 @@ import { DEFAULT_LOCALE, hreflangOf } from '../../shared/countryLocaleMap.js';
 import { GAME_STRUCT, isServerDeadType } from './gameSchema.js';
 import { publicStudioCredits } from './studioCredits.js';
 import { getGameCover, getGameDescription, getGameTitle } from './gameModel.js';
+import { formatLocalizedHomeTags } from './homeTagDefs.js';
 import { buildPrettyGamePath, hardwareLabel, hardwareToUrlSegment } from './gameSlug.js';
 import { contentLocalesForGame } from './contentLocales.js';
 import { guideDescriptionFallback } from './gameOverviewCopy.js';
@@ -69,7 +70,13 @@ function buildGameFaq(game, title, canonicalLocale) {
     return [];
   }
 
-  const isDe = canonicalLocale === 'de';
+  const lang = canonicalLocale === 'de'
+    ? 'de'
+    : canonicalLocale === 'es'
+      ? 'es'
+      : canonicalLocale === 'pt'
+        ? 'pt'
+        : 'en';
 
   const parseNum = (val) => {
     if (val == null || val === '') return null;
@@ -87,38 +94,53 @@ function buildGameFaq(game, title, canonicalLocale) {
 
   // Q1: How many trophies
   if (totalTrophies != null && totalTrophies > 0) {
-    let answerText = isDe
-      ? `${title} hat insgesamt ${totalTrophies} Trophäen.`
-      : `${title} has a total of ${totalTrophies} trophies.`;
-
-    if (missable != null && online != null) {
-      if (isDe) {
+    let answerText = '';
+    if (lang === 'de') {
+      answerText = `${title} hat insgesamt ${totalTrophies} Trophäen.`;
+      if (missable != null && online != null) {
         const mText = missable === 0 ? 'keine verpassbar' : `${missable} verpassbar`;
         const oText = online === 0 ? 'keine erfordern eine Online-Verbindung' : `${online} erfordern eine Online-Verbindung`;
         answerText += ` Davon sind ${mText} und ${oText}.`;
-      } else {
+      } else if (missable != null) {
+        answerText += missable === 0 ? ' Davon ist keine verpassbar.' : ` Davon sind ${missable} verpassbar.`;
+      } else if (online != null) {
+        answerText += online === 0 ? ' Alle Trophäen sind offline erspielbar.' : ` Davon erfordern ${online} eine Online-Verbindung.`;
+      }
+    } else if (lang === 'es') {
+      answerText = `${title} tiene un total de ${totalTrophies} trofeos.`;
+      if (missable != null && online != null) {
+        const mText = missable === 0 ? 'ninguno es perdible' : missable === 1 ? '1 es perdible' : `${missable} son perdibles`;
+        const oText = online === 0 ? 'ninguno requiere conexión online' : online === 1 ? '1 requiere conexión online' : `${online} requieren conexión online`;
+        answerText += ` De ellos, ${mText} y ${oText}.`;
+      } else if (missable != null) {
+        answerText += missable === 0 ? ' De ellos, ninguno es perdible.' : missable === 1 ? ' De ellos, 1 es perdible.' : ` De ellos, ${missable} son perdibles.`;
+      } else if (online != null) {
+        answerText += online === 0 ? ' Todos los trofeos se pueden conseguir offline.' : online === 1 ? ' De ellos, 1 requiere conexión online.' : ` De ellos, ${online} requieren conexión online.`;
+      }
+    } else if (lang === 'pt') {
+      answerText = `${title} tem um total de ${totalTrophies} troféus.`;
+      if (missable != null && online != null) {
+        const mText = missable === 0 ? 'nenhum é perdível' : missable === 1 ? '1 é perdível' : `${missable} são perdíveis`;
+        const oText = online === 0 ? 'nenhum requer conexão online' : online === 1 ? '1 requer conexão online' : `${online} requerem conexão online`;
+        answerText += ` Destes, ${mText} e ${oText}.`;
+      } else if (missable != null) {
+        answerText += missable === 0 ? ' Destes, nenhum é perdível.' : missable === 1 ? ' Destes, 1 é perdível.' : ` Destes, ${missable} são perdíveis.`;
+      } else if (online != null) {
+        answerText += online === 0 ? ' Todos os troféus podem ser obtidos offline.' : online === 1 ? ' Destes, 1 requer conexão online.' : ` Destes, ${online} requerem conexão online.`;
+      }
+    } else {
+      answerText = `${title} has a total of ${totalTrophies} trophies.`;
+      if (missable != null && online != null) {
         const mText = missable === 0 ? 'none are missable' : missable === 1 ? '1 is missable' : `${missable} are missable`;
         const oText = online === 0 ? 'none require an online connection' : online === 1 ? '1 requires an online connection' : `${online} require an online connection`;
         answerText += ` Of these, ${mText} and ${oText}.`;
-      }
-    } else if (missable != null) {
-      if (isDe) {
-        answerText += missable === 0
-          ? ' Davon ist keine verpassbar.'
-          : ` Davon sind ${missable} verpassbar.`;
-      } else {
+      } else if (missable != null) {
         answerText += missable === 0
           ? ' Of these, none are missable.'
           : missable === 1
             ? ' Of these, 1 is missable.'
             : ` Of these, ${missable} are missable.`;
-      }
-    } else if (online != null) {
-      if (isDe) {
-        answerText += online === 0
-          ? ' Alle Trophäen sind offline erspielbar.'
-          : ` Davon erfordern ${online} eine Online-Verbindung.`;
-      } else {
+      } else if (online != null) {
         answerText += online === 0
           ? ' All trophies can be earned offline.'
           : online === 1
@@ -127,9 +149,17 @@ function buildGameFaq(game, title, canonicalLocale) {
       }
     }
 
+    const q1Name = lang === 'de'
+      ? `Wie viele Trophäen hat ${title}?`
+      : lang === 'es'
+        ? `¿Cuántos trofeos tiene ${title}?`
+        : lang === 'pt'
+          ? `Quantos troféus tem ${title}?`
+          : `How many trophies does ${title} have?`;
+
     questions.push({
       '@type': 'Question',
-      name: isDe ? `Wie viele Trophäen hat ${title}?` : `How many trophies does ${title} have?`,
+      name: q1Name,
       acceptedAnswer: {
         '@type': 'Answer',
         text: answerText,
@@ -139,17 +169,36 @@ function buildGameFaq(game, title, canonicalLocale) {
 
   // Q2: Missable trophies
   if (missable != null) {
-    const answerText = isDe
-      ? (missable === 0
-          ? `Nein, ${title} hat keine verpassbaren Trophäen.`
-          : `Ja, in ${title} gibt es ${missable} verpassbare ${missable === 1 ? 'Trophäe' : 'Trophäen'}.`)
-      : (missable === 0
-          ? `No, ${title} has no missable trophies.`
-          : `Yes, there ${missable === 1 ? 'is 1 missable trophy' : `are ${missable} missable trophies`} in ${title}.`);
+    let answerText = '';
+    if (lang === 'de') {
+      answerText = missable === 0
+        ? `Nein, ${title} hat keine verpassbaren Trophäen.`
+        : `Ja, in ${title} gibt es ${missable} verpassbare ${missable === 1 ? 'Trophäe' : 'Trophäen'}.`;
+    } else if (lang === 'es') {
+      answerText = missable === 0
+        ? `No, ${title} no tiene trofeos perdibles.`
+        : `Sí, hay ${missable} ${missable === 1 ? 'trofeo perdible' : 'trofeos perdibles'} en ${title}.`;
+    } else if (lang === 'pt') {
+      answerText = missable === 0
+        ? `Não, ${title} não tem troféus perdíveis.`
+        : `Sim, há ${missable} ${missable === 1 ? 'troféu perdível' : 'troféus perdíveis'} em ${title}.`;
+    } else {
+      answerText = missable === 0
+        ? `No, ${title} has no missable trophies.`
+        : `Yes, there ${missable === 1 ? 'is 1 missable trophy' : `are ${missable} missable trophies`} in ${title}.`;
+    }
+
+    const q2Name = lang === 'de'
+      ? `Gibt es verpassbare Trophäen in ${title}?`
+      : lang === 'es'
+        ? `¿Hay trofeos perdibles en ${title}?`
+        : lang === 'pt'
+          ? `Existem troféus perdíveis em ${title}?`
+          : `Are there any missable trophies in ${title}?`;
 
     questions.push({
       '@type': 'Question',
-      name: isDe ? `Gibt es verpassbare Trophäen in ${title}?` : `Are there any missable trophies in ${title}?`,
+      name: q2Name,
       acceptedAnswer: {
         '@type': 'Answer',
         text: answerText,
@@ -159,17 +208,36 @@ function buildGameFaq(game, title, canonicalLocale) {
 
   // Q3: Online trophies
   if (online != null) {
-    const answerText = isDe
-      ? (online === 0
-          ? `Nein, alle Trophäen in ${title} sind offline erspielbar.`
-          : `Ja, ${title} enthält ${online} Online-${online === 1 ? 'Trophäe' : 'Trophäen'}.`)
-      : (online === 0
-          ? `No, all trophies in ${title} can be earned offline.`
-          : `Yes, ${title} contains ${online} online ${online === 1 ? 'trophy' : 'trophies'}.`);
+    let answerText = '';
+    if (lang === 'de') {
+      answerText = online === 0
+        ? `Nein, alle Trophäen in ${title} sind offline erspielbar.`
+        : `Ja, ${title} enthält ${online} Online-${online === 1 ? 'Trophäe' : 'Trophäen'}.`;
+    } else if (lang === 'es') {
+      answerText = online === 0
+        ? `No, todos los trofeos de ${title} se pueden conseguir offline.`
+        : `Sí, ${title} incluye ${online} ${online === 1 ? 'trofeo online' : 'trofeos online'}.`;
+    } else if (lang === 'pt') {
+      answerText = online === 0
+        ? `Não, todos os troféus em ${title} podem ser obtidos offline.`
+        : `Sim, ${title} contém ${online} ${online === 1 ? 'troféu online' : 'troféus online'}.`;
+    } else {
+      answerText = online === 0
+        ? `No, all trophies in ${title} can be earned offline.`
+        : `Yes, ${title} contains ${online} online ${online === 1 ? 'trophy' : 'trophies'}.`;
+    }
+
+    const q3Name = lang === 'de'
+      ? `Hat ${title} Online-Trophäen?`
+      : lang === 'es'
+        ? `¿Tiene ${title} trofeos online?`
+        : lang === 'pt'
+          ? `${title} tem troféus online?`
+          : `Does ${title} have online trophies?`;
 
     questions.push({
       '@type': 'Question',
-      name: isDe ? `Hat ${title} Online-Trophäen?` : `Does ${title} have online trophies?`,
+      name: q3Name,
       acceptedAnswer: {
         '@type': 'Answer',
         text: answerText,
@@ -181,29 +249,92 @@ function buildGameFaq(game, title, canonicalLocale) {
   if ((storyTime != null && storyTime > 0) || (compTime != null && compTime > 0)) {
     let answerText = '';
     if (compTime != null && compTime > 0 && storyTime != null && storyTime > 0) {
-      answerText = isDe
-        ? `Für die Platin-Trophäe in ${title} benötigt man ca. ${compTime} Stunden (für die Hauptstory ca. ${storyTime} Stunden).`
-        : `Obtaining the platinum trophy in ${title} takes approximately ${compTime} hours (around ${storyTime} hours for the main story alone).`;
+      if (lang === 'de') {
+        answerText = `Für die Platin-Trophäe in ${title} benötigt man ca. ${compTime} Stunden (für die Hauptstory ca. ${storyTime} Stunden).`;
+      } else if (lang === 'es') {
+        answerText = `Conseguir el trofeo de platino en ${title} lleva aproximadamente ${compTime} horas (unas ${storyTime} horas solo para la historia principal).`;
+      } else if (lang === 'pt') {
+        answerText = `Obter o troféu de platina em ${title} leva aproximadamente ${compTime} horas (cerca de ${storyTime} horas apenas para a história principal).`;
+      } else {
+        answerText = `Obtaining the platinum trophy in ${title} takes approximately ${compTime} hours (around ${storyTime} hours for the main story alone).`;
+      }
     } else if (compTime != null && compTime > 0) {
-      answerText = isDe
-        ? `Die Platin-Trophäe in ${title} dauert ca. ${compTime} Stunden.`
-        : `Obtaining the platinum trophy in ${title} takes approximately ${compTime} hours.`;
+      if (lang === 'de') {
+        answerText = `Die Platin-Trophäe in ${title} dauert ca. ${compTime} Stunden.`;
+      } else if (lang === 'es') {
+        answerText = `Conseguir el trofeo de platino en ${title} lleva aproximadamente ${compTime} horas.`;
+      } else if (lang === 'pt') {
+        answerText = `Obter o troféu de platina em ${title} leva aproximadamente ${compTime} horas.`;
+      } else {
+        answerText = `Obtaining the platinum trophy in ${title} takes approximately ${compTime} hours.`;
+      }
     } else if (storyTime != null && storyTime > 0) {
-      answerText = isDe
-        ? `Die Hauptstory von ${title} dauert ca. ${storyTime} Stunden.`
-        : `The main story of ${title} takes approximately ${storyTime} hours.`;
+      if (lang === 'de') {
+        answerText = `Die Hauptstory von ${title} dauert ca. ${storyTime} Stunden.`;
+      } else if (lang === 'es') {
+        answerText = `La historia principal de ${title} dura aproximadamente ${storyTime} horas.`;
+      } else if (lang === 'pt') {
+        answerText = `A história principal de ${title} dura aproximadamente ${storyTime} horas.`;
+      } else {
+        answerText = `The main story of ${title} takes approximately ${storyTime} hours.`;
+      }
     }
 
     if (answerText) {
+      const q4Name = lang === 'de'
+        ? `Wie lange dauert die Platin-Trophäe in ${title}?`
+        : lang === 'es'
+          ? `¿Cuánto tiempo lleva conseguir el platino en ${title}?`
+          : lang === 'pt'
+            ? `Quanto tempo leva para platinar ${title}?`
+            : `How long does it take to platinum ${title}?`;
+
       questions.push({
         '@type': 'Question',
-        name: isDe ? `Wie lange dauert die Platin-Trophäe in ${title}?` : `How long does it take to platinum ${title}?`,
+        name: q4Name,
         acceptedAnswer: {
           '@type': 'Answer',
           text: answerText,
         },
       });
     }
+  }
+
+  // Q5: Platin-Schwierigkeit & Anforderungsprofil (aus radar_profile)
+  const rawRadar = game.radar_profile;
+  let radar = null;
+  if (rawRadar && typeof rawRadar === 'object') {
+    if (rawRadar[canonicalLocale] && Array.isArray(rawRadar[canonicalLocale].axes)) {
+      radar = rawRadar[canonicalLocale];
+    } else if (canonicalLocale === 'de' && Array.isArray(rawRadar.axes)) {
+      radar = rawRadar;
+    }
+  }
+
+  if (radar && Array.isArray(radar.axes) && radar.axes.length > 0) {
+    const details = radar.axes
+      .map((a) => `${a.label}: ${a.score}/10 (${a.reason})`)
+      .join(' · ');
+    const answerText = [radar.summary, details, radar.has_dlc_shift ? radar.dlc_summary : '']
+      .filter(Boolean)
+      .join(' ');
+
+    const q5Name = lang === 'de'
+      ? `Wie schwer ist die Platin-Trophäe in ${title}?`
+      : lang === 'es'
+        ? `¿Qué tan difícil es el trofeo de platino en ${title}?`
+        : lang === 'pt'
+          ? `Quão difícil é o troféu de platina em ${title}?`
+          : `How difficult is the platinum trophy in ${title}?`;
+
+    questions.push({
+      '@type': 'Question',
+      name: q5Name,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: answerText,
+      },
+    });
   }
 
   return questions;
@@ -232,7 +363,11 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
   const cover = absoluteUrl(base, getGameCover(game, canonicalLocale));
   const year = game?.[GAME_STRUCT.releaseYear] ? String(game[GAME_STRUCT.releaseYear]) : '';
   const credits = publicStudioCredits(game);
-  const genre = String(game?.[GAME_STRUCT.genre] ?? '').trim();
+  const genre = formatLocalizedHomeTags(
+    game?.[GAME_STRUCT.homeTags],
+    canonicalLocale,
+    game?.[GAME_STRUCT.genre],
+  );
   const platform = hardwareLabel(game?.hardware || hw);
   const pageTitle = `${title} – TrophyBase`;
 

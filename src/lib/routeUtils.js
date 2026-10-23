@@ -8,7 +8,7 @@ import {
   hardwareToUrlSegment,
   parsePrettyGamePath,
 } from './gameSlug.js';
-import { getGameUuid, getPlatformGameId, UUID_PATTERN } from './gameModel.js';
+import { getGameUuid, getPlatformGameId } from './gameModel.js';
 import { publishedGuideLocales } from './guidePublication.js';
 import { coerceToAvailableLocale } from './contentLocales.js';
 
@@ -71,7 +71,6 @@ export function getViewFromPath(pathname = '', search) {
   if (path === '/profile') return 'profile';
   if (path === '/watchlist') return 'watchlist';
   if (path.startsWith('/admin/qa')) return 'qa_admin';
-  if (path.startsWith('/guide/')) return 'game_info';
   if (path === '/beta' || path.startsWith('/beta/')) return 'beta';
   if (parsePrettyGamePath(path)) return 'game_info';
   if (getGameIdFromPath(path)) return 'game_info';
@@ -112,11 +111,14 @@ export function getGameIdFromPath(pathname = '') {
 
   if (path.startsWith('/guide/')) {
     const id = path.split('/')[2]?.trim();
-    return id || null;
+    if (id && NPWR_ID_PATTERN.test(id)) {
+      return id;
+    }
+    return null;
   }
 
   const segment = path.slice(1);
-  if (NPWR_ID_PATTERN.test(segment) || UUID_PATTERN.test(segment)) {
+  if (NPWR_ID_PATTERN.test(segment)) {
     return segment;
   }
 
@@ -179,7 +181,7 @@ export function navigateToGuideHelp(section = '') {
   window.history.pushState({}, '', href);
 }
 
-const ADVANCED_SEARCH_QUERY_KEYS = ['title', 'developer', 'genre', 'console'];
+const ADVANCED_SEARCH_QUERY_KEYS = ['title', 'developer', 'genre', 'console', 'tag', 'onlineMode'];
 
 export function parseSearchPageParam(search = '') {
   const params = new URLSearchParams(

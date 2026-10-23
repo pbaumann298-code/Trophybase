@@ -4,6 +4,7 @@ import { useLocale } from '../context/LocaleContext';
 import { CATALOG_FETCH_PAGE, fetchGamesByType } from '../lib/gameQueries';
 import { GAME_TYPE } from '../lib/gameSchema';
 import { getGameTitle, getGameUuid } from '../lib/gameModel';
+import { translateHomeTag } from '../lib/homeTagDefs';
 import {
   QUICKWIN_ALPHABET,
   QUICKWIN_PUBLISHER_MIN,
@@ -37,6 +38,59 @@ import '../styles/quickwins.css';
  *   parsePath: (pathname?: string) => { locale: string|null, slug: string, legacy?: boolean }|null,
  * }} LocalizedCatalog
  */
+
+const EASY_PLATINS_SERIES = [
+  { label: 'Enigmatis', title: 'Enigmatis' },
+  { label: 'Grim Legends', title: 'Grim Legends' },
+  { label: 'Nightmares from the Deep', title: 'Nightmares from the Deep' },
+  { label: 'Steins;Gate', title: 'Steins;Gate' },
+  { label: 'AI: The Somnium Files', title: 'Somnium Files' },
+  { label: 'Collar X Malice', title: 'Collar' },
+  { labelKey: 'easyPlatinsSeriesFmv', tag: 'fmv' },
+];
+
+const EASY_PLATINS_TAGS = [
+  { tag: 'hidden_object', icon: '🔍', keywords: ['wimmelbild', 'hidden object'] },
+  { tag: 'visual_novel', icon: '📖', keywords: ['visual novel'] },
+  { tag: 'fmv', icon: '🎬', keywords: ['fmv', 'interaktiver film', 'interactive film', 'interactive movie'] },
+  { tag: 'mystery_crime', icon: '🕵️', keywords: ['mystery', 'crime', 'detektiv', 'krimi'] },
+  { tag: 'scifi_cyberpunk', icon: '🚀', keywords: ['sci-fi', 'scifi', 'cyberpunk'] },
+  { tag: 'otome_romance', icon: '💘', keywords: ['otome', 'romance', 'romantik'] },
+  { tag: 'psych_horror', icon: '🧠', keywords: ['horror', 'psychological', 'psychologisch'] },
+  { tag: 'point_and_click', icon: '🖱️', keywords: ['point', 'click'] },
+];
+
+function gameMatchesTag(game, tagSlug) {
+  if (!game || !tagSlug) return false;
+
+  const rawTags = game.home_tags;
+  let tagList = [];
+  if (Array.isArray(rawTags)) {
+    tagList = rawTags;
+  } else if (typeof rawTags === 'string') {
+    try {
+      const parsed = JSON.parse(rawTags);
+      if (Array.isArray(parsed)) tagList = parsed;
+      else tagList = [rawTags];
+    } catch {
+      tagList = [rawTags];
+    }
+  }
+
+  if (tagList.some((t) => String(t).toLowerCase() === tagSlug.toLowerCase())) {
+    return true;
+  }
+
+  const genre = String(game.genre ?? '').toLowerCase();
+  const def = EASY_PLATINS_TAGS.find((item) => item.tag === tagSlug);
+  if (def) {
+    if (def.keywords.some((kw) => genre.includes(kw))) return true;
+  } else if (genre.includes(tagSlug.toLowerCase())) {
+    return true;
+  }
+
+  return false;
+}
 
 function QuickwinsPage({
   openGame,
@@ -74,6 +128,7 @@ function QuickwinsPage({
   const [applied, setApplied] = useState(() => (
     alphabetCatalog ? { ...initial, publisher: '', sort: 'title-asc' } : initial
   ));
+  const [selectedTag, setSelectedTag] = useState('');
   const [games, setGames] = useState([]);
   const [publisherDefs, setPublisherDefs] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -324,15 +379,18 @@ function QuickwinsPage({
   );
 
   const filteredGames = useMemo(() => {
-    const filtered = filterQuickwins(
+    let filtered = filterQuickwins(
       visibleGames,
       alphabetCatalog ? { title: applied.title, publisher: '' } : applied,
       canon,
     );
+    if (gameType === GAME_TYPE.EASY_PLATIN && selectedTag) {
+      filtered = filtered.filter((game) => gameMatchesTag(game, selectedTag));
+    }
     return alphabetCatalog
       ? sortQuickwins(filtered, 'title-asc', globalLocale)
       : filtered;
-  }, [visibleGames, applied, canon, alphabetCatalog, globalLocale]);
+  }, [visibleGames, applied, canon, alphabetCatalog, globalLocale, gameType, selectedTag]);
 
   const alphabetGroups = useMemo(
     () => (alphabetCatalog ? groupQuickwinsByAlphabet(filteredGames, globalLocale) : []),
@@ -380,12 +438,46 @@ function QuickwinsPage({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleSeriesClick = (item) => {
+    if (item.tag) {
+      if (selectedTag === item.tag) {
+        setSelectedTag('');
+      } else {
+        setSelectedTag(item.tag);
+        setDraft((prev) => ({ ...prev, title: '' }));
+        setApplied((prev) => ({ ...prev, title: '' }));
+      }
+      return;
+    }
+
+    if (applied.title === item.title) {
+      setDraft((prev) => ({ ...prev, title: '' }));
+      setApplied((prev) => ({ ...prev, title: '' }));
+      setSelectedTag('');
+    } else {
+      setDraft((prev) => ({ ...prev, title: item.title }));
+      setApplied((prev) => ({ ...prev, title: item.title }));
+      setSelectedTag('');
+    }
+  };
+
+  const handleTagClick = (tagSlug) => {
+    if (selectedTag === tagSlug) {
+      setSelectedTag('');
+    } else {
+      setSelectedTag(tagSlug);
+      setDraft((prev) => ({ ...prev, title: '' }));
+      setApplied((prev) => ({ ...prev, title: '' }));
+    }
+  };
+
   const handleSubmit = (event) => {
     event.preventDefault();
     commit({ ...applied, title: draft.title.trim(), publisher: draft.publisher });
   };
 
   const handleReset = () => {
+    setSelectedTag('');
     commit({ title: '', publisher: '', sort: 'title-asc' }, { replace: true });
   };
 
@@ -586,6 +678,64 @@ function QuickwinsPage({
       </button>
       <h1 className="quickwins-title">{pageCopy?.title || t(titleKey)}</h1>
       {pageCopy?.lead ? <p className="quickwins-lead">{pageCopy.lead}</p> : null}
+
+      {gameType === GAME_TYPE.EASY_PLATIN && (
+        <div className="rounded-2xl border border-zinc-800 bg-[#1a1b1c] p-4 sm:p-5 mb-6 shadow-xl">
+          <div className="mb-4">
+            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-400 mb-2">
+              {t('easyPlatinsSeriesHeading')}
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {EASY_PLATINS_SERIES.map((item) => {
+                const isActive = item.tag
+                  ? selectedTag === item.tag
+                  : applied.title === item.title;
+                const displayLabel = item.labelKey ? t(item.labelKey) : item.label;
+                return (
+                  <button
+                    key={item.labelKey || item.label}
+                    type="button"
+                    onClick={() => handleSeriesClick(item)}
+                    className={
+                      isActive
+                        ? 'rounded-xl border border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66] font-medium px-3 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer'
+                        : 'rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-700 hover:text-white font-medium px-3 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer'
+                    }
+                  >
+                    {displayLabel}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-400 mb-2">
+              {t('easyPlatinsSubgenresHeading')}
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {EASY_PLATINS_TAGS.map((item) => {
+                const isActive = selectedTag === item.tag;
+                const tagLabel = translateHomeTag(item.tag, copyLocale);
+                return (
+                  <button
+                    key={item.tag}
+                    type="button"
+                    onClick={() => handleTagClick(item.tag)}
+                    className={
+                      isActive
+                        ? 'rounded-xl border border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66] font-medium px-3 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer'
+                        : 'rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-700 hover:text-white font-medium px-3 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer'
+                    }
+                  >
+                    {`${item.icon} ${tagLabel}`}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <form className="quickwins-form" onSubmit={handleSubmit}>
         <div className={`advanced-search-field${alphabetCatalog ? ' quickwins-form-title-only' : ''}`}>

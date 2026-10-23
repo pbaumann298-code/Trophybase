@@ -1,6 +1,7 @@
 import {
   GAME_PK,
   GAME_PLATFORM_ID,
+  GAME_STRUCT,
   GAME_I18N,
   GAME_FIELDS,
   ACHIEVEMENT_PK,
@@ -8,6 +9,7 @@ import {
   ACHIEVEMENT_I18N,
   FALLBACK_LANGUAGE,
 } from './gameSchema.js';
+import { formatLocalizedHomeTags } from './homeTagDefs.js';
 import {
   localizeJsonField,
   localizeSonyDescription,
@@ -38,6 +40,11 @@ export function mergeGameRecord(gameRow, locale, fallbackLocale = FALLBACK_LANGU
     locale,
     fallbackLocale,
   );
+  const localizedGenre = formatLocalizedHomeTags(
+    gameRow[GAME_STRUCT.homeTags],
+    locale,
+    gameRow[GAME_STRUCT.genre],
+  );
 
   return {
     ...gameRow,
@@ -45,6 +52,7 @@ export function mergeGameRecord(gameRow, locale, fallbackLocale = FALLBACK_LANGU
     [GAME_FIELDS.description]: description,
     [GAME_FIELDS.cover]: cover,
     [GAME_FIELDS.statusExplanation]: statusExplanation,
+    [GAME_FIELDS.genre]: localizedGenre,
     [GAME_I18N.title]: titlePick.text,
     [GAME_I18N.statusExplanation]: statusExplanation,
     _locale: titlePick.locale,

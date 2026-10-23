@@ -760,7 +760,7 @@ function App() {
       return () => clearGameSeoLinks();
     }
     if (currentView === 'quickwins') {
-      applyPathCanonical(QUICKWINS_PATH, { noIndex: false });
+      applyPathCanonical(quickwinsPublicPath(globalLocale), { noIndex: false });
       return () => clearGameSeoLinks();
     }
     if (currentView === 'servertot') {

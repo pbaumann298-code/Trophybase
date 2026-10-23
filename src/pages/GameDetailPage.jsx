@@ -1399,6 +1399,7 @@ function GamePageContent({
       <AdminGameOverview
         className="mb-8"
         game={gameForPublication}
+        trophies={activeTrophies}
         title={gameTitle}
         playtime={playtime}
         radarProfile={

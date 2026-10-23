@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLocale } from '../context/LocaleContext';
 
 /**
  * Platin-Anforderungsprofil (6-Achsen-DNA) Radar Chart.
@@ -9,10 +10,34 @@ import React from 'react';
  * @param {boolean} [props.embedded=false] - In übergeordneter CollapsibleSectionCard eingebettet
  */
 export default function GameRadarCard({ profile, isAdmin, embedded = false }) {
-  // Guard: Für normale Besucher oder wenn noch keine Daten da sind -> unsichtbar
-  if (!isAdmin || !profile || !profile.axes || profile.axes.length !== 6) {
+  const { globalLocale, t } = useLocale();
+  const locale = String(globalLocale || 'de').toLowerCase();
+
+  const resolvedProfile = React.useMemo(() => {
+    if (!profile || typeof profile !== 'object') return null;
+    if (profile[locale] && typeof profile[locale] === 'object' && Array.isArray(profile[locale].axes)) {
+      return profile[locale];
+    }
+    if (Array.isArray(profile.axes)) {
+      // Falls ein unlokalisiertes Roh-Objekt mit deutschen Texten übergeben wurde, auf nicht-deutschen Seiten ausblenden,
+      // sofern es nicht bereits über rawRadar[locale] aufgelöst wurde.
+      if (locale !== 'de' && (profile.de || (!profile._resolvedLocale && /[äöüß]|Schwierigkeit|Sammel|Verpassbar|Zeitaufwand/i.test(JSON.stringify(profile.axes))))) {
+        return null;
+      }
+      return profile;
+    }
+    if (locale === 'de' && profile.de && Array.isArray(profile.de.axes)) {
+      return profile.de;
+    }
+    return null;
+  }, [profile, locale]);
+
+  // Guard: Wenn noch keine Daten da sind -> unsichtbar
+  if (!resolvedProfile || !resolvedProfile.axes || resolvedProfile.axes.length !== 6) {
     return null;
   }
+
+  const heading = t('radarProfileHeading');
 
   const size = 260;
   const center = size / 2;
@@ -30,26 +55,17 @@ export default function GameRadarCard({ profile, isAdmin, embedded = false }) {
   };
 
   // Punkte für das farbige Daten-Polygon
-  const polygonPoints = profile.axes
+  const polygonPoints = resolvedProfile.axes
     .map((axis, i) => {
       const { x, y } = getCoordinates(i, axis.score);
       return `${x},${y}`;
     })
     .join(' ');
 
-  const content = (
+  const radarBody = (
     <div>
-      <div className="mb-3 flex items-center gap-2">
-        <span className="rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 border border-amber-500/20 font-mono uppercase">
-          ADMIN-PREVIEW
-        </span>
-        <h4 className="font-semibold text-xs sm:text-sm text-zinc-300 font-mono uppercase tracking-wider">
-          Platin-Anforderungsprofil (6-Achsen-DNA)
-        </h4>
-      </div>
-
-      {profile.summary && (
-        <p className="mb-4 text-sm text-zinc-400 leading-relaxed">{profile.summary}</p>
+      {resolvedProfile.summary && (
+        <p className="mb-4 text-sm text-zinc-400 leading-relaxed">{resolvedProfile.summary}</p>
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-center">
@@ -101,7 +117,7 @@ export default function GameRadarCard({ profile, isAdmin, embedded = false }) {
             />
 
             {/* Eckpunkte & Labels */}
-            {profile.axes.map((axis, i) => {
+            {resolvedProfile.axes.map((axis, i) => {
               const dot = getCoordinates(i, axis.score);
               const labelPos = getCoordinates(i, 12.2); // Etwas außerhalb vom Rand
               return (
@@ -124,7 +140,7 @@ export default function GameRadarCard({ profile, isAdmin, embedded = false }) {
 
         {/* Rechts: Konkrete Aufschlüsselung & Erklärung */}
         <div className="space-y-3 lg:col-span-7">
-          {profile.axes.map((axis) => (
+          {resolvedProfile.axes.map((axis) => (
             <div
               key={axis.key || axis.label}
               className="rounded-lg bg-zinc-900/60 p-2.5 border border-zinc-800/60"
@@ -148,12 +164,44 @@ export default function GameRadarCard({ profile, isAdmin, embedded = false }) {
   );
 
   if (embedded) {
-    return <div className="mt-6 pt-6 border-t border-zinc-800/80">{content}</div>;
+    return (
+      <details open className="group mt-6 pt-5 border-t border-zinc-800/80">
+        <summary className="mb-3 flex cursor-pointer list-none items-center justify-between gap-2 select-none [&::-webkit-details-marker]:hidden">
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <span className="rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 border border-amber-500/20 font-mono uppercase">
+                ADMIN-PREVIEW
+              </span>
+            )}
+            <h4 className="font-semibold text-xs sm:text-sm text-zinc-300 font-mono uppercase tracking-wider">
+              {heading}
+            </h4>
+          </div>
+          <span
+            aria-hidden="true"
+            className="text-xs text-zinc-500 transition-transform duration-200 group-open:rotate-180"
+          >
+            ▼
+          </span>
+        </summary>
+        {radarBody}
+      </details>
+    );
   }
 
   return (
     <div className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/90 text-zinc-100 shadow-lg p-5">
-      {content}
+      <div className="mb-3 flex items-center gap-2">
+        {isAdmin && (
+          <span className="rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 border border-amber-500/20 font-mono uppercase">
+            ADMIN-PREVIEW
+          </span>
+        )}
+        <h4 className="font-semibold text-xs sm:text-sm text-zinc-300 font-mono uppercase tracking-wider">
+          {heading}
+        </h4>
+      </div>
+      {radarBody}
     </div>
   );
 }

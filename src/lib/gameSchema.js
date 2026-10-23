@@ -106,6 +106,13 @@ export const HOME_TAGS = {
   FAMILY: 'family',
   INDIE: 'indie',
   RACING: 'racing',
+  FPS: 'fps',
+  TPS: 'tps',
+  LOOT_SHOOTER: 'loot_shooter',
+  TACTICS: 'tactics',
+  COOP_MP: 'coop_mp',
+  RPG: 'rpg',
+  SURVIVAL_HORROR: 'survival_horror',
 };
 
 /** Tag-Slug → Startseiten-Reihe. Studios/Franchises haben keine Tags. */
@@ -115,6 +122,13 @@ export const HOME_TAG_RAILS = {
   [HOME_TAGS.FAMILY]: 'family',
   [HOME_TAGS.INDIE]: 'indie',
   [HOME_TAGS.RACING]: 'racing',
+  [HOME_TAGS.FPS]: 'fps',
+  [HOME_TAGS.TPS]: 'tps',
+  [HOME_TAGS.LOOT_SHOOTER]: 'lootshooter',
+  [HOME_TAGS.TACTICS]: 'tactics',
+  [HOME_TAGS.COOP_MP]: 'coop',
+  [HOME_TAGS.RPG]: 'rpg',
+  [HOME_TAGS.SURVIVAL_HORROR]: 'horror',
 };
 
 /** Werte von games.spiel_typ */

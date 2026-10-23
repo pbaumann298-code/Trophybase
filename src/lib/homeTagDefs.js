@@ -1,6 +1,526 @@
-import { GAME_PK, GAME_STRUCT, TABLES } from './gameSchema';
+import { GAME_PK, GAME_STRUCT, TABLES } from './gameSchema.js';
+import { normalizeLocale } from './locale.js';
 
 const HOME_TAG_DEFS = 'home_tag_defs';
+
+/** Lokalisierte Labels für alle 26 home_tags-Slugs. */
+export const HOME_TAG_TRANSLATIONS = {
+  soulslike: {
+    de: 'Souls / Soulslike',
+    en: 'Souls / Soulslike',
+    es: 'Souls / Soulslike',
+    pt: 'Souls / Soulslike',
+    fr: 'Souls / Soulslike',
+    it: 'Souls / Soulslike',
+    nl: 'Souls / Soulslike',
+    ru: 'Souls / Soulslike',
+    ja: 'Souls / ソウルライク',
+    ko: '소울 / 소울라이크',
+    'zh-hans': '魂系 / 类魂',
+    'zh-hant': '魂系 / 類魂',
+    fi: 'Souls / Soulslike',
+    sv: 'Souls / Soulslike',
+  },
+  open_world: {
+    de: 'Open World',
+    en: 'Open World',
+    es: 'Mundo abierto',
+    pt: 'Mundo Aberto',
+    fr: 'Monde ouvert',
+    it: 'Open World',
+    nl: 'Open wereld',
+    ru: 'Открытый мир',
+    ja: 'オープンワールド',
+    ko: '오픈 월드',
+    'zh-hans': '开放世界',
+    'zh-hant': '開放世界',
+    fi: 'Avoin maailma',
+    sv: 'Öppen värld',
+  },
+  family: {
+    de: 'Familienspaß & Easy Platin',
+    en: 'Family & Easy Platinum',
+    es: 'Diversión familiar y platinos fáciles',
+    pt: 'Diversão em família e platinas fáceis',
+    fr: 'Fun en famille & platines faciles',
+    it: 'Divertimento in famiglia e platini facili',
+    nl: 'Familieplezier & makkelijke platina',
+    ru: 'Семейные и легкие платины',
+    ja: 'ファミリー & 簡単プラチナ',
+    ko: '패밀리 & 쉬운 플래티넘',
+    'zh-hans': '合家欢与轻松白金',
+    'zh-hant': '闔家歡與輕鬆白金',
+    fi: 'Perhepelit & helppo platina',
+    sv: 'Familjespel & enkla platinas',
+  },
+  indie: {
+    de: 'Indie',
+    en: 'Indie',
+    es: 'Indie',
+    pt: 'Indie',
+    fr: 'Indé',
+    it: 'Indie',
+    nl: 'Indie',
+    ru: 'Инди',
+    ja: 'インディー',
+    ko: '인디',
+    'zh-hans': '独立游戏',
+    'zh-hant': '獨立遊戲',
+    fi: 'Indie',
+    sv: 'Indie',
+  },
+  racing: {
+    de: 'Rennspiel',
+    en: 'Racing',
+    es: 'Carreras',
+    pt: 'Corrida',
+    fr: 'Course',
+    it: 'Corse',
+    nl: 'Race',
+    ru: 'Гонки',
+    ja: 'レーシング',
+    ko: '레이싱',
+    'zh-hans': '竞速',
+    'zh-hant': '競速',
+    fi: 'Ajopelit',
+    sv: 'Racing',
+  },
+  fps: {
+    de: 'Ego-Shooter (FPS)',
+    en: 'First-Person Shooter (FPS)',
+    es: 'Shooter en primera persona (FPS)',
+    pt: 'Tiro em primeira pessoa (FPS)',
+    fr: 'FPS (Tir à la 1re personne)',
+    it: 'Sparatutto in prima persona (FPS)',
+    nl: 'First-person shooter (FPS)',
+    ru: 'Шутер от первого лица (FPS)',
+    ja: 'FPS（一人称シューティング）',
+    ko: '1인칭 슈팅 (FPS)',
+    'zh-hans': '第一人称射击 (FPS)',
+    'zh-hant': '第一人稱射擊 (FPS)',
+    fi: 'Ensimmäisen persoonan räiskintä (FPS)',
+    sv: 'Förstapersonsskjutare (FPS)',
+  },
+  tps: {
+    de: 'Third-Person-Shooter',
+    en: 'Third-Person Shooter',
+    es: 'Shooter en tercera persona',
+    pt: 'Tiro em terceira pessoa',
+    fr: 'Tir à la 3e personne',
+    it: 'Sparatutto in terza persona',
+    nl: 'Third-person shooter',
+    ru: 'Шутер от третьего лица',
+    ja: 'TPS（三人称シューティング）',
+    ko: '3인칭 슈팅 (TPS)',
+    'zh-hans': '第三人称射击',
+    'zh-hant': '第三人稱射擊',
+    fi: 'Kolmannen persoonan räiskintä',
+    sv: 'Tredjepersonsskjutare',
+  },
+  loot_shooter: {
+    de: 'Loot-Shooter',
+    en: 'Loot Shooter',
+    es: 'Loot Shooter',
+    pt: 'Loot Shooter',
+    fr: 'Loot Shooter',
+    it: 'Loot Shooter',
+    nl: 'Loot Shooter',
+    ru: 'Лут-шутер',
+    ja: 'ルートシューター',
+    ko: '루트 슈터',
+    'zh-hans': '刷宝射击',
+    'zh-hant': '刷寶射擊',
+    fi: 'Loot Shooter',
+    sv: 'Loot Shooter',
+  },
+  tactics: {
+    de: 'Strategie & Taktik',
+    en: 'Strategy & Tactics',
+    es: 'Estrategia y táctica',
+    pt: 'Estratégia e tática',
+    fr: 'Stratégie & Tactique',
+    it: 'Strategia e tattica',
+    nl: 'Strategie & Tactiek',
+    ru: 'Стратегии и тактика',
+    ja: 'ストラテジー & タクティクス',
+    ko: '전략 & 전술',
+    'zh-hans': '策略与战术',
+    'zh-hant': '策略與戰術',
+    fi: 'Strategia & Taktiikka',
+    sv: 'Strategi & Taktik',
+  },
+  coop_mp: {
+    de: 'Koop & Multiplayer',
+    en: 'Co-op & Multiplayer',
+    es: 'Cooperativo y multijugador',
+    pt: 'Co-op e multijogador',
+    fr: 'Coop & Multijoueur',
+    it: 'Co-op e multigiocatore',
+    nl: 'Co-op & Multiplayer',
+    ru: 'Кооператив и мультиплеер',
+    ja: '協力プレイ & マルチプレイ',
+    ko: '협동 & 멀티플레이어',
+    'zh-hans': '合作与多人联机',
+    'zh-hant': '合作與多人連線',
+    fi: 'Yhteistyö & Moninpeli',
+    sv: 'Co-op & Multiplayer',
+  },
+  roguelike: {
+    de: 'Roguelike / Roguelite',
+    en: 'Roguelike / Roguelite',
+    es: 'Roguelike / Roguelite',
+    pt: 'Roguelike / Roguelite',
+    fr: 'Roguelike / Roguelite',
+    it: 'Roguelike / Roguelite',
+    nl: 'Roguelike / Roguelite',
+    ru: 'Рогалик (Roguelike)',
+    ja: 'ローグライク / ローグライト',
+    ko: '로그라이크 / 로그라이트',
+    'zh-hans': '肉鸽 (Roguelike)',
+    'zh-hant': '肉鴿 (Roguelike)',
+    fi: 'Roguelike / Roguelite',
+    sv: 'Roguelike / Roguelite',
+  },
+  rpg: {
+    de: 'Rollenspiel (RPG)',
+    en: 'Role-Playing (RPG)',
+    es: 'Juego de rol (RPG)',
+    pt: 'RPG',
+    fr: 'Jeu de rôle (RPG)',
+    it: 'Gioco di ruolo (RPG)',
+    nl: 'RPG (Rollenspel)',
+    ru: 'Ролевая игра (RPG)',
+    ja: 'RPG（ロールプレイング）',
+    ko: '롤플레잉 (RPG)',
+    'zh-hans': '角色扮演 (RPG)',
+    'zh-hant': '角色扮演 (RPG)',
+    fi: 'Roolipeli (RPG)',
+    sv: 'Rollspel (RPG)',
+  },
+  action_adventure: {
+    de: 'Action-Adventure',
+    en: 'Action-Adventure',
+    es: 'Acción y aventura',
+    pt: 'Ação e Aventura',
+    fr: 'Action-Aventure',
+    it: 'Azione e avventura',
+    nl: 'Actie-avontuur',
+    ru: 'Экшен-приключение',
+    ja: 'アクションアドベンチャー',
+    ko: '액션 어드벤처',
+    'zh-hans': '动作冒险',
+    'zh-hant': '動作冒險',
+    fi: 'Toimintaseikkailu',
+    sv: 'Actionäventyr',
+  },
+  survival_horror: {
+    de: 'Horror & Survival',
+    en: 'Horror & Survival',
+    es: 'Terror y supervivencia',
+    pt: 'Terror e sobrevivência',
+    fr: 'Horreur & Survie',
+    it: 'Horror e sopravvivenza',
+    nl: 'Horror & Survival',
+    ru: 'Хоррор и выживание',
+    ja: 'ホラー & サバイバル',
+    ko: '호러 & 서바이벌',
+    'zh-hans': '恐怖与生存',
+    'zh-hant': '恐怖與生存',
+    fi: 'Kauhu & Selviytyminen',
+    sv: 'Skräck & Överlevnad',
+  },
+  platformer: {
+    de: 'Jump ’n’ Run / Platformer',
+    en: 'Platformer',
+    es: 'Plataformas',
+    pt: 'Plataforma',
+    fr: 'Jeu de plateforme',
+    it: 'Platform',
+    nl: 'Platformer',
+    ru: 'Платформер',
+    ja: 'プラットフォーマー / アクション',
+    ko: '플랫포머',
+    'zh-hans': '平台跳跃',
+    'zh-hant': '平台跳躍',
+    fi: 'Tasohyppely',
+    sv: 'Plattformsspel',
+  },
+  fighting: {
+    de: 'Beat ’em up / Kampfspiel',
+    en: 'Fighting',
+    es: 'Lucha',
+    pt: 'Luta',
+    fr: 'Combat',
+    it: 'Picchiaduro',
+    nl: 'Vechtspel',
+    ru: 'Файтинг',
+    ja: '格闘ゲーム',
+    ko: '격투',
+    'zh-hans': '格斗',
+    'zh-hant': '格鬥',
+    fi: 'Tappelupelit',
+    sv: 'Fightingspel',
+  },
+  sports: {
+    de: 'Sport',
+    en: 'Sports',
+    es: 'Deportes',
+    pt: 'Esportes',
+    fr: 'Sport',
+    it: 'Sport',
+    nl: 'Sport',
+    ru: 'Спорт',
+    ja: 'スポーツ',
+    ko: '스포츠',
+    'zh-hans': '体育',
+    'zh-hant': '體育',
+    fi: 'Urheilu',
+    sv: 'Sport',
+  },
+  simulation: {
+    de: 'Simulation',
+    en: 'Simulation',
+    es: 'Simulación',
+    pt: 'Simulação',
+    fr: 'Simulation',
+    it: 'Simulazione',
+    nl: 'Simulatie',
+    ru: 'Симулятор',
+    ja: 'シミュレーション',
+    ko: '시뮬레이션',
+    'zh-hans': '模拟',
+    'zh-hant': '模擬',
+    fi: 'Simulaatio',
+    sv: 'Simulering',
+  },
+  hidden_object: {
+    de: 'Wimmelbild',
+    en: 'Hidden Object',
+    es: 'Objetos ocultos',
+    pt: 'Objetos ocultos',
+    fr: 'Objets cachés',
+    it: 'Oggetti nascosti',
+    nl: 'Zoek-en-vind',
+    ru: 'Поиск предметов',
+    ja: 'アイテム探し',
+    ko: '숨은그림찾기',
+    'zh-hans': '寻物解谜',
+    'zh-hant': '尋物解謎',
+    fi: 'Piilo-objekti',
+    sv: 'Dolda föremål',
+  },
+  visual_novel: {
+    de: 'Visual Novel',
+    en: 'Visual Novel',
+    es: 'Novela visual',
+    pt: 'Visual Novel',
+    fr: 'Visual Novel',
+    it: 'Visual Novel',
+    nl: 'Visual Novel',
+    ru: 'Визуальная новелла',
+    ja: 'ビジュアルノベル',
+    ko: '비주얼 노벨',
+    'zh-hans': '视觉小说',
+    'zh-hant': '視覺小說',
+    fi: 'Visual Novel',
+    sv: 'Visuell roman',
+  },
+  fmv: {
+    de: 'FMV / Interaktiver Film',
+    en: 'FMV / Interactive Movie',
+    es: 'FMV / Película interactiva',
+    pt: 'FMV / Filme interativo',
+    fr: 'FMV / Film interactif',
+    it: 'FMV / Film interattivo',
+    nl: 'FMV / Interactieve film',
+    ru: 'FMV / Интерактивное кино',
+    ja: 'FMV / インタラクティブムービー',
+    ko: 'FMV / 인터랙티브 무비',
+    'zh-hans': 'FMV / 互动电影',
+    'zh-hant': 'FMV / 互動電影',
+    fi: 'FMV / Interaktiivinen elokuva',
+    sv: 'FMV / Interaktiv film',
+  },
+  point_and_click: {
+    de: 'Point & Click',
+    en: 'Point & Click',
+    es: 'Point & Click',
+    pt: 'Point & Click',
+    fr: 'Point & Click',
+    it: 'Punta e clicca',
+    nl: 'Point & Click',
+    ru: 'Point & Click (Квест)',
+    ja: 'ポイント＆クリック',
+    ko: '포인트 앤 클릭',
+    'zh-hans': '点击解谜 (Point & Click)',
+    'zh-hant': '點擊解謎 (Point & Click)',
+    fi: 'Point & Click',
+    sv: 'Peka och klicka',
+  },
+  mystery_crime: {
+    de: 'Mystery, Crime & Detektiv',
+    en: 'Mystery, Crime & Detective',
+    es: 'Misterio, crimen y detectives',
+    pt: 'Mistério, crime e detetive',
+    fr: 'Mystère, crime & détective',
+    it: 'Mistero, crimine e investigazione',
+    nl: 'Mysterie, misdaad & detective',
+    ru: 'Детектив и мистика',
+    ja: 'ミステリー・犯罪・探偵',
+    ko: '미스터리, 범죄 & 탐정',
+    'zh-hans': '悬疑、犯罪与侦探',
+    'zh-hant': '懸疑、犯罪與偵探',
+    fi: 'Mysteeri, rikos & salapoliisi',
+    sv: 'Mysterium, brott & detektiv',
+  },
+  scifi_cyberpunk: {
+    de: 'Sci-Fi & Cyberpunk',
+    en: 'Sci-Fi & Cyberpunk',
+    es: 'Ciencia ficción y Cyberpunk',
+    pt: 'Ficção científica e Cyberpunk',
+    fr: 'Sci-Fi & Cyberpunk',
+    it: 'Fantascienza e Cyberpunk',
+    nl: 'Sci-Fi & Cyberpunk',
+    ru: 'Научная фантастика и киберпанк',
+    ja: 'SF & サイバーパンク',
+    ko: 'SF & 사이버펑크',
+    'zh-hans': '科幻与赛博朋克',
+    'zh-hant': '科幻與賽博龐克',
+    fi: 'Sci-Fi & Cyberpunk',
+    sv: 'Sci-Fi & Cyberpunk',
+  },
+  otome_romance: {
+    de: 'Otome & Romance',
+    en: 'Otome & Romance',
+    es: 'Otome y romance',
+    pt: 'Otome e romance',
+    fr: 'Otome & Romance',
+    it: 'Otome e romantico',
+    nl: 'Otome & Romantiek',
+    ru: 'Отомэ и романтика',
+    ja: '乙女ゲーム & ロマンス',
+    ko: '오토메 & 로맨스',
+    'zh-hans': '乙女与恋爱',
+    'zh-hant': '乙女與戀愛',
+    fi: 'Otome & Romantiikka',
+    sv: 'Otome & Romantik',
+  },
+  psych_horror: {
+    de: 'Psychologischer Horror',
+    en: 'Psychological Horror',
+    es: 'Terror psicológico',
+    pt: 'Terror psicológico',
+    fr: 'Horreur psychologique',
+    it: 'Horror psicologico',
+    nl: 'Psychologische horror',
+    ru: 'Психологический хоррор',
+    ja: 'サイコロジカルホラー',
+    ko: '심리적 호러',
+    'zh-hans': '心理恐怖',
+    'zh-hant': '心理恐怖',
+    fi: 'Psykologinen kauhu',
+    sv: 'Psykologisk skräck',
+  },
+};
+
+/**
+ * Übersetzt einen einzelnen home_tags-Slug in die aktive Sprache.
+ * @param {string} slug
+ * @param {string} [locale]
+ * @param {string} [fallbackLabel]
+ * @returns {string}
+ */
+export function translateHomeTag(slug, locale = 'de', fallbackLabel = '') {
+  const key = homeTagKey(slug);
+  if (!key) return fallbackLabel || '';
+  const lang = normalizeLocale(locale);
+  const map = HOME_TAG_TRANSLATIONS[key];
+  if (!map) return fallbackLabel || slug;
+  return map[lang] || map.en || fallbackLabel || slug;
+}
+
+/**
+ * Übersetzt ein Array von home_tags-Slugs in die aktive Sprache und verbindet sie mit ' · '.
+ * Falls tags leer ist, Rückfall auf fallbackGenre (auf nicht-deutschen Seiten mit Übersetzung bekannter deutscher Genre-Begriffe).
+ * @param {unknown} tags
+ * @param {string} [locale]
+ * @param {string} [fallbackGenre]
+ * @returns {string}
+ */
+export function formatLocalizedHomeTags(tags, locale = 'de', fallbackGenre = '') {
+  let list = [];
+  if (Array.isArray(tags)) {
+    list = tags;
+  } else if (typeof tags === 'string' && tags.trim()) {
+    const trimmed = tags.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) list = parsed;
+      } catch {
+        // ignore
+      }
+    } else {
+      list = [trimmed];
+    }
+  }
+
+  const lang = normalizeLocale(locale);
+  const seen = new Set();
+  const translated = [];
+
+  for (const raw of list) {
+    const key = homeTagKey(raw);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const map = HOME_TAG_TRANSLATIONS[key];
+    if (map) {
+      const label = map[lang] || map.en;
+      if (label && !translated.includes(label)) {
+        translated.push(label);
+      }
+    }
+  }
+
+  if (translated.length > 0) {
+    return translated.join(' · ');
+  }
+
+  const fallback = String(fallbackGenre ?? '').trim();
+  if (!fallback || lang === 'de') {
+    return fallback;
+  }
+
+  // Falls home_tags leer ist, versuche deutsche Standard-Begriffe im fallbackGenre zu übersetzen
+  return translateGermanFallbackGenre(fallback, lang);
+}
+
+const GERMAN_GENRE_TOKENS = [
+  [/rollenspiel(e)?/gi, 'rpg'],
+  [/ego-shooter/gi, 'fps'],
+  [/third-person-shooter/gi, 'tps'],
+  [/loot-shooter/gi, 'loot_shooter'],
+  [/strategie\s*&\s*taktik|strategie|taktik/gi, 'tactics'],
+  [/koop\s*&\s*multiplayer|koop/gi, 'coop_mp'],
+  [/horror\s*&\s*survival|überlebenshorror|survival-horror/gi, 'survival_horror'],
+  [/psychologischer\s+horror/gi, 'psych_horror'],
+  [/wimmelbild(spiel)?/gi, 'hidden_object'],
+  [/interaktiver\s+film/gi, 'fmv'],
+  [/rennspiel(e)?/gi, 'racing'],
+  [/kampfspiel(e)?/gi, 'fighting'],
+  [/abenteuer/gi, 'action_adventure'],
+];
+
+function translateGermanFallbackGenre(genreStr, lang) {
+  let result = genreStr;
+  for (const [regex, tagSlug] of GERMAN_GENRE_TOKENS) {
+    const replacement = HOME_TAG_TRANSLATIONS[tagSlug]?.[lang] || HOME_TAG_TRANSLATIONS[tagSlug]?.en;
+    if (replacement) {
+      result = result.replace(regex, replacement);
+    }
+  }
+  return result;
+}
 
 /** Vergleichsschlüssel. Die gespeicherte Schreibweise bleibt der Slug aus der Tabelle. */
 export function homeTagKey(value) {

@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { useLocale } from '../context/LocaleContext';
+import { applyPathCanonical } from '../lib/seoHead';
 
 /**
  * Deep-Link auf einen Guide, den es (noch) nicht gibt. Ohne diese Ansicht
@@ -6,6 +8,11 @@ import { useLocale } from '../context/LocaleContext';
  */
 export default function GuideNotFound({ error, onBack }) {
   const { t } = useLocale();
+
+  useEffect(() => {
+    applyPathCanonical(window.location.pathname, { noIndex: true });
+    document.title = `${t('guideNotFoundTitle')} · TrophyBase.app`;
+  }, [t]);
 
   return (
     <div className="w-full max-w-xl mx-auto px-4 py-16 text-center">

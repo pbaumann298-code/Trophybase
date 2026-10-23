@@ -96,7 +96,7 @@ function SearchResultRow({ game, openGame, onRequestLogin, isAdmin }) {
           </div>
           <div>
             <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
-              Genre
+              {t('searchGenre')}
             </span>
             <span className="text-zinc-300 font-medium truncate block">
               {game[GAME_FIELDS.genre] || '—'}

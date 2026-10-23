@@ -17,6 +17,7 @@ import { localizeJsonField, localizeSonyDescription, readAiTranslation } from '.
 import { isGameIndexable } from '../src/lib/guidePublication.js';
 import { contentLocalesForGame, coerceToAvailableLocale } from '../src/lib/contentLocales.js';
 import { buildGameSeo } from '../src/lib/gameSeo.js';
+import { formatLocalizedHomeTags } from '../src/lib/homeTagDefs.js';
 import { loadRelatedGuides } from '../src/lib/relatedGames.js';
 import { getGameTitle, toBoolFlag } from '../src/lib/gameModel.js';
 import { t } from '../src/lib/uiStrings.js';
@@ -228,6 +229,55 @@ function formatOverviewCount(value) {
   return Number.isFinite(number) ? String(number) : '—';
 }
 
+function radarHtmlForBot(game, locale = 'de') {
+  const raw = game?.radar_profile;
+  if (!raw || typeof raw !== 'object') return '';
+
+  let profile = null;
+  if (raw[locale] && typeof raw[locale] === 'object' && Array.isArray(raw[locale].axes)) {
+    profile = raw[locale];
+  } else if (locale === 'de') {
+    profile = Array.isArray(raw.axes) ? raw : (raw.de || null);
+  }
+
+  if (!profile || !Array.isArray(profile.axes) || profile.axes.length === 0) return '';
+
+  const summary = profile.summary ? `<p>${escapeHtml(profile.summary)}</p>` : '';
+  const items = profile.axes
+    .map(
+      (a) =>
+        `<li><strong>${escapeHtml(a.label)}: ${escapeHtml(String(a.score))}/10</strong> – ${escapeHtml(a.reason)}</li>`,
+    )
+    .join('');
+
+  const dlcLabel = locale === 'de'
+    ? '100% DLC-Hinweis:'
+    : locale === 'es'
+      ? 'Nota de DLC 100%:'
+      : locale === 'pt'
+        ? 'Nota de DLC 100%:'
+        : '100% DLC Note:';
+  const dlcNote =
+    profile.has_dlc_shift && profile.dlc_summary
+      ? `<p><strong>${escapeHtml(dlcLabel)}</strong> ${escapeHtml(profile.dlc_summary)}</p>`
+      : '';
+
+  const heading = locale === 'de'
+    ? 'Platin-Anforderungsprofil (Schwierigkeit & Aufwand)'
+    : locale === 'es'
+      ? 'Perfil de requisitos del platino (Dificultad y esfuerzo)'
+      : locale === 'pt'
+        ? 'Perfil de requisitos da platina (Dificuldade e esforço)'
+        : 'Platinum Requirement Profile (Difficulty & Effort)';
+
+  return `<div class="overview-radar">
+    <h3>${escapeHtml(heading)}</h3>
+    ${summary}
+    <ul>${items}</ul>
+    ${dlcNote}
+  </div>`;
+}
+
 function overviewHtml(game, locale, labels) {
   const explanation = resolveStatusExplanation(game, locale);
   const storyHours = formatPlaytimeHours(game.spielzeit_hauptstory, locale);
@@ -260,6 +310,7 @@ function overviewHtml(game, locale, labels) {
         <div>${trophyRows}</div>
         ${playtimeRows ? `<div><p class="overview-kicker">${escapeHtml(labels.playtimeTitle)}</p>${playtimeRows}</div>` : ''}
       </div>
+      ${radarHtmlForBot(game, locale)}
     </section>`;
 }
 
@@ -300,7 +351,11 @@ function renderHtml({
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="${escapeAttr(seo.cover)}" />`
     : `<meta name="twitter:card" content="summary" />`;
-  const genre = String(game[GAME_STRUCT.genre] ?? '').trim();
+  const genre = formatLocalizedHomeTags(
+    game[GAME_STRUCT.homeTags],
+    locale,
+    game[GAME_STRUCT.genre],
+  );
 
   const walkthrough = [];
   const collectibles = [];
@@ -433,6 +488,7 @@ export async function handleGuideRequest(requestUrl) {
       GAME_STRUCT.developer,
       GAME_STRUCT.publisher,
       GAME_STRUCT.genre,
+      GAME_STRUCT.homeTags,
       GAME_STRUCT.gameType,
       GAME_STRUCT.status,
       GAME_STRUCT.isIndexable,
@@ -445,6 +501,7 @@ export async function handleGuideRequest(requestUrl) {
       GAME_I18N.statusExplanation,
       'spielzeit_hauptstory',
       'spielzeit_komplettierer',
+      'radar_profile',
     ];
     let { data: rows, error } = await supabase
       .from(TABLES.games)

@@ -413,7 +413,7 @@ function QuickwinGameCard({
                 <strong>{detailGame[GAME_FIELDS.year] || '—'}</strong>
               </div>
               <div>
-                <span>Genre</span>
+                <span>{t('searchGenre')}</span>
                 <strong>{detailGame[GAME_FIELDS.genre] || '—'}</strong>
               </div>
               <div>

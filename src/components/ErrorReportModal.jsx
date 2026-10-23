@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocale } from '../context/LocaleContext';
 import {
   detectContentKind,
+  requestErrorReportTicket,
   submitErrorReport,
   uploadErrorReportEvidenceBatch,
 } from '../lib/errorReport';
@@ -43,6 +44,7 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [honeypot, setHoneypot] = useState('');
+  const [ticketId, setTicketId] = useState(null);
   const fileInputRef = useRef(null);
   const evidenceItemsRef = useRef([]);
   const openedAtRef = useRef(0);
@@ -56,12 +58,23 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
   useEffect(() => {
     setSuggestion('');
     setHoneypot('');
+    setTicketId(null);
     setEvidenceItems((prev) => {
       revokeAllPreviews(prev);
       return [];
     });
     setFeedback(null);
     openedAtRef.current = Date.now();
+
+    if (draft) {
+      const { metadata, markedContent, element } = draft;
+      const contentKind = detectContentKind(element, markedContent);
+      requestErrorReportTicket(supabase, { metadata, markedContent, contentKind }).then((res) => {
+        if (res?.ticketId) {
+          setTicketId(res.ticketId);
+        }
+      });
+    }
   }, [draft]);
 
   useEffect(() => {
@@ -130,11 +143,11 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
     }
 
     let imageUrls = [];
-    if (evidenceItems.length > 0) {
+    if (evidenceItems.length > 0 && Boolean(sessionUser?.id)) {
       const { data: sessionData } = await supabase.auth.getSession();
       const upload = await uploadErrorReportEvidenceBatch(
         supabase,
-        sessionData.session?.user?.id,
+        sessionData.session?.user?.id || sessionUser.id,
         evidenceItems.map((item) => item.file),
       );
       if (upload.error) {
@@ -156,6 +169,7 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
       imageUrls,
       honeypot,
       elapsedMs,
+      ticketId,
     });
 
     setSubmitting(false);
@@ -258,53 +272,55 @@ function ErrorReportModal({ draft, sessionUser, onClose }) {
             />
           </label>
 
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                {t('reportEvidence')}
-              </span>
-              <span className="text-[10px] font-mono text-zinc-600">
-                {evidenceItems.length}/{MAX_EVIDENCE_FILES}
-              </span>
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={handleFilesSelected}
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={evidenceItems.length >= MAX_EVIDENCE_FILES}
-                className="text-xs font-mono font-bold uppercase px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                {t('reportSelectImages')}
-              </button>
-              {evidenceItems.length > 0 && (
-                <span className="text-xs text-zinc-500">
-                  {evidenceItems.length === 1
-                    ? t('reportImagesOne')
-                    : t('reportImagesMany').replaceAll('{n}', String(evidenceItems.length))}
+          {Boolean(sessionUser?.id) && (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                  {t('reportEvidence')}
                 </span>
+                <span className="text-[10px] font-mono text-zinc-600">
+                  {evidenceItems.length}/{MAX_EVIDENCE_FILES}
+                </span>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleFilesSelected}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={evidenceItems.length >= MAX_EVIDENCE_FILES}
+                  className="text-xs font-mono font-bold uppercase px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {t('reportSelectImages')}
+                </button>
+                {evidenceItems.length > 0 && (
+                  <span className="text-xs text-zinc-500">
+                    {evidenceItems.length === 1
+                      ? t('reportImagesOne')
+                      : t('reportImagesMany').replaceAll('{n}', String(evidenceItems.length))}
+                  </span>
+                )}
+              </div>
+              {evidenceItems.length > 0 && (
+                <div className="flex flex-wrap gap-3 pt-1">
+                  {evidenceItems.map((item) => (
+                    <EvidencePreview
+                      key={item.id}
+                      item={item}
+                      onRemove={removeEvidence}
+                      removeLabel={t('reportRemove')}
+                    />
+                  ))}
+                </div>
               )}
             </div>
-            {evidenceItems.length > 0 && (
-              <div className="flex flex-wrap gap-3 pt-1">
-                {evidenceItems.map((item) => (
-                  <EvidencePreview
-                    key={item.id}
-                    item={item}
-                    onRemove={removeEvidence}
-                    removeLabel={t('reportRemove')}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          )}
 
           {feedback && (
             <p

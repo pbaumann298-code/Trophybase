@@ -257,6 +257,37 @@ export function parseReportImageUrls(imageUrl) {
 }
 
 /**
+ * Holt beim Öffnen des Modal-Fensters ein Einmal-Ticket für die Meldung.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{
+ *   metadata: ReturnType<typeof resolveReportMetadata>,
+ *   markedContent: string,
+ *   contentKind: string,
+ * }} params
+ */
+export async function requestErrorReportTicket(supabase, { metadata, markedContent, contentKind }) {
+  if (!metadata) return { ticketId: null, error: new Error('Kein meldbarer Datenkontext') };
+
+  const originalText = normalizeOriginalText(markedContent, contentKind);
+
+  const { data, error } = await supabase.rpc('tb_issue_report_ticket', {
+    p_source: metadata.sourceIdentifier,
+    p_content_type: metadata.contentType,
+    p_content_key: metadata.contentKey,
+    p_field_name: metadata.fieldName,
+    p_original_text: originalText,
+  });
+
+  if (error) {
+    console.error('tb_issue_report_ticket:', error.message);
+    return { ticketId: null, error };
+  }
+
+  const ticketId = typeof data === 'string' ? data : data?.ticket_id || data || null;
+  return { ticketId, error: null };
+}
+
+/**
  * Schleuse: public.tb_submit_error_report (Honeypot + elapsed_ms serverseitig).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {{
@@ -269,6 +300,7 @@ export function parseReportImageUrls(imageUrl) {
  *   languageCode?: string,
  *   honeypot?: string,
  *   elapsedMs?: number,
+ *   ticketId?: string | null,
  * }} payload
  */
 export async function submitErrorReport(supabase, payload) {
@@ -282,6 +314,7 @@ export async function submitErrorReport(supabase, payload) {
     languageCode = getLocale(),
     honeypot = '',
     elapsedMs = 0,
+    ticketId = null,
   } = payload;
 
   if (!metadata) {
@@ -311,6 +344,7 @@ export async function submitErrorReport(supabase, payload) {
     p_image_url: storedImageUrl,
     p_honeypot: String(honeypot ?? ''),
     p_elapsed_ms: Number(elapsedMs) || 0,
+    p_ticket_id: ticketId || null,
   });
 
   if (error) {

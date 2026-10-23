@@ -12,7 +12,7 @@ import {
 import { getLocale } from './locale';
 import { isUuid } from './gameModel';
 import { resolveGameUuid } from './gameQueries';
-import { mergeLocalizedValue } from './translationUtils';
+import { localizeJsonField, mergeLocalizedValue } from './translationUtils';
 import { REPORT_ENTITY_MAP } from './errorReport';
 import { formatIntranetTitles } from './intranetQueries';
 
@@ -223,11 +223,26 @@ export async function applyReportToContentTable(supabase, report) {
     const { data: existing, error: fetchError } = await fetchQuery.maybeSingle();
     if (fetchError) return { error: fetchError, target };
 
+    let textToSet = report.suggested_text;
+    const currentText = localizeJsonField(existing?.[target.column], target.jsonLang, undefined, { exact: true });
+    const originalText = String(report.original_text ?? '').trim();
+    const isPlaceholder = originalText === '[Bild / Icon]' || originalText === '[Video]' || originalText === '[Inhalt]';
+
+    if (
+      currentText &&
+      originalText &&
+      !isPlaceholder &&
+      currentText.length > originalText.length &&
+      currentText.includes(originalText)
+    ) {
+      textToSet = currentText.replace(originalText, report.suggested_text);
+    }
+
     patch = {
       [target.column]: mergeLocalizedValue(
         existing?.[target.column],
         target.jsonLang,
-        report.suggested_text,
+        textToSet,
       ),
     };
   }

@@ -65,7 +65,7 @@ const GAME_SELECT_MINIMAL = GAME_SELECT.split(', ')
   )
   .join(', ');
 
-/** Publisher-Akkordeon / Titellisten: Cover ja, ohne Beschreibung/Tags. */
+/** Publisher-Akkordeon / Titellisten: Cover ja, ohne Beschreibung. */
 export const GAME_SELECT_LIST = [
   GAME_PK,
   GAME_PLATFORM_ID,
@@ -73,6 +73,8 @@ export const GAME_SELECT_LIST = [
   GAME_STRUCT.releaseYear,
   GAME_STRUCT.developer,
   GAME_STRUCT.publisher,
+  GAME_STRUCT.genre,
+  GAME_STRUCT.homeTags,
   GAME_STRUCT.gameType,
   GAME_STRUCT.status,
   GAME_STRUCT.trophyCount,
@@ -795,8 +797,10 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
   const developer = validateSearchQuery(filters.developer);
   const genre = validateSearchQuery(filters.genre);
   const hardware = validateSearchQuery(filters.hardware ?? filters.console);
+  const tag = String(filters.tag ?? '').trim();
+  const onlineMode = String(filters.onlineMode ?? '').trim();
 
-  if (!title.valid && !developer.valid && !genre.valid && !hardware.valid) {
+  if (!title.valid && !developer.valid && !genre.valid && !hardware.valid && !tag && !onlineMode) {
     return { data: [], error: new Error('Mindestens ein Suchfeld ausfüllen') };
   }
 
@@ -816,6 +820,17 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
       rows = rows.filter((game) =>
         String(game?.[GAME_STRUCT.hardware] ?? '').toLowerCase().includes(needle),
       );
+    }
+    if (tag) {
+      rows = rows.filter((game) => {
+        const tags = Array.isArray(game?.[GAME_STRUCT.homeTags]) ? game[GAME_STRUCT.homeTags] : [];
+        return tags.includes(tag);
+      });
+    }
+    if (onlineMode === 'offline') {
+      rows = rows.filter((game) => !game?.has_online_trophies || Number(game?.total_online_trophies) === 0);
+    } else if (onlineMode === 'online') {
+      rows = rows.filter((game) => Boolean(game?.has_online_trophies));
     }
     return { data: rows.slice(0, limit), error: null };
   }
@@ -840,6 +855,14 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
     }
     if (hardware.valid) {
       query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
+    }
+    if (tag) {
+      query = query.contains(GAME_STRUCT.homeTags, [tag]);
+    }
+    if (onlineMode === 'offline') {
+      query = query.or('has_online_trophies.is.false,total_online_trophies.eq.0');
+    } else if (onlineMode === 'online') {
+      query = query.eq('has_online_trophies', true);
     }
 
     return applyExcludeQuickwins(
