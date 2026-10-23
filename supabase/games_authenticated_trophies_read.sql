@@ -58,7 +58,6 @@ begin
       g.upcoming_date,
       g.entwickler,
       g.publisher,
-      g.genre,
       g.spiel_typ,
       g.fortschritt,
       g.status,
@@ -86,7 +85,7 @@ begin
       and (
         select bool_and(
           lower(coalesce(g.spieltitel::text, '')) like '%' || lower(w) || '%'
-          or lower(coalesce(g.genre, '')) like '%' || lower(w) || '%'
+          or lower(coalesce(array_to_string(g.home_tags, ' '), '')) like '%' || lower(w) || '%'
           or lower(coalesce(g.entwickler, '')) like '%' || lower(w) || '%'
           or lower(coalesce(g.publisher, '')) like '%' || lower(w) || '%'
         )

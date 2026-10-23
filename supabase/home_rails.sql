@@ -20,7 +20,7 @@ create or replace function public.tb_home_game_payload(
   p_platform_game_id jsonb,
   p_hardware text,
   p_entwickler text,
-  p_genre text,
+  p_home_tags text[],
   p_spiel_typ text,
   p_status jsonb,
   p_slug text,
@@ -38,7 +38,7 @@ as $$
     'platform_game_id', p_platform_game_id,
     'hardware', p_hardware,
     'entwickler', p_entwickler,
-    'genre', p_genre,
+    'home_tags', coalesce(p_home_tags, '{}'::text[]),
     'spiel_typ', p_spiel_typ,
     'status', p_status,
     'slug', p_slug,
@@ -50,15 +50,15 @@ as $$
 $$;
 
 comment on function public.tb_home_game_payload(
-  uuid, jsonb, text, text, text, text, jsonb, text, timestamptz, integer, jsonb, jsonb
+  uuid, jsonb, text, text, text[], text, jsonb, text, timestamptz, integer, jsonb, jsonb
 ) is
   'Schlankes games-JSON fuer Startseiten-Kacheln (ohne beschreibung).';
 
 revoke all on function public.tb_home_game_payload(
-  uuid, jsonb, text, text, text, text, jsonb, text, timestamptz, integer, jsonb, jsonb
+  uuid, jsonb, text, text, text[], text, jsonb, text, timestamptz, integer, jsonb, jsonb
 ) from public;
 grant execute on function public.tb_home_game_payload(
-  uuid, jsonb, text, text, text, text, jsonb, text, timestamptz, integer, jsonb, jsonb
+  uuid, jsonb, text, text, text[], text, jsonb, text, timestamptz, integer, jsonb, jsonb
 ) to anon, authenticated;
 
 -- Alte Signatur ohne Locale entfernen (sonst bleibt die Overload-Variante stehen).
@@ -84,7 +84,7 @@ as $$
       'beliebt'::text as rail_id,
       row_number() over (order by g.views desc, g.created_at desc nulls last)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -99,7 +99,7 @@ as $$
       'neu'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -114,7 +114,7 @@ as $$
       'souls'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -134,7 +134,7 @@ as $$
       'capcom'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -153,7 +153,7 @@ as $$
       'openworld'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -169,7 +169,7 @@ as $$
       'ubisoft'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -188,7 +188,7 @@ as $$
       'rockstar'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -207,7 +207,7 @@ as $$
       'family'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -223,7 +223,7 @@ as $$
       'indie'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -239,7 +239,7 @@ as $$
       'racing'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -255,7 +255,7 @@ as $$
       'godofwar'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p
@@ -271,7 +271,7 @@ as $$
       'tombraider'::text as rail_id,
       row_number() over (order by g.created_at desc nulls last, g.views desc)::integer as sort_pos,
       public.tb_home_game_payload(
-        g.id, g.platform_game_id, g.hardware, g.entwickler, g.genre, g.spiel_typ,
+        g.id, g.platform_game_id, g.hardware, g.entwickler, g.home_tags, g.spiel_typ,
         g.status, g.slug, g.created_at, coalesce(g.views, 0), g.spieltitel, g.cover_url
       ) as game
     from public.games g, params p

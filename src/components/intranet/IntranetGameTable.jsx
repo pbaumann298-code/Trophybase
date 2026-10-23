@@ -15,7 +15,14 @@ import {
   setIntranetGameType,
   statusAfterGuideDiscard,
 } from '../../lib/intranetGameEdits';
-import { fetchHomeTagDefs, homeTagKey, orderHomeTags, readHomeTags, setEditorialHomeTags } from '../../lib/homeTagDefs';
+import {
+  fetchHomeTagDefs,
+  formatLocalizedHomeTags,
+  homeTagKey,
+  orderHomeTags,
+  readHomeTags,
+  setEditorialHomeTags,
+} from '../../lib/homeTagDefs';
 import HomeTagChecks from '../HomeTagChecks';
 import { toggleAdminFollowup } from '../../lib/adminFollowups';
 import { useAdminFollowups } from '../../hooks/useAdminFollowups';
@@ -266,6 +273,7 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
               <th className="px-3 py-2.5 font-medium">upcoming_date</th>
               <th className="px-3 py-2.5 font-medium">entwickler</th>
               <th className="px-3 py-2.5 font-medium">publisher</th>
+              <th className="px-3 py-2.5 font-medium">genre</th>
               <th className="px-3 py-2.5 font-medium">spiel_typ</th>
               <th className="px-3 py-2.5 font-medium">home_tags</th>
               <th className="px-3 py-2.5 font-medium">discovery</th>
@@ -301,6 +309,9 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
                   <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.upcoming_date || '—'}</td>
                   <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.entwickler || '—'}</td>
                   <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.publisher || '—'}</td>
+                  <td className="px-3 py-2 text-zinc-400 max-w-[12rem]">
+                    {formatLocalizedHomeTags(game.home_tags, 'de') || '—'}
+                  </td>
                   <td className="px-3 py-2">
                     <GameTypeCell
                       game={game}
