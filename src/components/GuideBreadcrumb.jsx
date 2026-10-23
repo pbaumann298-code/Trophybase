@@ -1,6 +1,7 @@
 import { useLocale } from '../context/LocaleContext';
 import { hardwareLabel } from '../lib/gameSlug';
-import { GAME_STRUCT } from '../lib/gameSchema';
+import { GAME_FIELDS, GAME_STRUCT } from '../lib/gameSchema';
+import { formatLocalizedHomeTags } from '../lib/homeTagDefs';
 import { navigateToHome } from '../lib/routeUtils';
 
 function CrumbSep() {
@@ -12,9 +13,13 @@ function CrumbSep() {
 }
 
 function GuideBreadcrumb({ game, title, onHome }) {
-  const { t } = useLocale();
+  const { t, globalLocale } = useLocale();
   const platform = hardwareLabel(game?.hardware);
-  const genre = String(game?.[GAME_STRUCT.genre] ?? '').trim();
+  const genre = String(
+    formatLocalizedHomeTags(game?.[GAME_STRUCT.homeTags], globalLocale, '') ||
+      game?.[GAME_FIELDS.genre] ||
+      '',
+  ).trim();
 
   const goHome = (event) => {
     event.preventDefault();

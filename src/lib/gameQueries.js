@@ -15,6 +15,7 @@ import { getGameUuid, isUuid, mergeGameRecord, mergeGameRows } from './gameModel
 import { mergeLocalizedValue } from './translationUtils.js';
 import { hardwareToUrlSegment } from './gameSlug.js';
 import { NPWR_ID_PATTERN } from './routeUtils.js';
+import { formatLocalizedHomeTags, resolveMatchingHomeTagSlugs } from './homeTagDefs.js';
 
 export const GAME_SELECT = [
   GAME_PK,
@@ -26,7 +27,6 @@ export const GAME_SELECT = [
   GAME_STRUCT.upcomingDate,
   GAME_STRUCT.developer,
   GAME_STRUCT.publisher,
-  GAME_STRUCT.genre,
   GAME_STRUCT.gameType,
   GAME_STRUCT.progress,
   GAME_STRUCT.status,
@@ -73,7 +73,6 @@ export const GAME_SELECT_LIST = [
   GAME_STRUCT.releaseYear,
   GAME_STRUCT.developer,
   GAME_STRUCT.publisher,
-  GAME_STRUCT.genre,
   GAME_STRUCT.homeTags,
   GAME_STRUCT.gameType,
   GAME_STRUCT.status,
@@ -105,6 +104,10 @@ function selectForCatalogMode(mode) {
 
 function hasPublisherColumn() {
   return activeGameSelect.includes(GAME_STRUCT.publisher);
+}
+
+function hasHomeTagsColumn() {
+  return activeGameSelect.includes(GAME_STRUCT.homeTags);
 }
 
 function demoteMissingColumn(error, column, nextSelect) {
@@ -175,7 +178,6 @@ export const GAME_SEARCH_LOCALIZED_COLUMNS = {
 
 /** Skalare Suchspalten auf games */
 export const GAME_SEARCH_STRUCT_COLUMNS = {
-  genre: GAME_STRUCT.genre,
   developer: GAME_STRUCT.developer,
   publisher: GAME_STRUCT.publisher,
   hardware: GAME_STRUCT.hardware,
@@ -563,19 +565,84 @@ async function searchStructColumn(supabase, column, pattern, limit, catalog) {
   );
 }
 
+function parseStringArrayField(raw) {
+  if (Array.isArray(raw)) return raw.map((item) => String(item ?? '').trim()).filter(Boolean);
+  if (typeof raw === 'string' && raw.trim()) {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed.map((item) => String(item ?? '').trim()).filter(Boolean);
+      } catch {
+        // ignore
+      }
+    }
+    return [trimmed];
+  }
+  return [];
+}
+
 /**
- * Freitext über Titel, Genre, Studio und Publisher.
+ * Prüft im Client, ob ein Spiel auf eine Genre-/Subgenre-/Tag-Anfrage passt
+ * (ausschließlich über `home_tags` und `formatLocalizedHomeTags`).
+ */
+export function gameMatchesGenreOrTagQuery(game, rawQuery, locale = getLocale()) {
+  if (!game) return false;
+  const q = String(rawQuery ?? '').replace(/%/g, '').trim().toLowerCase();
+  if (!q) return true;
+
+  const matchedSlugs = resolveMatchingHomeTagSlugs(q);
+  const homeTags = parseStringArrayField(game[GAME_STRUCT.homeTags]).map((t) => t.toLowerCase());
+
+  if (homeTags.includes(q)) return true;
+  if (matchedSlugs.some((slug) => homeTags.includes(slug.toLowerCase()))) return true;
+
+  const localizedTags = formatLocalizedHomeTags(
+    game[GAME_STRUCT.homeTags],
+    locale,
+    '',
+  ).toLowerCase();
+  if (localizedTags.includes(q)) return true;
+
+  const qTokens = searchWords(q).map((w) => w.toLowerCase());
+  if (qTokens.length > 0) {
+    const combinedText = `${localizedTags} ${homeTags.join(' ')}`;
+    if (qTokens.every((tok) => combinedText.includes(tok))) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Baut einen PostgREST-OR-Filter für ein Genre-/Subgenre-Wort über `home_tags`-Slugs.
+ */
+function buildGenreOrTagFilterParts(token, extraSlugs = []) {
+  const parts = [];
+  const slugs = new Set([
+    ...resolveMatchingHomeTagSlugs(token),
+    ...extraSlugs,
+  ]);
+  if (hasHomeTagsColumn() && slugs.size > 0) {
+    for (const slug of slugs) {
+      parts.push(`${GAME_STRUCT.homeTags}.cs.{${slug}}`);
+    }
+  }
+  return parts;
+}
+
+/**
+ * Freitext über Titel, Subgenres/home_tags, Studio und Publisher.
  * Mehrere Wörter müssen alle vorkommen, aber nicht direkt hintereinander.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} pattern bereits validiertes ilike-Muster, z. B. %LEGO%
  * @param {number} [limit]
  * @param {string} [locale]
  */
-function freeTextTokenFilter(token) {
+function freeTextTokenFilter(token, extraHomeTagSlugs = []) {
   const pattern = `%${token}%`;
   const parts = [
     buildLocalizedOrFilter(GAME_I18N.title, pattern),
-    `${GAME_STRUCT.genre}.ilike.${quoteFilterValue(pattern)}`,
+    ...buildGenreOrTagFilterParts(token, extraHomeTagSlugs),
     `${GAME_STRUCT.developer}.ilike.${quoteFilterValue(pattern)}`,
   ];
   if (hasPublisherColumn()) {
@@ -626,6 +693,9 @@ export async function searchGamesByFreeText(
     return { data: [], error: new Error('Suchbegriff fehlt') };
   }
 
+  const rawPhrase = String(pattern ?? '').replace(/%/g, ' ').trim();
+  const phraseHomeTagSlugs = resolveMatchingHomeTagSlugs(rawPhrase);
+
   if (catalog.includeTrophiesOnly) {
     return searchGamesTrophiesOnlyRpc(supabase, words, limit, locale, {
       excludeQuickwins: catalog.excludeQuickwins !== false,
@@ -636,7 +706,7 @@ export async function searchGamesByFreeText(
     () => {
       let query = supabase.from(TABLES.games).select(getGameSelect());
       for (const word of words) {
-        query = query.or(freeTextTokenFilter(word));
+        query = query.or(freeTextTokenFilter(word, phraseHomeTagSlugs));
       }
       return applyExcludeQuickwins(
         applyGuideCatalogFilter(
@@ -826,10 +896,10 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
       );
     }
     if (tag) {
-      rows = rows.filter((game) => {
-        const tags = Array.isArray(game?.[GAME_STRUCT.homeTags]) ? game[GAME_STRUCT.homeTags] : [];
-        return tags.includes(tag);
-      });
+      rows = rows.filter((game) => gameMatchesGenreOrTagQuery(game, tag, locale));
+    }
+    if (genre.valid) {
+      rows = rows.filter((game) => gameMatchesGenreOrTagQuery(game, genre.query, locale));
     }
     if (onlineMode === 'offline') {
       rows = rows.filter((game) => !game?.has_online_trophies || Number(game?.total_online_trophies) === 0);
@@ -855,7 +925,12 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
       query = studioOr.length > 1 ? query.or(studioOr.join(',')) : query.ilike(GAME_STRUCT.developer, developer.pattern);
     }
     if (genre.valid) {
-      query = query.ilike(GAME_STRUCT.genre, genre.pattern);
+      const genreSlugs = resolveMatchingHomeTagSlugs(genre.query);
+      if (genreSlugs.length > 0 && hasHomeTagsColumn()) {
+        query = query.overlaps(GAME_STRUCT.homeTags, genreSlugs);
+      } else if (hasHomeTagsColumn()) {
+        query = query.contains(GAME_STRUCT.homeTags, [genre.query.toLowerCase().trim()]);
+      }
     }
     if (hardware.valid) {
       query = query.ilike(GAME_STRUCT.hardware, hardware.pattern);
@@ -880,7 +955,14 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
   }, limit);
 
   if (error) return { data: [], error };
-  return { data: mergeGameRows(data ?? [], locale), error: null };
+  let rows = data ?? [];
+  if (genre.valid) {
+    rows = rows.filter((game) => gameMatchesGenreOrTagQuery(game, genre.query, locale));
+  }
+  if (tag) {
+    rows = rows.filter((game) => gameMatchesGenreOrTagQuery(game, tag, locale));
+  }
+  return { data: mergeGameRows(rows, locale), error: null };
 }
 
 /** Seitengröße für Alphabet-Kataloge (Easy Platins / Servertot) beim Scroll-Nachladen. */

@@ -351,11 +351,7 @@ function renderHtml({
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="${escapeAttr(seo.cover)}" />`
     : `<meta name="twitter:card" content="summary" />`;
-  const genre = formatLocalizedHomeTags(
-    game[GAME_STRUCT.homeTags],
-    locale,
-    game[GAME_STRUCT.genre],
-  );
+  const genre = formatLocalizedHomeTags(game[GAME_STRUCT.homeTags], locale);
 
   const walkthrough = [];
   const collectibles = [];
@@ -487,7 +483,6 @@ export async function handleGuideRequest(requestUrl) {
       GAME_STRUCT.releaseYear,
       GAME_STRUCT.developer,
       GAME_STRUCT.publisher,
-      GAME_STRUCT.genre,
       GAME_STRUCT.homeTags,
       GAME_STRUCT.gameType,
       GAME_STRUCT.status,

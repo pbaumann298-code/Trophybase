@@ -527,6 +527,84 @@ export function homeTagKey(value) {
   return String(value ?? '').trim().toLowerCase();
 }
 
+const HOME_TAG_SYNONYMS = {
+  soulslike: ['souls', 'soulslike', 'souls-like', 'dark souls', 'elden ring'],
+  open_world: ['open world', 'open-world', 'openworld', 'sandbox', 'post-apocalyptic', 'postapocalyptic', 'postapokalyptisch'],
+  family: ['family', 'familie', 'familienspaß', 'familienspass', 'easy platin', 'easy platinum', 'kinder', 'kids'],
+  indie: ['indie', 'indie-perlen', 'indie game'],
+  racing: ['racing', 'rennspiel', 'rennspiele', 'rennen', 'asphalt', 'highspeed', 'driving', 'arcade racer'],
+  fps: ['fps', 'ego-shooter', 'ego shooter', 'first-person shooter', 'first person shooter', 'first-person'],
+  tps: ['tps', 'third-person-shooter', 'third-person shooter', 'third person shooter', 'third-person', 'third person'],
+  loot_shooter: ['loot-shooter', 'loot shooter', 'looter shooter', 'looter-shooter'],
+  tactics: ['tactics', 'taktik', 'strategie', 'strategy', 'turn-based', 'rundenbasiert', 'rts'],
+  coop_mp: ['coop', 'co-op', 'koop', 'multiplayer', 'online-koop', 'online co-op', 'splitscreen'],
+  roguelike: ['roguelike', 'roguelite', 'rogue-like', 'rogue-lite', 'bullet heaven'],
+  rpg: ['rpg', 'rollenspiel', 'rollenspiele', 'role-playing', 'role playing', 'jrpg', 'arpg', 'action-rpg'],
+  action_adventure: ['action-adventure', 'action adventure', 'action', 'adventure', 'abenteuer', 'hack and slash', 'stealth'],
+  survival_horror: ['survival horror', 'survival-horror', 'horror', 'survival', 'überlebenshorror', 'zombie'],
+  platformer: ['platformer', 'jump n run', "jump 'n' run", 'jump & run', 'metroidvania', '2d platformer', '3d platformer'],
+  fighting: ['fighting', 'beat em up', "beat 'em up", 'kampfspiel', 'kampfspiele', 'brawler', 'fighter'],
+  sports: ['sports', 'sport', 'sportspiel', 'fußball', 'football', 'soccer', 'basketball', 'skate', 'golf', 'tennis'],
+  simulation: ['simulation', 'simulator', 'sim', 'management', 'aufbau', 'farming', 'tycoon'],
+  hidden_object: ['hidden object', 'hidden-object', 'wimmelbild', 'wimmelbildspiel'],
+  visual_novel: ['visual novel', 'visual-novel', 'vn'],
+  fmv: ['fmv', 'interactive movie', 'interactive film', 'interaktiver film', 'full motion video'],
+  point_and_click: ['point & click', 'point and click', 'point-and-click', 'graphic adventure'],
+  mystery_crime: ['mystery', 'crime', 'detective', 'detektiv', 'krimi', 'investigation', 'thriller'],
+  scifi_cyberpunk: ['sci-fi', 'scifi', 'science fiction', 'cyberpunk', 'space', 'weltraum', 'mecha'],
+  otome_romance: ['otome', 'romance', 'romantik', 'dating sim'],
+  psych_horror: ['psychological horror', 'psychologischer horror', 'psych horror', 'psycho-horror'],
+};
+
+function normalizeGenreSearchText(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[-_/&+.,:;'"’()[\]]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Löst eine Freitext- oder Subgenre-Suchanfrage (z. B. "Looter Shooter", "Third-Person",
+ * "Soulslike", "Ego-Shooter") in passende `home_tags`-Slugs auf.
+ * @param {string} query
+ * @returns {string[]}
+ */
+export function resolveMatchingHomeTagSlugs(query) {
+  const normQuery = normalizeGenreSearchText(query);
+  if (!normQuery || normQuery.length < 2) return [];
+
+  const matched = new Set();
+
+  for (const [slug, translations] of Object.entries(HOME_TAG_TRANSLATIONS)) {
+    const slugNorm = normalizeGenreSearchText(slug);
+    if (slugNorm === normQuery || (normQuery.length >= 3 && slugNorm.includes(normQuery))) {
+      matched.add(slug);
+      continue;
+    }
+
+    const candidates = [
+      ...Object.values(translations ?? {}),
+      ...(HOME_TAG_SYNONYMS[slug] ?? []),
+    ];
+
+    for (const label of candidates) {
+      const labelNorm = normalizeGenreSearchText(label);
+      if (!labelNorm) continue;
+      if (
+        labelNorm === normQuery ||
+        (normQuery.length >= 3 && labelNorm.includes(normQuery)) ||
+        (labelNorm.length >= 3 && normQuery.includes(labelNorm))
+      ) {
+        matched.add(slug);
+        break;
+      }
+    }
+  }
+
+  return [...matched];
+}
+
 /**
  * @param {object | null | undefined} game
  * @returns {string[]}

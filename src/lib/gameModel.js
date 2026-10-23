@@ -43,7 +43,7 @@ export function mergeGameRecord(gameRow, locale, fallbackLocale = FALLBACK_LANGU
   const localizedGenre = formatLocalizedHomeTags(
     gameRow[GAME_STRUCT.homeTags],
     locale,
-    gameRow[GAME_STRUCT.genre],
+    '',
   );
 
   return {

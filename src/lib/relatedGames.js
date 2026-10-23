@@ -77,25 +77,31 @@ export async function fetchCreatorOtherGames(
 }
 
 /**
- * Ähnliche Guides (Genre, sonst Studio). Die Liste bleibt leer, bis
+ * Ähnliche Guides (home_tags, sonst Studio). Die Liste bleibt leer, bis
  * mindestens SIMILAR_GAMES_MIN Treffer da sind.
  */
 export async function fetchSimilarGames(supabase, { game, locale, includeReady = false }) {
   const exclude = getGameUuid(game);
   if (!exclude) return [];
 
-  const genre = String(game?.[GAME_STRUCT.genre] ?? '').trim();
+  const homeTags = Array.isArray(game?.[GAME_STRUCT.homeTags])
+    ? game[GAME_STRUCT.homeTags].map((t) => String(t ?? '').trim()).filter(Boolean)
+    : [];
   const studio = publicStudioCredits(game).studio;
   const studioQuery = studio.length >= 3 ? studio : '';
-  if (!genre && !studioQuery) return [];
+  if (homeTags.length === 0 && !studioQuery) return [];
 
   const catalog = catalogOf(includeReady);
 
-  async function byExact(column, value) {
-    if (!value) return [];
+  async function byHomeTags(tags) {
+    if (!tags || tags.length === 0) return [];
     const { data, error } = await excludeQuickwinStyleTypes(
       applyGuideCatalogFilter(
-        supabase.from(TABLES.games).select(getGameSelect()).eq(column, value).neq(GAME_PK, exclude),
+        supabase
+          .from(TABLES.games)
+          .select(getGameSelect())
+          .overlaps(GAME_STRUCT.homeTags, tags)
+          .neq(GAME_PK, exclude),
         catalog,
       ),
     )
@@ -121,15 +127,15 @@ export async function fetchSimilarGames(supabase, { game, locale, includeReady =
     return withoutServerDead(mergeGameRows(data ?? [], locale));
   }
 
-  const [byGenre, byDeveloper, byPublisher] = await Promise.all([
-    byExact(GAME_STRUCT.genre, genre),
+  const [byTags, byDeveloper, byPublisher] = await Promise.all([
+    byHomeTags(homeTags),
     byStudio(GAME_STRUCT.developer, studioQuery),
     byStudio(GAME_STRUCT.publisher, studioQuery),
   ]);
 
   const seen = new Set([exclude]);
   const merged = [];
-  for (const row of [...byGenre, ...byDeveloper, ...byPublisher]) {
+  for (const row of [...byTags, ...byDeveloper, ...byPublisher]) {
     const id = getGameUuid(row);
     if (!id || seen.has(id)) continue;
     seen.add(id);

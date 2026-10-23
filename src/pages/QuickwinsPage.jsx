@@ -77,19 +77,7 @@ function gameMatchesTag(game, tagSlug) {
     }
   }
 
-  if (tagList.some((t) => String(t).toLowerCase() === tagSlug.toLowerCase())) {
-    return true;
-  }
-
-  const genre = String(game.genre ?? '').toLowerCase();
-  const def = EASY_PLATINS_TAGS.find((item) => item.tag === tagSlug);
-  if (def) {
-    if (def.keywords.some((kw) => genre.includes(kw))) return true;
-  } else if (genre.includes(tagSlug.toLowerCase())) {
-    return true;
-  }
-
-  return false;
+  return tagList.some((t) => String(t).toLowerCase() === tagSlug.toLowerCase());
 }
 
 function QuickwinsPage({

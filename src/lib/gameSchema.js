@@ -67,7 +67,6 @@ export const GAME_STRUCT = {
   developer: 'entwickler',
   /** IGDB-Publisher, getrennt vom Hauptstudio */
   publisher: 'publisher',
-  genre: 'genre',
   gameType: 'spiel_typ',
   progress: 'fortschritt',
   status: 'status',

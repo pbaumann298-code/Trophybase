@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import SearchResultsPage from './SearchResultsPage';
 import { CONSOLE_FILTER_OPTIONS, searchGamesAdvanced } from '../lib/gameSearch';
-import { fetchHomeTagDefs, translateHomeTag } from '../lib/homeTagDefs';
+import {
+  HOME_TAG_TRANSLATIONS,
+  fetchHomeTagDefs,
+  resolveMatchingHomeTagSlugs,
+  translateHomeTag,
+} from '../lib/homeTagDefs';
 import {
   QUICKWINS_PATH,
   getViewFromPath,
@@ -21,6 +26,31 @@ import '../styles/home.css';
 const FALLBACK_QUICKWINS = '/quickwins';
 const FALLBACK_EASY = '/easy-platins';
 const FALLBACK_SERVERTOT = '/servertot';
+
+const FALLBACK_TAG_OPTIONS = Object.keys(HOME_TAG_TRANSLATIONS).map((slug) => ({
+  slug,
+  label: HOME_TAG_TRANSLATIONS[slug]?.de || slug,
+}));
+
+function normalizeIncomingAdvancedFilters(rawFilters = {}) {
+  const next = {
+    title: '',
+    developer: '',
+    genre: '',
+    console: '',
+    tag: '',
+    onlineMode: '',
+    ...rawFilters,
+  };
+  if (!next.tag && next.genre) {
+    const matched = resolveMatchingHomeTagSlugs(next.genre);
+    if (matched.length === 1) {
+      next.tag = matched[0];
+      next.genre = '';
+    }
+  }
+  return next;
+}
 
 function emptyFilters() {
   return { title: '', developer: '', genre: '', console: '', tag: '', onlineMode: '' };
@@ -76,8 +106,8 @@ function AdvancedSearchPage({
   sessionUser = null,
 }) {
   const { t, globalLocale } = useLocale();
-  const [filters, setFilters] = useState(() => parseAdvancedSearchParams());
-  const [tagOptions, setTagOptions] = useState([]);
+  const [filters, setFilters] = useState(() => normalizeIncomingAdvancedFilters(parseAdvancedSearchParams()));
+  const [tagOptions, setTagOptions] = useState(FALLBACK_TAG_OPTIONS);
   const [excludeQuickwins, setExcludeQuickwins] = useState(() => parseExcludeQuickwins());
   const [includeTrophiesOnly, setIncludeTrophiesOnly] = useState(
     () => Boolean(sessionUser) && parseIncludeTrophiesOnly(),
@@ -133,7 +163,7 @@ function AdvancedSearchPage({
   useEffect(() => {
     let cancelled = false;
     fetchHomeTagDefs(supabase).then(({ data }) => {
-      if (!cancelled && data) {
+      if (!cancelled && data && data.length > 0) {
         setTagOptions(data);
       }
     });
@@ -155,7 +185,7 @@ function AdvancedSearchPage({
   }, [sessionUser, includeTrophiesOnly]);
 
   useEffect(() => {
-    const initial = parseAdvancedSearchParams();
+    const initial = normalizeIncomingAdvancedFilters(parseAdvancedSearchParams());
     const initialExclude = parseExcludeQuickwins();
     const initialTrophies = Boolean(sessionUser) && parseIncludeTrophiesOnly();
     if (hasAnyFilter(initial)) {
@@ -169,7 +199,7 @@ function AdvancedSearchPage({
 
     const onPop = () => {
       if (getViewFromPath(window.location.pathname) !== 'advanced-search') return;
-      const next = parseAdvancedSearchParams();
+      const next = normalizeIncomingAdvancedFilters(parseAdvancedSearchParams());
       const nextExclude = parseExcludeQuickwins();
       const nextTrophies = Boolean(sessionUser) && parseIncludeTrophiesOnly();
       setFilters(next);
@@ -191,7 +221,8 @@ function AdvancedSearchPage({
   }, []);
 
   const updateField = (key) => (event) => {
-    setFilters((prev) => ({ ...prev, [key]: event.target.value }));
+    const val = event.target.value;
+    setFilters((prev) => (key === 'tag' ? { ...prev, tag: val, genre: '' } : { ...prev, [key]: val }));
   };
 
   const handleSubmit = (event) => {
@@ -253,14 +284,19 @@ function AdvancedSearchPage({
           />
         </div>
         <div className="advanced-search-field">
-          <label htmlFor="advanced-genre">{t('searchGenre')}</label>
-          <input
-            id="advanced-genre"
-            type="text"
-            value={filters.genre}
-            onChange={updateField('genre')}
-            autoComplete="off"
-          />
+          <label htmlFor="advanced-tag">{t('searchCategoryLabel')}</label>
+          <select
+            id="advanced-tag"
+            value={filters.tag || ''}
+            onChange={updateField('tag')}
+          >
+            <option value="">{t('searchCategoryAll')}</option>
+            {tagOptions.map((opt) => (
+              <option key={opt.slug} value={opt.slug}>
+                {translateHomeTag(opt.slug, globalLocale, opt.label)}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="advanced-search-field">
           <label htmlFor="advanced-console">{t('searchConsole')}</label>
@@ -272,21 +308,6 @@ function AdvancedSearchPage({
             {CONSOLE_FILTER_OPTIONS.map((option) => (
               <option key={option.value || 'all'} value={option.value}>
                 {option.labelKey ? t(option.labelKey) : option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="advanced-search-field">
-          <label htmlFor="advanced-tag">{t('searchCategoryLabel')}</label>
-          <select
-            id="advanced-tag"
-            value={filters.tag || ''}
-            onChange={updateField('tag')}
-          >
-            <option value="">{t('searchCategoryAll')}</option>
-            {tagOptions.map((opt) => (
-              <option key={opt.slug} value={opt.slug}>
-                {translateHomeTag(opt.slug, globalLocale, opt.label)}
               </option>
             ))}
           </select>

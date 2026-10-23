@@ -10,6 +10,7 @@ import {
 } from './gameSchema';
 import { getPlatformGameId } from './gameModel';
 import { applyStaffGuideScope, searchWords, validateSearchQuery } from './gameQueries';
+import { resolveMatchingHomeTagSlugs } from './homeTagDefs';
 import { applyPipelineStatusFilters } from './gamePipelineStatus';
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
 
@@ -27,7 +28,6 @@ export const INTRANET_GAME_SELECT = [
   GAME_STRUCT.upcomingDate,
   GAME_STRUCT.developer,
   GAME_STRUCT.publisher,
-  GAME_STRUCT.genre,
   GAME_STRUCT.gameType,
   GAME_STRUCT.homeTags,
   GAME_STRUCT.status,
@@ -118,7 +118,14 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
         ].join(','),
       );
     }
-    if (genre.valid) query = query.ilike(GAME_STRUCT.genre, genre.pattern);
+    if (genre.valid) {
+      const matchedSlugs = resolveMatchingHomeTagSlugs(genre.query);
+      if (matchedSlugs.length > 0) {
+        query = query.overlaps(GAME_STRUCT.homeTags, matchedSlugs);
+      } else {
+        query = query.contains(GAME_STRUCT.homeTags, [genre.query.toLowerCase()]);
+      }
+    }
     if (gameType === INTRANET_GAME_TYPE_EMPTY) {
       query = query.or(`${GAME_STRUCT.gameType}.is.null,${GAME_STRUCT.gameType}.eq.""`);
     } else if (Object.values(GAME_TYPE).includes(gameType)) {

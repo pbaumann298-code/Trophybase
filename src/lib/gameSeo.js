@@ -366,7 +366,7 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
   const genre = formatLocalizedHomeTags(
     game?.[GAME_STRUCT.homeTags],
     canonicalLocale,
-    game?.[GAME_STRUCT.genre],
+    '',
   );
   const platform = hardwareLabel(game?.hardware || hw);
   const pageTitle = `${title} – TrophyBase`;
