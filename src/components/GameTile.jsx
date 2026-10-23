@@ -50,7 +50,7 @@ export function GameCoverOverlays({
   const { setHidden, gameKey, isHidden } = useVisibility();
   const { isPlatinum } = usePlatinumStatus();
   const platinumSrc = trophyTypeIcon(TROPHY_TYPE.PLATINUM);
-  const platinum = showPlatinum && gameId && isPlatinum(gameId);
+  const isPlatinActive = Boolean(showPlatinum && gameId && isPlatinum(gameId));
   const btnSize = size === 'md' ? 'w-8 h-8' : 'w-7 h-7';
 
   const handleHide = (event) => {
@@ -66,11 +66,9 @@ export function GameCoverOverlays({
 
   return (
     <>
-      {game ? (
-        <div className="home-tile-online">
-          <GuideOnlineBadge game={game} visible={isAdmin} size={size === 'md' ? 'md' : 'sm'} />
-        </div>
-      ) : null}
+      <div className="home-tile-online">
+        <GuideOnlineBadge game={game} visible={isAdmin} size={size === 'md' ? 'md' : 'sm'} />
+      </div>
 
       {showWatchlist && gameId ? (
         <div className="home-tile-watchlist">
@@ -83,21 +81,34 @@ export function GameCoverOverlays({
         </div>
       ) : null}
 
-      {platinum && platinumSrc ? (
+      {showPlatinum && platinumSrc ? (
         <div
           className="home-tile-platinum"
-          title={t('platinized')}
-          aria-label={t('platinized')}
+          title={isPlatinActive ? t('platinumUnlocked') : t('platinized')}
+          aria-label={isPlatinActive ? t('platinumUnlocked') : t('platinized')}
           role="img"
         >
-          <span className="home-tile-overlay-chip pointer-events-none">
-            <img src={platinumSrc} alt="" width={22} height={22} draggable={false} />
+          <span
+            className={`home-tile-overlay-chip pointer-events-none transition-all duration-300 ${
+              isPlatinActive
+                ? 'home-tile-overlay-chip--platinum-active'
+                : 'home-tile-overlay-chip--platinum-inactive'
+            }`}
+          >
+            <img
+              src={platinumSrc}
+              alt=""
+              width={size === 'md' ? 26 : 22}
+              height={size === 'md' ? 26 : 22}
+              draggable={false}
+              className={isPlatinActive ? 'filter drop-shadow-[0_0_6px_rgba(234,179,8,0.9)]' : 'opacity-40 grayscale'}
+            />
           </span>
         </div>
       ) : null}
 
       {showHide && gameId ? (
-        <div className="home-tile-hide">
+        <div className="home-tile-hide opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 max-md:opacity-50 transition-opacity duration-200">
           <button
             type="button"
             className={`home-tile-overlay-chip home-tile-overlay-chip--btn ${btnSize}`}

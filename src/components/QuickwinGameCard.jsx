@@ -362,13 +362,16 @@ function QuickwinGameCard({
     <div className="quickwin-detail">
       <article className="quickwin-card">
         <div className="quickwin-card-main">
-          <div className="quickwin-card-cover-wrap">
+          <div className="quickwin-card-cover-wrap relative">
             {cover ? (
               <img src={cover} className="quickwin-card-cover" alt="" />
             ) : (
               <div className="quickwin-card-cover quickwin-card-cover--empty" aria-hidden />
             )}
-            <PlatinumUnlockedBadge visible={platinumDone} size="sm" />
+            <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
+              <GuideOnlineBadge game={detailGame} visible={isAdmin} size="sm" />
+            </div>
+            <PlatinumUnlockedBadge active={platinumDone} size="sm" />
           </div>
           <div className="quickwin-card-body">
             <div className="quickwin-card-title-row">
