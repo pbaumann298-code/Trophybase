@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
+import { isGameDraftMode } from '../lib/guidePublication';
 import { publicStudioCredits } from '../lib/studioCredits';
 import { paginateItems } from '../lib/gameSearch';
 import { gameGuidePath } from '../lib/routeUtils';
@@ -11,11 +12,20 @@ import '../styles/home.css';
 
 const FADE_MS = 280;
 
-function SearchResultRow({ game, openGame, onRequestLogin, isAdmin }) {
+function SearchResultRow({
+  game,
+  openGame,
+  onRequestLogin,
+  isAdmin,
+  isWatchlist = false,
+  onToggleDraftMode = null,
+}) {
   const { globalLocale, t } = useLocale();
   const { getEntryState, gameKey } = useVisibility();
   const [exiting, setExiting] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [draftError, setDraftError] = useState('');
   const gameUuid = getGameUuid(game);
   const entry = gameUuid
     ? getEntryState(gameKey(gameUuid), { completed: false })
@@ -29,16 +39,40 @@ function SearchResultRow({ game, openGame, onRequestLogin, isAdmin }) {
   const href = gameGuidePath(game, globalLocale);
   const credits = publicStudioCredits(game);
   const watchlistId = gameUuid || getRouteSlug(game);
+  const isDraftRoadmap = Boolean(isAdmin && isGameDraftMode(game));
+
+  const handleRowClick = (e) => {
+    e.preventDefault();
+    if (isDraftRoadmap) {
+      openGame(game, { preferGuideTab: true });
+    } else {
+      openGame(game);
+    }
+  };
+
+  const handleDraftToggleClick = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!onToggleDraftMode || draftBusy) return;
+    setDraftBusy(true);
+    setDraftError('');
+    const res = await onToggleDraftMode(game);
+    setDraftBusy(false);
+    if (res?.error) {
+      setDraftError(res.error.message || 'Fehler beim Umschalten');
+    }
+  };
 
   return (
     <a
       key={watchlistId}
       href={href}
-      onClick={(e) => {
-        e.preventDefault();
-        openGame(game);
-      }}
-      className={`w-full min-w-0 bg-[#1a1b1c] p-4 rounded-xl border border-zinc-800 flex flex-wrap sm:flex-nowrap gap-4 sm:gap-5 cursor-pointer hover:border-zinc-700 hover:bg-[#202122] transition-all items-start no-underline text-inherit ${
+      onClick={handleRowClick}
+      className={`w-full min-w-0 p-4 rounded-xl border flex flex-wrap sm:flex-nowrap gap-4 sm:gap-5 cursor-pointer transition-all items-start no-underline text-inherit ${
+        isDraftRoadmap
+          ? 'bg-[#1c1a14] border-amber-500/45 hover:border-amber-400/70 hover:bg-[#221f17]'
+          : 'bg-[#1a1b1c] border-zinc-800 hover:border-zinc-700 hover:bg-[#202122]'
+      } ${
         exiting ? 'opacity-0 scale-[0.98] pointer-events-none' : ''
       } ${entry.dimmed && !exiting ? 'opacity-40' : ''}`}
       style={{ transitionDuration: `${FADE_MS}ms` }}
@@ -66,15 +100,59 @@ function SearchResultRow({ game, openGame, onRequestLogin, isAdmin }) {
       </div>
 
       <div className="flex-1 min-w-0 flex flex-col h-full justify-between pt-1">
-        <div className="min-w-0 flex items-start justify-between gap-3">
-          <h4 className="font-bold text-white text-base md:text-lg hover:text-[#00ff66] transition break-words">
-            {title}
-            {game._translationFallback && game._locale && (
-              <span className="ml-2 text-[10px] font-mono text-zinc-500 uppercase">
-                {game._locale}
-              </span>
+        <div className="min-w-0 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex flex-col gap-1.5">
+            <h4 className="font-bold text-white text-base md:text-lg hover:text-[#00ff66] transition break-words">
+              {title}
+              {game._translationFallback && game._locale && (
+                <span className="ml-2 text-[10px] font-mono text-zinc-500 uppercase">
+                  {game._locale}
+                </span>
+              )}
+            </h4>
+            {isDraftRoadmap && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openGame(game, { preferGuideTab: true });
+                  }}
+                  title="Klicken, um direkt in die Guide-/Checklisten-Ansicht zu springen"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-400/50 shadow-sm hover:bg-amber-500/30 transition"
+                >
+                  🎬 Video-Roadmap (Entwurf)
+                </span>
+              </div>
             )}
-          </h4>
+          </div>
+
+          {isAdmin && (isWatchlist || typeof onToggleDraftMode === 'function') && gameUuid && (
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={handleDraftToggleClick}
+                disabled={draftBusy}
+                aria-pressed={isDraftRoadmap}
+                title={
+                  isDraftRoadmap
+                    ? 'Video-Roadmap / Entwurfs-Modus deaktivieren'
+                    : 'Als Video-Roadmap / Entwurf markieren (tb_set_game_draft_mode)'
+                }
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold uppercase tracking-wider border transition cursor-pointer disabled:opacity-50 ${
+                  isDraftRoadmap
+                    ? 'bg-[#00ff66]/15 text-[#00ff66] border-[#00ff66]/45 hover:bg-[#00ff66]/25'
+                    : 'bg-zinc-900/90 text-zinc-300 border-zinc-700 hover:border-amber-400/50 hover:text-amber-300'
+                }`}
+              >
+                <span>🎬 Roadmap / Entwurf</span>
+                <span className="text-[10px]">{draftBusy ? '…' : isDraftRoadmap ? 'AN' : 'AUS'}</span>
+              </button>
+              {draftError && (
+                <span className="text-[10px] font-mono text-red-400">{draftError}</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-4 pt-4 border-t border-zinc-800/60 text-xs min-w-0 w-full">
@@ -132,6 +210,8 @@ function SearchResultsPage({
   onPageChange,
   onBack,
   isAdmin = false,
+  isWatchlist = false,
+  onToggleDraftMode = null,
   resultsTitle,
   emptyMessage,
 }) {
@@ -214,6 +294,8 @@ function SearchResultsPage({
                 openGame={openGame}
                 onRequestLogin={onRequestLogin}
                 isAdmin={isAdmin}
+                isWatchlist={isWatchlist}
+                onToggleDraftMode={onToggleDraftMode}
               />
             ))}
           </div>

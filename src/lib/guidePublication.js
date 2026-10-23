@@ -13,6 +13,7 @@ import { ensureGameSlug, warmPublishedGuidePages } from './publishSeo.js';
 export const GUIDE_PUBLICATION = {
   DONE: 'FERTIG',
   PUBLISHED: 'PUBLISHED',
+  DRAFT: 'DRAFT',
 };
 
 /**
@@ -111,13 +112,58 @@ export function isGuidePublished(game, lang) {
 }
 
 /**
- * Guide ist redaktionell fertig (Vorschau für Admins) oder bereits online.
+ * Ist das Spiel im Video-Roadmap-/Entwurfs-Modus?
+ * @param {object|null|undefined} game
+ */
+export function isGameDraftMode(game) {
+  const statusMap = parseStatusMap(game?.[GAME_STRUCT.status] ?? game?.status);
+  if (String(statusMap.production_roadmap ?? '').trim().toUpperCase() === 'ACTIVE') {
+    return true;
+  }
+  if (String(statusMap.guide_de ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.DRAFT) {
+    return true;
+  }
+  for (const [key, value] of Object.entries(statusMap)) {
+    if (key.startsWith('guide_') && String(value ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.DRAFT) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Schaltet den Video-Roadmap-/Entwurfs-Modus über die Supabase-RPC um.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameUuid
+ * @param {boolean} enable
+ */
+export async function setGameDraftMode(supabase, gameUuid, enable) {
+  const uuid = String(gameUuid ?? '').trim();
+  if (!uuid) {
+    return { status: null, error: new Error('Kein Spiel-UUID übergeben.') };
+  }
+  const { data, error } = await supabase.rpc('tb_set_game_draft_mode', {
+    p_game_id: uuid,
+    p_enable: Boolean(enable),
+  });
+  if (error) return { status: null, error };
+  const parsed = data && typeof data === 'object' ? parseStatusMap(data.status ?? data) : null;
+  return { status: parsed, error: null };
+}
+
+/**
+ * Guide ist redaktionell fertig/im Entwurf (Vorschau für Admins) oder bereits online.
  * @param {object|null|undefined} game
  * @param {string} [lang]
  */
 export function isGuideReady(game, lang = PUBLISH_LOCALE) {
   const state = getGuidePublicationState(game, lang);
-  return state === GUIDE_PUBLICATION.PUBLISHED || state === GUIDE_PUBLICATION.DONE;
+  return (
+    state === GUIDE_PUBLICATION.PUBLISHED ||
+    state === GUIDE_PUBLICATION.DONE ||
+    state === GUIDE_PUBLICATION.DRAFT ||
+    isGameDraftMode(game)
+  );
 }
 
 /**

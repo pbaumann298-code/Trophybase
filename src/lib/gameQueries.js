@@ -485,7 +485,7 @@ export function applyGuideCatalogFilter(query, catalog = {}) {
   if (catalog.includeTrophiesOnly) return query;
   if (catalog.includeReady) {
     return query.or(
-      `${guideStatusMatch(GUIDE_PUBLICATION.DONE)},${guideStatusMatch(GUIDE_PUBLICATION.PUBLISHED)}`,
+      `${guideStatusMatch(GUIDE_PUBLICATION.DONE)},${guideStatusMatch(GUIDE_PUBLICATION.PUBLISHED)},${guideStatusMatch(GUIDE_PUBLICATION.DRAFT)},${GAME_STRUCT.status}->>production_roadmap.eq.ACTIVE`,
     );
   }
   if (catalog.publishedOnly) {
@@ -500,14 +500,18 @@ export function applyGuideCatalogFilter(query, catalog = {}) {
 }
 
 /**
- * Admin-Suche: alle Spiele, nur veröffentlichte Guides, oder nur rohe (FERTIG).
- * Roh heißt guide_* = FERTIG in irgendeiner Sprache, noch nicht PUBLISHED.
+ * Admin-Suche: alle Spiele, nur veröffentlichte Guides, oder nur rohe (FERTIG / DRAFT).
+ * Roh heißt guide_* = FERTIG/DRAFT in irgendeiner Sprache oder production_roadmap = ACTIVE, noch nicht PUBLISHED.
  * @param {object} query
  * @param {'all'|'published'|'raw'} [scope]
  */
 export function applyStaffGuideScope(query, scope = 'all') {
   if (scope === 'published') return applyGuideCatalogFilter(query, { publishedOnly: true });
-  if (scope === 'raw') return query.or(guideStatusMatch(GUIDE_PUBLICATION.DONE));
+  if (scope === 'raw') {
+    return query.or(
+      `${guideStatusMatch(GUIDE_PUBLICATION.DONE)},${guideStatusMatch(GUIDE_PUBLICATION.DRAFT)},${GAME_STRUCT.status}->>production_roadmap.eq.ACTIVE`,
+    );
+  }
   return query;
 }
 

@@ -13,6 +13,7 @@ import { getGameUuid, getRouteSlug } from './gameModel';
 import { localizeJsonField } from './translationUtils';
 import { resolveGuideLanguage } from './localeResolver';
 import { resolveGameUuid } from './gameQueries';
+import { resolveProductionVideoAndNote } from '../utils/videoUrl';
 
 export { resolveGuideLanguage, hasSheetType };
 
@@ -66,9 +67,14 @@ export function mergeGuideRow(row, lang, index = 0) {
   const categoryGroup = localizeJsonField(row[GUIDE_I18N.categoryGroup], lang, FALLBACK_LANGUAGE);
   const videoChapter = localizeJsonField(row[GUIDE_I18N.videoChapter], lang, FALLBACK_LANGUAGE);
   const trophyId = row[GUIDE_STRUCT.trophyId] ?? null;
+  const { video_url: safeVideoUrl, prod_note: safeProdNote } = resolveProductionVideoAndNote(
+    row[GUIDE_STRUCT.videoUrl],
+    row[GUIDE_STRUCT.prodNote] ?? row.prod_note,
+  );
 
   return {
     ...row,
+    id: guideUuid || row.id || null,
     guide_id: guideUuid || row.guide_id || null,
     guide_sequence: guideSequence,
     game_id: String(row[GAME_FK] ?? ''),
@@ -83,7 +89,8 @@ export function mergeGuideRow(row, lang, index = 0) {
     category_group: categoryGroup,
     video_chapter: videoChapter,
     timestamp: row[GUIDE_STRUCT.timestamp] ?? '',
-    video_url: row[GUIDE_STRUCT.videoUrl] ?? '',
+    video_url: safeVideoUrl,
+    prod_note: safeProdNote,
     sort_order: guideSortOrder(guideSequence, index),
     trophy_id: trophyId,
     // Boss-Aliase (sheet_type === 3)

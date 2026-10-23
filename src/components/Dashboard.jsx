@@ -12,6 +12,7 @@ import { useVisibility } from '../context/VisibilityContext';
 import { useWatchlist } from '../context/WatchlistContext';
 import { useLocale } from '../context/LocaleContext';
 import { canonicalizeWatchlistIds, watchlistIdsEqual } from '../lib/localWatchlist';
+import { isGameDraftMode } from '../lib/guidePublication';
 import GameTile from './GameTile';
 
 /** Ab so vielen Titeln lohnt die Startseiten-Leiste zum horizontalen Scrollen. */
@@ -24,7 +25,7 @@ const TILE_CLASS =
  * Kompakte Watchlist-Leiste auf der Startseite (nur ab HOME_WATCHLIST_MIN Einträgen).
  * Volle Liste: /watchlist
  */
-function Dashboard({ openGame, onOpenWatchlist }) {
+function Dashboard({ openGame, onOpenWatchlist, isAdmin = false }) {
   const { globalLocale, t } = useLocale();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -136,8 +137,9 @@ function Dashboard({ openGame, onOpenWatchlist }) {
   }, [loading, visibleItems.length, updateScrollHints]);
 
   const handleOpenGame = async (item) => {
+    const preferGuideTab = Boolean(isAdmin && item.game && isGameDraftMode(item.game));
     if (item.game) {
-      openGame(item.game);
+      openGame(item.game, preferGuideTab ? { preferGuideTab: true } : undefined);
       return;
     }
     if (!item.routeSlug && !item.gameUuid) return;
@@ -230,6 +232,7 @@ function Dashboard({ openGame, onOpenWatchlist }) {
                 key={item.gameUuid || item.routeSlug}
                 game={item.game}
                 href={href}
+                isAdmin={isAdmin}
                 className={TILE_CLASS}
                 onOpen={() => {
                   navigateToGame(item.game, { locale: globalLocale });

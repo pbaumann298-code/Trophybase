@@ -44,7 +44,8 @@ export function buildVideoUrlWithTimestamp(url, timecode) {
 }
 
 /**
- * YouTube-Video-ID aus Watch-/Embed-/Shorts-/youtu.be-URLs.
+ * YouTube-Video-ID aus Watch-/Embed-/Shorts-/youtu.be-URLs oder einer reinen 11-stelligen ID.
+ * Dateinamen/Takes wie "03_Erde" oder "01_Kapitel1" werden ausgeschlossen.
  * @param {string} url
  * @returns {string|null}
  */
@@ -54,7 +55,49 @@ export function getYouTubeVideoId(url) {
   const match = raw.match(
     /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:embed\/|v\/|shorts\/|watch\?.*?v=))([a-zA-Z0-9_-]{11})/,
   );
-  return match?.[1] ?? null;
+  if (match?.[1]) return match[1];
+  if (/^[a-zA-Z0-9_-]{11}$/.test(raw) && !/^\d{1,3}_/.test(raw)) {
+    return raw;
+  }
+  return null;
+}
+
+/**
+ * Prüft, ob ein String eine echte öffentliche Video-URL oder YouTube-ID ist
+ * (und KEIN lokaler Dateiname / Take-Hinweis wie "03_Erde").
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isPublicVideoUrl(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return false;
+  if (getYouTubeVideoId(raw)) return true;
+  if (/^https?:\/\/[^\s]+$/i.test(raw)) return true;
+  return false;
+}
+
+/**
+ * Trennt `video_url` und `prod_note` sicher auf:
+ * Steht in `video_url` ein String, der keine echte URL/YouTube-ID ist
+ * (z. B. ein Dateiname wie "03_Erde"), wird er nicht als öffentlicher
+ * YouTube-Link behandelt, sondern als `prod_note`.
+ * @param {unknown} rawVideoUrl
+ * @param {unknown} rawProdNote
+ * @returns {{ video_url: string, prod_note: string }}
+ */
+export function resolveProductionVideoAndNote(rawVideoUrl, rawProdNote) {
+  const v = String(rawVideoUrl ?? '').trim();
+  const p = String(rawProdNote ?? '').trim();
+  if (!v) {
+    return { video_url: '', prod_note: p };
+  }
+  if (isPublicVideoUrl(v)) {
+    return { video_url: v, prod_note: p };
+  }
+  return {
+    video_url: '',
+    prod_note: p || v,
+  };
 }
 
 /**
@@ -118,7 +161,7 @@ export function extractYouTubeStartSeconds(url) {
  * @param {{ autoplay?: boolean }} [options]
  */
 export function getYouTubeEmbedUrl(url, timecode, { autoplay = false } = {}) {
-  if (!url) return null;
+  if (!url || !isPublicVideoUrl(url)) return null;
 
   const videoId = getYouTubeVideoId(url);
   let embedUrl = videoId

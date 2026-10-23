@@ -208,6 +208,7 @@ export const GUIDE_STRUCT = {
   platformGameId: 'platform_game_id',
   timestamp: 'timestamp',
   videoUrl: 'video_url',
+  prodNote: 'prod_note',
   trophyId: 'trophy_id',
   isTrophyRelevant: 'is_trophy_relevant',
   /** FK → content_creators.id. Ein Creator pro Guide-Zeile, nicht mehr über game_creator_map. */

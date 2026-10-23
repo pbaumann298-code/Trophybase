@@ -44,7 +44,7 @@ import {
   saveHiddenTrophyMode,
 } from '../lib/hiddenTrophyPreference';
 import { isAdminUser } from '../lib/adminAccess';
-import { isGuidePublished } from '../lib/guidePublication';
+import { isGuidePublished, isGameDraftMode } from '../lib/guidePublication';
 import {
   clearGameGuideTips,
   clearIntranetCover,
@@ -487,14 +487,34 @@ function GamePageContent({
   }, [selectedGame, publicationOverride, gameUuid]);
 
   const isAdmin = isAdminUser(sessionUser);
+  const isDraftRoadmap = isGameDraftMode(gameForPublication);
   /** Sichtbarkeit der Guide-Reiter hängt an der gerade gezeigten Sprache. */
   const guidePublished = isGuidePublished(gameForPublication, effectiveGuideLang);
-  /** Admins sehen den Guide als Vorschau, Besucher erst nach der Freigabe. */
-  const canSeeGuides = !trophiesOnly && (guidePublished || isAdmin || inRohmaterialPreview);
+  /** Admins sehen den Guide als Vorschau (auch bei DRAFT / production_roadmap === 'ACTIVE'), Besucher erst nach der Freigabe. */
+  const canSeeGuides =
+    (!trophiesOnly || isAdmin) &&
+    (guidePublished || isAdmin || isDraftRoadmap || inRohmaterialPreview);
   const contentLocales = useMemo(
     () => contentLocalesForGame(gameForPublication, { includeReady: isAdmin }),
     [gameForPublication, isAdmin],
   );
+
+  const handleProductionMetaSaved = useCallback((rowId, patch) => {
+    if (!rowId || !patch) return;
+    const applyPatch = (rows) =>
+      (rows ?? []).map((row) => {
+        const id = String(row?.guide_id ?? row?.id ?? '').trim();
+        if (id !== rowId) return row;
+        return {
+          ...row,
+          ...(patch.prod_note !== undefined ? { prod_note: patch.prod_note } : {}),
+          ...(patch.video_url !== undefined ? { video_url: patch.video_url } : {}),
+        };
+      });
+    setChapterRows(applyPatch);
+    setGuideRows(applyPatch);
+    setBossRows(applyPatch);
+  }, []);
 
   useEffect(() => {
     if (!isAdmin || trophiesOnly || !selectedGame) {
@@ -1028,6 +1048,9 @@ function GamePageContent({
                 toggleCompleted={toggleGuideItemCompleted}
                 emptyVideoMessage={t('walkthroughNoVideo')}
                 embedInAccordion
+                isAdmin={isAdmin && !trophiesOnly}
+                isDraftMode={isDraftRoadmap}
+                onProductionMetaSaved={handleProductionMetaSaved}
                 onDeleteStep={
                   isAdmin && !trophiesOnly && !inRohmaterialPreview
                     ? handleDeleteGuideStep
@@ -1074,6 +1097,9 @@ function GamePageContent({
                 toggleCompleted={toggleGuideItemCompleted}
                 emptyVideoMessage={t('collectiblesNoVideo')}
                 embedInAccordion
+                isAdmin={isAdmin && !trophiesOnly}
+                isDraftMode={isDraftRoadmap}
+                onProductionMetaSaved={handleProductionMetaSaved}
                 onDeleteStep={
                   isAdmin && !trophiesOnly && !inRohmaterialPreview
                     ? handleDeleteGuideStep
@@ -1116,6 +1142,9 @@ function GamePageContent({
                 completedItems={completedGuideItems}
                 toggleCompleted={toggleGuideItemCompleted}
                 embedInAccordion
+                isAdmin={isAdmin && !trophiesOnly}
+                isDraftMode={isDraftRoadmap}
+                onProductionMetaSaved={handleProductionMetaSaved}
                 onDeleteStep={
                   isAdmin && !trophiesOnly && !inRohmaterialPreview
                     ? handleDeleteGuideStep
@@ -1461,7 +1490,15 @@ function GamePageContent({
           />
         ) : null}
 
-        {isAdmin && !guidePublished && hasGuideContent && !trophiesOnly && !inRohmaterialPreview && (
+        {isAdmin && isDraftRoadmap && !trophiesOnly && (
+          <p className="text-xs text-amber-300 font-mono mb-4 px-4 py-3 rounded-xl bg-amber-500/15 border border-amber-400/40 flex flex-wrap items-center justify-between gap-2">
+            <span>
+              🎬 Video-Roadmap (Entwurf) aktiv – Produktions-Modus für Takes &amp; YouTube-Links ist in den Guide-Reitern eingeschaltet.
+            </span>
+          </p>
+        )}
+
+        {isAdmin && !guidePublished && hasGuideContent && !trophiesOnly && !inRohmaterialPreview && !isDraftRoadmap && (
           <p className="text-xs text-amber-400 font-mono mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
             Vorschau: Dieser Guide ist noch nicht freigegeben ({effectiveGuideLang.toUpperCase()}) und
             für Besucher unsichtbar.

@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import SearchResultsPage from './SearchResultsPage';
 import { fetchGamesByIds, parseRouteGameRef } from '../lib/gameQueries';
+import { GAME_STRUCT } from '../lib/gameSchema';
 import { getGameUuid, getPlatformGameIds } from '../lib/gameModel';
+import { isGameDraftMode, parseStatusMap, setGameDraftMode } from '../lib/guidePublication';
 import { canonicalizeWatchlistIds, watchlistIdsEqual } from '../lib/localWatchlist';
 import { useWatchlist } from '../context/WatchlistContext';
 import { useLocale } from '../context/LocaleContext';
@@ -108,14 +110,59 @@ function WatchlistPage({
     return getEntryState(gameKey(id), { completed: false }).visible;
   });
 
+  const handleToggleDraftMode = async (game) => {
+    const uuid = getGameUuid(game);
+    if (!uuid || !isAdmin) return { error: new Error('Keine Berechtigung') };
+    const nextEnable = !isGameDraftMode(game);
+    const { status: rpcStatus, error } = await setGameDraftMode(supabase, uuid, nextEnable);
+    if (error) {
+      console.error('tb_set_game_draft_mode:', error.message);
+      return { error };
+    }
+    setGames((prev) =>
+      prev.map((item) => {
+        if (getGameUuid(item) !== uuid) return item;
+        const currentStatus = parseStatusMap(item[GAME_STRUCT.status] ?? item.status);
+        const nextStatus =
+          rpcStatus && Object.keys(rpcStatus).length > 0
+            ? rpcStatus
+            : {
+                ...currentStatus,
+                production_roadmap: nextEnable ? 'ACTIVE' : 'INACTIVE',
+                guide_de: nextEnable
+                  ? currentStatus.guide_de || 'DRAFT'
+                  : currentStatus.guide_de === 'DRAFT'
+                    ? undefined
+                    : currentStatus.guide_de,
+              };
+        return {
+          ...item,
+          [GAME_STRUCT.status]: nextStatus,
+          status: nextStatus,
+        };
+      }),
+    );
+    return { error: null };
+  };
+
+  const handleOpenWatchlistGame = (game, options = {}) => {
+    if (isAdmin && (isGameDraftMode(game) || options?.preferGuideTab)) {
+      openGame(game, { ...options, preferGuideTab: true });
+      return;
+    }
+    openGame(game, options);
+  };
+
   return (
     <SearchResultsPage
       searchResults={visibleGames}
-      openGame={openGame}
+      openGame={handleOpenWatchlistGame}
       loading={loading}
       onRequestLogin={onRequestLogin}
       onBack={onBack}
       isAdmin={isAdmin}
+      isWatchlist
+      onToggleDraftMode={isAdmin ? handleToggleDraftMode : null}
       page={page}
       onPageChange={setPage}
       resultsTitle={t('watchlistTitle')}

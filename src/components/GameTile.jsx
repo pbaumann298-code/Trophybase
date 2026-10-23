@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
 import { GAME_FIELDS } from '../lib/gameSchema';
+import { isGameDraftMode } from '../lib/guidePublication';
 import { useLocale } from '../context/LocaleContext';
 import { useVisibility } from '../context/VisibilityContext';
 import { usePlatinumStatus } from '../context/PlatinumStatusContext';
@@ -181,6 +182,14 @@ function GameTile({
         <p className="home-tile-title" title={title}>
           {title}
         </p>
+        {isAdmin && isGameDraftMode(game) ? (
+          <span
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-400/50"
+            title="Video-Roadmap (Entwurf)"
+          >
+            🎬 Video-Roadmap (Entwurf)
+          </span>
+        ) : null}
         {showConsole && consoleLabel ? (
           <span className="home-tile-badge">{consoleLabel}</span>
         ) : null}

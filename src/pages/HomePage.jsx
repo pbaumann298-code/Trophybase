@@ -168,7 +168,7 @@ function HomePage({
         </div>
       </header>
 
-      <Dashboard openGame={openGame} onOpenWatchlist={onOpenWatchlist} />
+      <Dashboard openGame={openGame} onOpenWatchlist={onOpenWatchlist} isAdmin={isAdmin} />
 
       <div className="home-categories" role="list">
         {HOME_CATEGORIES.filter(

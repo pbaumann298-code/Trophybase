@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
-import { getYouTubeEmbedUrl, getYouTubeVideoId } from '../utils/videoUrl';
+import {
+  getYouTubeEmbedUrl,
+  getYouTubeVideoId,
+  isPublicVideoUrl,
+  resolveProductionVideoAndNote,
+} from '../utils/videoUrl';
 import YouTubeEmbed, { YouTubeThumb, YoutubePlayIcon } from '../components/YouTubeEmbed';
 import { useVisibility } from '../context/VisibilityContext';
 import { useGuideVideo } from '../context/GuideVideoContext';
@@ -8,6 +14,202 @@ import { guideProgressKey } from '../lib/guideProgressStorage';
 import { buildGuideGroupTree } from '../lib/guideData';
 import Reportable from '../components/Reportable';
 import TrophyArtwork from '../components/TrophyArtwork';
+
+function cleanGuideRowId(item) {
+  const raw = String(item?.guide_id || item?.id || '').trim();
+  return raw.replace(/^(?:walkthrough|collectible|boss|guide-s\d+)-/, '');
+}
+
+function ProductionInlineRowEditor({
+  item,
+  prodNote,
+  videoUrl,
+  onSave,
+}) {
+  const [noteVal, setNoteVal] = useState(prodNote || '');
+  const [urlVal, setUrlVal] = useState(videoUrl || '');
+  const [saving, setSaving] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    setNoteVal(prodNote || '');
+  }, [prodNote]);
+
+  useEffect(() => {
+    setUrlVal(videoUrl || '');
+  }, [videoUrl]);
+
+  const commit = async (nextNoteRaw, nextUrlRaw) => {
+    const nextNote = String(nextNoteRaw ?? '').trim();
+    const nextUrl = String(nextUrlRaw ?? '').trim();
+    if (nextNote === String(prodNote ?? '').trim() && nextUrl === String(videoUrl ?? '').trim()) {
+      return;
+    }
+    setSaving(true);
+    setErrorMsg('');
+    setSavedOk(false);
+    const err = await onSave(item, nextNote, nextUrl);
+    setSaving(false);
+    if (err) {
+      setErrorMsg(err.message || 'Fehler beim Speichern');
+    } else {
+      setSavedOk(true);
+      window.setTimeout(() => setSavedOk(false), 1800);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.currentTarget.blur();
+    }
+  };
+
+  const hasNote = Boolean(noteVal.trim());
+  const hasValidUrl = isPublicVideoUrl(urlVal);
+
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        display: 'flex',
+         alignItems: 'center',
+        gap: '6px',
+        flexWrap: 'wrap',
+        marginLeft: 'auto',
+      }}
+    >
+      {hasNote && (
+        <span
+          title={`Take / Rohdatei: ${noteVal.trim()}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '2px 7px',
+            borderRadius: '5px',
+            fontSize: '11px',
+            fontFamily: 'monospace',
+            fontWeight: 'bold',
+            backgroundColor: 'rgba(245, 158, 11, 0.16)',
+            border: '1px solid rgba(245, 158, 11, 0.45)',
+            color: '#fcd34d',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          🎬 {noteVal.trim()}
+        </span>
+      )}
+
+      <label
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+          backgroundColor: hasNote ? 'rgba(245, 158, 11, 0.1)' : '#121314',
+          border: hasNote ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid #27272a',
+          borderRadius: '6px',
+          padding: '2px 6px',
+        }}
+        title="🎬 Take / Rohdatei (prod_note, z. B. 03_Erde, 14:20)"
+      >
+        <span style={{ fontSize: '11px' }} aria-hidden>
+          🎬
+        </span>
+        <input
+          type="text"
+          value={noteVal}
+          placeholder="Take / Rohdatei (z. B. 03_Erde, 14:20)"
+          onChange={(e) => setNoteVal(e.target.value)}
+          onBlur={() => commit(noteVal, urlVal)}
+          onKeyDown={handleKeyDown}
+          disabled={saving}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            color: hasNote ? '#fde68a' : '#e4e4e7',
+            fontFamily: 'monospace',
+            fontSize: '11px',
+            width: '155px',
+          }}
+        />
+      </label>
+
+      {hasValidUrl && (
+        <span
+          title={`YouTube-URL verknüpft: ${urlVal.trim()}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '3px',
+            padding: '2px 7px',
+            borderRadius: '5px',
+            fontSize: '11px',
+            fontFamily: 'monospace',
+            fontWeight: 'bold',
+            backgroundColor: 'rgba(0, 255, 102, 0.14)',
+            border: '1px solid rgba(0, 255, 102, 0.45)',
+            color: '#00ff66',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ✅ Verlinkt
+        </span>
+      )}
+
+      <label
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+          backgroundColor: hasValidUrl ? 'rgba(0, 255, 102, 0.08)' : '#121314',
+          border: hasValidUrl ? '1px solid rgba(0, 255, 102, 0.38)' : '1px solid #27272a',
+          borderRadius: '6px',
+          padding: '2px 6px',
+        }}
+        title="🔗 YouTube-URL (video_url)"
+      >
+        <span style={{ fontSize: '11px' }} aria-hidden>
+          {hasValidUrl ? '✅' : '🔗'}
+        </span>
+        <input
+          type="text"
+          value={urlVal}
+          placeholder="YouTube-URL…"
+          onChange={(e) => setUrlVal(e.target.value)}
+          onBlur={() => commit(noteVal, urlVal)}
+          onKeyDown={handleKeyDown}
+          disabled={saving}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            outline: 'none',
+            color: hasValidUrl ? '#00ff66' : '#e4e4e7',
+            fontFamily: 'monospace',
+            fontSize: '11px',
+            width: '150px',
+          }}
+        />
+      </label>
+
+      {saving && (
+        <span style={{ fontSize: '10px', fontFamily: 'monospace', color: '#a1a1aa' }}>…</span>
+      )}
+      {savedOk && !saving && (
+        <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#00ff66' }} title="Gespeichert">
+          ✓
+        </span>
+      )}
+      {errorMsg && (
+        <span style={{ fontSize: '10px', fontFamily: 'monospace', color: '#f87171' }} title={errorMsg}>
+          ⚠️ {errorMsg}
+        </span>
+      )}
+    </div>
+  );
+}
 
 /**
  * Verknüpfung Guide-Eintrag → Trophäe.
@@ -242,6 +444,10 @@ function SplitScreenGuideKacheln({
   hideGroupHeader = false,
   /** Admin: Schritt löschen (item) => void|Promise */
   onDeleteStep = null,
+  /** Admin: Produktions-/Roadmap-Modus */
+  isAdmin = false,
+  isDraftMode = false,
+  onProductionMetaSaved = null,
 }) {
   const { t } = useLocale();
   const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
@@ -249,24 +455,136 @@ function SplitScreenGuideKacheln({
   const [expandedGroups, setExpandedGroups] = useState({});
   const [expandedLocalisations, setExpandedLocalisations] = useState({});
   const [activeVideos, setActiveVideos] = useState({});
+  const [productionMode, setProductionMode] = useState(() => Boolean(isAdmin && isDraftMode));
+  const [localProdOverrides, setLocalProdOverrides] = useState({});
+  /** 'all' | 'open' | 'recorded' | 'linked' */
+  const [prodStatusFilter, setProdStatusFilter] = useState('all');
+  const [prodTakeQuery, setProdTakeQuery] = useState('');
+
+  useEffect(() => {
+    if (isAdmin && isDraftMode) {
+      setProductionMode(true);
+    }
+  }, [isAdmin, isDraftMode]);
+
+  const showProdTools = Boolean(isAdmin && productionMode);
+
+  const normalizedItemsData = useMemo(
+    () =>
+      (itemsData ?? []).map((item) => {
+        const rowId = cleanGuideRowId(item);
+        const override = rowId ? localProdOverrides[rowId] : null;
+        const rawVideo = override?.video_url !== undefined ? override.video_url : item?.video_url;
+        const rawNote = override?.prod_note !== undefined ? override.prod_note : item?.prod_note;
+        const { video_url: safeVideoUrl, prod_note: safeProdNote } = resolveProductionVideoAndNote(
+          rawVideo,
+          rawNote,
+        );
+        return {
+          ...item,
+          video_url: safeVideoUrl,
+          prod_note: safeProdNote,
+        };
+      }),
+    [itemsData, localProdOverrides],
+  );
+
+  const getItemProdStatus = useCallback((item) => {
+    const hasVideo = isPublicVideoUrl(item?.video_url);
+    const hasNote = Boolean(String(item?.prod_note ?? '').trim());
+    if (hasVideo) return 'linked';
+    if (hasNote) return 'recorded';
+    return 'open';
+  }, []);
+
+  const prodCounts = useMemo(() => {
+    let open = 0;
+    let recorded = 0;
+    let linked = 0;
+    for (const item of normalizedItemsData) {
+      const status = getItemProdStatus(item);
+      if (status === 'linked') linked += 1;
+      else if (status === 'recorded') recorded += 1;
+      else open += 1;
+    }
+    return {
+      total: normalizedItemsData.length,
+      open,
+      recorded,
+      linked,
+    };
+  }, [normalizedItemsData, getItemProdStatus]);
+
+  const distinctTakes = useMemo(() => {
+    const set = new Set();
+    for (const item of normalizedItemsData) {
+      const raw = String(item?.prod_note ?? '').trim();
+      if (!raw) continue;
+      const baseTake = raw.split(',')[0].trim();
+      if (baseTake) set.add(baseTake);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, 'de', { numeric: true }));
+  }, [normalizedItemsData]);
+
+  const handleSaveProductionMeta = useCallback(
+    async (item, nextProdNote, nextVideoUrl) => {
+      const rowId = cleanGuideRowId(item);
+      if (!rowId) return new Error('Keine gültige Guide-Zeilen-ID gefunden.');
+      const { video_url: safeVideoUrl, prod_note: safeProdNote } = resolveProductionVideoAndNote(
+        nextVideoUrl,
+        nextProdNote,
+      );
+      const { error } = await supabase.rpc('tb_update_guide_production_meta', {
+        p_guide_row_id: rowId,
+        p_prod_note: safeProdNote,
+        p_video_url: safeVideoUrl,
+      });
+      if (error) return error;
+
+      setLocalProdOverrides((prev) => ({
+        ...prev,
+        [rowId]: { prod_note: safeProdNote, video_url: safeVideoUrl },
+      }));
+      onProductionMetaSaved?.(rowId, { prod_note: safeProdNote, video_url: safeVideoUrl });
+      return null;
+    },
+    [onProductionMetaSaved],
+  );
 
   // Fortschritt/Sichtbarkeit hängen an der guide_id, damit ein in zwei Reitern
   // gelisteter Eintrag (sheet_types [1, 2]) nur einmal abgehakt werden muss.
   const isItemCompleted = (item) => !!completedItems[guideProgressKey(item)];
 
+  const isProdFilterActive =
+    showProdTools && (prodStatusFilter !== 'all' || Boolean(prodTakeQuery.trim()));
+
   const isItemShown = (item) => {
     if (hideCompleted && isItemCompleted(item)) return false;
-    return getEntryState(itemKey(guideProgressKey(item))).visible;
+    if (!getEntryState(itemKey(guideProgressKey(item))).visible) return false;
+    if (showProdTools) {
+      if (prodStatusFilter !== 'all' && getItemProdStatus(item) !== prodStatusFilter) {
+        return false;
+      }
+      const needle = prodTakeQuery.trim().toLowerCase();
+      if (needle) {
+        const note = String(item?.prod_note ?? '').toLowerCase();
+        if (!note.includes(needle)) return false;
+      }
+    }
+    return true;
   };
 
   // Gebiets-Ebene (localisation) über den Gruppen-Kacheln. Fehlt sie – oder
   // gilt sie in diesem Reiter nicht – liefert buildGuideGroupTree einen
   // Abschnitt mit leerem Namen; dann wird flach gerendert.
-  const localisationSections = buildGuideGroupTree(itemsData.filter(isItemShown), groupByField);
+  const localisationSections = buildGuideGroupTree(
+    normalizedItemsData.filter(isItemShown),
+    groupByField,
+  );
   const hasSingleLocalisation = localisationSections.length === 1;
 
   const isLocalisationExpanded = (localisation) =>
-    expandedLocalisations[localisation] ?? hasSingleLocalisation;
+    isProdFilterActive || (expandedLocalisations[localisation] ?? hasSingleLocalisation);
 
   const toggleLocalisation = (localisation) => {
     setExpandedLocalisations((prev) => ({
@@ -280,8 +598,9 @@ function SplitScreenGuideKacheln({
   };
 
   const selectItemVideo = (groupKey, item) => {
-    if (!item.video_url) return;
+    if (!isPublicVideoUrl(item.video_url)) return;
     const embedUrl = getYouTubeEmbedUrl(item.video_url, item.timestamp, { autoplay: true });
+    if (!embedUrl) return;
     setActiveVideos((prev) => ({
       ...prev,
       [groupKey]: { itemId: item.id, embedUrl },
@@ -300,12 +619,12 @@ function SplitScreenGuideKacheln({
   useEffect(() => () => notifyVideoCleared(), [notifyVideoCleared]);
 
   const renderGroupBox = (group) => {
-    const isExpanded = hideGroupHeader || !!expandedGroups[group.key];
+    const isExpanded = hideGroupHeader || isProdFilterActive || !!expandedGroups[group.key];
     const items = group.items;
     const activeVideo = activeVideos[group.key];
     const activeItem = activeVideo ? items.find((i) => i.id === activeVideo.itemId) : null;
     const embedUrl = activeVideo?.embedUrl ?? null;
-    const previewItem = items.find((item) => item.video_url);
+    const previewItem = items.find((item) => isPublicVideoUrl(item.video_url));
     const previewVideoId = previewItem ? getYouTubeVideoId(previewItem.video_url) : null;
 
     if (items.length === 0) return null;
@@ -391,7 +710,7 @@ function SplitScreenGuideKacheln({
                     const reportKey = String(item.guide_sequence ?? item.sort_order ?? '');
                     const userHidden = isHidden(visKey);
                     const isActive = activeVideo?.itemId === item.id;
-                    const hasVideo = !!item.video_url;
+                    const hasVideo = isPublicVideoUrl(item.video_url);
                     const rowDimmed = dimmed || isCompleted;
 
                     return (
@@ -405,7 +724,14 @@ function SplitScreenGuideKacheln({
                       >
                         <td>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              flexWrap: showProdTools ? 'wrap' : 'nowrap',
+                            }}
+                          >
                             {typeof toggleCompleted === 'function' && (
                               <input
                                 type="checkbox"
@@ -484,6 +810,14 @@ function SplitScreenGuideKacheln({
                               {renderNameAddon ? renderNameAddon(item, rowDimmed) : null}
                             </button>
                             {renderRowAction ? renderRowAction(item, rowDimmed, rowTipCtx) : null}
+                            {showProdTools && (
+                              <ProductionInlineRowEditor
+                                item={item}
+                                prodNote={item.prod_note}
+                                videoUrl={item.video_url}
+                                onSave={handleSaveProductionMeta}
+                              />
+                            )}
                             {typeof onDeleteStep === 'function' ? (
                               <button
                                 type="button"
@@ -633,6 +967,104 @@ function SplitScreenGuideKacheln({
             >
               {listTitle}
             </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setProductionMode((prev) => !prev)}
+                  aria-pressed={productionMode}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '5px 10px',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    fontFamily: 'monospace',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    cursor: 'pointer',
+                    backgroundColor: productionMode ? 'rgba(245, 158, 11, 0.16)' : '#121314',
+                    border: productionMode
+                      ? '1px solid rgba(245, 158, 11, 0.5)'
+                      : '1px solid #27272a',
+                    color: productionMode ? '#fcd34d' : '#a1a1aa',
+                  }}
+                >
+                  🎬 Produktions-Modus {productionMode ? 'AN' : 'AUS'}
+                </button>
+              )}
+              {typeof setHideCompleted === 'function' && (
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '12px',
+                    color: '#a1a1aa',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={hideCompleted}
+                    onChange={(e) => setHideCompleted(e.target.checked)}
+                    style={{
+                      accentColor: '#00ff66',
+                      cursor: 'pointer',
+                      width: '16px',
+                      height: '16px',
+                    }}
+                  />
+                  {t('hideCompleted')}
+                </label>
+              )}
+            </div>
+          </div>
+        )}
+
+        {embedInAccordion && (isAdmin || typeof setHideCompleted === 'function') && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '12px',
+              flexWrap: 'wrap',
+              marginBottom: '12px',
+            }}
+          >
+            <div>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setProductionMode((prev) => !prev)}
+                  aria-pressed={productionMode}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '5px 10px',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    fontFamily: 'monospace',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    cursor: 'pointer',
+                    backgroundColor: productionMode ? 'rgba(245, 158, 11, 0.16)' : '#121314',
+                    border: productionMode
+                      ? '1px solid rgba(245, 158, 11, 0.5)'
+                      : '1px solid #27272a',
+                    color: productionMode ? '#fcd34d' : '#a1a1aa',
+                  }}
+                >
+                  🎬 Produktions-Modus {productionMode ? 'AN' : 'AUS'}
+                </button>
+              )}
+            </div>
             {typeof setHideCompleted === 'function' && (
               <label
                 style={{
@@ -662,32 +1094,189 @@ function SplitScreenGuideKacheln({
           </div>
         )}
 
-        {embedInAccordion && typeof setHideCompleted === 'function' && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
-            <label
+        {showProdTools && (
+          <div
+            style={{
+              backgroundColor: '#121314',
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              borderRadius: '12px',
+              padding: '12px 14px',
+              marginBottom: '12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+            }}
+          >
+            <div
               style={{
                 display: 'flex',
+                flexWrap: 'wrap',
                 alignItems: 'center',
-                gap: '8px',
-                fontSize: '12px',
-                color: '#a1a1aa',
-                cursor: 'pointer',
-                userSelect: 'none',
+                justifyContent: 'space-between',
+                gap: '10px',
               }}
             >
-              <input
-                type="checkbox"
-                checked={hideCompleted}
-                onChange={(e) => setHideCompleted(e.target.checked)}
-                style={{
-                  accentColor: '#00ff66',
-                  cursor: 'pointer',
-                  width: '16px',
-                  height: '16px',
-                }}
-              />
-              {t('hideCompleted')}
-            </label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
+                {[
+                  {
+                    id: 'all',
+                    label: `Gesamt: ${prodCounts.total}`,
+                    title: 'Alle Guide-Zeilen anzeigen',
+                    activeBg: 'rgba(228, 228, 231, 0.14)',
+                    activeBorder: '#a1a1aa',
+                    activeColor: '#ffffff',
+                  },
+                  {
+                    id: 'open',
+                    label: `🎥 Noch offen (weder Take noch Video): ${prodCounts.open}`,
+                    title: 'Noch offen: weder prod_note noch YouTube-URL gepflegt',
+                    activeBg: 'rgba(248, 113, 113, 0.15)',
+                    activeBorder: 'rgba(248, 113, 113, 0.55)',
+                    activeColor: '#fca5a5',
+                  },
+                  {
+                    id: 'recorded',
+                    label: `📝 Abgedreht / Im Schnitt (hat prod_note, noch keine YouTube-URL): ${prodCounts.recorded}`,
+                    title: 'Abgedreht / Im Schnitt: hat prod_note, aber noch keine YouTube-URL',
+                    activeBg: 'rgba(245, 158, 11, 0.18)',
+                    activeBorder: 'rgba(245, 158, 11, 0.6)',
+                    activeColor: '#fcd34d',
+                  },
+                  {
+                    id: 'linked',
+                    label: `✅ Fertig verlinkt (hat YouTube-URL): ${prodCounts.linked}`,
+                    title: 'Fertig verlinkt: hat gültige YouTube-URL',
+                    activeBg: 'rgba(0, 255, 102, 0.14)',
+                    activeBorder: 'rgba(0, 255, 102, 0.55)',
+                    activeColor: '#00ff66',
+                  },
+                ].map((btn) => {
+                  const active = prodStatusFilter === btn.id;
+                  return (
+                    <button
+                      key={btn.id}
+                      type="button"
+                      title={btn.title}
+                      onClick={() =>
+                        setProdStatusFilter((prev) =>
+                          prev === btn.id && btn.id !== 'all' ? 'all' : btn.id,
+                        )
+                      }
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: '8px',
+                        fontSize: '11px',
+                        fontFamily: 'monospace',
+                        fontWeight: active ? 'bold' : 'normal',
+                        cursor: 'pointer',
+                        backgroundColor: active ? btn.activeBg : '#1a1b1c',
+                        border: active ? `1px solid ${btn.activeBorder}` : '1px solid #27272a',
+                        color: active ? btn.activeColor : '#d4d4d8',
+                        transition: 'all 120ms ease',
+                      }}
+                    >
+                      {btn.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    backgroundColor: '#1a1b1c',
+                    border: prodTakeQuery.trim()
+                      ? '1px solid rgba(245, 158, 11, 0.55)'
+                      : '1px solid #27272a',
+                    borderRadius: '8px',
+                    padding: '4px 8px',
+                  }}
+                >
+                  <span style={{ fontSize: '11px' }} aria-hidden>
+                    🎬
+                  </span>
+                  <input
+                    type="text"
+                    value={prodTakeQuery}
+                    onChange={(e) => setProdTakeQuery(e.target.value)}
+                    placeholder='Take filtern (z. B. "03_Erde")…'
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      outline: 'none',
+                      color: '#fde68a',
+                      fontFamily: 'monospace',
+                      fontSize: '11px',
+                      width: '185px',
+                    }}
+                  />
+                  {prodTakeQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setProdTakeQuery('')}
+                      title="Take-Filter zurücksetzen"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#a1a1aa',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        lineHeight: 1,
+                        padding: 0,
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {distinctTakes.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '5px' }}>
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontFamily: 'monospace',
+                    color: '#71717a',
+                    textTransform: 'uppercase',
+                    marginRight: '4px',
+                  }}
+                >
+                  Takes:
+                </span>
+                {distinctTakes.map((take) => {
+                  const active = prodTakeQuery.trim().toLowerCase() === take.toLowerCase();
+                  return (
+                    <button
+                      key={take}
+                      type="button"
+                      onClick={() => setProdTakeQuery(active ? '' : take)}
+                      style={{
+                        padding: '2px 7px',
+                        borderRadius: '5px',
+                        fontSize: '10px',
+                        fontFamily: 'monospace',
+                        fontWeight: active ? 'bold' : 'normal',
+                        cursor: 'pointer',
+                        backgroundColor: active
+                          ? 'rgba(245, 158, 11, 0.25)'
+                          : 'rgba(245, 158, 11, 0.08)',
+                        border: active
+                          ? '1px solid rgba(245, 158, 11, 0.7)'
+                          : '1px solid rgba(245, 158, 11, 0.3)',
+                        color: '#fcd34d',
+                      }}
+                    >
+                      🎬 {take}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -715,6 +1304,9 @@ export function CollectibleKacheln({
   trophyById,
   hideGroupHeader = false,
   onDeleteStep = null,
+  isAdmin = false,
+  isDraftMode = false,
+  onProductionMetaSaved = null,
 }) {
   const { t } = useLocale();
   const {
@@ -750,6 +1342,9 @@ export function CollectibleKacheln({
       reportKeyField="guide_id"
       hideGroupHeader={hideGroupHeader}
       onDeleteStep={onDeleteStep}
+      isAdmin={isAdmin}
+      isDraftMode={isDraftMode}
+      onProductionMetaSaved={onProductionMetaSaved}
     />
   );
 }
@@ -765,6 +1360,9 @@ export function BossKacheln({
   gameId = '',
   trophyById,
   onDeleteStep = null,
+  isAdmin = false,
+  isDraftMode = false,
+  onProductionMetaSaved = null,
 }) {
   const { t } = useLocale();
   const trophyExtras = useTrophyRowExtras(trophyById);
@@ -826,6 +1424,9 @@ export function BossKacheln({
       reportEntityType="boss"
       reportKeyField="guide_id"
       onDeleteStep={onDeleteStep}
+      isAdmin={isAdmin}
+      isDraftMode={isDraftMode}
+      onProductionMetaSaved={onProductionMetaSaved}
     />
   );
 }

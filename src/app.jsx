@@ -49,7 +49,7 @@ import {
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
 import { GAME_STRUCT, GAME_TYPE, TABLES } from './lib/gameSchema';
-import { isGuidePublished } from './lib/guidePublication';
+import { isGuidePublished, isGameDraftMode } from './lib/guidePublication';
 import {
   parseServertotPath,
   servertotPageCopy,
@@ -586,18 +586,22 @@ function App() {
 
   const openedGameRef = useRef('');
 
-  const openGuide = async (game) => {
+  const openGuide = async (game, options = {}) => {
     const gameUuid = getGameUuid(game);
     const gameId = resolveGameId(game);
     const token = gameUuid || gameId || '';
     openedGameRef.current = token;
+    const isAdmin = isAdminUser(sessionUser);
+    const initialPreferGuideTab = Boolean(
+      options?.preferGuideTab || (isAdmin && isGameDraftMode(game)),
+    );
 
     setGuideReturnView(currentView);
     setSelectedGame(game);
     setCurrentView('game_info');
     window.scrollTo(0, 0);
     setLoadingGuide(true);
-    setActiveTab(DEFAULT_GUIDE_TAB);
+    setActiveTab(initialPreferGuideTab ? 'reiter1' : DEFAULT_GUIDE_TAB);
     setActiveTrophies([]);
     setGuideItems([]);
     setChapterItems([]);
@@ -655,6 +659,12 @@ function App() {
     setChapterItems(chapters);
     setGuideItems(guides);
     setBossItems(bosses);
+    if (initialPreferGuideTab || (isAdmin && isGameDraftMode(resolvedGame))) {
+      if (chapters.length > 0) setActiveTab('reiter1');
+      else if (guides.length > 0) setActiveTab('reiter2');
+      else if (bosses.length > 0) setActiveTab('reiter3');
+      else setActiveTab(DEFAULT_GUIDE_TAB);
+    }
     setCompletedGuideItems(
       claimCompletedGuideItems(
         gameUuid,
@@ -1129,7 +1139,7 @@ function App() {
                 fromSearch={
                   guideReturnView === 'search-results' || guideReturnView === 'advanced-search'
                 }
-                trophiesOnly={trophiesOnlyView}
+                trophiesOnly={trophiesOnlyView && !isAdminUser(sessionUser)}
                 backLabel={
                   guideReturnView === 'quickwins'
                     ? t('quickwinsBack')

@@ -1,5 +1,6 @@
 import { GUIDE_REITER } from './gameTypes';
 import { GUIDE_SHEET_TYPE, hasSheetType, resolveSheetTypes } from './gameSchema';
+import { resolveProductionVideoAndNote } from '../utils/videoUrl';
 
 /** sheet_type on unified game_guides */
 export const GUIDE_SHEET = {
@@ -17,6 +18,10 @@ export function normalizeGuideEntryRow(row) {
   const guideId = row.guide_id ?? row.id ?? null;
   const itemName = String(row.item_name ?? row.boss_name ?? row.name ?? '').trim();
   const sheetTypes = resolveSheetTypes(row.sheet_types ?? row.sheet_type);
+  const { video_url: safeVideoUrl, prod_note: safeProdNote } = resolveProductionVideoAndNote(
+    row.video_url,
+    row.prod_note,
+  );
 
   return {
     guide_id: guideId,
@@ -29,7 +34,8 @@ export function normalizeGuideEntryRow(row) {
     item_name: itemName,
     boss_name: String(row.boss_name ?? itemName).trim(),
     timestamp: String(row.timestamp ?? '').trim(),
-    video_url: String(row.video_url ?? '').trim(),
+    video_url: safeVideoUrl,
+    prod_note: safeProdNote,
     video_chapter: String(row.video_chapter ?? '').trim(),
     localisation: String(row.localisation ?? '').trim(),
     localisation_sheets: resolveSheetTypes(
