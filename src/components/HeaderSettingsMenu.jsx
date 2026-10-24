@@ -28,6 +28,7 @@ function HeaderSettingsMenu({
   isAdmin = false,
   onLogout,
   onOpenWatchlist,
+  onOpenPlatformTrophies,
   watchlistPath = '/watchlist',
 }) {
   const { t, globalLocale, setGlobalLocale, availableLocales } = useLocale();
@@ -192,6 +193,21 @@ function HeaderSettingsMenu({
           >
             {t('watchlistTitle')}
           </a>
+
+          {isAdmin ? (
+            <a
+              href="/platinliste"
+              role="menuitem"
+              className="block px-3 py-2 text-xs font-semibold text-[#00ff66] no-underline hover:bg-zinc-800/80"
+              onClick={(e) => {
+                e.preventDefault();
+                setOpen(false);
+                onOpenPlatformTrophies?.();
+              }}
+            >
+              🏆 Platinliste V1
+            </a>
+          ) : null}
 
           {sessionUser ? (
             <>

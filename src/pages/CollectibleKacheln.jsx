@@ -450,7 +450,7 @@ function SplitScreenGuideKacheln({
   onProductionMetaSaved = null,
 }) {
   const { t } = useLocale();
-  const { toggleHidden, isHidden, getEntryState, itemKey } = useVisibility();
+  const { toggleHidden, setHidden, isHidden, getEntryState, itemKey } = useVisibility();
   const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
   const [expandedGroups, setExpandedGroups] = useState({});
   const [expandedLocalisations, setExpandedLocalisations] = useState({});
@@ -558,9 +558,7 @@ function SplitScreenGuideKacheln({
   const isProdFilterActive =
     showProdTools && (prodStatusFilter !== 'all' || Boolean(prodTakeQuery.trim()));
 
-  const isItemShown = (item) => {
-    if (hideCompleted && isItemCompleted(item)) return false;
-    if (!getEntryState(itemKey(guideProgressKey(item))).visible) return false;
+  const isProdItemMatch = (item) => {
     if (showProdTools) {
       if (prodStatusFilter !== 'all' && getItemProdStatus(item) !== prodStatusFilter) {
         return false;
@@ -574,13 +572,22 @@ function SplitScreenGuideKacheln({
     return true;
   };
 
-  // Gebiets-Ebene (localisation) über den Gruppen-Kacheln. Fehlt sie – oder
-  // gilt sie in diesem Reiter nicht – liefert buildGuideGroupTree einen
-  // Abschnitt mit leerem Namen; dann wird flach gerendert.
-  const localisationSections = buildGuideGroupTree(
-    normalizedItemsData.filter(isItemShown),
-    groupByField,
+  const isItemShown = (item) => {
+    if (hideCompleted && isItemCompleted(item)) return false;
+    if (!getEntryState(itemKey(guideProgressKey(item))).visible) return false;
+    if (!isProdItemMatch(item)) return false;
+    return true;
+  };
+
+  // Gebiets-Ebene (localisation) über den Gruppen-Kacheln.
+  // Wir bauen den Gruppenbaum vor dem hideCompleted-Filter, damit Status
+  // (doneCount / totalCount / isAllCompleted) korrekt berechnet werden kann.
+  const prodFilteredItems = useMemo(
+    () => normalizedItemsData.filter(isProdItemMatch),
+    [normalizedItemsData, isProdItemMatch],
   );
+
+  const localisationSections = buildGuideGroupTree(prodFilteredItems, groupByField);
   const hasSingleLocalisation = localisationSections.length === 1;
 
   const isLocalisationExpanded = (localisation) =>
@@ -621,13 +628,26 @@ function SplitScreenGuideKacheln({
   const renderGroupBox = (group) => {
     const isExpanded = hideGroupHeader || isProdFilterActive || !!expandedGroups[group.key];
     const items = group.items;
+    const allGroupKeys = items.map((item) => guideProgressKey(item));
+    const groupTotalCount = items.length;
+    const groupDoneCount = items.filter((item) => isItemCompleted(item)).length;
+    const isGroupAllCompleted = groupTotalCount > 0 && groupDoneCount === groupTotalCount;
+    const isAllGroupHidden =
+      allGroupKeys.length > 0 && allGroupKeys.every((key) => isHidden(itemKey(key)));
+
+    if (hideCompleted && isGroupAllCompleted) return null;
+
+    const visibleTableItems = items.filter(isItemShown);
+    if (items.length === 0) return null;
+    if (hideGroupHeader && visibleTableItems.length === 0) return null;
+
     const activeVideo = activeVideos[group.key];
     const activeItem = activeVideo ? items.find((i) => i.id === activeVideo.itemId) : null;
     const embedUrl = activeVideo?.embedUrl ?? null;
-    const previewItem = items.find((item) => isPublicVideoUrl(item.video_url));
+    const previewItem =
+      visibleTableItems.find((item) => isPublicVideoUrl(item.video_url)) ||
+      items.find((item) => isPublicVideoUrl(item.video_url));
     const previewVideoId = previewItem ? getYouTubeVideoId(previewItem.video_url) : null;
-
-    if (items.length === 0) return null;
 
     const groupTipNode = renderGroupDetail ? renderGroupDetail(items) : null;
     const rowTipCtx = { sharedGroupTip: Boolean(groupTipNode) };
@@ -649,38 +669,91 @@ function SplitScreenGuideKacheln({
         }
       >
         {!hideGroupHeader && (
-        <button
-          type="button"
-          onClick={() => toggleGroup(group.key)}
-          style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-            color: '#00ff66',
-            margin: 0,
-            padding: '15px 20px',
-            backgroundColor: '#121314',
-            border: 'none',
-            borderBottom: isExpanded ? '1px solid #27272a' : 'none',
-            fontSize: '14px',
-            fontFamily: 'monospace',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-            cursor: 'pointer',
-            textAlign: 'left',
-          }}
-        >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-            {groupHeaderIcon} {group.name}
-            {renderGroupAddon ? renderGroupAddon(items) : null}
-            <span style={{ color: '#71717a', fontSize: '11px' }}>({items.length})</span>
-          </span>
-          <span style={{ color: '#71717a', fontSize: '12px' }} aria-hidden>
-            {isExpanded ? '▲' : '▼'}
-          </span>
-        </button>
+          <button
+            type="button"
+            onClick={() => toggleGroup(group.key)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              color: '#00ff66',
+              margin: 0,
+              padding: '15px 20px',
+              backgroundColor: '#121314',
+              border: 'none',
+              borderBottom: isExpanded ? '1px solid #27272a' : 'none',
+              fontSize: '14px',
+              fontFamily: 'monospace',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              cursor: 'pointer',
+              textAlign: 'left',
+              opacity: isGroupAllCompleted ? 0.65 : 1,
+            }}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
+              {typeof toggleCompleted === 'function' && (
+                <input
+                  type="checkbox"
+                  checked={isGroupAllCompleted}
+                  onChange={() => {}}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCompleted(allGroupKeys, !isGroupAllCompleted);
+                  }}
+                  style={{
+                    accentColor: '#00ff66',
+                    cursor: 'pointer',
+                    width: '16px',
+                    height: '16px',
+                    flexShrink: 0,
+                  }}
+                  aria-label={isGroupAllCompleted ? 'Gruppe als offen markieren' : 'Gruppe als erledigt markieren'}
+                />
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const nextHidden = !isAllGroupHidden;
+                  allGroupKeys.forEach((key) => setHidden(itemKey(key), nextHidden));
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: isAllGroupHidden ? '#71717a' : '#00ff66',
+                  fontSize: '14px',
+                  flexShrink: 0,
+                }}
+                aria-label={isAllGroupHidden ? 'Gruppe einblenden' : 'Gruppe ausblenden'}
+                title={isAllGroupHidden ? 'Einblenden' : 'Ausblenden'}
+              >
+                {isAllGroupHidden ? '👁️‍🗨️' : '👁️'}
+              </button>
+              {groupHeaderIcon}
+              <span style={{ textDecoration: isGroupAllCompleted ? 'line-through' : 'none' }}>
+                {group.name}
+              </span>
+              {renderGroupAddon ? renderGroupAddon(items) : null}
+              <span
+                style={{
+                  color: isGroupAllCompleted ? '#00ff66' : '#71717a',
+                  fontSize: '11px',
+                  fontWeight: isGroupAllCompleted ? 'bold' : 'normal',
+                }}
+              >
+                {isGroupAllCompleted
+                  ? `✓ ${groupDoneCount}/${groupTotalCount}`
+                  : `(${groupDoneCount}/${groupTotalCount})`}
+              </span>
+            </span>
+            <span style={{ color: '#71717a', fontSize: '12px' }} aria-hidden>
+              {isExpanded ? '▲' : '▼'}
+            </span>
+          </button>
         )}
 
         {isExpanded && (
@@ -701,7 +774,7 @@ function SplitScreenGuideKacheln({
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => {
+                  {visibleTableItems.map((item) => {
                     const progressKey = guideProgressKey(item);
                     const visKey = itemKey(progressKey);
                     const { dimmed } = getEntryState(visKey);
@@ -892,7 +965,17 @@ function SplitScreenGuideKacheln({
   };
 
   const renderLocalisationSection = (section) => {
-    if (section.itemCount === 0) return null;
+    const allSectionItems = section.groups.flatMap((g) => g.items);
+    const allSectionKeys = allSectionItems.map((item) => guideProgressKey(item));
+    const sectionTotalCount = allSectionItems.length;
+    const sectionDoneCount = allSectionItems.filter((item) => isItemCompleted(item)).length;
+    const isSectionAllCompleted = sectionTotalCount > 0 && sectionDoneCount === sectionTotalCount;
+    const isAllSectionHidden =
+      allSectionKeys.length > 0 && allSectionKeys.every((key) => isHidden(itemKey(key)));
+
+    if (hideCompleted && isSectionAllCompleted) return null;
+    if (sectionTotalCount === 0) return null;
+
     if (hideGroupHeader || !section.localisation) {
       return (
         <React.Fragment key="guide-section-ungrouped">
@@ -910,11 +993,64 @@ function SplitScreenGuideKacheln({
           className="guide-localisation__header"
           onClick={() => toggleLocalisation(section.localisation)}
           aria-expanded={isExpanded}
+          style={{ opacity: isSectionAllCompleted ? 0.65 : 1 }}
         >
-          <span>
-            {localisationHeaderIcon} {section.localisation}
-            <span className="guide-localisation__count">
-              ({section.groups.length} · {section.itemCount})
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', minWidth: 0, flexWrap: 'wrap' }}>
+            {typeof toggleCompleted === 'function' && (
+              <input
+                type="checkbox"
+                checked={isSectionAllCompleted}
+                onChange={() => {}}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleCompleted(allSectionKeys, !isSectionAllCompleted);
+                }}
+                style={{
+                  accentColor: '#00ff66',
+                  cursor: 'pointer',
+                  width: '16px',
+                  height: '16px',
+                  flexShrink: 0,
+                }}
+                aria-label={isSectionAllCompleted ? 'Gebiet als offen markieren' : 'Gebiet als erledigt markieren'}
+              />
+            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                const nextHidden = !isAllSectionHidden;
+                allSectionKeys.forEach((key) => setHidden(itemKey(key), nextHidden));
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: isAllSectionHidden ? '#71717a' : '#00ff66',
+                fontSize: '14px',
+                flexShrink: 0,
+              }}
+              aria-label={isAllSectionHidden ? 'Gebiet einblenden' : 'Gebiet ausblenden'}
+              title={isAllSectionHidden ? 'Einblenden' : 'Ausblenden'}
+            >
+              {isAllSectionHidden ? '👁️‍🗨️' : '👁️'}
+            </button>
+            <span>
+              {localisationHeaderIcon}{' '}
+              <span style={{ textDecoration: isSectionAllCompleted ? 'line-through' : 'none' }}>
+                {section.localisation}
+              </span>
+              <span
+                className="guide-localisation__count"
+                style={{
+                  color: isSectionAllCompleted ? '#00ff66' : undefined,
+                  fontWeight: isSectionAllCompleted ? 'bold' : 'normal',
+                }}
+              >
+                {isSectionAllCompleted
+                  ? `✓ (${section.groups.length} · ${sectionDoneCount}/${sectionTotalCount})`
+                  : `(${section.groups.length} · ${sectionDoneCount}/${sectionTotalCount})`}
+              </span>
             </span>
           </span>
           <span className="guide-localisation__chevron" aria-hidden>

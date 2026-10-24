@@ -49,6 +49,11 @@ export function ProgressSyncProvider({ sessionUser, children }) {
 
     setGameHiddenCloudUser(userId);
 
+    const initialOwner = loadProgressOwner();
+    if (initialOwner === userId) {
+      enableCloudPush(userId);
+    }
+
     let cancelled = false;
     const runId = ++runIdRef.current;
 
@@ -95,6 +100,17 @@ export function ProgressSyncProvider({ sessionUser, children }) {
 
       if (plan.action === 'pull') {
         applyProgressByGameToLocal(cloudByGame, { replaceAll: true });
+        enableCloudPush(userId);
+        return;
+      }
+
+      if (plan.action === 'auto_merge') {
+        const merged = mergeProgressByGame(localByGame, cloudByGame);
+        const { error: mergeErr } = await upsertUserGuideProgressBulk(supabase, userId, merged);
+        if (mergeErr) {
+          console.warn('Fortschritt-Auto-Merge:', mergeErr.message);
+        }
+        applyProgressByGameToLocal(merged, { replaceAll: true });
         enableCloudPush(userId);
         return;
       }

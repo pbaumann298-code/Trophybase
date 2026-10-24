@@ -3,7 +3,7 @@ import HeaderSettingsMenu from './HeaderSettingsMenu';
 import { hasAdminReturnFlag, isAdminUser } from '../lib/adminAccess';
 import { navigateToHome, WATCHLIST_PATH } from '../lib/routeUtils';
 
-function Header({ setCurrentView, sessionUser, onLogout, onOpenWatchlist }) {
+function Header({ setCurrentView, sessionUser, onLogout, onOpenWatchlist, onOpenPlatformTrophies }) {
   const [showAdminReturn, setShowAdminReturn] = useState(false);
   const isAdmin = isAdminUser(sessionUser);
 
@@ -39,6 +39,18 @@ function Header({ setCurrentView, sessionUser, onLogout, onOpenWatchlist }) {
       <div className="site-header-right relative z-20 ml-auto flex h-full min-w-0 shrink-0 items-center gap-2 pr-4 md:pr-6 pl-2">
         {isAdmin ? (
           <a
+            href="/platinliste"
+            onClick={(e) => {
+              e.preventDefault();
+              onOpenPlatformTrophies?.();
+            }}
+            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-[#00ff66] bg-[#00ff66]/10 hover:bg-[#00ff66]/15 border border-[#00ff66]/30 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline backdrop-blur-sm"
+          >
+            🏆 Platinliste V1
+          </a>
+        ) : null}
+        {isAdmin ? (
+          <a
             href="/intranet"
             className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-zinc-300 bg-[#121314]/90 hover:bg-[#202122] border border-zinc-800 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline backdrop-blur-sm"
           >
@@ -58,6 +70,7 @@ function Header({ setCurrentView, sessionUser, onLogout, onOpenWatchlist }) {
           isAdmin={isAdmin}
           onLogout={onLogout}
           onOpenWatchlist={onOpenWatchlist}
+          onOpenPlatformTrophies={onOpenPlatformTrophies}
           watchlistPath={WATCHLIST_PATH}
         />
       </div>

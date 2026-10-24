@@ -299,10 +299,19 @@ function QuickwinGameCard({
     });
   };
 
-  const toggleGuideItem = (id) => {
+  const toggleGuideItem = (idOrIds, forceState) => {
     setCompletedItems((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      if (!next[id]) delete next[id];
+      const next = { ...prev };
+      const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+      for (const id of ids) {
+        if (!id) continue;
+        const targetState = typeof forceState === 'boolean' ? forceState : !prev[id];
+        if (targetState) {
+          next[id] = true;
+        } else {
+          delete next[id];
+        }
+      }
       saveCompletedGuideItems(gameUuid, next);
       pushLocalGameProgressToCloud(gameUuid);
       return next;

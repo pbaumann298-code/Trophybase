@@ -24,6 +24,7 @@ export const PUBLIC_APP_VIEWS = new Set([
   'servertot',
   'easyplatins',
   'watchlist',
+  'platform-trophies',
   'impressum',
   'datenschutz',
   'guide-help',
@@ -49,6 +50,7 @@ export function normalizePath(pathname = '') {
 /** View aus URL-Pfad (Deep Links bei F5 / Direktaufruf). */
 export function getViewFromPath(pathname = '', search) {
   const path = normalizePath(pathname);
+  if (path === '/platinliste' || path === '/platform-trophies') return 'platform-trophies';
   if (path === '/impressum') return 'impressum';
   if (path === '/datenschutz' || path === '/privacy') return 'datenschutz';
   if (path === '/kurz-erklaert') return 'guide-help';
@@ -164,6 +166,12 @@ export const WATCHLIST_PATH = '/watchlist';
 
 export function navigateToWatchlist({ replace = false } = {}) {
   writeAppPath(WATCHLIST_PATH, { replace });
+}
+
+export const PLATFORM_TROPHIES_PATH = '/platinliste';
+
+export function navigateToPlatformTrophies({ replace = false } = {}) {
+  writeAppPath(PLATFORM_TROPHIES_PATH, { replace });
 }
 
 export function navigateToImpressum() {

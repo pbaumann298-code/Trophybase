@@ -157,6 +157,18 @@ export function progressMapsEqual(a, b) {
   return true;
 }
 
+export function isLocalSubsetOfCloud(localByGame, cloudByGame) {
+  for (const [gameId, localRow] of Object.entries(localByGame ?? {})) {
+    const cloudRow = cloudByGame?.[gameId];
+    const cloudStepsSet = new Set(cloudRow?.steps ?? []);
+    for (const step of localRow?.steps ?? []) {
+      if (!cloudStepsSet.has(step)) return false;
+    }
+    if (localRow?.isPlatinum && !cloudRow?.isPlatinum) return false;
+  }
+  return true;
+}
+
 function countSteps(byGame) {
   let games = 0;
   let steps = 0;
@@ -312,7 +324,7 @@ export function mergeProgressByGame(localByGame, cloudByGame) {
 
 /**
  * @param {{ localByGame?: object, cloudByGame?: object, owner?: string|null, userId?: string }} input
- * @returns {{ action: 'noop'|'pull'|'prompt', reason?: string, localByGame: object, cloudByGame: object, localStats: {games:number,steps:number}, cloudStats: {games:number,steps:number} }}
+ * @returns {{ action: 'noop'|'pull'|'auto_merge'|'prompt', reason?: string, localByGame: object, cloudByGame: object, localStats: {games:number,steps:number}, cloudStats: {games:number,steps:number} }}
  */
 export function planProgressSync({ localByGame, cloudByGame, owner, userId }) {
   const local = localByGame ?? {};
@@ -333,10 +345,20 @@ export function planProgressSync({ localByGame, cloudByGame, owner, userId }) {
     };
   }
 
-  if (owner === userId && equal) {
+  if (owner === userId) {
+    if (equal) {
+      return {
+        action: 'noop',
+        reason: 'in_sync',
+        localByGame: local,
+        cloudByGame: cloud,
+        localStats,
+        cloudStats,
+      };
+    }
     return {
-      action: 'noop',
-      reason: 'in_sync',
+      action: 'auto_merge',
+      reason: 'divergent',
       localByGame: local,
       cloudByGame: cloud,
       localStats,
@@ -344,7 +366,18 @@ export function planProgressSync({ localByGame, cloudByGame, owner, userId }) {
     };
   }
 
-  // Browser hat Daten, Profil leer / anders / anderer Owner → nachfragen
+  if (equal || isLocalSubsetOfCloud(local, cloud)) {
+    return {
+      action: 'noop',
+      reason: 'local_subset_of_cloud',
+      localByGame: local,
+      cloudByGame: cloud,
+      localStats,
+      cloudStats,
+    };
+  }
+
+  // Browser hat eigene nicht-synchronisierte Daten, Profil leer / anders / anderer Owner → nachfragen
   return {
     action: 'prompt',
     reason: !owner

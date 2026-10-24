@@ -35,10 +35,12 @@ import {
   navigateToQuickwins,
   navigateToSimpleSearch,
   navigateToWatchlist,
+  navigateToPlatformTrophies,
   QUICKWINS_PATH,
   SERVERTOT_PATH,
   EASY_PLATINS_PATH,
   WATCHLIST_PATH,
+  PLATFORM_TROPHIES_PATH,
   parseSimpleSearchParams,
   parseExcludeQuickwins,
   parseIncludeTrophiesOnly,
@@ -103,6 +105,7 @@ const EASY_PLATINS_CATALOG = {
 };
 import ProfilePage from './pages/ProfilePage';
 import QaAdminPage from './pages/QaAdminPage';
+import PlatformTrophiesPage from './pages/PlatformTrophiesPage';
 import { fetchGameGuideBundle, resolveGameId } from './lib/guideQueries';
 import { fetchGameByRouteRef, fetchGameBySlug } from './lib/gameQueries';
 import { useLocale } from './context/LocaleContext';
@@ -689,11 +692,20 @@ function App() {
     });
   };
 
-  const toggleGuideItemCompleted = (id) => {
+  const toggleGuideItemCompleted = (idOrIds, forceState) => {
     const gameUuid = getGameUuid(selectedGame);
     setCompletedGuideItems((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      if (!next[id]) delete next[id];
+      const next = { ...prev };
+      const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+      for (const id of ids) {
+        if (!id) continue;
+        const targetState = typeof forceState === 'boolean' ? forceState : !prev[id];
+        if (targetState) {
+          next[id] = true;
+        } else {
+          delete next[id];
+        }
+      }
       saveCompletedGuideItems(gameUuid, next);
       pushLocalGameProgressToCloud(gameUuid);
       return next;
@@ -783,6 +795,10 @@ function App() {
     }
     if (currentView === 'watchlist') {
       applyPathCanonical(WATCHLIST_PATH, { noIndex: true });
+      return () => clearGameSeoLinks();
+    }
+    if (currentView === 'platform-trophies') {
+      applyPathCanonical('/platinliste', { noIndex: false });
       return () => clearGameSeoLinks();
     }
     if (currentView !== 'game_info' || !selectedGame) {
@@ -879,6 +895,13 @@ function App() {
     window.scrollTo(0, 0);
   }, []);
 
+  const openPlatformTrophies = useCallback(() => {
+    setCurrentView('platform-trophies');
+    setSelectedGame(null);
+    navigateToPlatformTrophies();
+    window.scrollTo(0, 0);
+  }, []);
+
   const maintenanceBypass = hasMaintenanceBypass(sessionUser);
   const isQaAdminView = currentView === 'qa_admin';
 
@@ -955,6 +978,7 @@ function App() {
         sessionUser={sessionUser} 
         onLogout={handleLogout}
         onOpenWatchlist={openWatchlist}
+        onOpenPlatformTrophies={openPlatformTrophies}
       />
 
       <main
@@ -967,7 +991,8 @@ function App() {
           currentView === 'quickwins' ||
           currentView === 'servertot' ||
           currentView === 'easyplatins' ||
-          currentView === 'watchlist'
+          currentView === 'watchlist' ||
+          currentView === 'platform-trophies'
             ? 'justify-start'
             : 'justify-center'
         }`}
@@ -1154,6 +1179,13 @@ function App() {
               />
             )}
 
+            {currentView === 'platform-trophies' && (
+              <PlatformTrophiesPage
+                onBack={goHome}
+                sessionUser={sessionUser}
+              />
+            )}
+
             {currentView === 'login' && <LoginPage onLogin={handleLogin} />}
             {currentView === 'tester-setup' && <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />}
             {currentView === 'impressum' && <LegalNoticePage onBack={goHome} />}
@@ -1178,6 +1210,7 @@ function App() {
         onOpenImpressum={openImpressum}
         onOpenPrivacy={openPrivacy}
         onOpenHelp={openGuideHelp}
+        onOpenPlatformTrophies={openPlatformTrophies}
       />
 
     </div>
