@@ -129,7 +129,7 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
     if (gameType === INTRANET_GAME_TYPE_EMPTY) {
       query = query.or(`${GAME_STRUCT.gameType}.is.null,${GAME_STRUCT.gameType}.eq.""`);
     } else if (Object.values(GAME_TYPE).includes(gameType)) {
-      query = query.eq(GAME_STRUCT.gameType, gameType);
+      query = query.ilike(GAME_STRUCT.gameType, `%${gameType}%`);
     }
     query = applyPipelineStatusFilters(query, filters);
     query = applyStaffGuideScope(query, filters.guideScope);

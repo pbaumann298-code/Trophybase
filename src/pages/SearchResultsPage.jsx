@@ -275,9 +275,15 @@ function SearchResultsPage({
         </button>
       ) : null}
 
-      <h3 className="text-sm font-bold text-zinc-400 mb-6 uppercase tracking-wider">
-        {heading} ({paged.total})
-      </h3>
+      {compact ? (
+        <h3 className="text-sm font-bold text-zinc-400 mb-6 uppercase tracking-wider">
+          {heading} ({paged.total})
+        </h3>
+      ) : (
+        <h1 className="text-sm font-bold text-zinc-400 mb-6 uppercase tracking-wider">
+          {heading} ({paged.total})
+        </h1>
+      )}
 
       {paged.total === 0 ? (
         <p className="text-sm text-zinc-500 bg-[#1a1b1c] p-6 rounded-xl border border-zinc-800 text-center">

@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../../pages/supabaseClient';
-import { TABLES, GAME_FK, GAME_PK, GAME_STRUCT } from '../../lib/gameSchema';
+import { TABLES, GAME_FK, GAME_PK, GAME_STRUCT, GAME_TYPE, parseGameTypes } from '../../lib/gameSchema';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
-import { getYouTubeEmbedUrl } from '../../utils/videoUrl';
+import { getYouTubeEmbedUrl, parseTimecodeToSeconds, buildVideoUrlWithTimestamp } from '../../utils/videoUrl';
 import { GUIDE_PUBLICATION, guideStatusKey, parseStatusMap } from '../../lib/guidePublication';
+import { setIntranetGameType } from '../../lib/intranetGameEdits';
+import { localeOptions } from '../../lib/uiStrings';
 
 function getLocalizedTitle(spieltitel) {
   if (!spieltitel) return 'Unbenanntes Spiel';
@@ -76,39 +78,63 @@ export default function IntranetDrafts() {
   // Busy action state
   const [actionBusy, setActionBusy] = useState(false);
 
+  // Approval Modal State
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [approveLocale, setApproveLocale] = useState('');
+  const [selectedGameTypes, setSelectedGameTypes] = useState([]);
+
   // Load staging queue
   const fetchQueue = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const { data: rows, error: readError } = await supabase
-        .from('staging_game_guides')
-        .select('*');
+      let allRows = [];
+      let from = 0;
+      const PAGE_SIZE = 1000;
 
-      if (readError) {
-        // Drop gracefully if table doesn't exist yet
-        setError(`Fehler beim Laden von staging_game_guides: ${readError.message}`);
-        setStagingRows([]);
-        setLoading(false);
-        return;
-      }
+      while (true) {
+        const { data: rows, error: readError } = await supabase
+          .from('staging_game_guides')
+          .select('*')
+          .range(from, from + PAGE_SIZE - 1);
 
-      setStagingRows(rows ?? []);
-
-      // Extract unique game_ids
-      const gameIds = [...new Set((rows ?? []).map((r) => r.game_id).filter(Boolean))];
-
-      if (gameIds.length > 0) {
-        const { data: gamesData, error: gamesError } = await supabase
-          .from(TABLES.games)
-          .select('id, platform_game_id, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
-          .in('id', gameIds);
-
-        if (gamesError) {
-          console.error('Fehler beim Laden der Spiele-Details:', gamesError.message);
+        if (readError) {
+          setError(`Fehler beim Laden von staging_game_guides: ${readError.message}`);
+          setStagingRows([]);
+          setLoading(false);
+          return;
         }
 
-        const map = new Map((gamesData ?? []).map((g) => [g.id, g]));
+        const chunk = rows ?? [];
+        allRows = allRows.concat(chunk);
+        if (chunk.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+
+      setStagingRows(allRows);
+
+      // Extract unique game_ids
+      const gameIds = [...new Set(allRows.map((r) => r.game_id).filter(Boolean))];
+
+      if (gameIds.length > 0) {
+        const CHUNK_SIZE = 100;
+        const allGames = [];
+
+        for (let i = 0; i < gameIds.length; i += CHUNK_SIZE) {
+          const chunkIds = gameIds.slice(i, i + CHUNK_SIZE);
+          const { data: gamesData, error: gamesError } = await supabase
+            .from(TABLES.games)
+            .select('id, platform_game_id, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
+            .in('id', chunkIds);
+
+          if (gamesError) {
+            console.error('Fehler beim Laden der Spiele-Details:', gamesError.message);
+          } else if (gamesData) {
+            allGames.push(...gamesData);
+          }
+        }
+
+        const map = new Map(allGames.map((g) => [g.id, g]));
         setGamesMap(map);
       } else {
         setGamesMap(new Map());
@@ -204,7 +230,12 @@ export default function IntranetDrafts() {
   const creatorTabs = useMemo(() => {
     const tabs = [];
     for (const [creatorName, rows] of creatorGroups.entries()) {
-      const videos = new Set(rows.map((r) => r.video_url || r.video_chapter || r.id));
+      const videos = new Set(
+        rows.map((r) => {
+          const rawUrl = r.video_url || r.video_chapter || r.id;
+          return String(rawUrl).split('&t=')[0].split('?t=')[0];
+        })
+      );
       tabs.push({
         creatorName,
         videoCount: videos.size,
@@ -372,28 +403,50 @@ export default function IntranetDrafts() {
     fetchQueue();
   };
 
-  // 3. Creator freigeben (Ingest-Workflow: Ingame_guides schreiben, games.status updaten, Staging clearen)
-  const handleApproveCreator = async () => {
+  // Open approval modal
+  const handleOpenApproveModal = () => {
     if (!selectedGameId || !selectedCreatorName || actionBusy) return;
+    setApproveLocale('');
+    setSelectedGameTypes(parseGameTypes(selectedGame?.spiel_typ));
+    setShowApproveModal(true);
+  };
+
+  // 3. Creator freigeben (Ingest-Workflow: Ingame_guides schreiben, games.status updaten, Staging clearen)
+  const handleApproveCreatorConfirm = async () => {
+    if (!selectedGameId || !selectedCreatorName || actionBusy || !approveLocale || selectedGameTypes.length === 0) return;
 
     setActionBusy(true);
     setNotice('');
     setError('');
 
-    let success = false;
+    try {
+      // 1. Spieltyp speichern, falls gewählt/geändert
+      const { error: typeErr } = await setIntranetGameType(supabase, selectedGameId, selectedGameTypes);
+      if (typeErr) {
+        console.warn('Fehler beim Speichern des Spiel-Typs im Freigabe-Modal:', typeErr.message);
+      } else {
+        setGamesMap((prev) => {
+          const next = new Map(prev);
+          const current = next.get(selectedGameId);
+          if (current) next.set(selectedGameId, { ...current, spiel_typ: selectedGameTypes.join(', ') });
+          return next;
+        });
+      }
 
-    // Versuche zuerst RPC approve_staging_guide
-    const { error: rpcErr } = await supabase.rpc('approve_staging_guide', {
-      p_game_id: selectedGameId,
-      p_creator_name: selectedCreatorName,
-    });
+      let success = false;
 
-    if (!rpcErr) {
-      success = true;
-    } else {
-      console.warn('RPC approve_staging_guide nicht verfügbar / fehlgeschlagen, nutze regulären JS Ingest-Workflow:', rpcErr.message);
+      // Versuche zuerst RPC approve_staging_guide mit p_locale
+      const { error: rpcErr } = await supabase.rpc('approve_staging_guide', {
+        p_game_id: selectedGameId,
+        p_creator_name: selectedCreatorName,
+        p_locale: approveLocale,
+      });
 
-      try {
+      if (!rpcErr) {
+        success = true;
+      } else {
+        console.warn('RPC approve_staging_guide nicht verfügbar / fehlgeschlagen, nutze regulären JS Ingest-Workflow:', rpcErr.message);
+
         // 1. Creator in content_creators auflösen oder neu anlegen
         let creatorId = null;
         if (selectedCreatorName) {
@@ -425,19 +478,29 @@ export default function IntranetDrafts() {
           if (!val) return null;
           if (typeof val === 'object') return val;
           const str = String(val).trim();
-          return str ? { de: str } : null;
+          return str ? { [approveLocale]: str } : null;
+        };
+
+        const parseGuideIdNum = (val) => {
+          const digits = String(val ?? '').replace(/\D/g, '');
+          return digits ? Number.parseInt(digits, 10) : null;
+        };
+
+        const parseTrophyIdNum = (val) => {
+          const digits = String(val ?? '').replace(/\D/g, '');
+          return digits ? Number.parseInt(digits, 10) : null;
         };
 
         const rowsToApprove = currentCreatorRows.map((r) => ({
           game_id: r.game_id,
           platform_game_id: r.platform_game_id || null,
-          guide_id: String(r.guide_id ?? '').trim() || null,
+          guide_id: parseGuideIdNum(r.guide_id),
           item_name: toLocalized(r.item_name),
           chronological_group: toLocalized(r.chronological_group),
           video_chapter: toLocalized(r.video_chapter),
           timestamp: r.timestamp || null,
           video_url: r.video_url || null,
-          trophy_id: r.trophy_id || null,
+          trophy_id: parseTrophyIdNum(r.trophy_id),
           is_trophy_relevant: r.is_trophy_relevant || null,
           creator_id: creatorId,
           sheet_type: Array.isArray(r.sheet_type) && r.sheet_type.length > 0 ? r.sheet_type : [1],
@@ -451,7 +514,7 @@ export default function IntranetDrafts() {
           return;
         }
 
-        // 3. games.status aktualisieren (guide_de = DONE, guides = HAS_VIDEO)
+        // 3. games.status aktualisieren (guide_<locale> = DONE, guides = HAS_VIDEO)
         const { data: current } = await supabase
           .from(TABLES.games)
           .select(GAME_STRUCT.status)
@@ -459,7 +522,7 @@ export default function IntranetDrafts() {
           .maybeSingle();
 
         const statusMap = { ...parseStatusMap(current?.[GAME_STRUCT.status]) };
-        const statusKey = guideStatusKey('de');
+        const statusKey = guideStatusKey(approveLocale);
         if (String(statusMap[statusKey] ?? '').trim().toUpperCase() !== GUIDE_PUBLICATION.PUBLISHED) {
           statusMap[statusKey] = GUIDE_PUBLICATION.DONE;
         }
@@ -475,28 +538,28 @@ export default function IntranetDrafts() {
           .eq(GAME_PK, selectedGameId);
 
         success = true;
-      } catch (err) {
+      }
+
+      if (success) {
+        // Lösche ALLE Staging-Einträge für dieses Spiel aus staging_game_guides und springe zum nächsten Spiel
+        const { error: deleteStagingErr } = await supabase
+          .from('staging_game_guides')
+          .delete()
+          .eq('game_id', selectedGameId);
+
+        if (deleteStagingErr) {
+          console.error('Fehler beim Säubern der Staging Queue:', deleteStagingErr.message);
+        }
+
+        setShowApproveModal(false);
         setActionBusy(false);
-        setError(`Unerwarteter Fehler bei der Freigabe: ${err.message}`);
-        return;
+        setNotice(`Guide von Creator "${selectedCreatorName}" erfolgreich in [${approveLocale.toUpperCase()}] freigegeben!`);
+        jumpToNextGame(selectedGameId);
+        fetchQueue();
       }
-    }
-
-    if (success) {
-      // Lösche ALLE Staging-Einträge für dieses Spiel aus staging_game_guides und springe zum nächsten Spiel
-      const { error: deleteStagingErr } = await supabase
-        .from('staging_game_guides')
-        .delete()
-        .eq('game_id', selectedGameId);
-
-      if (deleteStagingErr) {
-        console.error('Fehler beim Säubern der Staging Queue:', deleteStagingErr.message);
-      }
-
+    } catch (err) {
       setActionBusy(false);
-      setNotice(`Guide von Creator "${selectedCreatorName}" erfolgreich freigegeben!`);
-      jumpToNextGame(selectedGameId);
-      fetchQueue();
+      setError(`Unerwarteter Fehler bei der Freigabe: ${err.message}`);
     }
   };
 
@@ -546,16 +609,49 @@ export default function IntranetDrafts() {
     fetchQueue();
   };
 
+  // Helper: Synchronisiert video_url mit neuem Timestamp
+  const updateVideoUrlTimestamp = (url, newTimestamp) => {
+    if (!url) return url;
+    const seconds = parseTimecodeToSeconds(newTimestamp);
+    if (seconds == null) {
+      // Wenn Ungültig/Leer, lassen wir URL unberührt oder entfernen &t= Param wenn gewünscht
+      return url;
+    }
+    const cleanUrl = url.replace(/([?&]t=)[^&]*/, '');
+    const separator = cleanUrl.includes('?') ? '&' : '?';
+    return `${cleanUrl}${separator}t=${seconds}s`;
+  };
+
   // 6. Zeilen-Eigenschaft inline updaten
   const handleUpdateRowField = async (rowId, field, value) => {
+    let dbValue = value;
+    let updates = { [field]: value };
+
+    if (field === 'guide_id') {
+      const digits = String(value ?? '').replace(/\D/g, '');
+      dbValue = digits ? Number.parseInt(digits, 10) : null;
+      updates = { guide_id: dbValue };
+    } else if (field === 'trophy_id') {
+      const digits = String(value ?? '').replace(/\D/g, '');
+      dbValue = digits ? Number.parseInt(digits, 10) : null;
+      updates = { trophy_id: dbValue };
+    } else if (field === 'timestamp') {
+      const targetRow = stagingRows.find((r) => r.id === rowId);
+      const newVideoUrl = updateVideoUrlTimestamp(targetRow?.video_url, value);
+      updates = {
+        timestamp: value,
+        video_url: newVideoUrl,
+      };
+    }
+
     // Optimistic UI update
     setStagingRows((prev) =>
-      prev.map((r) => (r.id === rowId ? { ...r, [field]: value } : r))
+      prev.map((r) => (r.id === rowId ? { ...r, ...updates } : r))
     );
 
     const { error: updateErr } = await supabase
       .from('staging_game_guides')
-      .update({ [field]: value })
+      .update(updates)
       .eq('id', rowId);
 
     if (updateErr) {
@@ -564,7 +660,80 @@ export default function IntranetDrafts() {
     }
   };
 
-  // 7. Trophy ID zuweisen
+  // 7. 1-Klick-Reparatur für Zeitspannen im Item-Namen
+  const handleCleanItemTimes = async () => {
+    if (!currentCreatorRows.length || actionBusy) return;
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const rowsToUpdate = [];
+
+      for (const row of currentCreatorRows) {
+        const rawName = typeof row.item_name === 'string' ? row.item_name : (row.item_name?.de || row.item_name?.en || '');
+        let nameStr = rawName.trim();
+        let cleanTime = row.timestamp;
+        let newVideoUrl = row.video_url;
+        let isModified = false;
+
+        // a) Prüfe Regex auf Uhrzeit am Ende des Item-Namens
+        const match = nameStr.match(/[:\s-]*(\d{1,2}:\s*\d{2}(?::\s*\d{2})?)\s*$/);
+        if (match) {
+          const rawTime = match[1];
+          // Säubere Leerzeichen in der Zeit, z.B. "00: 02:17" -> "00:02:17" oder "02: 17" -> "02:17"
+          cleanTime = rawTime.replace(/\s+/g, '');
+          newVideoUrl = updateVideoUrlTimestamp(row.video_url, cleanTime);
+          nameStr = nameStr.replace(/[:\s-]*\d{1,2}:\s*\d{2}(?::\s*\d{2})?\s*$/, '').trim();
+          isModified = true;
+        }
+
+        // b) Zeilen mit item_name === '<Untitled Chapter...>' werden sauber in "Start" umbenannt
+        if (/^<Untitled Chapter.*>/i.test(nameStr)) {
+          nameStr = 'Start';
+          isModified = true;
+        }
+
+        if (isModified) {
+          const newItemName = typeof row.item_name === 'object' && row.item_name !== null
+            ? { ...row.item_name, de: nameStr, en: nameStr }
+            : nameStr;
+
+          rowsToUpdate.push({
+            id: row.id,
+            item_name: newItemName,
+            timestamp: cleanTime,
+            video_url: newVideoUrl,
+          });
+        }
+      }
+
+      // Execute updates if any
+      for (const updateObj of rowsToUpdate) {
+        const { error: upErr } = await supabase
+          .from('staging_game_guides')
+          .update({
+            item_name: updateObj.item_name,
+            timestamp: updateObj.timestamp,
+            video_url: updateObj.video_url,
+          })
+          .eq('id', updateObj.id);
+        if (upErr) throw new Error(`Update fehlgeschlagen für Zeile ${updateObj.id}: ${upErr.message}`);
+      }
+
+      setNotice(
+        `Bereinigung abgeschlossen: ${rowsToUpdate.length} Zeilen in Items bereinigt / umbenannt.`
+      );
+      await fetchQueue();
+    } catch (err) {
+      setError(`Fehler bei der Bereinigung: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // 8. Trophy ID zuweisen
   const handleAssignTrophyToActiveRow = (trophyId) => {
     if (!activeRowId) return;
     handleUpdateRowField(activeRowId, 'trophy_id', trophyId);
@@ -808,10 +977,21 @@ export default function IntranetDrafts() {
 
                 {/* C. GUIDE-ZEILEN TABELLE (SUPER COMPACT HIGH-DENSITY) */}
                 <div className="rounded-2xl border border-zinc-800 bg-[#121314] p-3 flex flex-col gap-2">
-                  <div className="flex items-center justify-between px-1">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-white">
-                      Guide-Zeilen ({currentCreatorRows.length})
-                    </h4>
+                  <div className="flex items-center justify-between px-1 flex-wrap gap-2">
+                    <div className="flex items-center gap-3">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-white">
+                        Guide-Zeilen ({currentCreatorRows.length})
+                      </h4>
+                      <button
+                        type="button"
+                        disabled={actionBusy || currentCreatorRows.length === 0}
+                        onClick={handleCleanItemTimes}
+                        title="Entfernt <Untitled Chapter 1> und extrahiert Uhrzeiten aus Item-Namen"
+                        className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-400 hover:bg-amber-500/20 border border-amber-500/30 transition disabled:opacity-50"
+                      >
+                        ⚡ Zeiten in Items bereinigen
+                      </button>
+                    </div>
                     {activeRowId && (
                       <span className="text-[10px] font-mono text-[#00ff66]">
                         ✓ Aktive Zeile ausgewählt (Trophäen-Zuordnung bereit)
@@ -820,16 +1000,16 @@ export default function IntranetDrafts() {
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left text-[11px] font-mono border-collapse">
+                    <table className="w-full text-left text-[11px] font-mono border-collapse min-w-[650px] sm:min-w-0">
                       <thead>
                         <tr className="border-b border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider">
-                          <th className="py-2 px-1.5 w-10">ID</th>
-                          <th className="py-2 px-1.5">Gruppe</th>
-                          <th className="py-2 px-1.5">Item / Bezeichnung</th>
-                          <th className="py-2 px-1.5 w-16">Zeit</th>
-                          <th className="py-2 px-1.5">Chapter / Info</th>
-                          <th className="py-2 px-1.5 w-24">Trophy ID</th>
-                          <th className="py-2 px-1.5 w-16 text-right">Aktion</th>
+                          <th className="py-2 px-1 w-8 sm:w-10">ID</th>
+                          <th className="py-2 px-1">Item / Bezeichnung</th>
+                          <th className="py-2 px-1 w-24">Gruppe</th>
+                          <th className="py-2 px-1 w-28">Zeit</th>
+                          <th className="py-2 px-1 w-32 sm:w-40">Chapter / Info</th>
+                          <th className="py-2 px-1 w-20 sm:w-24">Trophy ID</th>
+                          <th className="py-2 px-1 w-12 text-right">Aktion</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-800/50">
@@ -848,58 +1028,77 @@ export default function IntranetDrafts() {
                               }`}
                             >
                               {/* guide_id */}
-                              <td className="py-1 px-1.5">
+                              <td className="py-1 px-1">
                                 <input
                                   type="text"
                                   value={row.guide_id ?? ''}
                                   onChange={(e) => handleUpdateRowField(row.id, 'guide_id', e.target.value)}
-                                  className="w-10 rounded border border-transparent bg-transparent px-1 py-0.5 text-zinc-300 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
-                                />
-                              </td>
-
-                              {/* chronological_group */}
-                              <td className="py-1 px-1.5">
-                                <input
-                                  type="text"
-                                  value={groupStr}
-                                  onChange={(e) => handleUpdateRowField(row.id, 'chronological_group', e.target.value)}
-                                  className="w-full min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-zinc-300 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                  className="w-8 sm:w-10 rounded border border-transparent bg-transparent px-0.5 py-0.5 text-zinc-300 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
                               {/* item_name */}
-                              <td className="py-1 px-1.5">
+                              <td className="py-1 px-1">
                                 <input
                                   type="text"
                                   value={itemNameStr}
                                   onChange={(e) => handleUpdateRowField(row.id, 'item_name', e.target.value)}
-                                  className="w-full min-w-[8rem] rounded border border-transparent bg-transparent px-1 py-0.5 font-sans text-xs font-medium text-white hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                  className="w-full min-w-[7rem] sm:min-w-[8rem] rounded border border-transparent bg-transparent px-1 py-0.5 font-sans text-xs font-medium text-white hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                />
+                              </td>
+
+                              {/* chronological_group */}
+                              <td className="py-1 px-1">
+                                <input
+                                  type="text"
+                                  value={groupStr}
+                                  onChange={(e) => handleUpdateRowField(row.id, 'chronological_group', e.target.value)}
+                                  className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-zinc-300 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
                               {/* timestamp */}
-                              <td className="py-1 px-1.5 whitespace-nowrap">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActiveRowId(row.id);
-                                    if (row.video_url) setActiveVideoUrl(row.video_url);
-                                    if (row.timestamp) setActiveTimestamp(row.timestamp);
-                                  }}
-                                  className="inline-flex items-center gap-1 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-[#00ff66] hover:bg-[#00ff66]/20 border border-zinc-700"
-                                >
-                                  ▶ {row.timestamp || '0:00'}
-                                </button>
+                              <td className="py-1 px-1 whitespace-nowrap">
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveRowId(row.id);
+                                      if (row.video_url) setActiveVideoUrl(row.video_url);
+                                      if (row.timestamp) setActiveTimestamp(row.timestamp);
+                                    }}
+                                    title="Video an dieser Position abspielen"
+                                    className="rounded bg-zinc-800 px-1 py-0.5 text-[10px] text-[#00ff66] hover:bg-[#00ff66]/20 border border-zinc-700"
+                                  >
+                                    ▶
+                                  </button>
+                                  <input
+                                    type="text"
+                                    value={row.timestamp ?? ''}
+                                    onChange={(e) => handleUpdateRowField(row.id, 'timestamp', e.target.value)}
+                                    placeholder="0:00"
+                                    className="w-16 rounded border border-transparent bg-transparent px-1 py-0.5 text-[10px] font-mono text-[#00ff66] hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                  />
+                                </div>
                               </td>
 
                               {/* video_chapter */}
-                              <td className="py-1 px-1.5 text-zinc-500 text-[10px] max-w-[10rem] truncate" title={chapterStr}>
+                              <td
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveRowId(row.id);
+                                  if (row.video_url) setActiveVideoUrl(row.video_url);
+                                  if (row.timestamp) setActiveTimestamp(row.timestamp);
+                                }}
+                                className="py-1 px-1 text-zinc-400 text-[10px] w-32 sm:w-40 break-words line-clamp-2 cursor-pointer hover:text-white hover:underline"
+                                title={`${chapterStr || '—'} (Klicken zum Abspielen)`}
+                              >
                                 {chapterStr || '—'}
                               </td>
 
                               {/* trophy_id */}
-                              <td className="py-1 px-1.5">
+                              <td className="py-1 px-1">
                                 <input
                                   type="text"
                                   placeholder="—"
@@ -918,8 +1117,8 @@ export default function IntranetDrafts() {
                               </td>
 
                               {/* Actions */}
-                              <td className="py-1 px-1.5 text-right whitespace-nowrap">
-                                <div className="flex items-center justify-end gap-1">
+                              <td className="py-1 px-1 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-0.5">
                                   <button
                                     type="button"
                                     title="Ganzes Video / Chapter entfernen"
@@ -959,7 +1158,7 @@ export default function IntranetDrafts() {
                     <button
                       type="button"
                       disabled={actionBusy || currentCreatorRows.length === 0}
-                      onClick={handleApproveCreator}
+                      onClick={handleOpenApproveModal}
                       className="flex items-center gap-2 rounded-xl bg-[#00ff66] px-4 py-2.5 text-xs font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50 transition shadow-lg shadow-[#00ff66]/10"
                     >
                       <span>✓</span>
@@ -1075,6 +1274,145 @@ export default function IntranetDrafts() {
             )}
           </div>
 
+        </div>
+      )}
+
+      {/* Guide-Freigabe Bestätigen Modal */}
+      {showApproveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-[#16181a] p-5 shadow-2xl flex flex-col gap-4 text-zinc-200">
+            <div className="flex items-start justify-between gap-2 border-b border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Guide-Freigabe bestätigen
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Spiels: <span className="text-white font-medium">{getLocalizedTitle(selectedGame?.spieltitel)}</span>
+                  <br />
+                  Creator: <span className="text-[#00ff66] font-mono">{selectedCreatorName}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowApproveModal(false)}
+                className="text-zinc-500 hover:text-white text-base leading-none p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Pflichtfeld 1: Guide-Sprache */}
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
+                <span>1. Target Guide-Sprache (Pflichtfeld)</span>
+                {approveLocale ? (
+                  <span className="text-[10px] font-mono text-[#00ff66] font-bold">✓ {approveLocale.toUpperCase()} gewählt</span>
+                ) : (
+                  <span className="text-[10px] font-mono text-amber-400">Sprache wählen!</span>
+                )}
+              </label>
+
+              {/* Schnellwahl Buttons */}
+              <div className="flex flex-wrap gap-1.5">
+                {['de', 'en', 'es', 'fr', 'ja', 'pt', 'it'].map((code) => {
+                  const isSelected = approveLocale === code;
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setApproveLocale(code)}
+                      className={`px-2.5 py-1 rounded-lg font-mono text-xs font-bold uppercase transition ${
+                        isSelected
+                          ? 'bg-[#00ff66] text-black border border-[#00ff66]'
+                          : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white'
+                      }`}
+                    >
+                      {code}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Alle weiteren Sprachen Dropdown */}
+              <select
+                value={approveLocale}
+                onChange={(e) => setApproveLocale(e.target.value)}
+                className="mt-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-200 font-mono focus:border-[#00ff66] focus:outline-none"
+              >
+                <option value="">-- Alle Sprachen durchsuchen --</option>
+                {localeOptions().map((opt) => (
+                  <option key={opt.code} value={opt.code}>
+                    {opt.flag} {opt.label} ({opt.code.toUpperCase()})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Pflichtfeld 2: Spiel-Typ */}
+            <div className="flex flex-col gap-2 border-t border-zinc-800 pt-3">
+              <label className="text-xs font-bold text-zinc-300 flex items-center justify-between">
+                <span>2. Spiel-Typ (Max. 2, Mind. 1)</span>
+                <span className="text-[10px] font-mono text-zinc-500">
+                  {selectedGameTypes.length}/2 gewählt
+                </span>
+              </label>
+
+              <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1 bg-zinc-900/60 rounded-xl border border-zinc-800">
+                {Object.values(GAME_TYPE).map((type) => {
+                  const isChecked = selectedGameTypes.includes(type);
+                  const isDisabled = !isChecked && selectedGameTypes.length >= 2;
+
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => {
+                        if (isChecked) {
+                          setSelectedGameTypes((prev) => prev.filter((t) => t !== type));
+                        } else if (selectedGameTypes.length < 2) {
+                          setSelectedGameTypes((prev) => [...prev, type]);
+                        }
+                      }}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg font-mono text-[11px] transition ${
+                        isChecked
+                          ? 'bg-[#00ff66]/20 text-[#00ff66] border border-[#00ff66]/50 font-bold'
+                          : isDisabled
+                            ? 'opacity-30 cursor-not-allowed bg-zinc-800 text-zinc-500 border border-transparent'
+                            : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-white'
+                      }`}
+                    >
+                      <span>{isChecked ? '✓' : '+'}</span>
+                      <span>{type}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 border-t border-zinc-800 pt-3 mt-1">
+              <button
+                type="button"
+                onClick={() => setShowApproveModal(false)}
+                className="rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700"
+              >
+                Abbrechen
+              </button>
+
+              <button
+                type="button"
+                disabled={actionBusy || !approveLocale || selectedGameTypes.length === 0}
+                onClick={handleApproveCreatorConfirm}
+                className="flex items-center gap-1.5 rounded-xl bg-[#00ff66] px-4 py-2 text-xs font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-40 transition shadow-lg shadow-[#00ff66]/10"
+              >
+                <span>✓</span>
+                <span>
+                  {approveLocale ? `Jetzt in [${approveLocale.toUpperCase()}] freigegeben` : 'Sprache wählen…'}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

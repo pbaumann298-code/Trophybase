@@ -525,19 +525,20 @@ export function applyStaffGuideScope(query, scope = 'all') {
 export function applyExcludeQuickwins(query, exclude) {
   const column = GAME_STRUCT.gameType;
   if (!exclude) {
-    return query.or(`${column}.is.null,${column}.neq.${GAME_TYPE.SERVER_DEAD}`);
+    return query.or(`${column}.is.null,${column}.not.ilike.%${GAME_TYPE.SERVER_DEAD}%`);
   }
   return query.or(
-    `${column}.is.null,and(${column}.neq.${GAME_TYPE.QUICKWIN},${column}.neq.${GAME_TYPE.EASY_PLATIN},${column}.neq.${GAME_TYPE.SERVER_DEAD})`,
+    `${column}.is.null,and(${column}.not.ilike.%${GAME_TYPE.QUICKWIN}%,${column}.not.ilike.%${GAME_TYPE.EASY_PLATIN}%,${column}.not.ilike.%${GAME_TYPE.SERVER_DEAD}%)`,
   );
 }
 
 /** Ähnliche Spiele und neuere Ausgaben: keine Quickwins, easy_platin oder Servertot. */
 export function excludeQuickwinStyleTypes(query) {
+  const column = GAME_STRUCT.gameType;
   return query
-    .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
-    .neq(GAME_STRUCT.gameType, GAME_TYPE.EASY_PLATIN)
-    .neq(GAME_STRUCT.gameType, GAME_TYPE.SERVER_DEAD);
+    .not(column, 'ilike', `%${GAME_TYPE.QUICKWIN}%`)
+    .not(column, 'ilike', `%${GAME_TYPE.EASY_PLATIN}%`)
+    .not(column, 'ilike', `%${GAME_TYPE.SERVER_DEAD}%`);
 }
 
 async function searchLocalizedColumn(supabase, column, pattern, limit, catalog) {
@@ -992,6 +993,7 @@ function isMissingPublisherError(error) {
  * Veröffentlichte Spiele eines Typs (Quickwins, Easy Platins, Servertot, …).
  * Mit `limit`/`offset` nur eine Seite; sonst bis SEARCH_RESULT_CAP.
  * `mode: 'list'` = leicht (Publisher/Titel), `'tiles'` = +Cover, sonst voll.
+ * Unterstützt Komma-getrennte Mehrfach-Typen in `games.spiel_typ` via .ilike.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameType
  * @param {string} [locale]
@@ -1016,7 +1018,7 @@ export async function fetchGamesByType(supabase, gameType, locale = getLocale(),
     let query = supabase
       .from(TABLES.games)
       .select(columns)
-      .eq(GAME_STRUCT.gameType, gameType);
+      .ilike(GAME_STRUCT.gameType, `%${gameType}%`);
     query = applyGuideCatalogFilter(query, catalog);
     return query.order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
   };
@@ -1115,17 +1117,19 @@ async function fetchFeaturedHomeGames(supabase, options) {
     locale,
   };
 
-  const run = (column) =>
-    applyGuideCatalogFilter(
-      supabase
-        .from(TABLES.games)
-        .select(getGameSelect())
-        .in(GAME_STRUCT.gameType, types),
-      catalog,
-    )
+  const run = (column) => {
+    let query = supabase
+      .from(TABLES.games)
+      .select(getGameSelect());
+
+    const orFilters = types.map((t) => `${GAME_STRUCT.gameType}.ilike.%${t}%`).join(',');
+    query = query.or(orFilters);
+
+    return applyGuideCatalogFilter(query, catalog)
       .order(column, { ascending: false, nullsFirst: false })
       .order(GAME_STRUCT.createdAt, { ascending: false })
       .limit(limit);
+  };
 
   let { data, error } = await run(orderColumn);
   if (error && demoteMissingPublisher(error)) {

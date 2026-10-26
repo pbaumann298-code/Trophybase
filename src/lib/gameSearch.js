@@ -1,5 +1,5 @@
 import { getGameTitle } from './gameModel';
-import { GAME_STRUCT, GAME_TYPE } from './gameSchema';
+import { GAME_STRUCT, GAME_TYPE, parseGameTypes } from './gameSchema';
 import {
   SEARCH_RESULT_CAP,
   searchGamesByFreeText,
@@ -19,8 +19,14 @@ const SEARCH_TYPE_RANK = {
 };
 
 function searchTypeRank(game) {
-  const type = String(game?.[GAME_STRUCT.gameType] ?? '').trim();
-  return SEARCH_TYPE_RANK[type] ?? 2;
+  const types = parseGameTypes(game?.[GAME_STRUCT.gameType]);
+  if (types.length === 0) return 2;
+  let minRank = Infinity;
+  for (const t of types) {
+    const rank = SEARCH_TYPE_RANK[t] ?? 2;
+    if (rank < minRank) minRank = rank;
+  }
+  return minRank === Infinity ? 2 : minRank;
 }
 
 /** Gleiche Typen behalten die bisherige Reihenfolge (Release-Jahr). */

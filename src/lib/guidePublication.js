@@ -1,5 +1,5 @@
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
-import { TABLES, GAME_PK, GAME_STRUCT, GAME_TYPE, isQuickwinStyleType } from './gameSchema.js';
+import { TABLES, GAME_PK, GAME_STRUCT, GAME_TYPE, isQuickwinStyleType, computeIsIndexable } from './gameSchema.js';
 import { normalizeLocale } from './locale.js';
 import { ensureGameSlug, warmPublishedGuidePages } from './publishSeo.js';
 
@@ -226,8 +226,8 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
     ...publishingFieldsFromStatus(nextStatus),
   };
   const gameType = String(current?.[GAME_STRUCT.gameType] ?? '').trim();
-  if (published && (gameType === GAME_TYPE.SERVER_DEAD || isQuickwinStyleType(gameType))) {
-    update[GAME_STRUCT.isIndexable] = false;
+  if (published) {
+    update[GAME_STRUCT.isIndexable] = computeIsIndexable(gameType);
   }
 
   const { data, error } = await supabase

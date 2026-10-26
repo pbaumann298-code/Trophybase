@@ -77,7 +77,7 @@ function livingCatalog(query, includeReady) {
       publishedOnly: !includeReady,
       locale: 'de',
     }),
-  ).neq(GAME_STRUCT.gameType, GAME_TYPE.SERVER_DEAD);
+  );
 }
 
 /**

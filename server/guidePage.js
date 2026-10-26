@@ -588,12 +588,13 @@ function notFoundHtml(origin, locale = 'de') {
   const title = t(locale, 'guideNotFoundTitle');
   const body = t(locale, 'guideNotFoundBody');
   const home = t(locale, 'breadcrumbHome');
-  return `<!DOCTYPE html><html lang="${escapeAttr(locale)}"><head><meta charset="UTF-8" /><meta name="robots" content="noindex" /><title>${escapeHtml(title)}</title></head><body style="background:#121314;color:#e4e4e7;font:16px system-ui;padding:2rem"><p>${escapeHtml(body)}</p><p><a href="${escapeAttr(origin)}/" style="color:#00ff66">${escapeHtml(home)}</a></p></body></html>`;
+  return `<!DOCTYPE html><html lang="${escapeAttr(locale)}"><head><meta charset="UTF-8" /><meta name="robots" content="noindex" /><title>${escapeHtml(title)}</title></head><body style="background:#121314;color:#e4e4e7;font:16px system-ui;padding:2rem"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p><p><a href="${escapeAttr(origin)}/" style="color:#00ff66">${escapeHtml(home)}</a></p></body></html>`;
 }
 
 function errorHtml(origin, message, locale = 'de') {
   const home = t(locale, 'breadcrumbHome');
-  return `<!DOCTYPE html><html lang="${escapeAttr(locale)}"><head><meta charset="UTF-8" /><meta name="robots" content="noindex" /><title>Error</title></head><body style="background:#121314;color:#e4e4e7;font:16px system-ui;padding:2rem"><p>${escapeHtml(message || 'Seite konnte nicht gebaut werden.')}</p><p><a href="${escapeAttr(origin || SITE_ORIGIN)}/" style="color:#00ff66">${escapeHtml(home)}</a></p></body></html>`;
+  const title = 'Error';
+  return `<!DOCTYPE html><html lang="${escapeAttr(locale)}"><head><meta charset="UTF-8" /><meta name="robots" content="noindex" /><title>${escapeHtml(title)}</title></head><body style="background:#121314;color:#e4e4e7;font:16px system-ui;padding:2rem"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message || 'Seite konnte nicht gebaut werden.')}</p><p><a href="${escapeAttr(origin || SITE_ORIGIN)}/" style="color:#00ff66">${escapeHtml(home)}</a></p></body></html>`;
 }
 
 export async function warmPublishedGuide(origin, hardware, slug, locales = [DEFAULT_LOCALE]) {

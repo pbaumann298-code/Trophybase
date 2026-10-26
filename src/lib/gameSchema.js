@@ -183,10 +183,44 @@ export function formatGameTypes(typesInput) {
   return unique.join(', ');
 }
 
-/** Quickwin und easy_platin: in der normalen Suche ausblendbar, nicht indexiert. */
+/** Typen, die regulär den Index-Status aktivieren */
+export const INDEXABLE_GAME_TYPES = new Set([
+  GAME_TYPE.STANDARD,
+  GAME_TYPE.PREMIUM,
+  GAME_TYPE.EVERGREEN,
+]);
+
+/** Harte NoIndex-Blocker (Veto-Typen) */
+export const BLOCKING_NOINDEX_GAME_TYPES = new Set([
+  GAME_TYPE.UNREADABLE,
+  GAME_TYPE.SERVER_DEAD,
+]);
+
+/**
+ * Berechnet is_indexable für eine Liste von Spieltypen:
+ * - Falls ein NoIndex-Blocker ("Unlesbar", "Servertot") enthalten ist -> false
+ * - Sobald mindestens ein regulär indexierbarer Typ ("Standard", "Evergreen", "Premium") enthalten ist -> true
+ * - Sonst -> false
+ * @param {unknown} gameTypeInput
+ * @returns {boolean}
+ */
+export function computeIsIndexable(gameTypeInput) {
+  const types = parseGameTypes(gameTypeInput);
+  if (types.some((t) => BLOCKING_NOINDEX_GAME_TYPES.has(t))) {
+    return false;
+  }
+  return types.some((t) => INDEXABLE_GAME_TYPES.has(t));
+}
+
+/** Quickwin und easy_platin: in der normalen Suche ausblendbar.
+ * Gibt nur dann true zurück, wenn Quickwin oder easy_platin enthalten ist
+ * UND KEINER der höherwertigen Typen (Evergreen, Premium, Standard) im Array enthalten ist.
+ */
 export function isQuickwinStyleType(gameType) {
   const types = parseGameTypes(gameType);
-  return types.includes(GAME_TYPE.QUICKWIN) || types.includes(GAME_TYPE.EASY_PLATIN);
+  const hasQuickwinStyle = types.includes(GAME_TYPE.QUICKWIN) || types.includes(GAME_TYPE.EASY_PLATIN);
+  const hasFeatured = types.some((t) => INDEXABLE_GAME_TYPES.has(t));
+  return hasQuickwinStyle && !hasFeatured;
 }
 
 /** Servertot: nur Unobtainable-Platins-Seite, nirgends sonst verlinkt. */

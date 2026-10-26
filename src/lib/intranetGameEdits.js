@@ -14,6 +14,7 @@ import {
   TABLES,
   parseGameTypes,
   formatGameTypes,
+  computeIsIndexable,
 } from './gameSchema';
 import { formatHardwareValue } from './gameSlug';
 import {
@@ -46,17 +47,12 @@ export function statusAfterGuideDiscard(currentStatus) {
 
 const GAME_TYPE_VALUES = new Set(Object.values(GAME_TYPE));
 
-/** Diese Typen gehören in die Sitemap. Quickwin, easy_platin, Servertot und Unlesbar bleiben noindex. */
-const INDEXABLE_GAME_TYPES = new Set([
-  GAME_TYPE.STANDARD,
-  GAME_TYPE.PREMIUM,
-  GAME_TYPE.EVERGREEN,
-]);
-
 /**
  * Setzt games.spiel_typ auf bis zu 2 der redaktionellen Typen.
- * Ist mindestens ein Typ indexierbar und keiner der Typen ein noindex-Typ (Quickwin, easy_platin, Servertot, Unlesbar),
- * wird is_indexable auf true gesetzt, sonst false.
+ * Berechnet is_indexable dynamisch über computeIsIndexable:
+ * - Falls ein NoIndex-Blocker ("Unlesbar", "Servertot") enthalten ist -> false
+ * - Sobald mindestens ein regulär indexierbarer Typ ("Standard", "Evergreen", "Premium") enthalten ist -> true
+ * - Sonst -> false
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
  * @param {string|string[]} gameTypeInput
@@ -73,8 +69,7 @@ export async function setIntranetGameType(supabase, gameId, gameTypeInput) {
   }
 
   const formatted = formatGameTypes(parsedTypes);
-  const hasIndexable = parsedTypes.length > 0 && parsedTypes.every((t) => INDEXABLE_GAME_TYPES.has(t));
-  const isIndexable = hasIndexable;
+  const isIndexable = computeIsIndexable(parsedTypes);
 
   const update = {
     [GAME_STRUCT.gameType]: formatted,
