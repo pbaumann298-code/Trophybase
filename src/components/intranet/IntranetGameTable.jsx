@@ -3,6 +3,7 @@ import { supabase } from '../../pages/supabaseClient';
 import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { getPlatformGameIds } from '../../lib/gameModel';
 import { GAME_TYPE } from '../../lib/gameSchema';
+import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import { formatIntranetTitles, intranetGameHref } from '../../lib/intranetQueries';
 import {
   embedCount,
@@ -66,51 +67,6 @@ function StatusDeleteButton({ label, disabled, onClick }) {
     >
       ×
     </button>
-  );
-}
-
-function GameTypeCell({ game, busy, onSelect }) {
-  const [open, setOpen] = useState(false);
-  const current = String(game.spiel_typ ?? '').trim();
-
-  return (
-    <div className="min-w-[7.5rem]">
-      <button
-        type="button"
-        disabled={busy}
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="inline-flex items-center gap-1 rounded-lg border border-zinc-800 bg-[#121314] px-2 py-1 text-[10px] font-mono text-zinc-300 hover:border-[#00ff66]/40 disabled:opacity-50"
-      >
-        <span>{current || 'Typ wählen'}</span>
-        <span aria-hidden className="text-zinc-500">{open ? '▴' : '▾'}</span>
-      </button>
-      {open && (
-        <div className="mt-1 flex flex-col gap-0.5">
-          {GAME_TYPES.map((type) => {
-            const selected = type === current;
-            return (
-              <button
-                key={type}
-                type="button"
-                disabled={busy || selected}
-                onClick={() => {
-                  setOpen(false);
-                  if (!selected) onSelect(type);
-                }}
-                className={`rounded-md px-2 py-1 text-left text-[10px] font-mono ${
-                  selected
-                    ? 'bg-[#00ff66]/10 text-[#00ff66]'
-                    : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
-                } disabled:opacity-70`}
-              >
-                {type}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -313,10 +269,10 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
                     {formatLocalizedHomeTags(game.home_tags, 'de') || '—'}
                   </td>
                   <td className="px-3 py-2">
-                    <GameTypeCell
-                      game={game}
-                      busy={busyKey === `${game.id}:type`}
-                      onSelect={(gameType) => handleType(game, gameType)}
+                    <AdminGameTypeSelect
+                      gameId={game.id}
+                      gameType={game.spiel_typ}
+                      onSaved={(savedType) => patch(game.id, { spiel_typ: savedType })}
                     />
                   </td>
                   <td className="px-3 py-2">

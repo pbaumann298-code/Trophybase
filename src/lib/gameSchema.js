@@ -144,15 +144,55 @@ export const GAME_TYPE = {
   UNREADABLE: 'Unlesbar',
 };
 
+/**
+ * Wandelt games.spiel_typ (String, Komma-getrennt, JSON-Array oder Array) in ein sauberes String-Array um.
+ * @param {unknown} spielTypInput
+ * @returns {string[]} Max. 2 Werte als Array
+ */
+export function parseGameTypes(spielTypInput) {
+  if (!spielTypInput) return [];
+  if (Array.isArray(spielTypInput)) {
+    return spielTypInput.map((t) => String(t ?? '').trim()).filter(Boolean);
+  }
+  const raw = String(spielTypInput ?? '').trim();
+  if (!raw) return [];
+  if (raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((t) => String(t ?? '').trim()).filter(Boolean);
+      }
+    } catch {
+      /* fallback to split below */
+    }
+  }
+  return raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Formatiert bis zu 2 Spieltypen als Komma-getrennten String ("Typ1, Typ2").
+ * @param {unknown} typesInput
+ * @returns {string}
+ */
+export function formatGameTypes(typesInput) {
+  const list = parseGameTypes(typesInput);
+  const unique = [...new Set(list)].slice(0, 2);
+  return unique.join(', ');
+}
+
 /** Quickwin und easy_platin: in der normalen Suche ausblendbar, nicht indexiert. */
 export function isQuickwinStyleType(gameType) {
-  const type = String(gameType ?? '').trim();
-  return type === GAME_TYPE.QUICKWIN || type === GAME_TYPE.EASY_PLATIN;
+  const types = parseGameTypes(gameType);
+  return types.includes(GAME_TYPE.QUICKWIN) || types.includes(GAME_TYPE.EASY_PLATIN);
 }
 
 /** Servertot: nur Unobtainable-Platins-Seite, nirgends sonst verlinkt. */
 export function isServerDeadType(gameType) {
-  return String(gameType ?? '').trim() === GAME_TYPE.SERVER_DEAD;
+  const types = parseGameTypes(gameType);
+  return types.includes(GAME_TYPE.SERVER_DEAD);
 }
 
 /** Startseiten-Reihen, die nur redaktionelle Guides zeigen (keine Quickwins). */

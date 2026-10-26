@@ -6,6 +6,7 @@ import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch';
 import IntranetFollowups from '../components/intranet/IntranetFollowups';
 import IntranetRohmaterial from '../components/intranet/IntranetRohmaterial';
+import IntranetDrafts from '../components/intranet/IntranetDrafts';
 import { useAdminFollowups } from '../hooks/useAdminFollowups';
 
 class IntranetErrorBoundary extends Component {
@@ -32,6 +33,7 @@ class IntranetErrorBoundary extends Component {
 
 const TABS = [
   { id: 'games', label: 'Spiele', icon: '🎮' },
+  { id: 'entwuerfe', label: 'Entwürfe', icon: '📝' },
   { id: 'followups', label: 'Wiedervorlage', icon: '⚑' },
   { id: 'creators', label: 'Creator', icon: '▶' },
   { id: 'rohmaterial', label: 'Rohmaterial', icon: '🧪' },
@@ -42,8 +44,39 @@ function IntranetApp() {
   const [authReady, setAuthReady] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [activeTab, setActiveTab] = useState('games');
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window === 'undefined') return 'games';
+    const hash = String(window.location.hash ?? '').replace('#', '').toLowerCase();
+    const searchTab = new URLSearchParams(window.location.search).get('tab')?.toLowerCase();
+    const pathname = window.location.pathname.toLowerCase();
+    if (
+      hash === 'entwuerfe' ||
+      hash === 'drafts' ||
+      searchTab === 'entwuerfe' ||
+      searchTab === 'drafts' ||
+      pathname.includes('/entwuerfe') ||
+      pathname.includes('/drafts')
+    ) {
+      return 'entwuerfe';
+    }
+    return 'games';
+  });
   const { entries: followups } = useAdminFollowups(sessionUser?.id);
+  const [draftsCount, setDraftsCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDraftsCount() {
+      const { data, error } = await supabase.from('staging_game_guides').select('game_id');
+      if (cancelled || error || !data) return;
+      const uniqueGames = new Set(data.map((r) => r.game_id).filter(Boolean));
+      setDraftsCount(uniqueGames.size);
+    }
+    loadDraftsCount();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -174,6 +207,11 @@ function IntranetApp() {
             >
               <span aria-hidden>{tab.icon}</span>
               {tab.label}
+              {tab.id === 'entwuerfe' && draftsCount > 0 ? (
+                <span className="rounded-full bg-[#00ff66]/15 px-1.5 py-0.5 text-[10px] text-[#00ff66] border border-[#00ff66]/30 font-bold">
+                  {draftsCount}
+                </span>
+              ) : null}
               {tab.id === 'followups' && followups.length > 0 ? (
                 <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
                   {followups.length}
@@ -184,9 +222,10 @@ function IntranetApp() {
         </nav>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-8">
         <IntranetErrorBoundary>
           {activeTab === 'games' && <IntranetGameSearch sessionUser={sessionUser} />}
+          {activeTab === 'entwuerfe' && <IntranetDrafts />}
           {activeTab === 'followups' && <IntranetFollowups sessionUser={sessionUser} />}
           {activeTab === 'creators' && <IntranetCreatorSearch />}
           {activeTab === 'rohmaterial' && <IntranetRohmaterial />}

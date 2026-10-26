@@ -11,10 +11,12 @@ import CommunityReportsPanel from '../components/admin/CommunityReportsPanel';
 import ScriptsPanel from '../components/admin/ScriptsPanel';
 import WebsitePanel from '../components/admin/WebsitePanel';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
+import IntranetDrafts from '../components/intranet/IntranetDrafts';
 
 const TABS = [
   { id: 'website', label: 'Website', icon: '🌐' },
   { id: 'database', label: 'Datenbank', icon: '🗄' },
+  { id: 'entwuerfe', label: 'Entwürfe', icon: '📝' },
   { id: 'reports', label: 'Community Reports', icon: '⚑' },
   { id: 'scripts', label: 'Skripte', icon: '⚙️' },
 ];
@@ -157,9 +159,10 @@ function AdminApp() {
         </nav>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-8">
         {activeTab === 'website' && <WebsitePanel />}
         {activeTab === 'database' && <IntranetGameSearch sessionUser={sessionUser} />}
+        {activeTab === 'entwuerfe' && <IntranetDrafts />}
         {activeTab === 'reports' && <CommunityReportsPanel />}
         {activeTab === 'scripts' && <ScriptsPanel />}
       </main>

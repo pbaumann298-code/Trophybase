@@ -12,6 +12,8 @@ import {
   GUIDE_SHEET_TYPE,
   GUIDE_STRUCT,
   TABLES,
+  parseGameTypes,
+  formatGameTypes,
 } from './gameSchema';
 import { formatHardwareValue } from './gameSlug';
 import {
@@ -52,24 +54,31 @@ const INDEXABLE_GAME_TYPES = new Set([
 ]);
 
 /**
- * Setzt games.spiel_typ auf einen der redaktionellen Typen.
- * Standard, Premium und Evergreen setzen is_indexable mit auf true.
- * Quickwin, easy_platin, Servertot und Unlesbar setzen es auf false. Der Slug bleibt unverändert.
+ * Setzt games.spiel_typ auf bis zu 2 der redaktionellen Typen.
+ * Ist mindestens ein Typ indexierbar und keiner der Typen ein noindex-Typ (Quickwin, easy_platin, Servertot, Unlesbar),
+ * wird is_indexable auf true gesetzt, sonst false.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
- * @param {string} gameType
+ * @param {string|string[]} gameTypeInput
  */
-export async function setIntranetGameType(supabase, gameId, gameType) {
+export async function setIntranetGameType(supabase, gameId, gameTypeInput) {
   const id = String(gameId ?? '').trim();
-  const nextType = String(gameType ?? '').trim();
   if (!id) return { gameType: null, error: new Error('Kein Spiel ausgewählt.') };
-  if (!GAME_TYPE_VALUES.has(nextType)) {
-    return { gameType: null, error: new Error('Unbekannter Spieltyp.') };
+
+  const parsedTypes = parseGameTypes(gameTypeInput).slice(0, 2);
+  for (const t of parsedTypes) {
+    if (!GAME_TYPE_VALUES.has(t)) {
+      return { gameType: null, error: new Error(`Unbekannter Spieltyp: "${t}"`) };
+    }
   }
 
+  const formatted = formatGameTypes(parsedTypes);
+  const hasIndexable = parsedTypes.length > 0 && parsedTypes.every((t) => INDEXABLE_GAME_TYPES.has(t));
+  const isIndexable = hasIndexable;
+
   const update = {
-    [GAME_STRUCT.gameType]: nextType,
-    [GAME_STRUCT.isIndexable]: INDEXABLE_GAME_TYPES.has(nextType),
+    [GAME_STRUCT.gameType]: formatted,
+    [GAME_STRUCT.isIndexable]: isIndexable,
   };
 
   const { data, error } = await supabase
@@ -80,7 +89,7 @@ export async function setIntranetGameType(supabase, gameId, gameType) {
     .maybeSingle();
 
   if (error) return { gameType: null, error };
-  return { gameType: data?.[GAME_STRUCT.gameType] ?? nextType, error: null };
+  return { gameType: data?.[GAME_STRUCT.gameType] ?? formatted, error: null };
 }
 
 /**
