@@ -12,11 +12,13 @@ import ScriptsPanel from '../components/admin/ScriptsPanel';
 import WebsitePanel from '../components/admin/WebsitePanel';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetDrafts from '../components/intranet/IntranetDrafts';
+import IntranetRoadmap from '../components/intranet/IntranetRoadmap';
 
 const TABS = [
   { id: 'website', label: 'Website', icon: '🌐' },
   { id: 'database', label: 'Datenbank', icon: '🗄' },
   { id: 'entwuerfe', label: 'Entwürfe', icon: '📝' },
+  { id: 'roadmap', label: 'Roadmap & Ideen', icon: '🗺️' },
   { id: 'reports', label: 'Community Reports', icon: '⚑' },
   { id: 'scripts', label: 'Skripte', icon: '⚙️' },
 ];
@@ -163,6 +165,7 @@ function AdminApp() {
         {activeTab === 'website' && <WebsitePanel />}
         {activeTab === 'database' && <IntranetGameSearch sessionUser={sessionUser} />}
         {activeTab === 'entwuerfe' && <IntranetDrafts />}
+        {activeTab === 'roadmap' && <IntranetRoadmap />}
         {activeTab === 'reports' && <CommunityReportsPanel />}
         {activeTab === 'scripts' && <ScriptsPanel />}
       </main>

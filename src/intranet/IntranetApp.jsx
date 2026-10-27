@@ -7,6 +7,7 @@ import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch'
 import IntranetFollowups from '../components/intranet/IntranetFollowups';
 import IntranetRohmaterial from '../components/intranet/IntranetRohmaterial';
 import IntranetDrafts from '../components/intranet/IntranetDrafts';
+import IntranetRoadmap from '../components/intranet/IntranetRoadmap';
 import { useAdminFollowups } from '../hooks/useAdminFollowups';
 
 class IntranetErrorBoundary extends Component {
@@ -34,6 +35,7 @@ class IntranetErrorBoundary extends Component {
 const TABS = [
   { id: 'games', label: 'Spiele', icon: '🎮' },
   { id: 'entwuerfe', label: 'Entwürfe', icon: '📝' },
+  { id: 'roadmap', label: 'Roadmap & Ideen', icon: '🗺️' },
   { id: 'followups', label: 'Wiedervorlage', icon: '⚑' },
   { id: 'creators', label: 'Creator', icon: '▶' },
   { id: 'rohmaterial', label: 'Rohmaterial', icon: '🧪' },
@@ -58,6 +60,13 @@ function IntranetApp() {
       pathname.includes('/drafts')
     ) {
       return 'entwuerfe';
+    }
+    if (
+      hash === 'roadmap' ||
+      searchTab === 'roadmap' ||
+      pathname.includes('/roadmap')
+    ) {
+      return 'roadmap';
     }
     return 'games';
   });
@@ -226,6 +235,7 @@ function IntranetApp() {
         <IntranetErrorBoundary>
           {activeTab === 'games' && <IntranetGameSearch sessionUser={sessionUser} />}
           {activeTab === 'entwuerfe' && <IntranetDrafts />}
+          {activeTab === 'roadmap' && <IntranetRoadmap />}
           {activeTab === 'followups' && <IntranetFollowups sessionUser={sessionUser} />}
           {activeTab === 'creators' && <IntranetCreatorSearch />}
           {activeTab === 'rohmaterial' && <IntranetRohmaterial />}

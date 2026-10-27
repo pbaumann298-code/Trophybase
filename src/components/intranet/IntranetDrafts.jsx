@@ -5,6 +5,7 @@ import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import { getYouTubeEmbedUrl, parseTimecodeToSeconds, buildVideoUrlWithTimestamp } from '../../utils/videoUrl';
 import { GUIDE_PUBLICATION, guideStatusKey, parseStatusMap } from '../../lib/guidePublication';
 import { setIntranetGameType, saveTrophyGuideTip } from '../../lib/intranetGameEdits';
+import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { localeOptions } from '../../lib/uiStrings';
 
 function getLocalizedTitle(spieltitel) {
@@ -242,7 +243,120 @@ export default function IntranetDrafts() {
   const [approveLocale, setApproveLocale] = useState('');
   const [selectedGameTypes, setSelectedGameTypes] = useState([]);
 
-  // Load staging queue
+  // Sort state for Guide-Zeilen
+  const [sortField, setSortField] = useState('guide_id');
+  const [sortDirection, setSortDirection] = useState('asc');
+
+  // Search & Replace state
+  const [searchTargetField, setSearchTargetField] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [replaceValue, setReplaceValue] = useState('');
+  const [useRegex, setUseRegex] = useState(false);
+  const [caseSensitive, setCaseSensitive] = useState(false);
+
+  // Rohmaterial (verschobene große Spiele)
+  const [showRohmaterialView, setShowRohmaterialView] = useState(false);
+  const [rohmaterialGames, setRohmaterialGames] = useState([]);
+  const [loadingRohmaterial, setLoadingRohmaterial] = useState(false);
+
+  // Load Rohmaterial games (status->>rohmaterial = PENDING_MULTI_TAB or in game_guides_rohmaterial)
+  const fetchRohmaterialSummary = useCallback(async () => {
+    setLoadingRohmaterial(true);
+    try {
+      let rohRows = [];
+      let rFrom = 0;
+      const PAGE_SIZE = 1000;
+
+      while (true) {
+        const { data: chunk, error: rErr } = await supabase
+          .from(TABLES.guidesRohmaterial)
+          .select('game_id, platform_game_id, creator_name, batch_key, batch_status, created_at')
+          .order('id', { ascending: true })
+          .range(rFrom, rFrom + PAGE_SIZE - 1);
+
+        if (rErr) {
+          console.warn('Fehler beim Laden von game_guides_rohmaterial:', rErr.message);
+          break;
+        }
+        const list = chunk ?? [];
+        rohRows = rohRows.concat(list);
+        if (list.length < PAGE_SIZE) break;
+        rFrom += PAGE_SIZE;
+      }
+
+      const { data: pendingGames } = await supabase
+        .from(TABLES.games)
+        .select('id, platform_game_id, spieltitel, cover_url, status')
+        .eq('status->>rohmaterial', 'PENDING_MULTI_TAB');
+
+      const gameIdsFromRoh = [...new Set(rohRows.map((r) => r.game_id).filter(Boolean))];
+      const existingMap = new Map((pendingGames ?? []).map((g) => [g.id, g]));
+      const missingIds = gameIdsFromRoh.filter((id) => !existingMap.has(id));
+
+      if (missingIds.length > 0) {
+        for (let i = 0; i < missingIds.length; i += 100) {
+          const slice = missingIds.slice(i, i + 100);
+          const { data: extraGames } = await supabase
+            .from(TABLES.games)
+            .select('id, platform_game_id, spieltitel, cover_url, status')
+            .in('id', slice);
+          for (const g of extraGames ?? []) {
+            existingMap.set(g.id, g);
+          }
+        }
+      }
+
+      const groupedByGame = new Map();
+      for (const g of existingMap.values()) {
+        groupedByGame.set(g.id, {
+          gameId: g.id,
+          title: getLocalizedTitle(g.spieltitel),
+          platformGameId: g.platform_game_id || (Array.isArray(g.platform_game_id) ? g.platform_game_id[0] : '—'),
+          coverUrl: getLocalizedCover(g.cover_url),
+          creators: new Set(),
+          batches: new Set(),
+          rowCount: 0,
+          statusRohmaterial: g.status?.rohmaterial || null,
+        });
+      }
+
+      for (const r of rohRows) {
+        const key = r.game_id || r.platform_game_id || r.batch_key;
+        if (!key) continue;
+        let entry = groupedByGame.get(key);
+        if (!entry) {
+          entry = {
+            gameId: r.game_id || null,
+            title: r.platform_game_id || r.batch_key || 'Unbekanntes Spiel',
+            platformGameId: r.platform_game_id || '—',
+            coverUrl: '',
+            creators: new Set(),
+            batches: new Set(),
+            rowCount: 0,
+            statusRohmaterial: 'ROHMATERIAL',
+          };
+          groupedByGame.set(key, entry);
+        }
+        if (r.creator_name) entry.creators.add(r.creator_name);
+        if (r.batch_key) entry.batches.add(r.batch_key);
+        entry.rowCount += 1;
+      }
+
+      const summaryList = [...groupedByGame.values()].map((item) => ({
+        ...item,
+        creatorList: [...item.creators],
+        batchList: [...item.batches],
+      }));
+      summaryList.sort((a, b) => a.title.localeCompare(b.title, 'de'));
+      setRohmaterialGames(summaryList);
+    } catch (err) {
+      console.warn('Rohmaterial-Übersicht konnte nicht geladen werden:', err);
+    } finally {
+      setLoadingRohmaterial(false);
+    }
+  }, []);
+
+  // Load staging queue (with 1000-row chunk loop to bypass PostgREST max_rows limit)
   const fetchQueue = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -255,6 +369,7 @@ export default function IntranetDrafts() {
         const { data: rows, error: readError } = await supabase
           .from('staging_game_guides')
           .select('*')
+          .order('id', { ascending: true })
           .range(from, from + PAGE_SIZE - 1);
 
         if (readError) {
@@ -307,7 +422,8 @@ export default function IntranetDrafts() {
 
   useEffect(() => {
     fetchQueue();
-  }, [fetchQueue]);
+    fetchRohmaterialSummary();
+  }, [fetchQueue, fetchRohmaterialSummary]);
 
   // Group staging rows by game_id
   const gameGroups = useMemo(() => {
@@ -416,21 +532,74 @@ export default function IntranetDrafts() {
     }
   }, [creatorTabs, selectedCreatorName, creatorGroups]);
 
-  // Current creator's rows sorted by guide_id ASC
+  // Toggle sort field / direction
+  const handleToggleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // Current creator's rows sorted by sortField and sortDirection
   const currentCreatorRows = useMemo(() => {
     if (!selectedCreatorName) return [];
     const rows = creatorGroups.get(selectedCreatorName) || [];
-    return [...rows].sort((a, b) => {
-      const numA = Number.parseInt(String(a.guide_id ?? '').replace(/\D/g, ''), 10) || 0;
-      const numB = Number.parseInt(String(b.guide_id ?? '').replace(/\D/g, ''), 10) || 0;
-      return numA - numB;
-    });
-  }, [selectedCreatorName, creatorGroups]);
+    const dir = sortDirection === 'desc' ? -1 : 1;
 
-  // Set initial video player URL when creator changes
+    return [...rows].sort((a, b) => {
+      let cmp = 0;
+
+      if (sortField === 'guide_id') {
+        const numA = Number.parseInt(String(a.guide_id ?? '').replace(/\D/g, ''), 10);
+        const numB = Number.parseInt(String(b.guide_id ?? '').replace(/\D/g, ''), 10);
+        const valA = Number.isNaN(numA) ? Number.MAX_SAFE_INTEGER : numA;
+        const valB = Number.isNaN(numB) ? Number.MAX_SAFE_INTEGER : numB;
+        cmp = valA - valB;
+      } else if (sortField === 'timestamp') {
+        const secA = parseTimecodeToSeconds(a.timestamp);
+        const secB = parseTimecodeToSeconds(b.timestamp);
+        const valA = secA == null ? Number.MAX_SAFE_INTEGER : secA;
+        const valB = secB == null ? Number.MAX_SAFE_INTEGER : secB;
+        cmp = valA - valB;
+      } else if (sortField === 'item_name') {
+        const strA = getLocalizedItemName(a.item_name);
+        const strB = getLocalizedItemName(b.item_name);
+        cmp = strA.localeCompare(strB, 'de', { numeric: true });
+      } else if (sortField === 'chronological_group') {
+        const strA = getLocalizedItemName(a.chronological_group);
+        const strB = getLocalizedItemName(b.chronological_group);
+        cmp = strA.localeCompare(strB, 'de', { numeric: true });
+      } else if (sortField === 'video_chapter') {
+        const strA = getLocalizedItemName(a.video_chapter);
+        const strB = getLocalizedItemName(b.video_chapter);
+        cmp = strA.localeCompare(strB, 'de', { numeric: true });
+      } else if (sortField === 'trophy_id') {
+        const numA = Number.parseInt(String(a.trophy_id ?? '').replace(/\D/g, ''), 10);
+        const numB = Number.parseInt(String(b.trophy_id ?? '').replace(/\D/g, ''), 10);
+        const valA = Number.isNaN(numA) ? Number.MAX_SAFE_INTEGER : numA;
+        const valB = Number.isNaN(numB) ? Number.MAX_SAFE_INTEGER : numB;
+        cmp = valA - valB;
+      }
+
+      if (cmp !== 0) return cmp * dir;
+      const fallbackA = Number.parseInt(String(a.guide_id ?? '').replace(/\D/g, ''), 10) || 0;
+      const fallbackB = Number.parseInt(String(b.guide_id ?? '').replace(/\D/g, ''), 10) || 0;
+      return fallbackA - fallbackB;
+    });
+  }, [selectedCreatorName, creatorGroups, sortField, sortDirection]);
+
+  // Set initial video player URL when game or creator changes
   useEffect(() => {
-    if (currentCreatorRows.length > 0) {
-      const firstWithVideo = currentCreatorRows.find((r) => r.video_url) || currentCreatorRows[0];
+    const rawRows = selectedCreatorName ? creatorGroups.get(selectedCreatorName) || [] : [];
+    if (rawRows.length > 0) {
+      const sortedById = [...rawRows].sort((a, b) => {
+        const numA = Number.parseInt(String(a.guide_id ?? '').replace(/\D/g, ''), 10) || 0;
+        const numB = Number.parseInt(String(b.guide_id ?? '').replace(/\D/g, ''), 10) || 0;
+        return numA - numB;
+      });
+      const firstWithVideo = sortedById.find((r) => r.video_url) || sortedById[0];
       if (firstWithVideo) {
         setActiveVideoUrl(firstWithVideo.video_url || '');
         setActiveTimestamp(firstWithVideo.timestamp || '');
@@ -439,7 +608,8 @@ export default function IntranetDrafts() {
       setActiveVideoUrl('');
       setActiveTimestamp('');
     }
-  }, [selectedCreatorName, currentCreatorRows]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGameId, selectedCreatorName]);
 
   // Selected game details
   const selectedGame = useMemo(() => {
@@ -899,6 +1069,287 @@ export default function IntranetDrafts() {
     handleUpdateRowField(activeRowId, 'is_trophy_relevant', 'Ja');
   };
 
+  // 8b. IDs neu durchnummerieren (1..N) in aktueller Sortierreihenfolge
+  const handleRenumberGuideIds = async () => {
+    if (!currentCreatorRows.length || actionBusy) return;
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const updatesMap = new Map();
+      currentCreatorRows.forEach((row, index) => {
+        updatesMap.set(row.id, index + 1);
+      });
+
+      // Optimistic state update
+      setStagingRows((prev) =>
+        prev.map((r) => (updatesMap.has(r.id) ? { ...r, guide_id: updatesMap.get(r.id) } : r))
+      );
+
+      const entries = [...updatesMap.entries()];
+      const CHUNK_SIZE = 50;
+
+      for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
+        const chunk = entries.slice(i, i + CHUNK_SIZE);
+        const results = await Promise.all(
+          chunk.map(([rowId, newGuideId]) =>
+            supabase
+              .from('staging_game_guides')
+              .update({ guide_id: newGuideId })
+              .eq('id', rowId)
+          )
+        );
+        const failed = results.find((res) => res.error);
+        if (failed?.error) {
+          throw new Error(failed.error.message);
+        }
+      }
+
+      setSortField('guide_id');
+      setSortDirection('asc');
+      setNotice(`🔢 ${entries.length} Zeilen erfolgreich neu durchnummeriert (1..${entries.length}).`);
+    } catch (err) {
+      setError(`Fehler beim Neu-Nummerieren: ${err.message}`);
+      await fetchQueue();
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // 8c. Suchen & Ersetzen Logik
+  const searchReplacePreview = useMemo(() => {
+    if (!searchQuery || !currentCreatorRows.length) {
+      return { matchCount: 0, matchedRows: [], regexError: null };
+    }
+
+    let regex = null;
+    try {
+      const flags = caseSensitive ? 'g' : 'gi';
+      const pattern = useRegex
+        ? searchQuery
+        : searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      regex = new RegExp(pattern, flags);
+    } catch (err) {
+      return { matchCount: 0, matchedRows: [], regexError: err.message };
+    }
+
+    const targetFields =
+      searchTargetField === 'all'
+        ? ['item_name', 'chronological_group', 'video_chapter']
+        : [searchTargetField];
+
+    const matchedRows = [];
+
+    for (const row of currentCreatorRows) {
+      let rowMatched = false;
+      const newFields = {};
+
+      for (const field of targetFields) {
+        const rawVal = row[field];
+        const currentStr = getLocalizedItemName(rawVal);
+        if (!currentStr) continue;
+
+        regex.lastIndex = 0;
+        if (regex.test(currentStr)) {
+          rowMatched = true;
+          regex.lastIndex = 0;
+          const replacedStr = currentStr.replace(regex, replaceValue);
+          if (typeof rawVal === 'object' && rawVal !== null && !Array.isArray(rawVal)) {
+            const nextObj = { ...rawVal };
+            for (const k of Object.keys(nextObj)) {
+              if (typeof nextObj[k] === 'string') {
+                regex.lastIndex = 0;
+                nextObj[k] = nextObj[k].replace(regex, replaceValue);
+              }
+            }
+            if (!Object.keys(nextObj).length) {
+              nextObj.de = replacedStr;
+            }
+            newFields[field] = nextObj;
+          } else {
+            newFields[field] = replacedStr;
+          }
+        }
+      }
+
+      if (rowMatched) {
+        matchedRows.push({ id: row.id, updates: newFields });
+      }
+    }
+
+    return {
+      matchCount: matchedRows.length,
+      matchedRows,
+      regexError: null,
+    };
+  }, [searchQuery, replaceValue, searchTargetField, useRegex, caseSensitive, currentCreatorRows]);
+
+  const handleApplySearchReplace = async () => {
+    const { matchedRows, matchCount, regexError } = searchReplacePreview;
+    if (!matchCount || regexError || actionBusy) return;
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const updatesById = new Map(matchedRows.map((m) => [m.id, m.updates]));
+
+      // Optimistic state update
+      setStagingRows((prev) =>
+        prev.map((r) => (updatesById.has(r.id) ? { ...r, ...updatesById.get(r.id) } : r))
+      );
+
+      const CHUNK_SIZE = 50;
+      for (let i = 0; i < matchedRows.length; i += CHUNK_SIZE) {
+        const chunk = matchedRows.slice(i, i + CHUNK_SIZE);
+        const results = await Promise.all(
+          chunk.map((item) =>
+            supabase
+              .from('staging_game_guides')
+              .update(item.updates)
+              .eq('id', item.id)
+          )
+        );
+        const failed = results.find((res) => res.error);
+        if (failed?.error) {
+          throw new Error(failed.error.message);
+        }
+      }
+
+      setNotice(`🔄 Suchen & Ersetzen in ${matchCount} Zeilen erfolgreich angewendet.`);
+    } catch (err) {
+      setError(`Fehler bei Suchen & Ersetzen: ${err.message}`);
+      await fetchQueue();
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // 8d. Großes Spiel -> Rohmaterial (Multi-Tab) verschieben
+  const handleMoveToRohmaterial = async () => {
+    if (!selectedGameId || !selectedCreatorName || actionBusy) return;
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    const targetGameId = selectedGameId;
+    const targetCreator = selectedCreatorName;
+
+    try {
+      let movedViaRpc = false;
+
+      // 1. Versuche Supabase RPC move_staging_to_rohmaterial
+      const { error: rpcErr } = await supabase.rpc('move_staging_to_rohmaterial', {
+        p_game_id: targetGameId,
+        p_creator_name: targetCreator,
+      });
+
+      if (!rpcErr) {
+        movedViaRpc = true;
+      } else {
+        console.warn(
+          'RPC move_staging_to_rohmaterial nicht verfügbar oder fehlgeschlagen, nutze Fallback:',
+          rpcErr.message
+        );
+
+        // Fallback: Zeilen in game_guides_rohmaterial kopieren, games.status.rohmaterial = 'PENDING_MULTI_TAB' setzen, aus staging_game_guides löschen
+        const safeCreator = targetCreator.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
+        const batchKey = `staging_${String(targetGameId).slice(0, 8)}_${safeCreator}_${Date.now()}`;
+
+        const toJsonb = (val) => {
+          if (!val) return null;
+          if (typeof val === 'object' && !Array.isArray(val)) return val;
+          const str = String(val).trim();
+          return str ? { de: str, en: str } : null;
+        };
+
+        const parseNum = (val) => {
+          const digits = String(val ?? '').replace(/\D/g, '');
+          return digits ? Number.parseInt(digits, 10) : null;
+        };
+
+        const rohRows = currentCreatorRows.map((r, idx) => ({
+          batch_key: batchKey,
+          batch_status: 'MATCHED',
+          creator_name: targetCreator,
+          playlist_url: r.creator_input_url || r.video_url || null,
+          game_id: r.game_id,
+          platform_game_id:
+            r.platform_game_id ||
+            (Array.isArray(selectedGame?.platform_game_id)
+              ? selectedGame.platform_game_id[0]
+              : selectedGame?.platform_game_id) ||
+            null,
+          guide_id: parseNum(r.guide_id) ?? idx + 1,
+          sheet_type: Array.isArray(r.sheet_type) && r.sheet_type.length > 0 ? r.sheet_type : [1],
+          item_name: toJsonb(r.item_name),
+          chronological_group: toJsonb(r.chronological_group),
+          video_chapter: toJsonb(r.video_chapter),
+          timestamp: r.timestamp || null,
+          video_url: r.video_url || null,
+          trophy_id: parseNum(r.trophy_id),
+          is_trophy_relevant: r.is_trophy_relevant || null,
+        }));
+
+        if (rohRows.length > 0) {
+          const { error: insErr } = await supabase
+            .from(TABLES.guidesRohmaterial)
+            .insert(rohRows);
+
+          if (insErr) {
+            throw new Error(`Fehler beim Kopieren in game_guides_rohmaterial: ${insErr.message}`);
+          }
+        }
+
+        // games.status.rohmaterial = 'PENDING_MULTI_TAB' setzen
+        const { data: currentGameData } = await supabase
+          .from(TABLES.games)
+          .select(GAME_STRUCT.status)
+          .eq(GAME_PK, targetGameId)
+          .maybeSingle();
+
+        const statusMap = {
+          ...parseStatusMap(currentGameData?.[GAME_STRUCT.status]),
+          rohmaterial: 'PENDING_MULTI_TAB',
+        };
+
+        const { error: statusUpErr } = await supabase
+          .from(TABLES.games)
+          .update({ [GAME_STRUCT.status]: statusMap })
+          .eq(GAME_PK, targetGameId);
+
+        if (statusUpErr) {
+          console.warn('Warnung beim Setzen von status.rohmaterial:', statusUpErr.message);
+        }
+
+        // Aus staging_game_guides löschen (für dieses Spiel)
+        const { error: delStagingErr } = await supabase
+          .from('staging_game_guides')
+          .delete()
+          .eq('game_id', targetGameId);
+
+        if (delStagingErr) {
+          throw new Error(`Fehler beim Löschen aus staging_game_guides: ${delStagingErr.message}`);
+        }
+      }
+
+      setNotice(
+        `📦 Spiel "${getLocalizedTitle(selectedGame?.spieltitel)}" (${targetCreator}) zu Rohmaterial (Multi-Tab) verschoben${movedViaRpc ? ' (RPC)' : ''}.`
+      );
+      jumpToNextGame(targetGameId);
+      fetchQueue();
+      fetchRohmaterialSummary();
+    } catch (err) {
+      setError(`Verschieben zu Rohmaterial fehlgeschlagen: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   // 9. Guide-Tipp für Trophäe in DB speichern
   const handleSaveTrophyGuideTip = async (platformAchievementId, newTipText) => {
     if (!selectedGameId || !platformAchievementId) return;
@@ -960,6 +1411,120 @@ export default function IntranetDrafts() {
         <div className="flex items-center justify-between rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-xs text-red-300">
           <span>{error}</span>
           <button type="button" onClick={() => setError('')} className="text-zinc-400 hover:text-white">✕</button>
+        </div>
+      )}
+
+      {/* Umschalter / Zähler für verschobene große Spiele (Rohmaterial) */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-800 bg-[#121314] px-4 py-2.5">
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowRohmaterialView((prev) => !prev)}
+            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-mono font-bold transition ${
+              showRohmaterialView
+                ? 'border-purple-500/60 bg-purple-500/20 text-purple-200'
+                : 'border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20'
+            }`}
+          >
+            <span>📦 Verschobene große Spiele (Rohmaterial: {rohmaterialGames.length})</span>
+            <span>{showRohmaterialView ? '▲' : '▼'}</span>
+          </button>
+          <span className="text-[11px] font-mono text-zinc-500">
+            Offene Entwürfe: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({stagingRows.length} Zeilen)
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            fetchQueue();
+            fetchRohmaterialSummary();
+          }}
+          className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] font-mono text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
+        >
+          🔄 Alles aktualisieren
+        </button>
+      </div>
+
+      {/* Aufklappbare Liste der verschobenen großen Spiele (Rohmaterial / Multi-Tab) */}
+      {showRohmaterialView && (
+        <div className="rounded-2xl border border-purple-500/30 bg-[#15131c] p-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between border-b border-purple-500/20 pb-2">
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-purple-200">
+                📦 Verschobene große Spiele zur Multi-Tab-Bearbeitung ({rohmaterialGames.length})
+              </h3>
+              <p className="text-[11px] text-zinc-400 font-mono">
+                Spiele mit <span className="text-purple-300">status-&gt;&gt;&apos;rohmaterial&apos; = &apos;PENDING_MULTI_TAB&apos;</span> oder Einträgen in <span className="text-purple-300">game_guides_rohmaterial</span>
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowRohmaterialView(false)}
+              className="text-xs font-mono text-zinc-400 hover:text-white px-2 py-1"
+            >
+              ✕ Schließen
+            </button>
+          </div>
+
+          {loadingRohmaterial ? (
+            <p className="text-xs font-mono text-zinc-400 py-4 text-center animate-pulse">
+              Lade Rohmaterial-Spiele…
+            </p>
+          ) : rohmaterialGames.length === 0 ? (
+            <p className="text-xs font-mono text-zinc-500 py-4 text-center">
+              Aktuell keine verschobenen großen Spiele vorhanden.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-80 overflow-y-auto pr-1">
+              {rohmaterialGames.map((item, idx) => {
+                const targetId = item.gameId || item.platformGameId;
+                const multiTabHref = targetId ? `/guide/${encodeURIComponent(targetId)}?rohmaterial=1` : '';
+                return (
+                  <div
+                    key={item.gameId || item.platformGameId || idx}
+                    className="flex items-center justify-between gap-2.5 rounded-xl border border-purple-500/25 bg-zinc-900/80 p-2.5 hover:border-purple-400/50 transition"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      {item.coverUrl ? (
+                        <img
+                          src={item.coverUrl}
+                          alt={item.title}
+                          className="h-11 w-9 shrink-0 rounded object-cover bg-zinc-800"
+                        />
+                      ) : (
+                        <div className="h-11 w-9 shrink-0 rounded bg-zinc-800 flex items-center justify-center text-xs">
+                          📦
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-white truncate">{item.title}</p>
+                        <p className="text-[10px] font-mono text-purple-300 truncate">
+                          {item.platformGameId} · {item.rowCount} Zeilen
+                        </p>
+                        {item.creatorList?.length > 0 && (
+                          <p className="text-[10px] font-mono text-zinc-400 truncate">
+                            ▶ {item.creatorList.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {multiTabHref && (
+                      <a
+                        href={multiTabHref}
+                        onClick={(e) => handleStaffGamePreviewClick(e, multiTabHref)}
+                        className="shrink-0 rounded-lg border border-purple-400/40 bg-purple-500/20 px-2.5 py-1.5 text-[10px] font-mono font-bold text-purple-200 hover:bg-purple-500/35 no-underline"
+                        title="Zur Multi-Tab-Bearbeitung öffnen"
+                      >
+                        Öffnen ↗
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1176,9 +1741,9 @@ export default function IntranetDrafts() {
                 </div>
 
                 {/* C. GUIDE-ZEILEN TABELLE (SUPER COMPACT HIGH-DENSITY) */}
-                <div className="rounded-2xl border border-zinc-800 bg-[#121314] p-3 flex flex-col gap-2">
+                <div className="rounded-2xl border border-zinc-800 bg-[#121314] p-3 flex flex-col gap-2.5">
                   <div className="flex items-center justify-between px-1 flex-wrap gap-2">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-white">
                         Guide-Zeilen ({currentCreatorRows.length})
                       </h4>
@@ -1191,6 +1756,15 @@ export default function IntranetDrafts() {
                       >
                         ⚡ Zeiten in Items bereinigen
                       </button>
+                      <button
+                        type="button"
+                        disabled={actionBusy || currentCreatorRows.length === 0}
+                        onClick={handleRenumberGuideIds}
+                        title="Nummeriert guide_id (1..N) in der aktuell angezeigten Sortierreihenfolge neu durch"
+                        className="inline-flex items-center gap-1 rounded bg-cyan-500/10 px-2 py-1 text-[11px] font-medium text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/30 transition disabled:opacity-50"
+                      >
+                        🔢 IDs neu durchnummerieren (1..N)
+                      </button>
                     </div>
                     {activeRowId && (
                       <span className="text-[10px] font-mono text-[#00ff66]">
@@ -1199,16 +1773,153 @@ export default function IntranetDrafts() {
                     )}
                   </div>
 
+                  {/* Kompakte Suchen & Ersetzen Leiste */}
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-800/90 bg-zinc-900/70 px-2.5 py-2 text-[11px]">
+                    <select
+                      value={searchTargetField}
+                      onChange={(e) => setSearchTargetField(e.target.value)}
+                      className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
+                      title="Zielfeld für Suchen & Ersetzen"
+                    >
+                      <option value="all">Alle Textfelder</option>
+                      <option value="item_name">Item / Bezeichnung (item_name)</option>
+                      <option value="chronological_group">Gruppe (chronological_group)</option>
+                      <option value="video_chapter">Chapter (video_chapter)</option>
+                    </select>
+
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Suchen nach..."
+                      className="min-w-[120px] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                    />
+
+                    <input
+                      type="text"
+                      value={replaceValue}
+                      onChange={(e) => setReplaceValue(e.target.value)}
+                      placeholder="Ersetzen durch... (leer = löschen)"
+                      className="min-w-[120px] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                    />
+
+                    <label className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-400 cursor-pointer select-none px-1">
+                      <input
+                        type="checkbox"
+                        checked={useRegex}
+                        onChange={(e) => setUseRegex(e.target.checked)}
+                        className="rounded border-zinc-700 bg-zinc-900 text-[#00ff66] focus:ring-0"
+                      />
+                      <span>Regex</span>
+                    </label>
+
+                    <label className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-400 cursor-pointer select-none px-1">
+                      <input
+                        type="checkbox"
+                        checked={caseSensitive}
+                        onChange={(e) => setCaseSensitive(e.target.checked)}
+                        className="rounded border-zinc-700 bg-zinc-900 text-[#00ff66] focus:ring-0"
+                      />
+                      <span>Aa</span>
+                    </label>
+
+                    <button
+                      type="button"
+                      disabled={
+                        actionBusy ||
+                        !searchQuery ||
+                        searchReplacePreview.matchCount === 0 ||
+                        Boolean(searchReplacePreview.regexError)
+                      }
+                      onClick={handleApplySearchReplace}
+                      className="inline-flex items-center gap-1 rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2.5 py-1 text-[11px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40 transition shrink-0"
+                    >
+                      🔄 In {searchReplacePreview.matchCount} Treffern ersetzen
+                    </button>
+
+                    {searchReplacePreview.regexError && (
+                      <span className="w-full text-[10px] font-mono text-red-400">
+                        Ungültiger Regex: {searchReplacePreview.regexError}
+                      </span>
+                    )}
+                  </div>
+
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-[11px] font-mono border-collapse min-w-[650px] sm:min-w-0">
                       <thead>
-                        <tr className="border-b border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider">
-                          <th className="py-2 px-1 w-8 sm:w-10">ID</th>
-                          <th className="py-2 px-1">Item / Bezeichnung</th>
-                          <th className="py-2 px-1 w-24">Gruppe</th>
-                          <th className="py-2 px-1 w-28">Zeit</th>
-                          <th className="py-2 px-1 w-32 sm:w-40">Chapter / Info</th>
-                          <th className="py-2 px-1 w-20 sm:w-24">Trophy ID</th>
+                        <tr className="border-b border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider select-none">
+                          <th
+                            onClick={() => handleToggleSort('guide_id')}
+                            className="py-2 px-1 w-10 sm:w-12 cursor-pointer hover:text-white transition"
+                            title="Nach ID sortieren"
+                          >
+                            <span className="inline-flex items-center gap-0.5">
+                              <span>ID</span>
+                              {sortField === 'guide_id' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
+                          <th
+                            onClick={() => handleToggleSort('item_name')}
+                            className="py-2 px-1 cursor-pointer hover:text-white transition"
+                            title="Nach Item / Bezeichnung sortieren"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <span>Item / Bezeichnung</span>
+                              {sortField === 'item_name' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
+                          <th
+                            onClick={() => handleToggleSort('chronological_group')}
+                            className="py-2 px-1 w-24 cursor-pointer hover:text-white transition"
+                            title="Nach Gruppe sortieren"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <span>Gruppe</span>
+                              {sortField === 'chronological_group' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
+                          <th
+                            onClick={() => handleToggleSort('timestamp')}
+                            className="py-2 px-1 w-28 cursor-pointer hover:text-white transition"
+                            title="Numerisch nach Zeit (Sekunden) sortieren"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <span>Zeit</span>
+                              {sortField === 'timestamp' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
+                          <th
+                            onClick={() => handleToggleSort('video_chapter')}
+                            className="py-2 px-1 w-32 sm:w-40 cursor-pointer hover:text-white transition"
+                            title="Nach Chapter / Info sortieren"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <span>Chapter / Info</span>
+                              {sortField === 'video_chapter' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
+                          <th
+                            onClick={() => handleToggleSort('trophy_id')}
+                            className="py-2 px-1 w-20 sm:w-24 cursor-pointer hover:text-white transition"
+                            title="Nach Trophy ID sortieren"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <span>Trophy ID</span>
+                              {sortField === 'trophy_id' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
                           <th className="py-2 px-1 w-12 text-right">Aktion</th>
                         </tr>
                       </thead>
@@ -1351,9 +2062,9 @@ export default function IntranetDrafts() {
                   </div>
                 </div>
 
-                {/* E. ACTION-BAR (Freigeben vs. Löschen) */}
-                <div className="sticky bottom-4 z-40 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-[#121314]/95 backdrop-blur-md p-3 shadow-xl">
-                  <div className="flex items-center gap-2">
+                {/* E. ACTION-BAR (Freigeben vs. Rohmaterial vs. Löschen) */}
+                <div className="sticky bottom-4 z-40 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-800 bg-[#121314]/95 backdrop-blur-md p-3 shadow-xl">
+                  <div className="flex flex-wrap items-center gap-2">
                     {/* [✓ Diesen Creator freigeben] (Grün) */}
                     <button
                       type="button"
@@ -1363,6 +2074,18 @@ export default function IntranetDrafts() {
                     >
                       <span>✓</span>
                       <span>Diesen Creator freigeben</span>
+                    </button>
+
+                    {/* [📦 Großes Spiel -> Rohmaterial (Multi-Tab)] (Lila/Blau, Sofort-Aktion ohne Confirm) */}
+                    <button
+                      type="button"
+                      disabled={actionBusy || currentCreatorRows.length === 0}
+                      onClick={handleMoveToRohmaterial}
+                      title="Verschiebt das Spiel ohne Rückfrage sofort zu Rohmaterial (Multi-Tab) und springt zum nächsten Spiel"
+                      className="flex items-center gap-2 rounded-xl border border-purple-500/50 bg-purple-600/20 px-3.5 py-2.5 text-xs font-bold text-purple-200 hover:bg-purple-600/35 hover:border-purple-400 disabled:opacity-50 transition shadow-lg shadow-purple-500/10"
+                    >
+                      <span>📦</span>
+                      <span>Großes Spiel -&gt; Rohmaterial (Multi-Tab)</span>
                     </button>
 
                     {/* [✕ Creator verwerfen] (Orange) */}
