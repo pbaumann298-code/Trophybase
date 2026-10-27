@@ -4,7 +4,7 @@ import { TABLES, GAME_FK, GAME_PK, GAME_STRUCT, GAME_TYPE, parseGameTypes } from
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import { getYouTubeEmbedUrl, parseTimecodeToSeconds, buildVideoUrlWithTimestamp } from '../../utils/videoUrl';
 import { GUIDE_PUBLICATION, guideStatusKey, parseStatusMap } from '../../lib/guidePublication';
-import { setIntranetGameType } from '../../lib/intranetGameEdits';
+import { setIntranetGameType, saveTrophyGuideTip } from '../../lib/intranetGameEdits';
 import { localeOptions } from '../../lib/uiStrings';
 
 function getLocalizedTitle(spieltitel) {
@@ -31,6 +31,24 @@ function getLocalizedTrophyName(trophyName) {
   return trophyName.de || trophyName.en || Object.values(trophyName)[0] || '';
 }
 
+function getLocalizedTrophyDesc(trophyDesc, lang = 'de') {
+  if (!trophyDesc) return '';
+  if (typeof trophyDesc === 'string') return trophyDesc;
+  if (typeof trophyDesc === 'object') {
+    return trophyDesc[lang] || trophyDesc.de || trophyDesc.en || Object.values(trophyDesc)[0] || '';
+  }
+  return '';
+}
+
+function getLocalizedGuideTip(guideTip, lang = 'de') {
+  if (!guideTip) return '';
+  if (typeof guideTip === 'string') return guideTip;
+  if (typeof guideTip === 'object') {
+    return guideTip[lang] || guideTip.de || guideTip.en || Object.values(guideTip)[0] || '';
+  }
+  return '';
+}
+
 function TrophyTypeBadge({ type }) {
   const t = String(type ?? '').toLowerCase();
   let bg = 'bg-amber-700/30 text-amber-300 border-amber-600/40';
@@ -49,6 +67,146 @@ function TrophyTypeBadge({ type }) {
     <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-mono font-bold border ${bg}`}>
       {label}
     </span>
+  );
+}
+
+function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuideTip }) {
+  const trophyId = trophy.platform_achievement_id || trophy.id;
+  const nameStr = getLocalizedTrophyName(trophy.trophy_name);
+  const descStr = getLocalizedTrophyDesc(trophy.trophy_desc ?? trophy.trophy_description, trophyLang);
+  const tipStr = getLocalizedGuideTip(trophy.guide_tip, trophyLang);
+
+  const [isEditingTip, setIsEditingTip] = useState(false);
+  const [tipDraft, setTipDraft] = useState(tipStr);
+  const [savingTip, setSavingTip] = useState(false);
+
+  useEffect(() => {
+    setTipDraft(tipStr);
+  }, [tipStr]);
+
+  const handleCommit = async () => {
+    if (tipDraft.trim() === tipStr.trim()) {
+      setIsEditingTip(false);
+      return;
+    }
+    setSavingTip(true);
+    await onSaveGuideTip(trophyId, tipDraft);
+    setSavingTip(false);
+    setIsEditingTip(false);
+  };
+
+  return (
+    <div className="group flex flex-col gap-2 rounded-xl border border-zinc-800/80 bg-[#161718] p-2.5 hover:border-zinc-700 hover:bg-zinc-800/50 transition">
+      {/* Top Header Row */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {trophy.icon_url ? (
+            <img
+              src={trophy.icon_url}
+              alt=""
+              className="h-8 w-8 shrink-0 rounded bg-zinc-800 object-cover"
+            />
+          ) : (
+            <div className="h-8 w-8 shrink-0 rounded bg-zinc-800 flex items-center justify-center text-[10px]">
+              🏆
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="text-xs font-bold text-white truncate leading-tight">{nameStr || trophyId}</p>
+              <TrophyTypeBadge type={trophy.trophy_type} />
+            </div>
+            <p className="text-[9px] font-mono text-zinc-400 truncate mt-0.5">
+              ID: <span className="text-zinc-300">{trophyId}</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Quick Assign Button */}
+        {activeRowId && (
+          <button
+            type="button"
+            onClick={() => onAssign(trophyId)}
+            title="Trophy ID der aktiven Zeile zuordnen"
+            className="shrink-0 rounded bg-[#00ff66]/15 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/30 border border-[#00ff66]/30"
+          >
+            + Assign
+          </button>
+        )}
+      </div>
+
+      {/* Trophy Description (trophy_desc) */}
+      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/60 p-2 text-[11px] font-sans">
+        <span className="mb-0.5 block font-mono text-[9px] font-bold uppercase tracking-wider text-zinc-500">
+          Beschreibung:
+        </span>
+        {descStr ? (
+          <p className="italic text-zinc-300 leading-relaxed">{descStr}</p>
+        ) : (
+          <p className="text-[10px] italic text-zinc-600">(Keine Beschreibung)</p>
+        )}
+      </div>
+
+      {/* Guide Tip (guide_tip) */}
+      <div className="rounded-lg border border-[#00ff66]/20 bg-[#00ff66]/5 p-2 text-[11px]">
+        <div className="flex items-center justify-between mb-1">
+          <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-[#00ff66]">
+            💡 Guide-Tipp ({trophyLang.toUpperCase()}):
+          </span>
+          {!isEditingTip && (
+            <button
+              type="button"
+              onClick={() => setIsEditingTip(true)}
+              className="font-mono text-[9px] text-zinc-400 hover:text-[#00ff66] underline transition"
+            >
+              {tipStr ? '✏️ Bearbeiten' : '+ Tipp hinzufügen'}
+            </button>
+          )}
+        </div>
+
+        {isEditingTip ? (
+          <div className="flex flex-col gap-1.5 mt-1">
+            <textarea
+              value={tipDraft}
+              onChange={(e) => setTipDraft(e.target.value)}
+              rows={2}
+              placeholder="Guide-Tipp eingeben…"
+              disabled={savingTip}
+              className="w-full resize-y rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66] focus:outline-none font-sans"
+            />
+            <div className="flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                disabled={savingTip}
+                onClick={() => {
+                  setTipDraft(tipStr);
+                  setIsEditingTip(false);
+                }}
+                className="rounded px-2 py-0.5 font-mono text-[10px] text-zinc-400 hover:text-white bg-zinc-800"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                disabled={savingTip}
+                onClick={handleCommit}
+                className="rounded px-2.5 py-0.5 font-mono text-[10px] font-bold text-black bg-[#00ff66] hover:bg-[#00ff66]/90 flex items-center gap-1"
+              >
+                {savingTip ? 'Speichert…' : '✓ Speichern'}
+              </button>
+            </div>
+          </div>
+        ) : tipStr ? (
+          <p className="font-sans text-xs italic text-zinc-200 leading-relaxed whitespace-pre-wrap">
+            {tipStr}
+          </p>
+        ) : (
+          <p className="font-mono text-[10px] italic text-zinc-500">
+            Kein Tipp hinterlegt.
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -74,6 +232,7 @@ export default function IntranetDrafts() {
   // Parallel Trophies
   const [gameTrophies, setGameTrophies] = useState([]);
   const [loadingTrophies, setLoadingTrophies] = useState(false);
+  const [trophyLang, setTrophyLang] = useState('de');
 
   // Busy action state
   const [actionBusy, setActionBusy] = useState(false);
@@ -740,6 +899,47 @@ export default function IntranetDrafts() {
     handleUpdateRowField(activeRowId, 'is_trophy_relevant', 'Ja');
   };
 
+  // 9. Guide-Tipp für Trophäe in DB speichern
+  const handleSaveTrophyGuideTip = async (platformAchievementId, newTipText) => {
+    if (!selectedGameId || !platformAchievementId) return;
+    const { error: err } = await saveTrophyGuideTip(
+      supabase,
+      selectedGameId,
+      platformAchievementId,
+      trophyLang,
+      newTipText
+    );
+
+    if (err) {
+      console.error('Fehler beim Speichern des Guide-Tipps:', err.message);
+      setError(`Trophäen-Tipp konnte nicht gespeichert werden: ${err.message}`);
+      return;
+    }
+
+    setNotice(`Guide-Tipp für Trophäe "${platformAchievementId}" [${trophyLang.toUpperCase()}] gespeichert.`);
+    setGameTrophies((prev) =>
+      prev.map((t) => {
+        if (t.platform_achievement_id === platformAchievementId || t.id === platformAchievementId) {
+          let currentMap = {};
+          if (typeof t.guide_tip === 'object' && t.guide_tip !== null && !Array.isArray(t.guide_tip)) {
+            currentMap = { ...t.guide_tip };
+          } else if (typeof t.guide_tip === 'string' && t.guide_tip) {
+            currentMap = { de: t.guide_tip };
+          }
+
+          if (newTipText.trim()) {
+            currentMap[trophyLang] = newTipText.trim();
+          } else {
+            delete currentMap[trophyLang];
+          }
+
+          return { ...t, guide_tip: currentMap };
+        }
+        return t;
+      })
+    );
+  };
+
   // Video embed URL
   const currentEmbedUrl = useMemo(() => {
     if (!activeVideoUrl) return null;
@@ -1200,18 +1400,34 @@ export default function IntranetDrafts() {
 
           {/* ==================== D. RECHTE SPALTE: Parallele Trophäen-Ansicht (3 Cols) ==================== */}
           <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 max-h-[calc(100vh-160px)] overflow-hidden">
-            <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5 px-1">
+            <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5 px-1 flex-wrap gap-2">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-white">Trophäen ({gameTrophies.length})</h3>
                 <p className="text-[10px] text-zinc-500 font-mono">
-                  Referenz-Abgleich
+                  Referenz-Abgleich & Tipps
                 </p>
               </div>
-              {activeRowId && (
-                <span className="text-[9px] font-mono text-[#00ff66] bg-[#00ff66]/10 px-1.5 py-0.5 rounded border border-[#00ff66]/30">
-                  Zuordnung bereit
-                </span>
-              )}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <select
+                  value={trophyLang}
+                  onChange={(e) => setTrophyLang(e.target.value)}
+                  className="rounded bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
+                  title="Sprache für Trophäentexte & Tipps"
+                >
+                  <option value="de">DE 🇩🇪</option>
+                  <option value="en">EN 🇬🇧</option>
+                  <option value="es">ES 🇪🇸</option>
+                  <option value="fr">FR 🇫🇷</option>
+                  <option value="it">IT 🇮🇹</option>
+                  <option value="ja">JA 🇯🇵</option>
+                  <option value="pt">PT 🇵🇹</option>
+                </select>
+                {activeRowId && (
+                  <span className="text-[9px] font-mono text-[#00ff66] bg-[#00ff66]/10 px-1.5 py-0.5 rounded border border-[#00ff66]/30">
+                    Zuordnung bereit
+                  </span>
+                )}
+              </div>
             </div>
 
             {loadingTrophies ? (
@@ -1223,53 +1439,17 @@ export default function IntranetDrafts() {
                 Keine Trophäen für dieses Spiel in DB.
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-1">
-                {gameTrophies.map((trophy) => {
-                  const nameStr = getLocalizedTrophyName(trophy.trophy_name);
-                  const trophyId = trophy.platform_achievement_id;
-
-                  return (
-                    <div
-                      key={trophyId || trophy.id}
-                      className="group flex items-center justify-between gap-2 rounded-xl border border-zinc-800/80 bg-[#161718] p-2 hover:border-zinc-700 hover:bg-zinc-800/50 transition"
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        {trophy.icon_url ? (
-                          <img
-                            src={trophy.icon_url}
-                            alt=""
-                            className="h-8 w-8 shrink-0 rounded bg-zinc-800 object-cover"
-                          />
-                        ) : (
-                          <div className="h-8 w-8 shrink-0 rounded bg-zinc-800 flex items-center justify-center text-[10px]">
-                            🏆
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-xs font-bold text-white truncate leading-tight">{nameStr || trophyId}</p>
-                            <TrophyTypeBadge type={trophy.trophy_type} />
-                          </div>
-                          <p className="text-[9px] font-mono text-zinc-400 truncate mt-0.5">
-                            ID: <span className="text-zinc-300">{trophyId}</span>
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Quick Assign Button */}
-                      {activeRowId && (
-                        <button
-                          type="button"
-                          onClick={() => handleAssignTrophyToActiveRow(trophyId)}
-                          title="Trophy ID der aktiven Zeile zuordnen"
-                          className="shrink-0 rounded bg-[#00ff66]/15 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/30 border border-[#00ff66]/30"
-                        >
-                          + Assign
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+              <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
+                {gameTrophies.map((trophy) => (
+                  <TrophyDraftItem
+                    key={trophy.platform_achievement_id || trophy.id}
+                    trophy={trophy}
+                    activeRowId={activeRowId}
+                    trophyLang={trophyLang}
+                    onAssign={handleAssignTrophyToActiveRow}
+                    onSaveGuideTip={handleSaveTrophyGuideTip}
+                  />
+                ))}
               </div>
             )}
           </div>
