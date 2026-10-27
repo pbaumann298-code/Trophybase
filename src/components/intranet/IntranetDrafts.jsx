@@ -943,7 +943,7 @@ export default function IntranetDrafts() {
   // Video embed URL
   const currentEmbedUrl = useMemo(() => {
     if (!activeVideoUrl) return null;
-    return getYouTubeEmbedUrl(activeVideoUrl, activeTimestamp, { autoplay: true });
+    return getYouTubeEmbedUrl(activeVideoUrl, activeTimestamp, { autoplay: false });
   }, [activeVideoUrl, activeTimestamp]);
 
   return (
