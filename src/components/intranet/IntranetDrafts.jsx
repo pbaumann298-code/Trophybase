@@ -22,6 +22,7 @@ import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { localeOptions } from '../../lib/uiStrings';
 
 const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
+const MAX_VISIBLE_QUEUE_GAMES = 10;
 
 const SHEET_TYPE_OPTIONS = [
   { key: '1', value: [1], label: 'Tab [1] Walkthrough / Chrono', shortLabel: '[1]' },
@@ -527,6 +528,16 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
   const [stagingRows, setStagingRows] = useState([]);
   const [gamesMap, setGamesMap] = useState(new Map());
   const [filterQuery, setFilterQuery] = useState('');
+  const [randomSeed, setRandomSeed] = useState(0);
+  const randomWeightsRef = useRef(new Map());
+
+  const getGameRandomWeight = useCallback((gameId) => {
+    const key = String(gameId ?? '');
+    if (!randomWeightsRef.current.has(key)) {
+      randomWeightsRef.current.set(key, Math.random());
+    }
+    return randomWeightsRef.current.get(key);
+  }, []);
 
   // Selection
   const [selectedGameId, setSelectedGameId] = useState(initialGameId);
@@ -717,14 +728,14 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         creatorList: [...item.creators],
         batchList: [...item.batches],
       }));
-      summaryList.sort((a, b) => a.title.localeCompare(b.title, 'de'));
+      summaryList.sort((a, b) => getGameRandomWeight(a.gameId) - getGameRandomWeight(b.gameId));
       setRohmaterialGames(summaryList);
     } catch (err) {
       console.warn('Rohmaterial-Übersicht konnte nicht geladen werden:', err);
     } finally {
       setLoadingRohmaterial(false);
     }
-  }, []);
+  }, [getGameRandomWeight]);
 
   // Load staging queue (with 1000-row chunk loop to bypass PostgREST max_rows limit)
   const fetchQueue = useCallback(async () => {
@@ -767,29 +778,50 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
 
       setStagingRows(mergedStaging);
 
-      // Extract unique game_ids
+      // Extract unique game_ids & sort by random weight so the first 10 games load first
       const gameIds = [...new Set(mergedStaging.map((r) => r.game_id).filter(Boolean))];
+      gameIds.sort((a, b) => getGameRandomWeight(a) - getGameRandomWeight(b));
 
       if (gameIds.length > 0) {
-        const CHUNK_SIZE = 100;
-        const allGames = [];
+        const initialIds = gameIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
+        const { data: initialGames, error: initialErr } = await supabase
+          .from(TABLES.games)
+          .select('id, platform_game_id, slug, status, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
+          .in('id', initialIds);
 
-        for (let i = 0; i < gameIds.length; i += CHUNK_SIZE) {
-          const chunkIds = gameIds.slice(i, i + CHUNK_SIZE);
-          const { data: gamesData, error: gamesError } = await supabase
-            .from(TABLES.games)
-            .select('id, platform_game_id, slug, status, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
-            .in('id', chunkIds);
-
-          if (gamesError) {
-            console.error('Fehler beim Laden der Spiele-Details:', gamesError.message);
-          } else if (gamesData) {
-            allGames.push(...gamesData);
-          }
+        if (initialErr) {
+          console.error('Fehler beim Laden der Spiele-Details:', initialErr.message);
         }
 
-        const map = new Map(allGames.map((g) => [g.id, g]));
-        setGamesMap(map);
+        const initialMap = new Map((initialGames ?? []).map((g) => [g.id, g]));
+        setGamesMap(initialMap);
+        setLoading(false);
+
+        const remainingIds = gameIds.slice(MAX_VISIBLE_QUEUE_GAMES);
+        if (remainingIds.length > 0) {
+          const CHUNK_SIZE = 100;
+          const chunks = [];
+          for (let i = 0; i < remainingIds.length; i += CHUNK_SIZE) {
+            chunks.push(remainingIds.slice(i, i + CHUNK_SIZE));
+          }
+          const results = await Promise.all(
+            chunks.map((chunkIds) =>
+              supabase
+                .from(TABLES.games)
+                .select('id, platform_game_id, slug, status, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
+                .in('id', chunkIds)
+            )
+          );
+          setGamesMap((prev) => {
+            const next = new Map(prev);
+            for (const res of results) {
+              for (const g of res.data ?? []) {
+                next.set(g.id, g);
+              }
+            }
+            return next;
+          });
+        }
       } else {
         setGamesMap(new Map());
       }
@@ -798,7 +830,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getGameRandomWeight]);
 
   useEffect(() => {
     fetchQueue();
@@ -877,7 +909,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     return groups;
   }, [rohmaterialRows, productiveRohRows, selectedGameId]);
 
-  // List of games in staging queue
+  // List of games in staging queue (random order instead of alphabetical)
   const queueGamesList = useMemo(() => {
     const list = [];
     for (const [gameId, rows] of gameGroups.entries()) {
@@ -897,14 +929,15 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       });
     }
 
-    list.sort((a, b) => a.title.localeCompare(b.title, 'de'));
+    list.sort((a, b) => getGameRandomWeight(a.gameId) - getGameRandomWeight(b.gameId));
     return list;
-  }, [gameGroups, gamesMap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameGroups, gamesMap, getGameRandomWeight, randomSeed]);
 
   // Active sidebar list depending on activeDataSource ('staging' vs 'rohmaterial')
   const activeSidebarGamesList = useMemo(() => {
     if (activeDataSource === 'rohmaterial') {
-      return rohmaterialGames.map((item) => {
+      const list = rohmaterialGames.map((item) => {
         const dynamicCount = rohGameGroups.get(item.gameId)?.length ?? item.rowCount;
         return {
           ...item,
@@ -912,11 +945,14 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
           source: 'rohmaterial',
         };
       });
+      list.sort((a, b) => getGameRandomWeight(a.gameId) - getGameRandomWeight(b.gameId));
+      return list;
     }
     return queueGamesList;
-  }, [activeDataSource, rohmaterialGames, rohGameGroups, queueGamesList]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDataSource, rohmaterialGames, rohGameGroups, queueGamesList, getGameRandomWeight, randomSeed]);
 
-  // Filtered Queue List
+  // Filtered Queue List (all matching games)
   const filteredQueueList = useMemo(() => {
     if (!filterQuery.trim()) return activeSidebarGamesList;
     const q = filterQuery.toLowerCase().trim();
@@ -926,6 +962,43 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         String(item.platformGameId).toLowerCase().includes(q)
     );
   }, [activeSidebarGamesList, filterQuery]);
+
+  // Visible Queue List: Load max 10 games into the sidebar list; remaining games automatically slide in
+  const visibleQueueList = useMemo(() => {
+    const top = filteredQueueList.slice(0, MAX_VISIBLE_QUEUE_GAMES);
+    if (selectedGameId && !top.some((item) => item.gameId === selectedGameId)) {
+      const selectedItem = filteredQueueList.find((item) => item.gameId === selectedGameId);
+      if (selectedItem) {
+        return [selectedItem, ...top.slice(0, MAX_VISIBLE_QUEUE_GAMES - 1)];
+      }
+    }
+    return top;
+  }, [filteredQueueList, selectedGameId]);
+
+  // Randomize queue order & select new top game
+  const handleRandomizeQueue = useCallback(() => {
+    randomWeightsRef.current.clear();
+    const currentIds =
+      activeDataSource === 'rohmaterial'
+        ? rohmaterialGames.map((g) => g.gameId)
+        : Array.from(gameGroups.keys());
+
+    for (const id of currentIds) {
+      if (id) {
+        randomWeightsRef.current.set(String(id), Math.random());
+      }
+    }
+    setRandomSeed((prev) => prev + 1);
+
+    if (currentIds.length > 0) {
+      const sortedIds = [...currentIds].sort(
+        (a, b) =>
+          (randomWeightsRef.current.get(String(a)) ?? 0) -
+          (randomWeightsRef.current.get(String(b)) ?? 0)
+      );
+      setSelectedGameId(sortedIds[0]);
+    }
+  }, [activeDataSource, rohmaterialGames, gameGroups]);
 
   // Set default selection when queue loads or changes
   useEffect(() => {
@@ -1232,16 +1305,20 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
   // Jump to next game in queue
   const jumpToNextGame = useCallback(
     (currentId) => {
-      const list = activeDataSource === 'rohmaterial' ? rohmaterialGames : queueGamesList;
-      const remainingList = list.filter((item) => item.gameId !== currentId);
-      if (remainingList.length > 0) {
-        setSelectedGameId(remainingList[0].gameId);
+      const remainingFiltered = filteredQueueList.filter((item) => item.gameId !== currentId);
+      if (remainingFiltered.length > 0) {
+        setSelectedGameId(remainingFiltered[0].gameId);
       } else {
-        setSelectedGameId(null);
-        setSelectedCreatorName(null);
+        const remainingAll = activeSidebarGamesList.filter((item) => item.gameId !== currentId);
+        if (remainingAll.length > 0) {
+          setSelectedGameId(remainingAll[0].gameId);
+        } else {
+          setSelectedGameId(null);
+          setSelectedCreatorName(null);
+        }
       }
     },
-    [activeDataSource, rohmaterialGames, queueGamesList]
+    [filteredQueueList, activeSidebarGamesList]
   );
 
   // Jump to next creator or next game
@@ -1614,9 +1691,14 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     );
     jumpToNextGame(gameId);
     if (isRoh) {
-      fetchRohmaterialSummary();
+      setRohmaterialRows((prev) =>
+        prev.filter(
+          (r) => r.game_id !== gameId && r.platform_game_id !== gameId && r.batch_key !== gameId
+        )
+      );
+      setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== gameId));
     } else {
-      fetchQueue();
+      setStagingRows((prev) => prev.filter((r) => r.game_id !== gameId));
     }
   };
 
@@ -1629,14 +1711,16 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     setNotice('');
     setError('');
 
+    const targetGameId = selectedGameId;
+    const targetCreator = selectedCreatorName;
     const targetTable =
       activeDataSource === 'rohmaterial' ? TABLES.guidesRohmaterial : 'staging_game_guides';
 
     const { error: delErr } = await supabase
       .from(targetTable)
       .delete()
-      .eq('game_id', selectedGameId)
-      .eq('creator_name', selectedCreatorName);
+      .eq('game_id', targetGameId)
+      .eq('creator_name', targetCreator);
 
     setActionBusy(false);
 
@@ -1645,12 +1729,17 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       return;
     }
 
-    setNotice(`Einträge für "${selectedCreatorName}" wurden verworfen.`);
-    jumpToNextCreatorOrGame(selectedGameId, selectedCreatorName);
+    setNotice(`Einträge für "${targetCreator}" wurden verworfen.`);
+    jumpToNextCreatorOrGame(targetGameId, targetCreator);
     if (activeDataSource === 'rohmaterial') {
+      setRohmaterialRows((prev) =>
+        prev.filter((r) => !(r.game_id === targetGameId && r.creator_name === targetCreator))
+      );
       fetchRohmaterialSummary();
     } else {
-      fetchQueue();
+      setStagingRows((prev) =>
+        prev.filter((r) => !(r.game_id === targetGameId && r.creator_name === targetCreator))
+      );
     }
   };
 
@@ -1833,12 +1922,18 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
           .eq('game_id', selectedGameId);
       }
 
+      const approvedGameId = selectedGameId;
       setShowApproveModal(false);
       setActionBusy(false);
       setNotice(`Guide von Creator "${selectedCreatorName}" erfolgreich in [${selectedLanguage.toUpperCase()}] freigegeben!`);
-      jumpToNextGame(selectedGameId);
-      fetchQueue();
-      fetchRohmaterialSummary();
+      jumpToNextGame(approvedGameId);
+      if (activeDataSource === 'rohmaterial') {
+        setRohmaterialRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
+        setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== approvedGameId));
+        setProductiveRohRows([]);
+      } else {
+        setStagingRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
+      }
     } catch (err) {
       setActionBusy(false);
       setError(`Unerwarteter Fehler bei der Freigabe: ${err.message}`);
@@ -2647,7 +2742,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         `📦 Spiel "${getLocalizedTitle(selectedGame?.spieltitel)}" (${targetCreator}) zu Rohmaterial (Multi-Tab) verschoben${movedViaRpc ? ' (RPC)' : ''}.`
       );
       jumpToNextGame(targetGameId);
-      fetchQueue();
+      setStagingRows((prev) => prev.filter((r) => r.game_id !== targetGameId));
       fetchRohmaterialSummary();
     } catch (err) {
       setError(`Verschieben zu Rohmaterial fehlgeschlagen: ${err.message}`);
@@ -2809,16 +2904,26 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            fetchQueue();
-            fetchRohmaterialSummary();
-          }}
-          className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] font-mono text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
-        >
-          🔄 Alles aktualisieren
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handleRandomizeQueue}
+            title="Spiele-Liste zufällig neu mischen"
+            className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] font-mono text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66] transition"
+          >
+            🎲 Zufällig mischen
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              fetchQueue();
+              fetchRohmaterialSummary();
+            }}
+            className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] font-mono text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66] transition"
+          >
+            🔄 Alles aktualisieren
+          </button>
+        </div>
       </div>
 
       {/* Aufklappbare Liste der verschobenen großen Spiele (Rohmaterial / Multi-Tab) */}
@@ -2979,20 +3084,30 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                   {activeDataSource === 'rohmaterial' ? '📦 Multi-Tab Queue' : '📝 Spiele-Queue'}
                 </h3>
                 <p className="text-[10px] text-zinc-500 font-mono">
-                  {filteredQueueList.length} Spiele ({activeDataSource === 'rohmaterial' ? rohmaterialRows.length : stagingRows.length} Zeilen)
+                  {visibleQueueList.length} / {filteredQueueList.length} Spiele ({activeDataSource === 'rohmaterial' ? rohmaterialRows.length : stagingRows.length} Zeilen)
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  fetchQueue();
-                  fetchRohmaterialSummary();
-                }}
-                title="Queue aktualisieren"
-                className="rounded-lg border border-zinc-700 bg-zinc-800 p-1.5 text-xs text-zinc-400 hover:text-[#00ff66]"
-              >
-                🔄
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleRandomizeQueue}
+                  title="Spiele-Liste zufällig mischen"
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 p-1.5 text-xs text-zinc-400 hover:text-[#00ff66]"
+                >
+                  🎲
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    fetchQueue();
+                    fetchRohmaterialSummary();
+                  }}
+                  title="Queue aktualisieren"
+                  className="rounded-lg border border-zinc-700 bg-zinc-800 p-1.5 text-xs text-zinc-400 hover:text-[#00ff66]"
+                >
+                  🔄
+                </button>
+              </div>
             </div>
 
             {/* Filter Input */}
@@ -3004,9 +3119,9 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
               className="w-full rounded-xl border border-zinc-700/80 bg-zinc-900/90 px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
             />
 
-            {/* Queue List */}
+            {/* Queue List (max 10 Spiele geladen, Rest rutscht automatisch nach) */}
             <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-1">
-              {filteredQueueList.map((item) => {
+              {visibleQueueList.map((item) => {
                 const isSelected = item.gameId === selectedGameId;
                 return (
                   <div
@@ -4219,7 +4334,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                           </th>
                           <th
                             onClick={() => handleToggleSort('video_chapter')}
-                            className="py-2 px-1 w-28 sm:w-36 cursor-pointer hover:text-white transition"
+                            className="py-2 px-1 w-[52ch] min-w-[260px] sm:min-w-[320px] cursor-pointer hover:text-white transition"
                             title="Nach Chapter / Info sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
@@ -4387,10 +4502,16 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                                   if (row.video_url) setActiveVideoUrl(row.video_url);
                                   if (row.timestamp) setActiveTimestamp(row.timestamp);
                                 }}
-                                className="py-1 px-1 text-zinc-400 text-[10px] w-28 sm:w-36 break-words line-clamp-2 cursor-pointer hover:text-white hover:underline"
+                                className="py-1 px-1 text-zinc-400 text-[10px] w-[52ch] min-w-[260px] sm:min-w-[320px] cursor-pointer hover:text-white hover:underline align-middle"
                                 title={`${chapterStr || '—'} (Klicken zum Abspielen)`}
                               >
-                                {chapterStr || '—'}
+                                <div className="break-words line-clamp-2 leading-snug">
+                                  {chapterStr
+                                    ? chapterStr.length > 100
+                                      ? `${chapterStr.slice(0, 100)}…`
+                                      : chapterStr
+                                    : '—'}
+                                </div>
                               </td>
 
                               {/* trophy_id */}
