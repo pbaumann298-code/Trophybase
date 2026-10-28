@@ -70,7 +70,7 @@ export function getViewFromPath(pathname = '', search) {
     }
     return 'advanced-search';
   }
-  if (path === '/profile') return 'profile';
+  if (path === '/profile' || path === '/cockpit') return 'profile';
   if (path === '/watchlist') return 'watchlist';
   if (path.startsWith('/admin/qa')) return 'qa_admin';
   if (path === '/beta' || path.startsWith('/beta/')) return 'beta';
@@ -158,8 +158,10 @@ export function navigateToHome() {
   writeAppPath('/');
 }
 
-export function navigateToProfile() {
-  writeAppPath('/profile');
+export const PROFILE_PATH = '/profile';
+
+export function navigateToProfile({ replace = false } = {}) {
+  writeAppPath(PROFILE_PATH, { replace });
 }
 
 export const WATCHLIST_PATH = '/watchlist';

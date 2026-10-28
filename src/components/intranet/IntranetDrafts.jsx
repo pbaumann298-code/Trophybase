@@ -1,9 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '../../pages/supabaseClient';
-import { TABLES, GAME_FK, GAME_PK, GAME_STRUCT, GAME_TYPE, parseGameTypes } from '../../lib/gameSchema';
+import { TABLES, GAME_FK, GAME_PK, GAME_STRUCT, GAME_TYPE, parseGameTypes, resolveSheetTypes } from '../../lib/gameSchema';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import { getYouTubeEmbedUrl, parseTimecodeToSeconds, buildVideoUrlWithTimestamp } from '../../utils/videoUrl';
-import { GUIDE_PUBLICATION, guideStatusKey, parseStatusMap } from '../../lib/guidePublication';
+import {
+  GUIDE_PUBLICATION,
+  buildUnifiedGuidePublishPatch,
+  guideStatusKey,
+  parseStatusMap,
+  removeGameFromWiedervorlage,
+} from '../../lib/guidePublication';
 import {
   setIntranetGameType,
   saveTrophyGuideTip,
@@ -14,6 +20,135 @@ import { intranetGameHref } from '../../lib/intranetQueries';
 import { listPipelineStatusEntries } from '../../lib/gamePipelineStatus';
 import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { localeOptions } from '../../lib/uiStrings';
+
+const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
+
+const SHEET_TYPE_OPTIONS = [
+  { key: '1', value: [1], label: 'Tab [1] Walkthrough / Chrono', shortLabel: '[1]' },
+  { key: '2', value: [2], label: 'Tab [2] Collectibles / Sammelobjekte', shortLabel: '[2]' },
+  { key: '3', value: [3], label: 'Tab [3] Bosse', shortLabel: '[3]' },
+  { key: '1,2', value: [1, 2], label: 'Tab [1, 2] Walkthrough + Collectibles', shortLabel: '[1,2]' },
+  { key: '1,3', value: [1, 3], label: 'Tab [1, 3] Walkthrough + Bosse', shortLabel: '[1,3]' },
+  { key: '2,3', value: [2, 3], label: 'Tab [2, 3] Collectibles + Bosse', shortLabel: '[2,3]' },
+  { key: '1,2,3', value: [1, 2, 3], label: 'Tab [1, 2, 3] Alle Tabs', shortLabel: '[1,2,3]' },
+];
+
+function normalizeSheetTypeArray(val) {
+  const resolved = resolveSheetTypes(val);
+  return resolved.length > 0 ? resolved : [1];
+}
+
+function formatSheetTypeKey(val) {
+  return normalizeSheetTypeArray(val).join(',');
+}
+
+function parseSheetTypeKey(keyStr) {
+  const nums = String(keyStr ?? '')
+    .split(',')
+    .map((s) => Number.parseInt(s.trim(), 10))
+    .filter((n) => n === 1 || n === 2 || n === 3);
+  const unique = [...new Set(nums)].sort((a, b) => a - b);
+  return unique.length > 0 ? unique : [1];
+}
+
+function areGroupNamesSimilar(nameA, nameB) {
+  const a = String(nameA ?? '').trim().toLowerCase();
+  const b = String(nameB ?? '').trim().toLowerCase();
+  if (!a || !b || a === b) return false;
+  if (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a) || a.includes(b) || b.includes(a))) {
+    return true;
+  }
+  if (Math.abs(a.length - b.length) > 2) return false;
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => i);
+  for (let j = 1; j <= b.length; j += 1) {
+    let prev = dp[0];
+    dp[0] = j;
+    for (let i = 1; i <= a.length; i += 1) {
+      const temp = dp[i];
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i] = Math.min(dp[i] + 1, dp[i - 1] + 1, prev + cost);
+      prev = temp;
+    }
+  }
+  return dp[a.length] <= 2;
+}
+
+/**
+ * 1. Text-Normalisierung für den Trophäen-Matcher:
+ * - Kleinbuchstaben
+ * - Entfernt führende Timestamps / Zahlen (z. B. "01 -", "#1", "12:34 -")
+ * - Entfernt typische YouTube-Suffixe/Wörter (trophy, guide, achievement, bronze, silver, gold, collectible)
+ * - Entfernt Satzzeichen und mehrfache Leerzeichen
+ */
+export function normalizeForMatch(str) {
+  if (!str) return '';
+  let s = String(str).toLowerCase().trim();
+
+  // Führende Timestamps wie "01:23 - ", "1:02:03 " entfernen
+  s = s.replace(/^(?:\d{1,2}:)+\d{2}\s*[-–—:|.]*\s*/g, '');
+  // Führende Nummern/Aufzählungen wie "01 -", "#1", "1.", "(01)" entfernen
+  s = s.replace(/^(?:#?\d+|[(\[]\d+[)\]])\s*(?:[-–—:|.]+\s*|\s+)/g, '');
+  // Nachgelagerte Timestamps am Ende entfernen
+  s = s.replace(/\s*[-–—:|.]*\s*(?:\d{1,2}:)+\d{2}$/g, '');
+
+  // Typische YouTube-Suffixe / Stopwords als ganze Wörter entfernen
+  s = s.replace(
+    /\b(trophy|trophies|trophäe|trophäen|guide|achievement|achievements|bronze|silver|silber|gold|platinum|platin|collectible|collectibles|sammelobjekt|sammelobjekte|walkthrough|location|locations|fundort|fundorte)\b/gi,
+    ' '
+  );
+
+  // Satzzeichen & Sonderzeichen durch Leerzeichen ersetzen (Buchstaben inkl. Umlaute & Ziffern behalten)
+  s = s.replace(/[^\p{L}\p{N}\s]/gu, ' ');
+
+  // Mehrfache Leerzeichen reduzieren
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Extrahiert die reine Zahl für staging_game_guides.trophy_id (integer)
+ * z. B. 'trophy_12' -> 12, '05' -> 5
+ */
+export function extractNumericTrophyId(platform_achievement_id, fallbackIndex = 1) {
+  const raw = String(platform_achievement_id ?? '').trim();
+  const matches = raw.match(/\d+/g);
+  if (matches && matches.length > 0) {
+    const lastNum = Number.parseInt(matches[matches.length - 1], 10);
+    if (Number.isFinite(lastNum)) return lastNum;
+  }
+  const fb = Number.parseInt(String(fallbackIndex ?? 1), 10);
+  return Number.isFinite(fb) ? fb : 1;
+}
+
+function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isWholeWordContained(haystackNorm, needleNorm) {
+  if (!haystackNorm || !needleNorm || needleNorm.length < 5) return false;
+  const pattern = new RegExp(`(?:^|\\s)${escapeRegExp(needleNorm)}(?:$|\\s)`, 'i');
+  return pattern.test(haystackNorm);
+}
+
+const STAGING_LOCAL_OVERRIDES_KEY = 'tb_intranet_staging_group_overrides_v1';
+
+function loadStagingLocalOverrides() {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(STAGING_LOCAL_OVERRIDES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveStagingLocalOverrides(mapObj) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(STAGING_LOCAL_OVERRIDES_KEY, JSON.stringify(mapObj));
+  } catch {
+    /* ignore quota errors */
+  }
+}
 
 function getLocalizedTitle(spieltitel) {
   if (!spieltitel) return 'Unbenanntes Spiel';
@@ -383,7 +518,7 @@ function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuid
   );
 }
 
-export default function IntranetDrafts() {
+export default function IntranetDrafts({ initialDataSource = 'staging', initialGameId = null }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -394,7 +529,7 @@ export default function IntranetDrafts() {
   const [filterQuery, setFilterQuery] = useState('');
 
   // Selection
-  const [selectedGameId, setSelectedGameId] = useState(null);
+  const [selectedGameId, setSelectedGameId] = useState(initialGameId);
   const [selectedCreatorName, setSelectedCreatorName] = useState(null);
   const [activeRowId, setActiveRowId] = useState(null);
 
@@ -426,10 +561,63 @@ export default function IntranetDrafts() {
   const [useRegex, setUseRegex] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(false);
 
-  // Rohmaterial (verschobene große Spiele)
+  // Rohmaterial (verschobene große Spiele) & Multi-Tab Editor
   const [showRohmaterialView, setShowRohmaterialView] = useState(false);
   const [rohmaterialGames, setRohmaterialGames] = useState([]);
+  const [rohmaterialRows, setRohmaterialRows] = useState([]);
+  const [productiveRohRows, setProductiveRohRows] = useState([]);
+  const [rohGamesMap, setRohGamesMap] = useState(new Map());
   const [loadingRohmaterial, setLoadingRohmaterial] = useState(false);
+  /** 'staging' | 'rohmaterial' */
+  const [activeDataSource, setActiveDataSource] = useState(initialDataSource);
+
+  useEffect(() => {
+    if (initialDataSource) setActiveDataSource(initialDataSource);
+    if (initialGameId) setSelectedGameId(initialGameId);
+  }, [initialDataSource, initialGameId]);
+
+  // 1. Gruppen-Röntgenblick State (Category & Chrono Pills + Popover + Filter)
+  const [showRoentgenblick, setShowRoentgenblick] = useState(true);
+  /** 'az' | 'outliers' | 'count' */
+  const [pillSortOrder, setPillSortOrder] = useState('az');
+  /** { field: 'category_group' | 'chronological_group', value: string } | null */
+  const [activePillPopover, setActivePillPopover] = useState(null);
+  const [pillRenameText, setPillRenameText] = useState('');
+  const [pillMergeSearch, setPillMergeSearch] = useState('');
+  const pillPopoverRef = useRef(null);
+
+  /** { field: 'category_group' | 'chronological_group', value: string } | null */
+  const [activeGroupFilter, setActiveGroupFilter] = useState(null);
+  /** 'all' | '1' | '2' | '3' */
+  const [activeSheetFilter, setActiveSheetFilter] = useState('all');
+
+  // 2. Multi-Select & Floating Batch-Bar State
+  const [selectedRowIds, setSelectedRowIds] = useState(() => new Set());
+  const [batchCustomField, setBatchCustomField] = useState(null); // 'chronological_group' | 'category_group' | null
+  const [batchCustomValue, setBatchCustomValue] = useState('');
+
+  // 3. Trophäen-Schnell-Picker & Auto-Matcher ("Just Do It") State
+  const [showTrophyMatcher, setShowTrophyMatcher] = useState(false);
+  /** 'open' | 'all' */
+  const [matcherItemFilter, setMatcherItemFilter] = useState('open');
+  const [matcherHideAssignedTrophies, setMatcherHideAssignedTrophies] = useState(true);
+  const [matcherTrophySearch, setMatcherTrophySearch] = useState('');
+  const [matcherActiveGroupKey, setMatcherActiveGroupKey] = useState(null);
+  const [matcherExpandedGroupKeys, setMatcherExpandedGroupKeys] = useState(() => new Set());
+  const [autoMatchedBannerCount, setAutoMatchedBannerCount] = useState(0);
+  const autoMatchedKeysRef = useRef(new Set());
+
+  // Close pill popover on outside click
+  useEffect(() => {
+    if (!activePillPopover) return undefined;
+    const handleOutside = (event) => {
+      if (pillPopoverRef.current && !pillPopoverRef.current.contains(event.target)) {
+        setActivePillPopover(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [activePillPopover]);
 
   // Load Rohmaterial games (status->>rohmaterial = PENDING_MULTI_TAB or in game_guides_rohmaterial)
   const fetchRohmaterialSummary = useCallback(async () => {
@@ -442,7 +630,7 @@ export default function IntranetDrafts() {
       while (true) {
         const { data: chunk, error: rErr } = await supabase
           .from(TABLES.guidesRohmaterial)
-          .select('game_id, platform_game_id, creator_name, batch_key, batch_status, created_at')
+          .select('*')
           .order('id', { ascending: true })
           .range(rFrom, rFrom + PAGE_SIZE - 1);
 
@@ -450,15 +638,20 @@ export default function IntranetDrafts() {
           console.warn('Fehler beim Laden von game_guides_rohmaterial:', rErr.message);
           break;
         }
-        const list = chunk ?? [];
+        const list = (chunk ?? []).map((r) => ({
+          ...r,
+          _sourceTable: TABLES.guidesRohmaterial,
+        }));
         rohRows = rohRows.concat(list);
         if (list.length < PAGE_SIZE) break;
         rFrom += PAGE_SIZE;
       }
 
+      setRohmaterialRows(rohRows);
+
       const { data: pendingGames } = await supabase
         .from(TABLES.games)
-        .select('id, platform_game_id, spieltitel, cover_url, status')
+        .select('id, platform_game_id, slug, status, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
         .eq('status->>rohmaterial', 'PENDING_MULTI_TAB');
 
       const gameIdsFromRoh = [...new Set(rohRows.map((r) => r.game_id).filter(Boolean))];
@@ -470,7 +663,7 @@ export default function IntranetDrafts() {
           const slice = missingIds.slice(i, i + 100);
           const { data: extraGames } = await supabase
             .from(TABLES.games)
-            .select('id, platform_game_id, spieltitel, cover_url, status')
+            .select('id, platform_game_id, slug, status, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
             .in('id', slice);
           for (const g of extraGames ?? []) {
             existingMap.set(g.id, g);
@@ -478,10 +671,13 @@ export default function IntranetDrafts() {
         }
       }
 
+      setRohGamesMap(existingMap);
+
       const groupedByGame = new Map();
       for (const g of existingMap.values()) {
         groupedByGame.set(g.id, {
           gameId: g.id,
+          game: g,
           title: getLocalizedTitle(g.spieltitel),
           platformGameId: g.platform_game_id || (Array.isArray(g.platform_game_id) ? g.platform_game_id[0] : '—'),
           coverUrl: getLocalizedCover(g.cover_url),
@@ -498,7 +694,8 @@ export default function IntranetDrafts() {
         let entry = groupedByGame.get(key);
         if (!entry) {
           entry = {
-            gameId: r.game_id || null,
+            gameId: key,
+            game: { id: key, platform_game_id: r.platform_game_id, spieltitel: r.platform_game_id || r.batch_key },
             title: r.platform_game_id || r.batch_key || 'Unbekanntes Spiel',
             platformGameId: r.platform_game_id || '—',
             coverUrl: '',
@@ -516,6 +713,7 @@ export default function IntranetDrafts() {
 
       const summaryList = [...groupedByGame.values()].map((item) => ({
         ...item,
+        creatorCount: Math.max(item.creators.size, 1),
         creatorList: [...item.creators],
         batchList: [...item.batches],
       }));
@@ -557,10 +755,20 @@ export default function IntranetDrafts() {
         from += PAGE_SIZE;
       }
 
-      setStagingRows(allRows);
+      const localOverrides = loadStagingLocalOverrides();
+      const mergedStaging = allRows.map((r) => {
+        const ov = localOverrides[r.id];
+        return {
+          ...r,
+          ...(ov || {}),
+          _sourceTable: 'staging_game_guides',
+        };
+      });
+
+      setStagingRows(mergedStaging);
 
       // Extract unique game_ids
-      const gameIds = [...new Set(allRows.map((r) => r.game_id).filter(Boolean))];
+      const gameIds = [...new Set(mergedStaging.map((r) => r.game_id).filter(Boolean))];
 
       if (gameIds.length > 0) {
         const CHUNK_SIZE = 100;
@@ -597,6 +805,49 @@ export default function IntranetDrafts() {
     fetchRohmaterialSummary();
   }, [fetchQueue, fetchRohmaterialSummary]);
 
+  // Load productive game_guides rows when a Rohmaterial game has PENDING_MULTI_TAB in game_guides
+  useEffect(() => {
+    if (activeDataSource !== 'rohmaterial' || !selectedGameId) {
+      setProductiveRohRows([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    async function loadProductiveForRohmaterial() {
+      let rows = [];
+      let from = 0;
+      const PAGE_SIZE = 1000;
+
+      while (true) {
+        const { data, error: gErr } = await supabase
+          .from(TABLES.guides)
+          .select('*')
+          .eq('game_id', selectedGameId)
+          .order('id', { ascending: true })
+          .range(from, from + PAGE_SIZE - 1);
+
+        if (gErr || cancelled) break;
+        const chunk = (data ?? []).map((r) => ({
+          ...r,
+          creator_name: r.creator_name || 'Produktiver Guide (game_guides)',
+          _sourceTable: TABLES.guides,
+        }));
+        rows = rows.concat(chunk);
+        if (chunk.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+
+      if (!cancelled) {
+        setProductiveRohRows(rows);
+      }
+    }
+
+    loadProductiveForRohmaterial();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDataSource, selectedGameId]);
+
   // Group staging rows by game_id
   const gameGroups = useMemo(() => {
     const groups = new Map();
@@ -609,7 +860,24 @@ export default function IntranetDrafts() {
     return groups;
   }, [stagingRows]);
 
-  // List of games in queue
+  // Group Rohmaterial & Multi-Tab rows by game_id / key
+  const rohGameGroups = useMemo(() => {
+    const groups = new Map();
+    for (const row of rohmaterialRows) {
+      const key = row.game_id || row.platform_game_id || row.batch_key;
+      if (!key) continue;
+      const list = groups.get(key) || [];
+      list.push(row);
+      groups.set(key, list);
+    }
+    if (selectedGameId && productiveRohRows.length > 0) {
+      const existing = groups.get(selectedGameId) || [];
+      groups.set(selectedGameId, [...existing, ...productiveRohRows]);
+    }
+    return groups;
+  }, [rohmaterialRows, productiveRohRows, selectedGameId]);
+
+  // List of games in staging queue
   const queueGamesList = useMemo(() => {
     const list = [];
     for (const [gameId, rows] of gameGroups.entries()) {
@@ -625,6 +893,7 @@ export default function IntranetDrafts() {
         creatorCount: creators.size,
         rowCount: rows.length,
         coverUrl: getLocalizedCover(game.cover_url),
+        source: 'staging',
       });
     }
 
@@ -632,40 +901,90 @@ export default function IntranetDrafts() {
     return list;
   }, [gameGroups, gamesMap]);
 
+  // Active sidebar list depending on activeDataSource ('staging' vs 'rohmaterial')
+  const activeSidebarGamesList = useMemo(() => {
+    if (activeDataSource === 'rohmaterial') {
+      return rohmaterialGames.map((item) => {
+        const dynamicCount = rohGameGroups.get(item.gameId)?.length ?? item.rowCount;
+        return {
+          ...item,
+          rowCount: dynamicCount,
+          source: 'rohmaterial',
+        };
+      });
+    }
+    return queueGamesList;
+  }, [activeDataSource, rohmaterialGames, rohGameGroups, queueGamesList]);
+
   // Filtered Queue List
   const filteredQueueList = useMemo(() => {
-    if (!filterQuery.trim()) return queueGamesList;
+    if (!filterQuery.trim()) return activeSidebarGamesList;
     const q = filterQuery.toLowerCase().trim();
-    return queueGamesList.filter(
+    return activeSidebarGamesList.filter(
       (item) =>
         item.title.toLowerCase().includes(q) ||
         String(item.platformGameId).toLowerCase().includes(q)
     );
-  }, [queueGamesList, filterQuery]);
+  }, [activeSidebarGamesList, filterQuery]);
 
   // Set default selection when queue loads or changes
   useEffect(() => {
-    if (queueGamesList.length > 0) {
-      if (!selectedGameId || !gameGroups.has(selectedGameId)) {
-        setSelectedGameId(queueGamesList[0].gameId);
+    if (activeDataSource === 'staging') {
+      if (queueGamesList.length > 0) {
+        if (!selectedGameId || !gameGroups.has(selectedGameId)) {
+          setSelectedGameId(queueGamesList[0].gameId);
+        }
+      } else if (rohmaterialGames.length > 0) {
+        setActiveDataSource('rohmaterial');
+        setSelectedGameId(rohmaterialGames[0].gameId);
+      } else {
+        setSelectedGameId(null);
+        setSelectedCreatorName(null);
       }
+    } else if (rohmaterialGames.length > 0) {
+      const existsInRoh = rohmaterialGames.some((g) => g.gameId === selectedGameId);
+      if (!selectedGameId || !existsInRoh) {
+        setSelectedGameId(rohmaterialGames[0].gameId);
+      }
+    } else if (queueGamesList.length > 0) {
+      setActiveDataSource('staging');
+      setSelectedGameId(queueGamesList[0].gameId);
     } else {
       setSelectedGameId(null);
       setSelectedCreatorName(null);
     }
-  }, [queueGamesList, selectedGameId, gameGroups]);
+  }, [activeDataSource, queueGamesList, rohmaterialGames, selectedGameId, gameGroups]);
+
+  // Reset filters & selection when game or creator changes
+  useEffect(() => {
+    setSelectedRowIds(new Set());
+    setActiveGroupFilter(null);
+    setActiveSheetFilter('all');
+    setActivePillPopover(null);
+    setBatchCustomField(null);
+    setBatchCustomValue('');
+    setMatcherActiveGroupKey(null);
+    setMatcherExpandedGroupKeys(new Set());
+    setMatcherTrophySearch('');
+    setAutoMatchedBannerCount(0);
+  }, [selectedGameId, selectedCreatorName, activeDataSource]);
 
   // Current game's rows
   const currentGameRows = useMemo(() => {
     if (!selectedGameId) return [];
+    if (activeDataSource === 'rohmaterial') {
+      return rohGameGroups.get(selectedGameId) || [];
+    }
     return gameGroups.get(selectedGameId) || [];
-  }, [selectedGameId, gameGroups]);
+  }, [selectedGameId, activeDataSource, rohGameGroups, gameGroups]);
 
-  // Group current game rows by creator_name
+  // Group current game rows by creator_name (or batch_key)
   const creatorGroups = useMemo(() => {
     const map = new Map();
     for (const row of currentGameRows) {
-      const creator = row.creator_name || 'Unbekannter Creator';
+      const creator =
+        row.creator_name ||
+        (row.batch_key ? `Batch: ${row.batch_key}` : 'Unbekannter Creator');
       const list = map.get(creator) || [];
       list.push(row);
       map.set(creator, list);
@@ -729,6 +1048,10 @@ export default function IntranetDrafts() {
         const valA = Number.isNaN(numA) ? Number.MAX_SAFE_INTEGER : numA;
         const valB = Number.isNaN(numB) ? Number.MAX_SAFE_INTEGER : numB;
         cmp = valA - valB;
+      } else if (sortField === 'sheet_type') {
+        const strA = formatSheetTypeKey(a.sheet_type);
+        const strB = formatSheetTypeKey(b.sheet_type);
+        cmp = strA.localeCompare(strB, 'de', { numeric: true });
       } else if (sortField === 'timestamp') {
         const secA = parseTimecodeToSeconds(a.timestamp);
         const secB = parseTimecodeToSeconds(b.timestamp);
@@ -742,6 +1065,10 @@ export default function IntranetDrafts() {
       } else if (sortField === 'chronological_group') {
         const strA = getLocalizedItemName(a.chronological_group);
         const strB = getLocalizedItemName(b.chronological_group);
+        cmp = strA.localeCompare(strB, 'de', { numeric: true });
+      } else if (sortField === 'category_group') {
+        const strA = getLocalizedItemName(a.category_group);
+        const strB = getLocalizedItemName(b.category_group);
         cmp = strA.localeCompare(strB, 'de', { numeric: true });
       } else if (sortField === 'video_chapter') {
         const strA = getLocalizedItemName(a.video_chapter);
@@ -762,6 +1089,81 @@ export default function IntranetDrafts() {
     });
   }, [selectedCreatorName, creatorGroups, sortField, sortDirection]);
 
+  // 1. GRUPPEN-RÖNTGENBLICK: Berechne vorkommende Werte von category_group und chronological_group inkl. Anzahl
+  const groupStats = useMemo(() => {
+    const buildFieldStats = (field) => {
+      const counts = new Map();
+      const sheetSets = new Map();
+
+      for (const row of currentCreatorRows) {
+        const str = getLocalizedItemName(row[field]).trim();
+        const key = str || EMPTY_GROUP_TOKEN;
+        counts.set(key, (counts.get(key) || 0) + 1);
+
+        const sKey = formatSheetTypeKey(row.sheet_type);
+        if (!sheetSets.has(key)) sheetSets.set(key, new Set());
+        sheetSets.get(key).add(sKey);
+      }
+
+      const items = [];
+      for (const [key, count] of counts.entries()) {
+        const isEmpty = key === EMPTY_GROUP_TOKEN;
+        const isOutlier = !isEmpty && (count === 1 || count === 2);
+        items.push({
+          key,
+          label: isEmpty ? '(Ohne Gruppe)' : key,
+          rawValue: isEmpty ? '' : key,
+          count,
+          isEmpty,
+          isOutlier,
+          sheets: [...(sheetSets.get(key) || [])],
+        });
+      }
+
+      items.sort((a, b) => {
+        if (a.isEmpty !== b.isEmpty) return a.isEmpty ? 1 : -1;
+        if (pillSortOrder === 'outliers') {
+          if (a.isOutlier !== b.isOutlier) return a.isOutlier ? -1 : 1;
+          if (a.isOutlier && b.isOutlier && a.count !== b.count) return a.count - b.count;
+        } else if (pillSortOrder === 'count') {
+          if (a.count !== b.count) return b.count - a.count;
+        }
+        return a.label.localeCompare(b.label, 'de', { numeric: true });
+      });
+
+      return items;
+    };
+
+    const categoryPills = buildFieldStats('category_group');
+    const chronoPills = buildFieldStats('chronological_group');
+    const outlierCount =
+      categoryPills.filter((p) => p.isOutlier).length +
+      chronoPills.filter((p) => p.isOutlier).length;
+
+    return {
+      categoryPills,
+      chronoPills,
+      outlierCount,
+    };
+  }, [currentCreatorRows, pillSortOrder]);
+
+  // Sichtbare Zeilen in der Tabelle (nach Gruppen-Filter & Sheet-Filter)
+  const visibleCreatorRows = useMemo(() => {
+    return currentCreatorRows.filter((row) => {
+      if (activeGroupFilter) {
+        const val = getLocalizedItemName(row[activeGroupFilter.field]).trim();
+        const key = val || EMPTY_GROUP_TOKEN;
+        if (key !== activeGroupFilter.value) return false;
+      }
+      if (activeSheetFilter !== 'all') {
+        const targetNum = Number.parseInt(activeSheetFilter, 10);
+        const types = normalizeSheetTypeArray(row.sheet_type);
+        if (!types.includes(targetNum)) return false;
+      }
+      return true;
+    });
+  }, [currentCreatorRows, activeGroupFilter, activeSheetFilter]);
+
   // Set initial video player URL when game or creator changes
   useEffect(() => {
     const rawRows = selectedCreatorName ? creatorGroups.get(selectedCreatorName) || [] : [];
@@ -781,13 +1183,18 @@ export default function IntranetDrafts() {
       setActiveTimestamp('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedGameId, selectedCreatorName]);
+  }, [selectedGameId, selectedCreatorName, activeDataSource]);
 
   // Selected game details
   const selectedGame = useMemo(() => {
     if (!selectedGameId) return null;
-    return gamesMap.get(selectedGameId) || null;
-  }, [selectedGameId, gamesMap]);
+    return (
+      gamesMap.get(selectedGameId) ||
+      rohGamesMap.get(selectedGameId) ||
+      rohmaterialGames.find((g) => g.gameId === selectedGameId)?.game ||
+      null
+    );
+  }, [selectedGameId, gamesMap, rohGamesMap, rohmaterialGames]);
 
   // Load trophies for selected game
   useEffect(() => {
@@ -825,7 +1232,8 @@ export default function IntranetDrafts() {
   // Jump to next game in queue
   const jumpToNextGame = useCallback(
     (currentId) => {
-      const remainingList = queueGamesList.filter((item) => item.gameId !== currentId);
+      const list = activeDataSource === 'rohmaterial' ? rohmaterialGames : queueGamesList;
+      const remainingList = list.filter((item) => item.gameId !== currentId);
       if (remainingList.length > 0) {
         setSelectedGameId(remainingList[0].gameId);
       } else {
@@ -833,7 +1241,7 @@ export default function IntranetDrafts() {
         setSelectedCreatorName(null);
       }
     },
-    [queueGamesList]
+    [activeDataSource, rohmaterialGames, queueGamesList]
   );
 
   // Jump to next creator or next game
@@ -849,19 +1257,346 @@ export default function IntranetDrafts() {
     [creatorTabs, jumpToNextGame]
   );
 
+  // --- HELPER: Format field value for target table (staging_game_guides vs game_guides_rohmaterial vs game_guides) ---
+  const formatFieldValueForTable = useCallback((existingRow, field, rawValue) => {
+    const sourceTable = existingRow?._sourceTable || 'staging_game_guides';
+    const isJsonbTable = sourceTable === TABLES.guidesRohmaterial || sourceTable === TABLES.guides;
+
+    if (field === 'sheet_type') {
+      return normalizeSheetTypeArray(rawValue);
+    }
+
+    if (field === 'guide_id' || field === 'trophy_id') {
+      const digits = String(rawValue ?? '').replace(/\D/g, '');
+      if (!digits) return null;
+      return isJsonbTable ? String(Number.parseInt(digits, 10)) : Number.parseInt(digits, 10);
+    }
+
+    if (
+      field === 'chronological_group' ||
+      field === 'category_group' ||
+      field === 'item_name' ||
+      field === 'video_chapter'
+    ) {
+      const str = String(rawValue ?? '').trim();
+      if (!isJsonbTable) {
+        return str || null;
+      }
+      if (!str) return null;
+      const currentVal = existingRow?.[field];
+      if (typeof currentVal === 'object' && currentVal !== null && !Array.isArray(currentVal)) {
+        const nextObj = { ...currentVal };
+        const keys = Object.keys(nextObj);
+        if (keys.length > 0) {
+          for (const k of keys) {
+            nextObj[k] = str;
+          }
+          return nextObj;
+        }
+      }
+      return { de: str, en: str };
+    }
+
+    return rawValue;
+  }, []);
+
+  // --- HELPER: Update rows in React state across all sources + local overrides for staging ---
+  const applyRowsPatchInState = useCallback((patchesByRowId) => {
+    if (!patchesByRowId || patchesByRowId.size === 0) return;
+
+    const localOverrides = loadStagingLocalOverrides();
+    let localModified = false;
+
+    const mapRows = (prev) =>
+      prev.map((row) => {
+        if (!patchesByRowId.has(row.id)) return row;
+        const patch = patchesByRowId.get(row.id);
+        const sourceTable = row._sourceTable || 'staging_game_guides';
+        if (
+          sourceTable === 'staging_game_guides' &&
+          (patch.category_group !== undefined || patch.sheet_type !== undefined)
+        ) {
+          localOverrides[row.id] = {
+            ...(localOverrides[row.id] || {}),
+            ...(patch.category_group !== undefined ? { category_group: patch.category_group } : {}),
+            ...(patch.sheet_type !== undefined ? { sheet_type: patch.sheet_type } : {}),
+          };
+          localModified = true;
+        }
+        return { ...row, ...patch };
+      });
+
+    setStagingRows(mapRows);
+    setRohmaterialRows(mapRows);
+    setProductiveRohRows(mapRows);
+
+    if (localModified) {
+      saveStagingLocalOverrides(localOverrides);
+    }
+  }, []);
+
+  // --- HELPER: Persist batch updates to Supabase (staging_game_guides, game_guides_rohmaterial, game_guides) ---
+  const persistRowPatchesToSupabase = useCallback(async (targetRows, buildPatchForRow) => {
+    const patchesByRowId = new Map();
+    /** Map<tableName, Map<serializedPayload, { payload, ids }>> */
+    const groupedDbCalls = new Map();
+
+    for (const row of targetRows) {
+      const statePatch = buildPatchForRow(row);
+      if (!statePatch || Object.keys(statePatch).length === 0) continue;
+      patchesByRowId.set(row.id, statePatch);
+
+      const sourceTable = row._sourceTable || 'staging_game_guides';
+      const dbPayload = { ...statePatch };
+      if (sourceTable === TABLES.guides) {
+        dbPayload.edit_unlocked = true;
+      }
+
+      const payloadKey = JSON.stringify(dbPayload);
+      if (!groupedDbCalls.has(sourceTable)) {
+        groupedDbCalls.set(sourceTable, new Map());
+      }
+      const tableGroup = groupedDbCalls.get(sourceTable);
+      if (!tableGroup.has(payloadKey)) {
+        tableGroup.set(payloadKey, { payload: dbPayload, ids: [] });
+      }
+      tableGroup.get(payloadKey).ids.push(row.id);
+    }
+
+    // 1. Optimistic State Update immediately
+    applyRowsPatchInState(patchesByRowId);
+
+    // 2. Execute DB updates grouped by table & payload
+    for (const [tableName, tableGroup] of groupedDbCalls.entries()) {
+      for (const { payload, ids } of tableGroup.values()) {
+        const CHUNK_SIZE = 100;
+        for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+          const chunkIds = ids.slice(i, i + CHUNK_SIZE);
+          const { error: upErr } = await supabase
+            .from(tableName)
+            .update(payload)
+            .in('id', chunkIds);
+
+          if (upErr) {
+            const msg = String(upErr.message || '');
+            const isMissingStagingCol =
+              tableName === 'staging_game_guides' &&
+              (msg.includes('category_group') ||
+                msg.includes('sheet_type') ||
+                msg.includes('column') ||
+                msg.includes('schema cache'));
+
+            if (isMissingStagingCol) {
+              console.warn(
+                `Hinweis: Spalte auf ${tableName} nicht in DB vorhanden, Wert bleibt im Browser-State gespeichert:`,
+                msg
+              );
+            } else {
+              throw new Error(`DB-Update auf ${tableName} fehlgeschlagen: ${msg}`);
+            }
+          }
+        }
+      }
+    }
+
+    return patchesByRowId.size;
+  }, [applyRowsPatchInState]);
+
+  // --- GRUPPEN-KONSOLIDIERUNG & BATCH ACTIONS ---
+
+  // 1a) Gruppe umbenennen / zusammenführen mit Zielname
+  const handleRenameOrMergeGroup = async (field, oldGroupKey, newGroupNameRaw) => {
+    if (!field || actionBusy) return;
+    const targetName = String(newGroupNameRaw ?? '').trim();
+    const affectedRows = currentCreatorRows.filter((row) => {
+      const val = getLocalizedItemName(row[field]).trim();
+      const key = val || EMPTY_GROUP_TOKEN;
+      return key === oldGroupKey;
+    });
+
+    if (affectedRows.length === 0) {
+      setActivePillPopover(null);
+      return;
+    }
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const updatedCount = await persistRowPatchesToSupabase(affectedRows, (row) => ({
+        [field]: formatFieldValueForTable(row, field, targetName),
+      }));
+
+      // Falls Filter auf der alten Gruppe aktiv war, auf den neuen Namen mitziehen
+      if (activeGroupFilter?.field === field && activeGroupFilter?.value === oldGroupKey) {
+        setActiveGroupFilter({
+          field,
+          value: targetName || EMPTY_GROUP_TOKEN,
+        });
+      }
+
+      setActivePillPopover(null);
+      setPillRenameText('');
+      setPillMergeSearch('');
+
+      const oldLabel = oldGroupKey === EMPTY_GROUP_TOKEN ? '(Ohne Gruppe)' : `"${oldGroupKey}"`;
+      const newLabel = targetName ? `"${targetName}"` : '(Ohne Gruppe)';
+      setNotice(
+        `✓ ${field === 'category_group' ? 'Category-Gruppe' : 'Chrono-Gruppe'} ${oldLabel} (${updatedCount} Zeilen) → ${newLabel} aktualisiert.`
+      );
+    } catch (err) {
+      setError(`Fehler beim Umbenennen/Zusammenführen: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // 1c) Sheet-Type ([1], [2], [3]) für eine gesamte Gruppe setzen
+  const handleSetGroupSheetType = async (field, groupKey, newSheetTypeArr) => {
+    if (!field || actionBusy) return;
+    const normalizedSheet = normalizeSheetTypeArray(newSheetTypeArr);
+    const affectedRows = currentCreatorRows.filter((row) => {
+      const val = getLocalizedItemName(row[field]).trim();
+      const key = val || EMPTY_GROUP_TOKEN;
+      return key === groupKey;
+    });
+
+    if (affectedRows.length === 0) return;
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const updatedCount = await persistRowPatchesToSupabase(affectedRows, () => ({
+        sheet_type: normalizedSheet,
+      }));
+
+      setActivePillPopover(null);
+      const groupLabel = groupKey === EMPTY_GROUP_TOKEN ? '(Ohne Gruppe)' : `"${groupKey}"`;
+      setNotice(
+        `📑 Sheet-Type [${normalizedSheet.join(', ')}] für Gruppe ${groupLabel} (${updatedCount} Zeilen) gesetzt.`
+      );
+    } catch (err) {
+      setError(`Fehler beim Setzen des Sheet-Types: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // 2a) Multi-Select Checkbox Helpers
+  const handleToggleSelectRow = (rowId) => {
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) {
+        next.delete(rowId);
+      } else {
+        next.add(rowId);
+      }
+      return next;
+    });
+  };
+
+  const allVisibleSelected = useMemo(() => {
+    if (visibleCreatorRows.length === 0) return false;
+    return visibleCreatorRows.every((r) => selectedRowIds.has(r.id));
+  }, [visibleCreatorRows, selectedRowIds]);
+
+  const handleToggleSelectAllVisible = () => {
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const r of visibleCreatorRows) {
+          next.delete(r.id);
+        }
+      } else {
+        for (const r of visibleCreatorRows) {
+          next.add(r.id);
+        }
+      }
+      return next;
+    });
+  };
+
+  const handleSelectFromRowDownwards = (startRowId) => {
+    const startIndex = visibleCreatorRows.findIndex((r) => r.id === startRowId);
+    if (startIndex === -1) return;
+    const slice = visibleCreatorRows.slice(startIndex);
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      const allSliceAlreadySelected = slice.every((r) => next.has(r.id));
+      if (allSliceAlreadySelected) {
+        for (const r of slice) next.delete(r.id);
+      } else {
+        for (const r of slice) next.add(r.id);
+      }
+      return next;
+    });
+  };
+
+  // 2b) Floating Batch-Bar: Überschreibe chronological_group, category_group oder sheet_type für alle ausgewählten Zeilen
+  const handleBatchOverwriteSelected = async (field, value) => {
+    if (selectedRowIds.size === 0 || actionBusy) return;
+    const targetRows = currentCreatorRows.filter((r) => selectedRowIds.has(r.id));
+    if (targetRows.length === 0) return;
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const updatedCount = await persistRowPatchesToSupabase(targetRows, (row) => ({
+        [field]: formatFieldValueForTable(row, field, value),
+      }));
+
+      setBatchCustomField(null);
+      setBatchCustomValue('');
+
+      let label = field;
+      let valDisplay = String(value ?? '');
+      if (field === 'sheet_type') {
+        label = 'Sheet-Type';
+        valDisplay = `[${normalizeSheetTypeArray(value).join(', ')}]`;
+      } else if (field === 'category_group') {
+        label = 'Category-Gruppe';
+        valDisplay = valDisplay.trim() ? `"${valDisplay.trim()}"` : '(geleert)';
+      } else if (field === 'chronological_group') {
+        label = 'Chrono-Gruppe';
+        valDisplay = valDisplay.trim() ? `"${valDisplay.trim()}"` : '(geleert)';
+      }
+
+      setNotice(`⚡ Batch-Update: ${label} = ${valDisplay} für ${updatedCount} markierte Zeilen gespeichert.`);
+    } catch (err) {
+      setError(`Batch-Update fehlgeschlagen: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   // --- ACTIONS ---
 
   // 1. Schnell-Löschen komplettes Spiel aus Liste oder Action-Bar
   const handleDeleteWholeGame = async (gameId) => {
     if (!gameId || actionBusy) return;
-    if (!window.confirm('Möchtest du alle Entwürfe für dieses Spiel komplett löschen?')) return;
+    const isRoh = activeDataSource === 'rohmaterial';
+    if (
+      !window.confirm(
+        isRoh
+          ? 'Möchtest du alle Rohmaterial-Einträge (game_guides_rohmaterial) für dieses Spiel löschen?'
+          : 'Möchtest du alle Entwürfe für dieses Spiel komplett löschen?'
+      )
+    ) {
+      return;
+    }
 
     setActionBusy(true);
     setNotice('');
     setError('');
 
+    const targetTable = isRoh ? TABLES.guidesRohmaterial : 'staging_game_guides';
     const { error: delErr } = await supabase
-      .from('staging_game_guides')
+      .from(targetTable)
       .delete()
       .eq('game_id', gameId);
 
@@ -872,9 +1607,17 @@ export default function IntranetDrafts() {
       return;
     }
 
-    setNotice('Spiel wurde aus der Staging Queue gelöscht.');
+    setNotice(
+      isRoh
+        ? 'Spiel wurde aus game_guides_rohmaterial gelöscht.'
+        : 'Spiel wurde aus der Staging Queue gelöscht.'
+    );
     jumpToNextGame(gameId);
-    fetchQueue();
+    if (isRoh) {
+      fetchRohmaterialSummary();
+    } else {
+      fetchQueue();
+    }
   };
 
   // 2. Creator verwerfen
@@ -886,8 +1629,11 @@ export default function IntranetDrafts() {
     setNotice('');
     setError('');
 
+    const targetTable =
+      activeDataSource === 'rohmaterial' ? TABLES.guidesRohmaterial : 'staging_game_guides';
+
     const { error: delErr } = await supabase
-      .from('staging_game_guides')
+      .from(targetTable)
       .delete()
       .eq('game_id', selectedGameId)
       .eq('creator_name', selectedCreatorName);
@@ -901,7 +1647,11 @@ export default function IntranetDrafts() {
 
     setNotice(`Einträge für "${selectedCreatorName}" wurden verworfen.`);
     jumpToNextCreatorOrGame(selectedGameId, selectedCreatorName);
-    fetchQueue();
+    if (activeDataSource === 'rohmaterial') {
+      fetchRohmaterialSummary();
+    } else {
+      fetchQueue();
+    }
   };
 
   // Open approval modal
@@ -912,7 +1662,7 @@ export default function IntranetDrafts() {
     setShowApproveModal(true);
   };
 
-  // 3. Creator freigeben (Ingest-Workflow: Ingame_guides schreiben, games.status updaten, Staging clearen)
+  // 3. Creator freigeben (Zentraler Freigabe-Prozess über RPC approve_staging_guide bzw. Rohmaterial-Pipeline)
   const handleApproveCreatorConfirm = async () => {
     if (!selectedGameId || !selectedCreatorName || actionBusy || !approveLocale || selectedGameTypes.length === 0) return;
 
@@ -920,37 +1670,66 @@ export default function IntranetDrafts() {
     setNotice('');
     setError('');
 
+    const selectedLanguage = approveLocale;
+
     try {
       // 1. Spieltyp speichern, falls gewählt/geändert
       const { error: typeErr } = await setIntranetGameType(supabase, selectedGameId, selectedGameTypes);
       if (typeErr) {
         console.warn('Fehler beim Speichern des Spiel-Typs im Freigabe-Modal:', typeErr.message);
       } else {
-        setGamesMap((prev) => {
+        const updateGameMap = (prev) => {
           const next = new Map(prev);
           const current = next.get(selectedGameId);
           if (current) next.set(selectedGameId, { ...current, spiel_typ: selectedGameTypes.join(', ') });
           return next;
-        });
+        };
+        setGamesMap(updateGameMap);
+        setRohGamesMap(updateGameMap);
       }
 
-      let success = false;
+      if (activeDataSource === 'staging') {
+        // 2. Eventuelle ausstehende Inline-Edits in staging_game_guides sicherstellen
+        const stagingTargets = currentCreatorRows.filter(
+          (r) => (r._sourceTable || 'staging_game_guides') === 'staging_game_guides'
+        );
+        if (stagingTargets.length > 0) {
+          await persistRowPatchesToSupabase(stagingTargets, (row) => ({
+            guide_id: formatFieldValueForTable(row, 'guide_id', row.guide_id),
+            item_name: formatFieldValueForTable(row, 'item_name', getLocalizedItemName(row.item_name)),
+            chronological_group: formatFieldValueForTable(
+              row,
+              'chronological_group',
+              getLocalizedItemName(row.chronological_group)
+            ),
+            video_chapter: formatFieldValueForTable(
+              row,
+              'video_chapter',
+              getLocalizedItemName(row.video_chapter)
+            ),
+            timestamp: row.timestamp || null,
+            video_url: row.video_url || null,
+            trophy_id: formatFieldValueForTable(row, 'trophy_id', row.trophy_id),
+            is_trophy_relevant: row.is_trophy_relevant || null,
+          }));
+        }
 
-      // Versuche zuerst RPC approve_staging_guide mit p_locale
-      const { error: rpcErr } = await supabase.rpc('approve_staging_guide', {
-        p_game_id: selectedGameId,
-        p_creator_name: selectedCreatorName,
-        p_locale: approveLocale,
-      });
+        // 3. Zentrale Supabase-RPC aufrufen (keine manuellen Einzel-Updates auf game_guides / games.status)
+        const { error: rpcErr } = await supabase.rpc('approve_staging_guide', {
+          p_game_id: selectedGameId,
+          p_lang: selectedLanguage,
+          p_creator_name: selectedCreatorName,
+        });
 
-      if (!rpcErr) {
-        success = true;
+        if (rpcErr) {
+          setActionBusy(false);
+          setError(`Freigabe über approve_staging_guide fehlgeschlagen: ${rpcErr.message}`);
+          return;
+        }
       } else {
-        console.warn('RPC approve_staging_guide nicht verfügbar / fehlgeschlagen, nutze regulären JS Ingest-Workflow:', rpcErr.message);
-
-        // 1. Creator in content_creators auflösen oder neu anlegen
-        let creatorId = null;
-        if (selectedCreatorName) {
+        // Rohmaterial / Multi-Tab Freigabe
+        let creatorId = currentCreatorRows.find((r) => r.creator_id)?.creator_id || null;
+        if (!creatorId && selectedCreatorName && !selectedCreatorName.startsWith('Produktiver Guide')) {
           const { data: existingCreator } = await supabase
             .from(TABLES.contentCreators)
             .select('id')
@@ -960,8 +1739,8 @@ export default function IntranetDrafts() {
           if (existingCreator?.id) {
             creatorId = existingCreator.id;
           } else {
-            const sampleRowWithUrl = currentCreatorRows.find((r) => r.creator_input_url);
-            const inputUrl = sampleRowWithUrl?.creator_input_url || '';
+            const sampleRowWithUrl = currentCreatorRows.find((r) => r.creator_input_url || r.playlist_url);
+            const inputUrl = sampleRowWithUrl?.creator_input_url || sampleRowWithUrl?.playlist_url || '';
             const { data: newCreator } = await supabase
               .from(TABLES.contentCreators)
               .insert({ channel_name: selectedCreatorName.trim(), youtube_url: inputUrl })
@@ -974,90 +1753,92 @@ export default function IntranetDrafts() {
           }
         }
 
-        // 2. Mappe Staging-Zeilen in game_guides
         const toLocalized = (val) => {
           if (!val) return null;
-          if (typeof val === 'object') return val;
+          if (typeof val === 'object' && !Array.isArray(val)) {
+            const str = val[selectedLanguage] || val.de || val.en || Object.values(val)[0] || '';
+            return str ? { ...val, [selectedLanguage]: String(str).trim() } : null;
+          }
           const str = String(val).trim();
-          return str ? { [approveLocale]: str } : null;
+          return str ? { [selectedLanguage]: str } : null;
         };
 
-        const parseGuideIdNum = (val) => {
+        const parseDigitStr = (val) => {
           const digits = String(val ?? '').replace(/\D/g, '');
-          return digits ? Number.parseInt(digits, 10) : null;
+          return digits ? String(Number.parseInt(digits, 10)) : null;
         };
 
-        const parseTrophyIdNum = (val) => {
-          const digits = String(val ?? '').replace(/\D/g, '');
-          return digits ? Number.parseInt(digits, 10) : null;
-        };
+        const rowsFromNonProductive = currentCreatorRows.filter(
+          (r) => r._sourceTable !== TABLES.guides
+        );
 
-        const rowsToApprove = currentCreatorRows.map((r) => ({
-          game_id: r.game_id,
-          platform_game_id: r.platform_game_id || null,
-          guide_id: parseGuideIdNum(r.guide_id),
-          item_name: toLocalized(r.item_name),
-          chronological_group: toLocalized(r.chronological_group),
-          video_chapter: toLocalized(r.video_chapter),
-          timestamp: r.timestamp || null,
-          video_url: r.video_url || null,
-          trophy_id: parseTrophyIdNum(r.trophy_id),
-          is_trophy_relevant: r.is_trophy_relevant || null,
-          creator_id: creatorId,
-          sheet_type: Array.isArray(r.sheet_type) && r.sheet_type.length > 0 ? r.sheet_type : [1],
-        }));
+        if (rowsFromNonProductive.length > 0) {
+          const rowsToApprove = rowsFromNonProductive.map((r) => ({
+            game_id: r.game_id || selectedGameId,
+            platform_game_id: r.platform_game_id || null,
+            guide_id: parseDigitStr(r.guide_id),
+            item_name: toLocalized(r.item_name),
+            chronological_group: toLocalized(r.chronological_group),
+            category_group: toLocalized(r.category_group),
+            video_chapter: toLocalized(r.video_chapter),
+            timestamp: r.timestamp || null,
+            video_url: r.video_url || null,
+            trophy_id: parseDigitStr(r.trophy_id),
+            is_trophy_relevant: r.is_trophy_relevant || null,
+            creator_id: creatorId,
+            sheet_type: normalizeSheetTypeArray(r.sheet_type),
+          }));
 
-        const { error: insertErr } = await supabase.from(TABLES.guides).insert(rowsToApprove);
+          const { error: insertErr } = await supabase.from(TABLES.guides).insert(rowsToApprove);
 
-        if (insertErr) {
-          setActionBusy(false);
-          setError(`Freigabe fehlgeschlagen: ${insertErr.message}`);
-          return;
+          if (insertErr) {
+            setActionBusy(false);
+            setError(`Freigabe fehlgeschlagen: ${insertErr.message}`);
+            return;
+          }
         }
 
-        // 3. games.status aktualisieren (guide_<locale> = DONE, guides = HAS_VIDEO)
+        // Einheitliches Update auf public.games (guide_<lang>: 'FERTIG', publish_status: 'PUBLISHED', publishing_status, published_locales, is_guide_locked: true)
         const { data: current } = await supabase
           .from(TABLES.games)
-          .select(GAME_STRUCT.status)
+          .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}`)
           .eq(GAME_PK, selectedGameId)
           .maybeSingle();
 
-        const statusMap = { ...parseStatusMap(current?.[GAME_STRUCT.status]) };
-        const statusKey = guideStatusKey(approveLocale);
-        if (String(statusMap[statusKey] ?? '').trim().toUpperCase() !== GUIDE_PUBLICATION.PUBLISHED) {
-          statusMap[statusKey] = GUIDE_PUBLICATION.DONE;
-        }
+        const hasVideo = currentCreatorRows.some((r) => Boolean(r.video_url));
+        const updatePatch = buildUnifiedGuidePublishPatch({
+          currentGame: current,
+          lang: selectedLanguage,
+          guideState: GUIDE_PUBLICATION.DONE,
+          hasVideo,
+          clearRohmaterial: true,
+        });
 
-        const hasVideo = rowsToApprove.some((r) => Boolean(r.video_url));
-        if (hasVideo) {
-          statusMap.guides = 'HAS_VIDEO';
-        }
-
-        await supabase
+        const { error: gameUpErr } = await supabase
           .from(TABLES.games)
-          .update({ [GAME_STRUCT.status]: statusMap })
+          .update(updatePatch)
           .eq(GAME_PK, selectedGameId);
 
-        success = true;
-      }
-
-      if (success) {
-        // Lösche ALLE Staging-Einträge für dieses Spiel aus staging_game_guides und springe zum nächsten Spiel
-        const { error: deleteStagingErr } = await supabase
-          .from('staging_game_guides')
-          .delete()
-          .eq('game_id', selectedGameId);
-
-        if (deleteStagingErr) {
-          console.error('Fehler beim Säubern der Staging Queue:', deleteStagingErr.message);
+        if (gameUpErr) {
+          setActionBusy(false);
+          setError(`Fehler beim Aktualisieren des Spiel-Status: ${gameUpErr.message}`);
+          return;
         }
 
-        setShowApproveModal(false);
-        setActionBusy(false);
-        setNotice(`Guide von Creator "${selectedCreatorName}" erfolgreich in [${approveLocale.toUpperCase()}] freigegeben!`);
-        jumpToNextGame(selectedGameId);
-        fetchQueue();
+        await removeGameFromWiedervorlage(supabase, selectedGameId);
+
+        await supabase
+          .from(TABLES.guidesRohmaterial)
+          .delete()
+          .eq('game_id', selectedGameId);
       }
+
+      setShowApproveModal(false);
+      setActionBusy(false);
+      setNotice(`Guide von Creator "${selectedCreatorName}" erfolgreich in [${selectedLanguage.toUpperCase()}] freigegeben!`);
+      jumpToNextGame(selectedGameId);
+      fetchQueue();
+      fetchRohmaterialSummary();
     } catch (err) {
       setActionBusy(false);
       setError(`Unerwarteter Fehler bei der Freigabe: ${err.message}`);
@@ -1067,9 +1848,11 @@ export default function IntranetDrafts() {
   // 4. Einzelne Zeile löschen
   const handleDeleteRow = async (rowId) => {
     if (!rowId || actionBusy) return;
+    const targetRow = currentCreatorRows.find((r) => r.id === rowId);
+    const sourceTable = targetRow?._sourceTable || 'staging_game_guides';
 
     const { error: delErr } = await supabase
-      .from('staging_game_guides')
+      .from(sourceTable)
       .delete()
       .eq('id', rowId);
 
@@ -1078,7 +1861,19 @@ export default function IntranetDrafts() {
       return;
     }
 
-    fetchQueue();
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      next.delete(rowId);
+      return next;
+    });
+
+    if (sourceTable === 'staging_game_guides') {
+      setStagingRows((prev) => prev.filter((r) => r.id !== rowId));
+    } else if (sourceTable === TABLES.guidesRohmaterial) {
+      setRohmaterialRows((prev) => prev.filter((r) => r.id !== rowId));
+    } else if (sourceTable === TABLES.guides) {
+      setProductiveRohRows((prev) => prev.filter((r) => r.id !== rowId));
+    }
   };
 
   // 5. Ganzes Video / Chapter entfernen
@@ -1087,8 +1882,11 @@ export default function IntranetDrafts() {
     if (!window.confirm('Möchtest du alle Zeilen dieses Videos / Chapters für diesen Creator löschen?')) return;
 
     setActionBusy(true);
+    const targetTable =
+      activeDataSource === 'rohmaterial' ? TABLES.guidesRohmaterial : 'staging_game_guides';
+
     let query = supabase
-      .from('staging_game_guides')
+      .from(targetTable)
       .delete()
       .eq('game_id', selectedGameId)
       .eq('creator_name', selectedCreatorName);
@@ -1107,7 +1905,11 @@ export default function IntranetDrafts() {
       return;
     }
 
-    fetchQueue();
+    if (activeDataSource === 'rohmaterial') {
+      fetchRohmaterialSummary();
+    } else {
+      fetchQueue();
+    }
   };
 
   // Helper: Synchronisiert video_url mit neuem Timestamp
@@ -1115,7 +1917,6 @@ export default function IntranetDrafts() {
     if (!url) return url;
     const seconds = parseTimecodeToSeconds(newTimestamp);
     if (seconds == null) {
-      // Wenn Ungültig/Leer, lassen wir URL unberührt oder entfernen &t= Param wenn gewünscht
       return url;
     }
     const cleanUrl = url.replace(/([?&]t=)[^&]*/, '');
@@ -1125,39 +1926,24 @@ export default function IntranetDrafts() {
 
   // 6. Zeilen-Eigenschaft inline updaten
   const handleUpdateRowField = async (rowId, field, value) => {
-    let dbValue = value;
-    let updates = { [field]: value };
+    const targetRow = currentCreatorRows.find((r) => r.id === rowId) || stagingRows.find((r) => r.id === rowId);
+    if (!targetRow) return;
 
-    if (field === 'guide_id') {
-      const digits = String(value ?? '').replace(/\D/g, '');
-      dbValue = digits ? Number.parseInt(digits, 10) : null;
-      updates = { guide_id: dbValue };
-    } else if (field === 'trophy_id') {
-      const digits = String(value ?? '').replace(/\D/g, '');
-      dbValue = digits ? Number.parseInt(digits, 10) : null;
-      updates = { trophy_id: dbValue };
-    } else if (field === 'timestamp') {
-      const targetRow = stagingRows.find((r) => r.id === rowId);
-      const newVideoUrl = updateVideoUrlTimestamp(targetRow?.video_url, value);
-      updates = {
-        timestamp: value,
-        video_url: newVideoUrl,
-      };
-    }
-
-    // Optimistic UI update
-    setStagingRows((prev) =>
-      prev.map((r) => (r.id === rowId ? { ...r, ...updates } : r))
-    );
-
-    const { error: updateErr } = await supabase
-      .from('staging_game_guides')
-      .update(updates)
-      .eq('id', rowId);
-
-    if (updateErr) {
-      console.error(`Fehler beim Speichern von ${field}:`, updateErr.message);
-      fetchQueue();
+    try {
+      await persistRowPatchesToSupabase([targetRow], (row) => {
+        if (field === 'timestamp') {
+          const newVideoUrl = updateVideoUrlTimestamp(row?.video_url, value);
+          return {
+            timestamp: value,
+            video_url: newVideoUrl,
+          };
+        }
+        return {
+          [field]: formatFieldValueForTable(row, field, value),
+        };
+      });
+    } catch (err) {
+      console.error(`Fehler beim Speichern von ${field}:`, err.message);
     }
   };
 
@@ -1170,10 +1956,11 @@ export default function IntranetDrafts() {
     setNotice('');
 
     try {
-      const rowsToUpdate = [];
+      const modifiedRows = [];
+      const patchesMap = new Map();
 
       for (const row of currentCreatorRows) {
-        const rawName = typeof row.item_name === 'string' ? row.item_name : (row.item_name?.de || row.item_name?.en || '');
+        const rawName = getLocalizedItemName(row.item_name);
         let nameStr = rawName.trim();
         let cleanTime = row.timestamp;
         let newVideoUrl = row.video_url;
@@ -1183,7 +1970,6 @@ export default function IntranetDrafts() {
         const match = nameStr.match(/[:\s-]*(\d{1,2}:\s*\d{2}(?::\s*\d{2})?)\s*$/);
         if (match) {
           const rawTime = match[1];
-          // Säubere Leerzeichen in der Zeit, z.B. "00: 02:17" -> "00:02:17" oder "02: 17" -> "02:17"
           cleanTime = rawTime.replace(/\s+/g, '');
           newVideoUrl = updateVideoUrlTimestamp(row.video_url, cleanTime);
           nameStr = nameStr.replace(/[:\s-]*\d{1,2}:\s*\d{2}(?::\s*\d{2})?\s*$/, '').trim();
@@ -1197,36 +1983,22 @@ export default function IntranetDrafts() {
         }
 
         if (isModified) {
-          const newItemName = typeof row.item_name === 'object' && row.item_name !== null
-            ? { ...row.item_name, de: nameStr, en: nameStr }
-            : nameStr;
-
-          rowsToUpdate.push({
-            id: row.id,
-            item_name: newItemName,
+          modifiedRows.push(row);
+          patchesMap.set(row.id, {
+            item_name: formatFieldValueForTable(row, 'item_name', nameStr),
             timestamp: cleanTime,
             video_url: newVideoUrl,
           });
         }
       }
 
-      // Execute updates if any
-      for (const updateObj of rowsToUpdate) {
-        const { error: upErr } = await supabase
-          .from('staging_game_guides')
-          .update({
-            item_name: updateObj.item_name,
-            timestamp: updateObj.timestamp,
-            video_url: updateObj.video_url,
-          })
-          .eq('id', updateObj.id);
-        if (upErr) throw new Error(`Update fehlgeschlagen für Zeile ${updateObj.id}: ${upErr.message}`);
+      if (modifiedRows.length > 0) {
+        await persistRowPatchesToSupabase(modifiedRows, (row) => patchesMap.get(row.id));
       }
 
       setNotice(
-        `Bereinigung abgeschlossen: ${rowsToUpdate.length} Zeilen in Items bereinigt / umbenannt.`
+        `Bereinigung abgeschlossen: ${modifiedRows.length} Zeilen in Items bereinigt / umbenannt.`
       );
-      await fetchQueue();
     } catch (err) {
       setError(`Fehler bei der Bereinigung: ${err.message}`);
     } finally {
@@ -1237,9 +2009,416 @@ export default function IntranetDrafts() {
   // 8. Trophy ID zuweisen
   const handleAssignTrophyToActiveRow = (trophyId) => {
     if (!activeRowId) return;
-    handleUpdateRowField(activeRowId, 'trophy_id', trophyId);
-    handleUpdateRowField(activeRowId, 'is_trophy_relevant', 'Ja');
+    const numericId = extractNumericTrophyId(trophyId);
+    handleUpdateRowField(activeRowId, 'trophy_id', numericId);
+    handleUpdateRowField(activeRowId, 'is_trophy_relevant', 'ja');
   };
+
+  // --- TROPHÄEN-SCHNELL-PICKER & AUTO-MATCHER ("JUST DO IT") ---
+
+  // Aufbereitete Trophäen mit numerischer ID & normalisierten Texten für Matching
+  const normalizedTrophies = useMemo(() => {
+    return (gameTrophies ?? []).map((ach, idx) => {
+      const rawAchId = ach.platform_achievement_id ?? ach.id ?? '';
+      const numericId = extractNumericTrophyId(rawAchId, idx + 1);
+      const nameDe =
+        typeof ach.trophy_name === 'object' && ach.trophy_name !== null
+          ? ach.trophy_name.de || ''
+          : typeof ach.trophy_name === 'string'
+            ? ach.trophy_name
+            : '';
+      const nameEn =
+        typeof ach.trophy_name === 'object' && ach.trophy_name !== null
+          ? ach.trophy_name.en || ''
+          : '';
+      const displayName =
+        (typeof ach.trophy_name === 'object' && ach.trophy_name !== null
+          ? ach.trophy_name[trophyLang] || ach.trophy_name.de || ach.trophy_name.en || Object.values(ach.trophy_name)[0]
+          : ach.trophy_name) || String(rawAchId);
+      const descDe = getLocalizedTrophyDesc(ach.trophy_desc ?? ach.trophy_description, 'de');
+      const descEn = getLocalizedTrophyDesc(ach.trophy_desc ?? ach.trophy_description, 'en');
+      const displayDesc = getLocalizedTrophyDesc(ach.trophy_desc ?? ach.trophy_description, trophyLang);
+
+      return {
+        raw: ach,
+        rawAchId: String(rawAchId),
+        numericId,
+        displayName: String(displayName || '').trim(),
+        displayDesc: String(displayDesc || '').trim(),
+        normDe: normalizeForMatch(nameDe),
+        normEn: normalizeForMatch(nameEn),
+        normDescDe: normalizeForMatch(descDe),
+        normDescEn: normalizeForMatch(descEn),
+        iconUrl:
+          typeof ach.icon_url === 'object' && ach.icon_url !== null
+            ? ach.icon_url.de || ach.icon_url.en || Object.values(ach.icon_url)[0] || ''
+            : ach.icon_url || '',
+        trophyType: ach.trophy_type || 'bronze',
+      };
+    });
+  }, [gameTrophies, trophyLang]);
+
+  // Prüft eine Guide-Zeile auf 100%-Match ("Just Do It") gegen alle Trophäen
+  const findExactTrophyMatchForItem = useCallback(
+    (itemNameRaw) => {
+      const itemNorm = normalizeForMatch(itemNameRaw);
+      if (!itemNorm || normalizedTrophies.length === 0) return null;
+
+      // a) 100% exakte Übereinstimmung mit normDe oder normEn (muss eindeutig sein)
+      const exactMatches = normalizedTrophies.filter(
+        (t) =>
+          (t.normDe && t.normDe === itemNorm) ||
+          (t.normEn && t.normEn === itemNorm)
+      );
+      if (exactMatches.length === 1) {
+        return exactMatches[0];
+      }
+
+      // b) Normalisierter Trophäenname >= 5 Zeichen lang und eindeutig als ganzes Wort im item_name enthalten
+      const containedMatches = normalizedTrophies.filter((t) => {
+        const matchDe = t.normDe && t.normDe.length >= 5 && isWholeWordContained(itemNorm, t.normDe);
+        const matchEn = t.normEn && t.normEn.length >= 5 && isWholeWordContained(itemNorm, t.normEn);
+        return matchDe || matchEn;
+      });
+      if (containedMatches.length === 1) {
+        return containedMatches[0];
+      }
+
+      return null;
+    },
+    [normalizedTrophies]
+  );
+
+  // Prüft auf Fuzzy-Vorschlag (Teil-Übereinstimmung über trophy_name oder trophy_desc)
+  const findFuzzyTrophySuggestion = useCallback(
+    (itemNameRaw, chronoGroupRaw) => {
+      const itemNorm = normalizeForMatch(itemNameRaw);
+      const groupNorm = normalizeForMatch(chronoGroupRaw);
+      const combinedNorm = `${itemNorm} ${groupNorm}`.trim();
+      if (!combinedNorm || normalizedTrophies.length === 0) return null;
+
+      const tokens = combinedNorm
+        .split(' ')
+        .filter((w) => w.length >= 4);
+
+      let bestTrophy = null;
+      let bestScore = 0;
+
+      for (const t of normalizedTrophies) {
+        let score = 0;
+
+        // Teil-Substring im Namen
+        if (itemNorm.length >= 4) {
+          if ((t.normDe && (t.normDe.includes(itemNorm) || itemNorm.includes(t.normDe))) ||
+              (t.normEn && (t.normEn.includes(itemNorm) || itemNorm.includes(t.normEn)))) {
+            score += 5;
+          }
+        }
+        if (groupNorm.length >= 4) {
+          if ((t.normDe && (t.normDe.includes(groupNorm) || groupNorm.includes(t.normDe))) ||
+              (t.normEn && (t.normEn.includes(groupNorm) || groupNorm.includes(t.normEn)))) {
+            score += 4;
+          }
+        }
+
+        // Token-Treffer in Name oder Beschreibung
+        for (const token of tokens) {
+          if ((t.normDe && t.normDe.includes(token)) || (t.normEn && t.normEn.includes(token))) {
+            score += 3;
+          } else if (
+            (t.normDescDe && t.normDescDe.includes(token)) ||
+            (t.normDescEn && t.normDescEn.includes(token))
+          ) {
+            score += 2;
+          }
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestTrophy = t;
+        }
+      }
+
+      return bestScore >= 3 ? bestTrophy : null;
+    },
+    [normalizedTrophies]
+  );
+
+  // Führt den "Just Do It" Auto-Matcher für alle offenen Zeilen aus
+  const runJustDoItAutoMatcher = useCallback(
+    async (isManualClick = false) => {
+      if (!currentCreatorRows.length || !normalizedTrophies.length) {
+        if (isManualClick) {
+          setNotice('⚡ Auto-Match: Keine passenden offenen Zeilen oder Trophäen gefunden.');
+        }
+        return 0;
+      }
+
+      const unassignedRows = currentCreatorRows.filter(
+        (r) => r.trophy_id == null || String(r.trophy_id).trim() === ''
+      );
+
+      if (unassignedRows.length === 0) {
+        if (isManualClick) {
+          setNotice('⚡ Alle Zeilen haben bereits eine trophy_id!');
+        }
+        return 0;
+      }
+
+      const matchedRows = [];
+      const matchedTrophyById = new Map();
+
+      for (const row of unassignedRows) {
+        const itemStr = getLocalizedItemName(row.item_name);
+        const matchedTrophy = findExactTrophyMatchForItem(itemStr);
+        if (matchedTrophy) {
+          matchedRows.push(row);
+          matchedTrophyById.set(row.id, matchedTrophy.numericId);
+        }
+      }
+
+      if (matchedRows.length === 0) {
+        if (isManualClick) {
+          setNotice('⚡ Auto-Match: Keine neuen 100%-Übereinstimmungen gefunden.');
+        }
+        return 0;
+      }
+
+      try {
+        await persistRowPatchesToSupabase(matchedRows, (row) => {
+          const numId = matchedTrophyById.get(row.id);
+          return {
+            trophy_id: formatFieldValueForTable(row, 'trophy_id', numId),
+            is_trophy_relevant: 'ja',
+          };
+        });
+
+        setAutoMatchedBannerCount((prev) => prev + matchedRows.length);
+        setNotice(`⚡ ${matchedRows.length} Zeilen automatisch zu 100% verknüpft`);
+        return matchedRows.length;
+      } catch (err) {
+        console.error('Fehler beim Auto-Match:', err);
+        if (isManualClick) {
+          setError(`Auto-Match fehlgeschlagen: ${err.message}`);
+        }
+        return 0;
+      }
+    },
+    [
+      currentCreatorRows,
+      normalizedTrophies,
+      findExactTrophyMatchForItem,
+      persistRowPatchesToSupabase,
+      formatFieldValueForTable,
+    ]
+  );
+
+  // Automatischer "Just Do It" Lauf sobald ein Spiel-Entwurf + Trophäen geladen sind
+  useEffect(() => {
+    if (
+      !selectedGameId ||
+      !selectedCreatorName ||
+      loading ||
+      loadingTrophies ||
+      currentCreatorRows.length === 0 ||
+      normalizedTrophies.length === 0
+    ) {
+      return;
+    }
+
+    const sessionKey = `${activeDataSource}::${selectedGameId}::${selectedCreatorName}`;
+    if (autoMatchedKeysRef.current.has(sessionKey)) return;
+    autoMatchedKeysRef.current.add(sessionKey);
+
+    runJustDoItAutoMatcher(false);
+  }, [
+    selectedGameId,
+    selectedCreatorName,
+    activeDataSource,
+    loading,
+    loadingTrophies,
+    currentCreatorRows.length,
+    normalizedTrophies.length,
+    runJustDoItAutoMatcher,
+  ]);
+
+  // Anzahl offener Zeilen ohne trophy_id
+  const openUnassignedRowCount = useMemo(() => {
+    return currentCreatorRows.filter(
+      (r) => r.trophy_id == null || String(r.trophy_id).trim() === ''
+    ).length;
+  }, [currentCreatorRows]);
+
+  // Bereits vergebene numerische Trophy-IDs im aktuellen Entwurf
+  const assignedNumericTrophyIds = useMemo(() => {
+    const set = new Set();
+    for (const r of currentCreatorRows) {
+      if (r.trophy_id != null && String(r.trophy_id).trim() !== '') {
+        const num = extractNumericTrophyId(r.trophy_id, -1);
+        if (num > 0) set.add(num);
+      }
+    }
+    return set;
+  }, [currentCreatorRows]);
+
+  // Smart Grouping für die linke/obere Spalte des Trophäen-Schnell-Pickers (alphabetisch A-Z)
+  const matcherSmartGroups = useMemo(() => {
+    const sourceRows =
+      matcherItemFilter === 'open'
+        ? currentCreatorRows.filter((r) => r.trophy_id == null || String(r.trophy_id).trim() === '')
+        : currentCreatorRows;
+
+    if (sourceRows.length === 0) return [];
+
+    // Zähle Häufigkeit von normalisiertem item_name und chronological_group
+    const itemNormCounts = new Map();
+    const chronoNormCounts = new Map();
+
+    for (const r of sourceRows) {
+      const iNorm = normalizeForMatch(getLocalizedItemName(r.item_name));
+      const cRaw = getLocalizedItemName(r.chronological_group).trim();
+      const cNorm = normalizeForMatch(cRaw);
+      if (iNorm) itemNormCounts.set(iNorm, (itemNormCounts.get(iNorm) || 0) + 1);
+      if (cNorm) chronoNormCounts.set(cNorm, (chronoNormCounts.get(cNorm) || 0) + 1);
+    }
+
+    const groupsMap = new Map();
+
+    for (const row of sourceRows) {
+      const itemStr = getLocalizedItemName(row.item_name).trim() || '(Unbenannt)';
+      const chronoStr = getLocalizedItemName(row.chronological_group).trim();
+      const iNorm = normalizeForMatch(itemStr);
+      const cNorm = normalizeForMatch(chronoStr);
+
+      let groupKey = `row_${row.id}`;
+      let groupLabel = itemStr;
+      let groupKind = 'single';
+
+      if (iNorm && (itemNormCounts.get(iNorm) || 0) > 1) {
+        groupKey = `item_${iNorm}`;
+        groupLabel = itemStr.replace(/[:\s#-]*\d+\s*$/, '').trim() || itemStr;
+        groupKind = 'item_norm';
+      } else if (cNorm && (chronoNormCounts.get(cNorm) || 0) > 1) {
+        groupKey = `chrono_${cNorm}`;
+        groupLabel = chronoStr;
+        groupKind = 'chrono_group';
+      }
+
+      if (!groupsMap.has(groupKey)) {
+        groupsMap.set(groupKey, {
+          key: groupKey,
+          label: groupLabel,
+          kind: groupKind,
+          rows: [],
+          sampleItemName: itemStr,
+          sampleChrono: chronoStr,
+        });
+      }
+      groupsMap.get(groupKey).rows.push(row);
+    }
+
+    const result = [];
+    for (const g of groupsMap.values()) {
+      const assignedIds = [
+        ...new Set(
+          g.rows
+            .map((r) => (r.trophy_id != null && String(r.trophy_id).trim() !== '' ? Number(r.trophy_id) : null))
+            .filter((v) => v != null)
+        ),
+      ];
+      const isOpen = g.rows.some((r) => r.trophy_id == null || String(r.trophy_id).trim() === '');
+      const suggestion = isOpen
+        ? findFuzzyTrophySuggestion(g.sampleItemName, g.sampleChrono)
+        : null;
+
+      result.push({
+        ...g,
+        count: g.rows.length,
+        isGrouped: g.rows.length > 1,
+        isOpen,
+        assignedIds,
+        suggestion,
+      });
+    }
+
+    // Alphabetisch A-Z sortieren
+    result.sort((a, b) => a.label.localeCompare(b.label, 'de', { numeric: true }));
+    return result;
+  }, [currentCreatorRows, matcherItemFilter, findFuzzyTrophySuggestion]);
+
+  // Automatische Vorauswahl des obersten offenen Items im Trophäen-Schnell-Picker
+  useEffect(() => {
+    if (!showTrophyMatcher) return;
+    if (matcherSmartGroups.length === 0) {
+      setMatcherActiveGroupKey(null);
+      return;
+    }
+    const stillExists = matcherSmartGroups.some((g) => g.key === matcherActiveGroupKey);
+    if (!matcherActiveGroupKey || !stillExists) {
+      const firstOpen = matcherSmartGroups.find((g) => g.isOpen) || matcherSmartGroups[0];
+      setMatcherActiveGroupKey(firstOpen ? firstOpen.key : null);
+    }
+  }, [showTrophyMatcher, matcherSmartGroups, matcherActiveGroupKey]);
+
+  // Alphabetisch sortierte (A-Z) und gefilterte Trophäen für die rechte/untere Spalte
+  const matcherVisibleTrophies = useMemo(() => {
+    let list = [...normalizedTrophies];
+
+    if (matcherHideAssignedTrophies) {
+      list = list.filter((t) => !assignedNumericTrophyIds.has(t.numericId));
+    }
+
+    if (matcherTrophySearch.trim()) {
+      const q = matcherTrophySearch.toLowerCase().trim();
+      list = list.filter(
+        (t) =>
+          t.displayName.toLowerCase().includes(q) ||
+          t.displayDesc.toLowerCase().includes(q) ||
+          String(t.numericId).includes(q) ||
+          t.rawAchId.toLowerCase().includes(q)
+      );
+    }
+
+    list.sort((a, b) => a.displayName.localeCompare(b.displayName, 'de', { numeric: true }));
+    return list;
+  }, [normalizedTrophies, matcherHideAssignedTrophies, assignedNumericTrophyIds, matcherTrophySearch]);
+
+  // 1-Tap-Zuweisung für ein Item / eine Smart-Group und automatisches Weiterspringen zum nächsten offenen Item
+  const handleMatcherAssignTrophyToGroup = useCallback(
+    async (targetGroup, numericTrophyId) => {
+      if (!targetGroup || !targetGroup.rows?.length || actionBusy) return;
+
+      // Bestimme vorab das nächste offene Item in der Liste
+      const currentIdx = matcherSmartGroups.findIndex((g) => g.key === targetGroup.key);
+      let nextGroupKey = null;
+      for (let i = currentIdx + 1; i < matcherSmartGroups.length; i += 1) {
+        if (matcherSmartGroups[i].isOpen && matcherSmartGroups[i].key !== targetGroup.key) {
+          nextGroupKey = matcherSmartGroups[i].key;
+          break;
+        }
+      }
+      if (!nextGroupKey) {
+        for (let i = 0; i < currentIdx; i += 1) {
+          if (matcherSmartGroups[i].isOpen && matcherSmartGroups[i].key !== targetGroup.key) {
+            nextGroupKey = matcherSmartGroups[i].key;
+            break;
+          }
+        }
+      }
+
+      try {
+        await persistRowPatchesToSupabase(targetGroup.rows, (row) => ({
+          trophy_id: formatFieldValueForTable(row, 'trophy_id', numericTrophyId),
+          is_trophy_relevant: 'ja',
+        }));
+
+        setMatcherActiveGroupKey(nextGroupKey);
+      } catch (err) {
+        setError(`Zuweisung fehlgeschlagen: ${err.message}`);
+      }
+    },
+    [actionBusy, matcherSmartGroups, persistRowPatchesToSupabase, formatFieldValueForTable]
+  );
 
   // 8b. IDs neu durchnummerieren (1..N) in aktueller Sortierreihenfolge
   const handleRenumberGuideIds = async () => {
@@ -1250,47 +2429,26 @@ export default function IntranetDrafts() {
     setNotice('');
 
     try {
-      const updatesMap = new Map();
+      const indexById = new Map();
       currentCreatorRows.forEach((row, index) => {
-        updatesMap.set(row.id, index + 1);
+        indexById.set(row.id, index + 1);
       });
 
-      // Optimistic state update
-      setStagingRows((prev) =>
-        prev.map((r) => (updatesMap.has(r.id) ? { ...r, guide_id: updatesMap.get(r.id) } : r))
-      );
-
-      const entries = [...updatesMap.entries()];
-      const CHUNK_SIZE = 50;
-
-      for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
-        const chunk = entries.slice(i, i + CHUNK_SIZE);
-        const results = await Promise.all(
-          chunk.map(([rowId, newGuideId]) =>
-            supabase
-              .from('staging_game_guides')
-              .update({ guide_id: newGuideId })
-              .eq('id', rowId)
-          )
-        );
-        const failed = results.find((res) => res.error);
-        if (failed?.error) {
-          throw new Error(failed.error.message);
-        }
-      }
+      await persistRowPatchesToSupabase(currentCreatorRows, (row) => ({
+        guide_id: formatFieldValueForTable(row, 'guide_id', indexById.get(row.id)),
+      }));
 
       setSortField('guide_id');
       setSortDirection('asc');
-      setNotice(`🔢 ${entries.length} Zeilen erfolgreich neu durchnummeriert (1..${entries.length}).`);
+      setNotice(`🔢 ${currentCreatorRows.length} Zeilen erfolgreich neu durchnummeriert (1..${currentCreatorRows.length}).`);
     } catch (err) {
       setError(`Fehler beim Neu-Nummerieren: ${err.message}`);
-      await fetchQueue();
     } finally {
       setActionBusy(false);
     }
   };
 
-  // 8c. Suchen & Ersetzen Logik
+  // 8c. Suchen & Ersetzen Logik (inkl. category_group)
   const searchReplacePreview = useMemo(() => {
     if (!searchQuery || !currentCreatorRows.length) {
       return { matchCount: 0, matchedRows: [], regexError: null };
@@ -1309,7 +2467,7 @@ export default function IntranetDrafts() {
 
     const targetFields =
       searchTargetField === 'all'
-        ? ['item_name', 'chronological_group', 'video_chapter']
+        ? ['item_name', 'chronological_group', 'category_group', 'video_chapter']
         : [searchTargetField];
 
     const matchedRows = [];
@@ -1328,26 +2486,12 @@ export default function IntranetDrafts() {
           rowMatched = true;
           regex.lastIndex = 0;
           const replacedStr = currentStr.replace(regex, replaceValue);
-          if (typeof rawVal === 'object' && rawVal !== null && !Array.isArray(rawVal)) {
-            const nextObj = { ...rawVal };
-            for (const k of Object.keys(nextObj)) {
-              if (typeof nextObj[k] === 'string') {
-                regex.lastIndex = 0;
-                nextObj[k] = nextObj[k].replace(regex, replaceValue);
-              }
-            }
-            if (!Object.keys(nextObj).length) {
-              nextObj.de = replacedStr;
-            }
-            newFields[field] = nextObj;
-          } else {
-            newFields[field] = replacedStr;
-          }
+          newFields[field] = formatFieldValueForTable(row, field, replacedStr);
         }
       }
 
       if (rowMatched) {
-        matchedRows.push({ id: row.id, updates: newFields });
+        matchedRows.push({ row, id: row.id, updates: newFields });
       }
     }
 
@@ -1356,7 +2500,7 @@ export default function IntranetDrafts() {
       matchedRows,
       regexError: null,
     };
-  }, [searchQuery, replaceValue, searchTargetField, useRegex, caseSensitive, currentCreatorRows]);
+  }, [searchQuery, replaceValue, searchTargetField, useRegex, caseSensitive, currentCreatorRows, formatFieldValueForTable]);
 
   const handleApplySearchReplace = async () => {
     const { matchedRows, matchCount, regexError } = searchReplacePreview;
@@ -1368,33 +2512,14 @@ export default function IntranetDrafts() {
 
     try {
       const updatesById = new Map(matchedRows.map((m) => [m.id, m.updates]));
-
-      // Optimistic state update
-      setStagingRows((prev) =>
-        prev.map((r) => (updatesById.has(r.id) ? { ...r, ...updatesById.get(r.id) } : r))
+      await persistRowPatchesToSupabase(
+        matchedRows.map((m) => m.row),
+        (row) => updatesById.get(row.id)
       );
-
-      const CHUNK_SIZE = 50;
-      for (let i = 0; i < matchedRows.length; i += CHUNK_SIZE) {
-        const chunk = matchedRows.slice(i, i + CHUNK_SIZE);
-        const results = await Promise.all(
-          chunk.map((item) =>
-            supabase
-              .from('staging_game_guides')
-              .update(item.updates)
-              .eq('id', item.id)
-          )
-        );
-        const failed = results.find((res) => res.error);
-        if (failed?.error) {
-          throw new Error(failed.error.message);
-        }
-      }
 
       setNotice(`🔄 Suchen & Ersetzen in ${matchCount} Zeilen erfolgreich angewendet.`);
     } catch (err) {
       setError(`Fehler bei Suchen & Ersetzen: ${err.message}`);
-      await fetchQueue();
     } finally {
       setActionBusy(false);
     }
@@ -1413,21 +2538,29 @@ export default function IntranetDrafts() {
 
     try {
       let movedViaRpc = false;
+      const hasCustomCategoryOrSheet = currentCreatorRows.some(
+        (r) =>
+          Boolean(getLocalizedItemName(r.category_group).trim()) ||
+          formatSheetTypeKey(r.sheet_type) !== '1'
+      );
 
-      // 1. Versuche Supabase RPC move_staging_to_rohmaterial
-      const { error: rpcErr } = await supabase.rpc('move_staging_to_rohmaterial', {
-        p_game_id: targetGameId,
-        p_creator_name: targetCreator,
-      });
+      // 1. Versuche Supabase RPC move_staging_to_rohmaterial (nur wenn keine lokalen category_group/sheet_type Anpassungen vorliegen)
+      if (!hasCustomCategoryOrSheet) {
+        const { error: rpcErr } = await supabase.rpc('move_staging_to_rohmaterial', {
+          p_game_id: targetGameId,
+          p_creator_name: targetCreator,
+        });
+        if (!rpcErr) {
+          movedViaRpc = true;
+        } else {
+          console.warn(
+            'RPC move_staging_to_rohmaterial nicht verfügbar oder fehlgeschlagen, nutze Fallback:',
+            rpcErr.message
+          );
+        }
+      }
 
-      if (!rpcErr) {
-        movedViaRpc = true;
-      } else {
-        console.warn(
-          'RPC move_staging_to_rohmaterial nicht verfügbar oder fehlgeschlagen, nutze Fallback:',
-          rpcErr.message
-        );
-
+      if (!movedViaRpc) {
         // Fallback: Zeilen in game_guides_rohmaterial kopieren, games.status.rohmaterial = 'PENDING_MULTI_TAB' setzen, aus staging_game_guides löschen
         const safeCreator = targetCreator.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
         const batchKey = `staging_${String(targetGameId).slice(0, 8)}_${safeCreator}_${Date.now()}`;
@@ -1456,14 +2589,15 @@ export default function IntranetDrafts() {
               ? selectedGame.platform_game_id[0]
               : selectedGame?.platform_game_id) ||
             null,
-          guide_id: parseNum(r.guide_id) ?? idx + 1,
-          sheet_type: Array.isArray(r.sheet_type) && r.sheet_type.length > 0 ? r.sheet_type : [1],
+          guide_id: String(parseNum(r.guide_id) ?? idx + 1),
+          sheet_type: normalizeSheetTypeArray(r.sheet_type),
           item_name: toJsonb(r.item_name),
           chronological_group: toJsonb(r.chronological_group),
+          category_group: toJsonb(r.category_group),
           video_chapter: toJsonb(r.video_chapter),
           timestamp: r.timestamp || null,
           video_url: r.video_url || null,
-          trophy_id: parseNum(r.trophy_id),
+          trophy_id: parseNum(r.trophy_id) != null ? String(parseNum(r.trophy_id)) : null,
           is_trophy_relevant: r.is_trophy_relevant || null,
         }));
 
@@ -1629,9 +2763,35 @@ export default function IntranetDrafts() {
         </div>
       )}
 
-      {/* Umschalter / Zähler für verschobene große Spiele (Rohmaterial) */}
+      {/* Umschalter / Zähler für verschobene große Spiele (Rohmaterial) & Datenquelle */}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-800 bg-[#121314] px-4 py-2.5">
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Modus-Umschalter: Entwürfe (staging_game_guides) vs. Rohmaterial / Multi-Tab */}
+          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-900/90 p-0.5">
+            <button
+              type="button"
+              onClick={() => setActiveDataSource('staging')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-mono font-bold transition ${
+                activeDataSource === 'staging'
+                  ? 'bg-[#00ff66]/15 text-[#00ff66] border border-[#00ff66]/40'
+                  : 'text-zinc-400 hover:text-zinc-200 border border-transparent'
+              }`}
+            >
+              <span>📝 Staging-Entwürfe ({queueGamesList.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveDataSource('rohmaterial')}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-mono font-bold transition ${
+                activeDataSource === 'rohmaterial'
+                  ? 'bg-purple-500/20 text-purple-200 border border-purple-400/50'
+                  : 'text-zinc-400 hover:text-purple-200 border border-transparent'
+              }`}
+            >
+              <span>📦 Multi-Tab / Rohmaterial ({rohmaterialGames.length})</span>
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={() => setShowRohmaterialView((prev) => !prev)}
@@ -1641,11 +2801,11 @@ export default function IntranetDrafts() {
                 : 'border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20'
             }`}
           >
-            <span>📦 Verschobene große Spiele (Rohmaterial: {rohmaterialGames.length})</span>
+            <span>📦 Rohmaterial-Übersicht ({rohmaterialGames.length})</span>
             <span>{showRohmaterialView ? '▲' : '▼'}</span>
           </button>
           <span className="text-[11px] font-mono text-zinc-500">
-            Offene Entwürfe: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({stagingRows.length} Zeilen)
+            Staging: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({stagingRows.length} Zeilen) · Rohmaterial: <strong className="text-purple-300">{rohmaterialGames.length} Spiele</strong> ({rohmaterialRows.length} Zeilen)
           </span>
         </div>
 
@@ -1670,7 +2830,7 @@ export default function IntranetDrafts() {
                 📦 Verschobene große Spiele zur Multi-Tab-Bearbeitung ({rohmaterialGames.length})
               </h3>
               <p className="text-[11px] text-zinc-400 font-mono">
-                Spiele mit <span className="text-purple-300">status-&gt;&gt;&apos;rohmaterial&apos; = &apos;PENDING_MULTI_TAB&apos;</span> oder Einträgen in <span className="text-purple-300">game_guides_rohmaterial</span>
+                Spiele mit <span className="text-purple-300">status-&gt;&gt;&apos;rohmaterial&apos; = &apos;PENDING_MULTI_TAB&apos;</span> oder Einträgen in <span className="text-purple-300">game_guides_rohmaterial</span> – direkt im Editor konsolidierbar
               </p>
             </div>
             <button
@@ -1695,12 +2855,23 @@ export default function IntranetDrafts() {
               {rohmaterialGames.map((item, idx) => {
                 const targetId = item.gameId || item.platformGameId;
                 const multiTabHref = targetId ? `/guide/${encodeURIComponent(targetId)}?rohmaterial=1` : '';
+                const isSelectedRoh = activeDataSource === 'rohmaterial' && selectedGameId === item.gameId;
                 return (
                   <div
                     key={item.gameId || item.platformGameId || idx}
-                    className="flex items-center justify-between gap-2.5 rounded-xl border border-purple-500/25 bg-zinc-900/80 p-2.5 hover:border-purple-400/50 transition"
+                    className={`flex items-center justify-between gap-2.5 rounded-xl border p-2.5 transition ${
+                      isSelectedRoh
+                        ? 'border-purple-400 bg-purple-500/20'
+                        : 'border-purple-500/25 bg-zinc-900/80 hover:border-purple-400/50'
+                    }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div
+                      onClick={() => {
+                        setActiveDataSource('rohmaterial');
+                        setSelectedGameId(item.gameId);
+                      }}
+                      className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                    >
                       {item.coverUrl ? (
                         <img
                           src={item.coverUrl}
@@ -1725,16 +2896,30 @@ export default function IntranetDrafts() {
                       </div>
                     </div>
 
-                    {multiTabHref && (
-                      <a
-                        href={multiTabHref}
-                        onClick={(e) => handleStaffGamePreviewClick(e, multiTabHref)}
-                        className="shrink-0 rounded-lg border border-purple-400/40 bg-purple-500/20 px-2.5 py-1.5 text-[10px] font-mono font-bold text-purple-200 hover:bg-purple-500/35 no-underline"
-                        title="Zur Multi-Tab-Bearbeitung öffnen"
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveDataSource('rohmaterial');
+                          setSelectedGameId(item.gameId);
+                          setShowRohmaterialView(false);
+                        }}
+                        className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2.5 py-1.5 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/30 transition"
+                        title="Im Gruppen- & Multi-Tab-Editor öffnen"
                       >
-                        Öffnen ↗
-                      </a>
-                    )}
+                        ✏️ Bearbeiten
+                      </button>
+                      {multiTabHref && (
+                        <a
+                          href={multiTabHref}
+                          onClick={(e) => handleStaffGamePreviewClick(e, multiTabHref)}
+                          className="rounded-lg border border-purple-400/40 bg-purple-500/20 px-2 py-1.5 text-[10px] font-mono font-bold text-purple-200 hover:bg-purple-500/35 no-underline"
+                          title="Auf Spieleseite prüfen"
+                        >
+                          ↗
+                        </a>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -1743,41 +2928,66 @@ export default function IntranetDrafts() {
         </div>
       )}
 
-      {loading && queueGamesList.length === 0 ? (
+      {loading && activeSidebarGamesList.length === 0 ? (
         <div className="flex h-64 items-center justify-center font-mono text-sm text-zinc-500 animate-pulse">
           Lade Entwürfe-Queue…
         </div>
-      ) : queueGamesList.length === 0 ? (
+      ) : activeSidebarGamesList.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-800 bg-[#121314] px-6 py-16 text-center">
           <span className="text-4xl">🎉</span>
-          <h2 className="mt-3 text-lg font-bold text-white">Keine offenen Entwürfe</h2>
+          <h2 className="mt-3 text-lg font-bold text-white">
+            {activeDataSource === 'rohmaterial' ? 'Keine Rohmaterial-Spiele' : 'Keine offenen Entwürfe'}
+          </h2>
           <p className="mt-1 text-xs text-zinc-400 max-w-sm leading-relaxed">
-            Die Staging Queue (<span className="font-mono text-zinc-300">staging_game_guides</span>) ist aktuell leer.
+            {activeDataSource === 'rohmaterial' ? (
+              <>Aktuell liegen keine Spiele in <span className="font-mono text-zinc-300">game_guides_rohmaterial</span>.</>
+            ) : (
+              <>Die Staging Queue (<span className="font-mono text-zinc-300">staging_game_guides</span>) ist aktuell leer.</>
+            )}
           </p>
-          <button
-            type="button"
-            onClick={fetchQueue}
-            className="mt-4 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-200 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
-          >
-            🔄 Queue neu laden
-          </button>
+          <div className="mt-4 flex items-center gap-2">
+            {activeDataSource === 'staging' && rohmaterialGames.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveDataSource('rohmaterial')}
+                className="rounded-xl border border-purple-500/50 bg-purple-500/20 px-4 py-2 text-xs font-bold text-purple-200 hover:bg-purple-500/30"
+              >
+                📦 Zu Multi-Tab / Rohmaterial wechseln ({rohmaterialGames.length})
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                fetchQueue();
+                fetchRohmaterialSummary();
+              }}
+              className="rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-200 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
+            >
+              🔄 Queue neu laden
+            </button>
+          </div>
         </div>
       ) : (
         /* High-Density 3-Spalten Layout */
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 items-start">
           
-          {/* ==================== A. LINKIE SPALTE: Spiele-Queue (3 Cols) ==================== */}
+          {/* ==================== A. LINKE SPALTE: Spiele-Queue (3 Cols) ==================== */}
           <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 max-h-[calc(100vh-160px)] overflow-hidden">
             <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-2.5 px-1">
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-white">Spiele-Queue</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                  {activeDataSource === 'rohmaterial' ? '📦 Multi-Tab Queue' : '📝 Spiele-Queue'}
+                </h3>
                 <p className="text-[10px] text-zinc-500 font-mono">
-                  {filteredQueueList.length} Spiele ({stagingRows.length} Zeilen)
+                  {filteredQueueList.length} Spiele ({activeDataSource === 'rohmaterial' ? rohmaterialRows.length : stagingRows.length} Zeilen)
                 </p>
               </div>
               <button
                 type="button"
-                onClick={fetchQueue}
+                onClick={() => {
+                  fetchQueue();
+                  fetchRohmaterialSummary();
+                }}
                 title="Queue aktualisieren"
                 className="rounded-lg border border-zinc-700 bg-zinc-800 p-1.5 text-xs text-zinc-400 hover:text-[#00ff66]"
               >
@@ -1990,12 +3200,16 @@ export default function IntranetDrafts() {
                   )}
                 </div>
 
-                {/* C. GUIDE-ZEILEN TABELLE (SUPER COMPACT HIGH-DENSITY) */}
+                {/* C. GUIDE-ZEILEN TABELLE & GRUPPEN-RÖNTGENBLICK (SUPER COMPACT HIGH-DENSITY) */}
                 <div className="rounded-2xl border border-zinc-800 bg-[#121314] p-3 flex flex-col gap-2.5">
                   <div className="flex items-center justify-between px-1 flex-wrap gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-white">
-                        Guide-Zeilen ({currentCreatorRows.length})
+                        Guide-Zeilen ({visibleCreatorRows.length}
+                        {visibleCreatorRows.length !== currentCreatorRows.length
+                          ? ` / ${currentCreatorRows.length}`
+                          : ''}
+                        )
                       </h4>
                       <button
                         type="button"
@@ -2015,15 +3229,776 @@ export default function IntranetDrafts() {
                       >
                         🔢 IDs neu durchnummerieren (1..N)
                       </button>
+                      <button
+                        type="button"
+                        disabled={actionBusy || currentCreatorRows.length === 0 || gameTrophies.length === 0}
+                        onClick={() => runJustDoItAutoMatcher(true)}
+                        title="Prüft alle Zeilen ohne trophy_id auf 100%-Übereinstimmung mit Trophäennamen (DE/EN) und verknüpft sie sofort"
+                        className="inline-flex items-center gap-1 rounded bg-[#00ff66]/15 px-2 py-1 text-[11px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 border border-[#00ff66]/40 transition disabled:opacity-50"
+                      >
+                        ⚡ Auto-Match
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowTrophyMatcher((prev) => !prev)}
+                        className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-mono font-bold border transition ${
+                          showTrophyMatcher
+                            ? 'bg-amber-400 text-black border-amber-300 shadow-md shadow-amber-500/20'
+                            : 'bg-amber-500/15 text-amber-300 border-amber-400/50 hover:bg-amber-500/25'
+                        }`}
+                      >
+                        <span>🏆 Trophäen-Matcher ({openUnassignedRowCount} offen)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowRoentgenblick((prev) => !prev)}
+                        className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-mono font-bold border transition ${
+                          showRoentgenblick
+                            ? 'bg-emerald-500/15 text-[#00ff66] border-[#00ff66]/40'
+                            : 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:text-white'
+                        }`}
+                      >
+                        <span>🔬 Gruppen-Röntgenblick</span>
+                        {groupStats.outlierCount > 0 && (
+                          <span className="rounded bg-amber-400/20 px-1 py-0.2 text-[10px] text-amber-300 border border-amber-400/50">
+                            ⚠️ {groupStats.outlierCount} Ausreißer
+                          </span>
+                        )}
+                        <span>{showRoentgenblick ? '▲' : '▼'}</span>
+                      </button>
                     </div>
-                    {activeRowId && (
-                      <span className="text-[10px] font-mono text-[#00ff66]">
-                        ✓ Aktive Zeile ausgewählt (Trophäen-Zuordnung bereit)
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {autoMatchedBannerCount > 0 && (
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#00ff66]/50 bg-[#00ff66]/15 px-2.5 py-0.5 text-[11px] font-mono font-bold text-[#00ff66]">
+                          ⚡ {autoMatchedBannerCount} Zeilen automatisch zu 100% verknüpft
+                        </span>
+                      )}
+                      {activeRowId && (
+                        <span className="text-[10px] font-mono text-[#00ff66]">
+                          ✓ Aktive Zeile ausgewählt (Trophäen-Zuordnung bereit)
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Kompakte Suchen & Ersetzen Leiste */}
+                  {/* ==================== 3. SPLITSCREEN TROPHÄEN-SCHNELL-PICKER ("JUST DO IT" UI) ==================== */}
+                  {showTrophyMatcher && (
+                    <div className="rounded-2xl border-2 border-amber-400/50 bg-[#141619] p-3 flex flex-col gap-3 shadow-2xl">
+                      {/* Matcher Top Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-mono font-bold uppercase tracking-wider text-amber-300">
+                            🏆 Splitscreen Trophäen-Schnell-Picker
+                          </span>
+                          <span className="rounded-md bg-zinc-900 border border-zinc-700 px-2 py-0.5 text-[10px] font-mono text-zinc-300">
+                            Offen: <strong className="text-amber-300">{openUnassignedRowCount}</strong> / {currentCreatorRows.length} Zeilen
+                          </span>
+                          {autoMatchedBannerCount > 0 && (
+                            <span className="rounded-md border border-[#00ff66]/40 bg-[#00ff66]/10 px-2 py-0.5 text-[10px] font-mono font-bold text-[#00ff66]">
+                              ⚡ {autoMatchedBannerCount} Zeilen automatisch zu 100% verknüpft
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => runJustDoItAutoMatcher(true)}
+                            className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2.5 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25"
+                          >
+                            ⚡ Auto-Match erneut prüfen
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowTrophyMatcher(false)}
+                            className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[10px] font-mono text-zinc-300 hover:text-white"
+                          >
+                            ✕ Schließen
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Splitscreen Container: Desktop 50/50 Links/Rechts nebeneinander | Mobile 50/50 Oben/Unten übereinander */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 h-[72vh] min-h-[480px] max-h-[760px]">
+                        {/* LINKE / OBERE SPALTE: Guide-Items (alphabetisch A-Z + Smart Grouping) */}
+                        <div className="flex flex-col rounded-xl border border-zinc-800 bg-[#101113] overflow-hidden h-[34vh] lg:h-full min-h-[220px]">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-900/80 px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-mono font-bold text-white uppercase tracking-wider">
+                                1. Guide-Items (A–Z)
+                              </span>
+                              <span className="text-[10px] font-mono text-zinc-400">
+                                ({matcherSmartGroups.length} Gruppen/Items)
+                              </span>
+                            </div>
+
+                            {/* Filter-Toggle: Nur offene / Alle */}
+                            <div className="inline-flex rounded-lg border border-zinc-700 bg-zinc-950 p-0.5 text-[10px] font-mono">
+                              <button
+                                type="button"
+                                onClick={() => setMatcherItemFilter('open')}
+                                className={`rounded-md px-2 py-0.5 font-bold transition ${
+                                  matcherItemFilter === 'open'
+                                    ? 'bg-amber-400 text-black'
+                                    : 'text-zinc-400 hover:text-white'
+                                }`}
+                              >
+                                Nur offene ({openUnassignedRowCount})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setMatcherItemFilter('all')}
+                                className={`rounded-md px-2 py-0.5 font-bold transition ${
+                                  matcherItemFilter === 'all'
+                                    ? 'bg-[#00ff66] text-black'
+                                    : 'text-zinc-400 hover:text-white'
+                                }`}
+                              >
+                                Alle ({currentCreatorRows.length})
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+                            {matcherSmartGroups.length === 0 ? (
+                              <div className="flex h-full flex-col items-center justify-center text-center p-4 font-mono text-xs text-zinc-500">
+                                <span>🎉 Keine offenen Guide-Items mehr vorhanden!</span>
+                              </div>
+                            ) : (
+                              matcherSmartGroups.map((group) => {
+                                const isSelected = matcherActiveGroupKey === group.key;
+                                const isExpanded = matcherExpandedGroupKeys.has(group.key);
+
+                                return (
+                                  <div
+                                    key={group.key}
+                                    onClick={() => setMatcherActiveGroupKey(group.key)}
+                                    className={`rounded-xl border p-2 transition cursor-pointer select-none ${
+                                      isSelected
+                                        ? 'border-[#00ff66] bg-[#00ff66]/12 ring-1 ring-[#00ff66]/50'
+                                        : group.isOpen
+                                          ? 'border-zinc-800 bg-zinc-900/70 hover:border-zinc-700'
+                                          : 'border-emerald-500/30 bg-emerald-950/15 hover:border-emerald-500/50'
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          {group.isGrouped ? (
+                                            <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-200">
+                                              <span>📁 {group.label}</span>
+                                              <span className="rounded bg-amber-500/20 border border-amber-400/40 px-1.5 py-0.5 text-[10px] font-mono text-amber-300">
+                                                ({group.count}x)
+                                              </span>
+                                            </span>
+                                          ) : (
+                                            <span className="text-xs font-bold text-white break-words">
+                                              {group.label}
+                                            </span>
+                                          )}
+
+                                          {group.sampleChrono && group.kind !== 'chrono_group' && (
+                                            <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-mono text-cyan-300">
+                                              {group.sampleChrono}
+                                            </span>
+                                          )}
+
+                                          {group.assignedIds.length > 0 && (
+                                            <span className="rounded bg-[#00ff66]/20 border border-[#00ff66]/40 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#00ff66]">
+                                              🏆 #{group.assignedIds.join(', #')}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        {group.isGrouped && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setMatcherExpandedGroupKeys((prev) => {
+                                                const next = new Set(prev);
+                                                if (next.has(group.key)) next.delete(group.key);
+                                                else next.add(group.key);
+                                                return next;
+                                              });
+                                            }}
+                                            className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 text-[9px] font-mono text-zinc-300 hover:text-white"
+                                            title="Einzelne Zeilen dieser Smart-Group ein-/ausklappen"
+                                          >
+                                            {isExpanded ? '▲ Zuklappen' : `▼ ${group.count} Zeilen`}
+                                          </button>
+                                        )}
+                                        {isSelected && (
+                                          <span className="rounded bg-[#00ff66] px-1.5 py-0.5 text-[9px] font-mono font-bold text-black">
+                                            AKTIV
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Fuzzy-Match Schnell-Button (1-Tap Übernahme) */}
+                                    {group.suggestion && (
+                                      <div className="mt-1.5">
+                                        <button
+                                          type="button"
+                                          disabled={actionBusy}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleMatcherAssignTrophyToGroup(
+                                              group,
+                                              group.suggestion.numericId
+                                            );
+                                          }}
+                                          className="w-full text-left flex items-center justify-between gap-2 rounded-lg border border-amber-400/60 bg-amber-500/15 px-2.5 py-1 text-[10px] font-mono font-bold text-amber-200 hover:bg-amber-500/30 transition"
+                                        >
+                                          <span className="truncate">
+                                            💡 Vorschlag: {group.suggestion.displayName} (#{group.suggestion.numericId})
+                                          </span>
+                                          <span className="shrink-0 rounded bg-amber-400 px-1.5 py-0.5 text-[9px] font-bold text-black">
+                                            1-Tap Übernahme
+                                          </span>
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {/* Aufgeklappte Einzelzeilen bei Smart-Grouping */}
+                                    {group.isGrouped && isExpanded && (
+                                      <div
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="mt-2 space-y-1 border-t border-zinc-800 pt-1.5 pl-2"
+                                      >
+                                        {group.rows.map((r) => (
+                                          <div
+                                            key={r.id}
+                                            className="flex items-center justify-between gap-2 rounded bg-zinc-950/80 px-2 py-1 text-[10px] font-mono text-zinc-300"
+                                          >
+                                            <span className="truncate">
+                                              #{r.guide_id ?? '—'} · {getLocalizedItemName(r.item_name)}
+                                            </span>
+                                            <span className="text-zinc-500 shrink-0">
+                                              {r.timestamp || '—'}{' '}
+                                              {r.trophy_id ? `· 🏆 #${r.trophy_id}` : ''}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+
+                        {/* RECHTE / UNTERE SPALTE: Trophäen aus game_achievements (alphabetisch A-Z) */}
+                        <div className="flex flex-col rounded-xl border border-zinc-800 bg-[#101113] overflow-hidden h-[34vh] lg:h-full min-h-[220px]">
+                          <div className="flex flex-col gap-2 border-b border-zinc-800 bg-zinc-900/80 px-3 py-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[11px] font-mono font-bold text-white uppercase tracking-wider">
+                                2. Trophäen (A–Z · 1-Tap Zuweisung)
+                              </span>
+
+                              <div className="flex items-center gap-2">
+                                <label className="inline-flex items-center gap-1.5 text-[10px] font-mono text-zinc-300 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={matcherHideAssignedTrophies}
+                                    onChange={(e) =>
+                                      setMatcherHideAssignedTrophies(e.target.checked)
+                                    }
+                                    className="h-3.5 w-3.5 accent-[#00ff66] rounded"
+                                  />
+                                  <span>Bereits vergebene ausblenden</span>
+                                </label>
+                                <select
+                                  value={trophyLang}
+                                  onChange={(e) => setTrophyLang(e.target.value)}
+                                  className="rounded border border-zinc-700 bg-zinc-950 px-1.5 py-0.5 text-[10px] font-mono text-zinc-200"
+                                >
+                                  <option value="de">DE</option>
+                                  <option value="en">EN</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* Schnellsuche */}
+                            <input
+                              type="text"
+                              value={matcherTrophySearch}
+                              onChange={(e) => setMatcherTrophySearch(e.target.value)}
+                              placeholder="🔍 Trophäe nach Name, Beschreibung oder #ID filtern…"
+                              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-xs font-mono text-white placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+                            {matcherVisibleTrophies.length === 0 ? (
+                              <div className="flex h-full items-center justify-center p-4 text-center font-mono text-xs text-zinc-500">
+                                Keine Trophäen für diesen Filter gefunden.
+                              </div>
+                            ) : (
+                              matcherVisibleTrophies.map((t) => {
+                                const isAlreadyUsed = assignedNumericTrophyIds.has(t.numericId);
+                                const activeGroupObj = matcherSmartGroups.find(
+                                  (g) => g.key === matcherActiveGroupKey
+                                );
+
+                                return (
+                                  <button
+                                    key={t.rawAchId || t.numericId}
+                                    type="button"
+                                    disabled={!activeGroupObj || actionBusy}
+                                    onClick={() => {
+                                      if (activeGroupObj) {
+                                        handleMatcherAssignTrophyToGroup(activeGroupObj, t.numericId);
+                                      }
+                                    }}
+                                    className={`w-full text-left flex items-start gap-2.5 rounded-xl border p-2 transition ${
+                                      isAlreadyUsed
+                                        ? 'border-zinc-800/70 bg-zinc-900/40 opacity-75 hover:opacity-100 hover:border-[#00ff66]/50'
+                                        : 'border-zinc-800 bg-zinc-900/80 hover:border-[#00ff66] hover:bg-[#00ff66]/10'
+                                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                                  >
+                                    {t.iconUrl ? (
+                                      <img
+                                        src={t.iconUrl}
+                                        alt=""
+                                        className="h-9 w-9 shrink-0 rounded-lg bg-zinc-800 object-cover mt-0.5"
+                                      />
+                                    ) : (
+                                      <div className="h-9 w-9 shrink-0 rounded-lg bg-zinc-800 flex items-center justify-center text-xs mt-0.5">
+                                        🏆
+                                      </div>
+                                    )}
+
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="rounded bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#00ff66]">
+                                          #{t.numericId}
+                                        </span>
+                                        <TrophyTypeBadge type={t.trophyType} />
+                                        <span className="text-xs font-bold text-white break-words">
+                                          {t.displayName}
+                                        </span>
+                                        {isAlreadyUsed && (
+                                          <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-mono text-emerald-300">
+                                            ✓ vergeben
+                                          </span>
+                                        )}
+                                      </div>
+                                      {t.displayDesc && (
+                                        <p className="mt-0.5 text-[11px] text-zinc-400 line-clamp-2 leading-snug">
+                                          {t.displayDesc}
+                                        </p>
+                                      )}
+                                    </div>
+
+                                    <span className="shrink-0 self-center rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66]">
+                                      1-Tap ⚡
+                                    </span>
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ==================== 1. GRUPPEN-RÖNTGENBLICK (CATEGORY & CHRONO PILLS) ==================== */}
+                  {showRoentgenblick && currentCreatorRows.length > 0 && (
+                    <div className="relative rounded-xl border border-zinc-800/90 bg-zinc-900/60 p-2.5 flex flex-col gap-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-300">
+                            🔬 Gruppen-Röntgenblick (Klick auf Pille = Konsolidieren / Filtern / Sheet-Type)
+                          </span>
+                          {groupStats.outlierCount > 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-300">
+                              ⚠️ {groupStats.outlierCount} Ausreißer (1–2 Einträge) erkannt
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono text-emerald-300">
+                              ✓ Keine 1–2 Zeilen Ausreißer
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Sortierung der Pillen & Schnellfilter Sheet-Type */}
+                        <div className="flex items-center gap-1.5 flex-wrap text-[10px] font-mono">
+                          <span className="text-zinc-500">Sortierung:</span>
+                          {[
+                            { id: 'az', label: 'A–Z' },
+                            { id: 'outliers', label: '⚠️ Ausreißer zuerst' },
+                            { id: 'count', label: 'Anzahl ↓' },
+                          ].map((mode) => (
+                            <button
+                              key={mode.id}
+                              type="button"
+                              onClick={() => setPillSortOrder(mode.id)}
+                              className={`rounded px-1.5 py-0.5 border transition ${
+                                pillSortOrder === mode.id
+                                  ? 'border-[#00ff66]/40 bg-[#00ff66]/15 text-[#00ff66] font-bold'
+                                  : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                              }`}
+                            >
+                              {mode.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Aktive Filter-Hinweis-Leiste */}
+                      {(activeGroupFilter || activeSheetFilter !== 'all') && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-2.5 py-1.5 text-[11px] font-mono">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-[#00ff66]">🔍 Aktiver Tabellen-Filter:</span>
+                            {activeGroupFilter && (
+                              <span className="rounded bg-zinc-900 px-2 py-0.5 text-white border border-zinc-700">
+                                {activeGroupFilter.field === 'category_group' ? 'Category' : 'Chrono'}:{' '}
+                                <strong className="text-[#00ff66]">
+                                  {activeGroupFilter.value === EMPTY_GROUP_TOKEN
+                                    ? '(Ohne Gruppe)'
+                                    : activeGroupFilter.value}
+                                </strong>
+                              </span>
+                            )}
+                            {activeSheetFilter !== 'all' && (
+                              <span className="rounded bg-zinc-900 px-2 py-0.5 text-purple-200 border border-purple-500/40">
+                                Tab [{activeSheetFilter}]
+                              </span>
+                            )}
+                            <span className="text-zinc-300">
+                              ({visibleCreatorRows.length} von {currentCreatorRows.length} Zeilen sichtbar)
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveGroupFilter(null);
+                              setActiveSheetFilter('all');
+                            }}
+                            className="rounded bg-zinc-900 px-2 py-0.5 text-[10px] font-bold text-amber-300 hover:bg-zinc-800 border border-amber-500/40"
+                          >
+                            ✕ Filter zurücksetzen (Alle zeigen)
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Zwei Zeilen: 1) category_group Pills, 2) chronological_group Pills */}
+                      {[
+                        {
+                          field: 'category_group',
+                          title: '🗂️ Category-Group (Sammelobjekt-Kategorien)',
+                          pills: groupStats.categoryPills,
+                          accent: 'purple',
+                        },
+                        {
+                          field: 'chronological_group',
+                          title: '⏱️ Chronological-Group (Kapitel / Gebiete)',
+                          pills: groupStats.chronoPills,
+                          accent: 'cyan',
+                        },
+                      ].map((section) => (
+                        <div key={section.field} className="flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono font-bold text-zinc-400">
+                              {section.title} ({section.pills.length} Gruppen)
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap gap-1.5">
+                            {section.pills.map((pill) => {
+                              const isPopoverOpen =
+                                activePillPopover?.field === section.field &&
+                                activePillPopover?.value === pill.key;
+                              const isFiltered =
+                                activeGroupFilter?.field === section.field &&
+                                activeGroupFilter?.value === pill.key;
+
+                              // Gelber Warn-Rahmen für Gruppen mit nur 1-2 Einträgen (Verdacht auf Tippfehler/Ausreißer)
+                              let pillStyle =
+                                'border-zinc-700/80 bg-zinc-800/90 text-zinc-200 hover:border-zinc-500';
+                              if (isFiltered) {
+                                pillStyle =
+                                  'border-[#00ff66] bg-[#00ff66]/20 text-[#00ff66] font-bold ring-1 ring-[#00ff66]/50';
+                              } else if (pill.isOutlier) {
+                                pillStyle =
+                                  'border-2 border-amber-400 bg-amber-500/15 text-amber-200 font-bold shadow-sm shadow-amber-500/20 hover:bg-amber-500/25';
+                              } else if (pill.isEmpty) {
+                                pillStyle =
+                                  'border-dashed border-zinc-700 bg-zinc-900/70 text-zinc-400 hover:border-zinc-500';
+                              }
+
+                              const otherGroups = section.pills.filter((p) => p.key !== pill.key);
+                              const searchTrim = pillMergeSearch.trim().toLowerCase();
+                              const filteredTargets = otherGroups
+                                .filter(
+                                  (p) =>
+                                    !searchTrim ||
+                                    p.label.toLowerCase().includes(searchTrim)
+                                )
+                                .sort((a, b) => {
+                                  const simA = areGroupNamesSimilar(pill.rawValue, a.rawValue);
+                                  const simB = areGroupNamesSimilar(pill.rawValue, b.rawValue);
+                                  if (simA !== simB) return simA ? -1 : 1;
+                                  return b.count - a.count;
+                                });
+
+                              return (
+                                <div key={pill.key} className="relative inline-block">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (isPopoverOpen) {
+                                        setActivePillPopover(null);
+                                      } else {
+                                        setActivePillPopover({
+                                          field: section.field,
+                                          value: pill.key,
+                                        });
+                                        setPillRenameText(pill.rawValue);
+                                        setPillMergeSearch('');
+                                      }
+                                    }}
+                                    title={
+                                      pill.isOutlier
+                                        ? `⚠️ Ausreißer-Verdacht (${pill.count} ${pill.count === 1 ? 'Eintrag' : 'Einträge'}) – Klicken zum Zusammenführen oder Filtern`
+                                        : `${pill.label} (${pill.count} Zeilen) – Klicken für Aktionen`
+                                    }
+                                    className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-mono transition select-none ${pillStyle}`}
+                                  >
+                                    {pill.isOutlier && <span title="1–2 Einträge (Tippfehler-Verdacht)">⚠️</span>}
+                                    {isFiltered && <span>🔍</span>}
+                                    <span className="max-w-[180px] truncate">{pill.label}</span>
+                                    <span
+                                      className={`rounded px-1 py-0.2 text-[10px] ${
+                                        pill.isOutlier
+                                          ? 'bg-amber-400/25 text-amber-200 font-bold'
+                                          : 'bg-zinc-950/70 text-zinc-400'
+                                      }`}
+                                    >
+                                      ({pill.count})
+                                    </span>
+                                    {pill.sheets.length > 0 && (
+                                      <span className="text-[9px] text-purple-300/90">
+                                        [{pill.sheets.join('|')}]
+                                      </span>
+                                    )}
+                                  </button>
+
+                                  {/* Popover / Dropdown für diese Gruppen-Pille */}
+                                  {isPopoverOpen && (
+                                    <div
+                                      ref={pillPopoverRef}
+                                      className="fixed sm:absolute left-3 right-3 sm:left-0 sm:right-auto top-1/4 sm:top-full z-50 mt-1.5 sm:w-80 rounded-2xl border border-zinc-600 bg-[#16181c] p-3 shadow-2xl flex flex-col gap-2.5 text-left"
+                                    >
+                                      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+                                        <div className="min-w-0">
+                                          <span className="block text-[9px] font-mono uppercase tracking-wider text-zinc-400">
+                                            {section.field === 'category_group'
+                                              ? 'Category-Group bearbeiten'
+                                              : 'Chronological-Group bearbeiten'}
+                                          </span>
+                                          <p className="text-xs font-bold text-white truncate">
+                                            {pill.label}{' '}
+                                            <span className="text-[#00ff66] font-mono">
+                                              ({pill.count} Zeilen)
+                                            </span>
+                                          </p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => setActivePillPopover(null)}
+                                          className="rounded p-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                                        >
+                                          ✕
+                                        </button>
+                                      </div>
+
+                                      {/* b) Nur diese Gruppe in der Tabelle filtern */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (isFiltered) {
+                                            setActiveGroupFilter(null);
+                                          } else {
+                                            setActiveGroupFilter({
+                                              field: section.field,
+                                              value: pill.key,
+                                            });
+                                          }
+                                          setActivePillPopover(null);
+                                        }}
+                                        className={`w-full flex items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-[11px] font-mono font-bold transition ${
+                                          isFiltered
+                                            ? 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+                                            : 'border-[#00ff66]/40 bg-[#00ff66]/15 text-[#00ff66] hover:bg-[#00ff66]/25'
+                                        }`}
+                                      >
+                                        <span>
+                                          {isFiltered
+                                            ? '✕ Gruppen-Filter aufheben'
+                                            : '🔍 Nur diese Gruppe in Tabelle filtern'}
+                                        </span>
+                                        <span>{pill.count} Zeilen</span>
+                                      </button>
+
+                                      {/* Alle Zeilen dieser Gruppe direkt markieren (Multi-Select) */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const matchingIds = currentCreatorRows
+                                            .filter((r) => {
+                                              const val = getLocalizedItemName(r[section.field]).trim();
+                                              return (val || EMPTY_GROUP_TOKEN) === pill.key;
+                                            })
+                                            .map((r) => r.id);
+                                          setSelectedRowIds((prev) => {
+                                            const next = new Set(prev);
+                                            for (const id of matchingIds) next.add(id);
+                                            return next;
+                                          });
+                                          setActivePillPopover(null);
+                                        }}
+                                        className="w-full flex items-center justify-between gap-2 rounded-xl border border-zinc-700 bg-zinc-800/80 px-2.5 py-1.5 text-[11px] font-mono text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800 transition"
+                                      >
+                                        <span>☑️ Alle {pill.count} Zeilen dieser Gruppe auswählen</span>
+                                      </button>
+
+                                      {/* a) Umbenennen / Zusammenführen mit... */}
+                                      <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
+                                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-300">
+                                          ✏️ Umbenennen / Zusammenführen mit:
+                                        </span>
+
+                                        {/* Freitextfeld */}
+                                        <div className="flex items-center gap-1.5">
+                                          <input
+                                            type="text"
+                                            value={pillRenameText}
+                                            onChange={(e) => setPillRenameText(e.target.value)}
+                                            placeholder="Neuer Gruppenname..."
+                                            className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                handleRenameOrMergeGroup(
+                                                  section.field,
+                                                  pill.key,
+                                                  pillRenameText
+                                                );
+                                              }
+                                            }}
+                                          />
+                                          <button
+                                            type="button"
+                                            disabled={actionBusy}
+                                            onClick={() =>
+                                              handleRenameOrMergeGroup(
+                                                section.field,
+                                                pill.key,
+                                                pillRenameText
+                                              )
+                                            }
+                                            className="shrink-0 rounded-lg bg-[#00ff66] px-2.5 py-1.5 text-[11px] font-mono font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50"
+                                          >
+                                            Speichern
+                                          </button>
+                                        </div>
+
+                                        {/* Bestehende Gruppen zum 1-Klick-Zusammenführen */}
+                                        {otherGroups.length > 0 && (
+                                          <div className="flex flex-col gap-1 mt-1">
+                                            {otherGroups.length > 5 && (
+                                              <input
+                                                type="text"
+                                                value={pillMergeSearch}
+                                                onChange={(e) => setPillMergeSearch(e.target.value)}
+                                                placeholder="Bestehende Gruppe suchen..."
+                                                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1 text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                                              />
+                                            )}
+                                            <div className="max-h-36 overflow-y-auto flex flex-col gap-1 pr-0.5">
+                                              {filteredTargets.map((target) => {
+                                                const isSimilar = areGroupNamesSimilar(
+                                                  pill.rawValue,
+                                                  target.rawValue
+                                                );
+                                                return (
+                                                  <button
+                                                    key={target.key}
+                                                    type="button"
+                                                    disabled={actionBusy}
+                                                    onClick={() =>
+                                                      handleRenameOrMergeGroup(
+                                                        section.field,
+                                                        pill.key,
+                                                        target.rawValue
+                                                      )
+                                                    }
+                                                    className={`flex items-center justify-between gap-2 rounded-lg border px-2 py-1 text-[11px] font-mono text-left transition ${
+                                                      isSimilar
+                                                        ? 'border-amber-400/60 bg-amber-500/15 text-amber-200 font-bold hover:bg-amber-500/25'
+                                                        : 'border-zinc-800 bg-zinc-900/90 text-zinc-300 hover:border-[#00ff66]/40 hover:text-white'
+                                                    }`}
+                                                  >
+                                                    <span className="truncate">
+                                                      {isSimilar ? '💡 ' : '↳ '}
+                                                      {target.label}
+                                                    </span>
+                                                    <span className="shrink-0 text-[10px] text-zinc-400">
+                                                      ({target.count})
+                                                    </span>
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* c) Sheet-Type (Tab [1], [2], [3]) für diese gesamte Gruppe setzen */}
+                                      <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
+                                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-300">
+                                          📑 Sheet-Type (Tab) für gesamte Gruppe setzen:
+                                        </span>
+                                        <div className="grid grid-cols-3 gap-1">
+                                          {SHEET_TYPE_OPTIONS.map((opt) => (
+                                            <button
+                                              key={opt.key}
+                                              type="button"
+                                              disabled={actionBusy}
+                                              onClick={() =>
+                                                handleSetGroupSheetType(
+                                                  section.field,
+                                                  pill.key,
+                                                  opt.value
+                                                )
+                                              }
+                                              title={opt.label}
+                                              className="rounded-lg border border-purple-500/35 bg-purple-500/10 px-2 py-1 text-[10px] font-mono font-bold text-purple-200 hover:bg-purple-500/25 hover:border-purple-400 transition"
+                                            >
+                                              Tab {opt.shortLabel}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Kompakte Suchen & Ersetzen Leiste + Sheet-Tab Filter */}
                   <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-800/90 bg-zinc-900/70 px-2.5 py-2 text-[11px]">
                     <select
                       value={searchTargetField}
@@ -2033,7 +4008,8 @@ export default function IntranetDrafts() {
                     >
                       <option value="all">Alle Textfelder</option>
                       <option value="item_name">Item / Bezeichnung (item_name)</option>
-                      <option value="chronological_group">Gruppe (chronological_group)</option>
+                      <option value="chronological_group">Chrono-Gruppe (chronological_group)</option>
+                      <option value="category_group">Category-Gruppe (category_group)</option>
                       <option value="video_chapter">Chapter (video_chapter)</option>
                     </select>
 
@@ -2042,7 +4018,7 @@ export default function IntranetDrafts() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Suchen nach..."
-                      className="min-w-[120px] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                      className="min-w-[110px] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
                     />
 
                     <input
@@ -2050,7 +4026,7 @@ export default function IntranetDrafts() {
                       value={replaceValue}
                       onChange={(e) => setReplaceValue(e.target.value)}
                       placeholder="Ersetzen durch... (leer = löschen)"
-                      className="min-w-[120px] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                      className="min-w-[110px] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
                     />
 
                     <label className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-400 cursor-pointer select-none px-1">
@@ -2087,6 +4063,30 @@ export default function IntranetDrafts() {
                       🔄 In {searchReplacePreview.matchCount} Treffern ersetzen
                     </button>
 
+                    {/* Schnell-Filter nach Sheet-Type ([1], [2], [3]) */}
+                    <div className="inline-flex items-center gap-1 ml-auto border-l border-zinc-800 pl-2">
+                      <span className="text-[10px] font-mono text-zinc-500">Tab:</span>
+                      {[
+                        { id: 'all', label: 'Alle' },
+                        { id: '1', label: '[1]' },
+                        { id: '2', label: '[2]' },
+                        { id: '3', label: '[3]' },
+                      ].map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setActiveSheetFilter(t.id)}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-mono transition ${
+                            activeSheetFilter === t.id
+                              ? 'bg-purple-500/25 text-purple-200 border border-purple-400/50 font-bold'
+                              : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-white'
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+
                     {searchReplacePreview.regexError && (
                       <span className="w-full text-[10px] font-mono text-red-400">
                         Ungültiger Regex: {searchReplacePreview.regexError}
@@ -2094,10 +4094,57 @@ export default function IntranetDrafts() {
                     )}
                   </div>
 
+                  {/* Multi-Select Schnell-Leiste über der Tabelle */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[10px] font-mono text-zinc-400">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-zinc-300 hover:text-white">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleSelected}
+                          onChange={handleToggleSelectAllVisible}
+                          className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 text-[#00ff66] focus:ring-0"
+                        />
+                        <span>
+                          Alle sichtbaren auswählen ({visibleCreatorRows.length})
+                        </span>
+                      </label>
+                      {selectedRowIds.size > 0 && (
+                        <>
+                          <span className="text-[#00ff66] font-bold">
+                            · {selectedRowIds.size} markiert
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedRowIds(new Set())}
+                            className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300 hover:text-white border border-zinc-700"
+                          >
+                            Auswahl aufheben
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    <span className="text-zinc-500">
+                      Tipp: Button <strong className="text-zinc-300">⤵</strong> in einer Zeile wählt ab dieser Zeile abwärts alle sichtbaren Zeilen aus
+                    </span>
+                  </div>
+
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left text-[11px] font-mono border-collapse min-w-[650px] sm:min-w-0">
+                    <table className="w-full text-left text-[11px] font-mono border-collapse min-w-[780px] sm:min-w-0">
                       <thead>
                         <tr className="border-b border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider select-none">
+                          {/* Multi-Select Header Checkbox */}
+                          <th className="py-2 px-1 w-12">
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={allVisibleSelected}
+                                onChange={handleToggleSelectAllVisible}
+                                title="Alle sichtbaren Zeilen auswählen / abwählen"
+                                className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 text-[#00ff66] cursor-pointer focus:ring-0"
+                              />
+                              <span className="text-[9px] text-zinc-500">⤵</span>
+                            </div>
+                          </th>
                           <th
                             onClick={() => handleToggleSort('guide_id')}
                             className="py-2 px-1 w-10 sm:w-12 cursor-pointer hover:text-white transition"
@@ -2106,6 +4153,18 @@ export default function IntranetDrafts() {
                             <span className="inline-flex items-center gap-0.5">
                               <span>ID</span>
                               {sortField === 'guide_id' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
+                          <th
+                            onClick={() => handleToggleSort('sheet_type')}
+                            className="py-2 px-1 w-14 cursor-pointer hover:text-white transition"
+                            title="Nach Sheet-Type (Tab [1], [2], [3]) sortieren"
+                          >
+                            <span className="inline-flex items-center gap-0.5">
+                              <span>Tab</span>
+                              {sortField === 'sheet_type' && (
                                 <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                               )}
                             </span>
@@ -2125,18 +4184,30 @@ export default function IntranetDrafts() {
                           <th
                             onClick={() => handleToggleSort('chronological_group')}
                             className="py-2 px-1 w-24 cursor-pointer hover:text-white transition"
-                            title="Nach Gruppe sortieren"
+                            title="Nach Chronological-Group sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
-                              <span>Gruppe</span>
+                              <span>Chrono</span>
                               {sortField === 'chronological_group' && (
                                 <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                               )}
                             </span>
                           </th>
                           <th
+                            onClick={() => handleToggleSort('category_group')}
+                            className="py-2 px-1 w-24 cursor-pointer hover:text-white transition"
+                            title="Nach Category-Group sortieren"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <span>Category</span>
+                              {sortField === 'category_group' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
+                          <th
                             onClick={() => handleToggleSort('timestamp')}
-                            className="py-2 px-1 w-28 cursor-pointer hover:text-white transition"
+                            className="py-2 px-1 w-24 cursor-pointer hover:text-white transition"
                             title="Numerisch nach Zeit (Sekunden) sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
@@ -2148,11 +4219,11 @@ export default function IntranetDrafts() {
                           </th>
                           <th
                             onClick={() => handleToggleSort('video_chapter')}
-                            className="py-2 px-1 w-32 sm:w-40 cursor-pointer hover:text-white transition"
+                            className="py-2 px-1 w-28 sm:w-36 cursor-pointer hover:text-white transition"
                             title="Nach Chapter / Info sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
-                              <span>Chapter / Info</span>
+                              <span>Chapter</span>
                               {sortField === 'video_chapter' && (
                                 <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                               )}
@@ -2160,11 +4231,11 @@ export default function IntranetDrafts() {
                           </th>
                           <th
                             onClick={() => handleToggleSort('trophy_id')}
-                            className="py-2 px-1 w-20 sm:w-24 cursor-pointer hover:text-white transition"
+                            className="py-2 px-1 w-16 sm:w-20 cursor-pointer hover:text-white transition"
                             title="Nach Trophy ID sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
-                              <span>Trophy ID</span>
+                              <span>Trophy</span>
                               {sortField === 'trophy_id' && (
                                 <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                               )}
@@ -2174,20 +4245,50 @@ export default function IntranetDrafts() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-800/50">
-                        {currentCreatorRows.map((row) => {
+                        {visibleCreatorRows.map((row) => {
                           const isActive = row.id === activeRowId;
+                          const isSelected = selectedRowIds.has(row.id);
                           const itemNameStr = getLocalizedItemName(row.item_name);
-                          const groupStr = getLocalizedItemName(row.chronological_group);
+                          const chronoStr = getLocalizedItemName(row.chronological_group);
+                          const categoryStr = getLocalizedItemName(row.category_group);
                           const chapterStr = getLocalizedItemName(row.video_chapter);
+                          const sheetKey = formatSheetTypeKey(row.sheet_type);
 
                           return (
                             <tr
                               key={row.id}
                               onClick={() => setActiveRowId(row.id)}
                               className={`transition cursor-pointer ${
-                                isActive ? 'bg-[#00ff66]/10' : 'hover:bg-zinc-800/40'
+                                isSelected
+                                  ? 'bg-emerald-500/15 hover:bg-emerald-500/20'
+                                  : isActive
+                                    ? 'bg-[#00ff66]/10'
+                                    : 'hover:bg-zinc-800/40'
                               }`}
                             >
+                              {/* Checkbox + Ab dieser Zeile abwärts auswählen */}
+                              <td
+                                className="py-1 px-1 whitespace-nowrap"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="inline-flex items-center gap-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => handleToggleSelectRow(row.id)}
+                                    className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 text-[#00ff66] cursor-pointer focus:ring-0"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSelectFromRowDownwards(row.id)}
+                                    title="Ab dieser Zeile abwärts alle sichtbaren Zeilen auswählen / abwählen"
+                                    className="rounded px-1 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-700 hover:text-[#00ff66] transition"
+                                  >
+                                    ⤵
+                                  </button>
+                                </div>
+                              </td>
+
                               {/* guide_id */}
                               <td className="py-1 px-1">
                                 <input
@@ -2196,6 +4297,28 @@ export default function IntranetDrafts() {
                                   onChange={(e) => handleUpdateRowField(row.id, 'guide_id', e.target.value)}
                                   className="w-8 sm:w-10 rounded border border-transparent bg-transparent px-0.5 py-0.5 text-zinc-300 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
+                              </td>
+
+                              {/* sheet_type ([1], [2], [3]) */}
+                              <td className="py-1 px-1" onClick={(e) => e.stopPropagation()}>
+                                <select
+                                  value={sheetKey}
+                                  onChange={(e) =>
+                                    handleUpdateRowField(
+                                      row.id,
+                                      'sheet_type',
+                                      parseSheetTypeKey(e.target.value)
+                                    )
+                                  }
+                                  className="rounded border border-purple-500/30 bg-purple-500/10 px-1 py-0.5 text-[10px] font-mono font-bold text-purple-200 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                  title="Sheet-Type (Tab [1] Walkthrough, [2] Collectibles, [3] Bosse)"
+                                >
+                                  {SHEET_TYPE_OPTIONS.map((opt) => (
+                                    <option key={opt.key} value={opt.key} className="bg-zinc-900 text-zinc-200">
+                                      {opt.shortLabel}
+                                    </option>
+                                  ))}
+                                </select>
                               </td>
 
                               {/* item_name */}
@@ -2212,9 +4335,21 @@ export default function IntranetDrafts() {
                               <td className="py-1 px-1">
                                 <input
                                   type="text"
-                                  value={groupStr}
+                                  value={chronoStr}
+                                  placeholder="—"
                                   onChange={(e) => handleUpdateRowField(row.id, 'chronological_group', e.target.value)}
-                                  className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-zinc-300 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                  className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-zinc-300 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                />
+                              </td>
+
+                              {/* category_group */}
+                              <td className="py-1 px-1">
+                                <input
+                                  type="text"
+                                  value={categoryStr}
+                                  placeholder="—"
+                                  onChange={(e) => handleUpdateRowField(row.id, 'category_group', e.target.value)}
+                                  className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-purple-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
@@ -2239,7 +4374,7 @@ export default function IntranetDrafts() {
                                     value={row.timestamp ?? ''}
                                     onChange={(e) => handleUpdateRowField(row.id, 'timestamp', e.target.value)}
                                     placeholder="0:00"
-                                    className="w-16 rounded border border-transparent bg-transparent px-1 py-0.5 text-[10px] font-mono text-[#00ff66] hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                    className="w-14 rounded border border-transparent bg-transparent px-1 py-0.5 text-[10px] font-mono text-[#00ff66] hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                   />
                                 </div>
                               </td>
@@ -2252,7 +4387,7 @@ export default function IntranetDrafts() {
                                   if (row.video_url) setActiveVideoUrl(row.video_url);
                                   if (row.timestamp) setActiveTimestamp(row.timestamp);
                                 }}
-                                className="py-1 px-1 text-zinc-400 text-[10px] w-32 sm:w-40 break-words line-clamp-2 cursor-pointer hover:text-white hover:underline"
+                                className="py-1 px-1 text-zinc-400 text-[10px] w-28 sm:w-36 break-words line-clamp-2 cursor-pointer hover:text-white hover:underline"
                                 title={`${chapterStr || '—'} (Klicken zum Abspielen)`}
                               >
                                 {chapterStr || '—'}
@@ -2267,7 +4402,7 @@ export default function IntranetDrafts() {
                                   onChange={(e) => {
                                     const val = e.target.value;
                                     handleUpdateRowField(row.id, 'trophy_id', val);
-                                    handleUpdateRowField(row.id, 'is_trophy_relevant', val ? 'Ja' : null);
+                                    handleUpdateRowField(row.id, 'is_trophy_relevant', val ? 'ja' : null);
                                   }}
                                   className={`w-full rounded border px-1 py-0.5 text-[10px] focus:outline-none ${
                                     row.trophy_id
@@ -2312,6 +4447,165 @@ export default function IntranetDrafts() {
                   </div>
                 </div>
 
+                {/* ==================== 2. FLOATING BATCH-BAR (WENN ZEILEN AUSGEWÄHLT SIND) ==================== */}
+                {selectedRowIds.size > 0 && (
+                  <div className="fixed bottom-4 left-3 right-3 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[820px] z-50 rounded-2xl border-2 border-[#00ff66] bg-[#101412]/95 backdrop-blur-md p-3 shadow-2xl shadow-black/80 flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center rounded-lg bg-[#00ff66] px-2.5 py-1 text-xs font-mono font-bold text-black">
+                          ☑️ {selectedRowIds.size} Zeilen markiert
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleToggleSelectAllVisible}
+                          className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-[10px] font-mono text-zinc-200 hover:border-[#00ff66]/50"
+                        >
+                          {allVisibleSelected
+                            ? 'Sichtbare abwählen'
+                            : `Alle sichtbaren (${visibleCreatorRows.length})`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRowIds(new Set())}
+                          className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] font-mono text-zinc-400 hover:text-white"
+                        >
+                          ✕ Auswahl aufheben
+                        </button>
+                      </div>
+
+                      <span className="text-[10px] font-mono text-zinc-400">
+                        1-Klick Batch-Überschreiben:
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {/* 1-Klick Dropdown: chronological_group */}
+                      <select
+                        value=""
+                        disabled={actionBusy}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (!val) return;
+                          if (val === '__CUSTOM__') {
+                            setBatchCustomField('chronological_group');
+                            setBatchCustomValue('');
+                          } else if (val === '__CLEAR__') {
+                            handleBatchOverwriteSelected('chronological_group', '');
+                          } else {
+                            handleBatchOverwriteSelected('chronological_group', val);
+                          }
+                        }}
+                        className="rounded-xl border border-cyan-500/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-cyan-200 focus:border-[#00ff66] focus:outline-none"
+                      >
+                        <option value="">⏱️ Chrono-Group setzen…</option>
+                        <option value="__CUSTOM__">✏️ + Neue Chrono-Group eingeben…</option>
+                        <option value="__CLEAR__">🗑️ (Chrono-Group leeren)</option>
+                        {groupStats.chronoPills
+                          .filter((p) => !p.isEmpty)
+                          .map((p) => (
+                            <option key={p.key} value={p.rawValue}>
+                              {p.label} ({p.count})
+                            </option>
+                          ))}
+                      </select>
+
+                      {/* 1-Klick Dropdown: category_group */}
+                      <select
+                        value=""
+                        disabled={actionBusy}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (!val) return;
+                          if (val === '__CUSTOM__') {
+                            setBatchCustomField('category_group');
+                            setBatchCustomValue('');
+                          } else if (val === '__CLEAR__') {
+                            handleBatchOverwriteSelected('category_group', '');
+                          } else {
+                            handleBatchOverwriteSelected('category_group', val);
+                          }
+                        }}
+                        className="rounded-xl border border-purple-500/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-purple-200 focus:border-[#00ff66] focus:outline-none"
+                      >
+                        <option value="">🗂️ Category-Group setzen…</option>
+                        <option value="__CUSTOM__">✏️ + Neue Category-Group eingeben…</option>
+                        <option value="__CLEAR__">🗑️ (Category-Group leeren)</option>
+                        {groupStats.categoryPills
+                          .filter((p) => !p.isEmpty)
+                          .map((p) => (
+                            <option key={p.key} value={p.rawValue}>
+                              {p.label} ({p.count})
+                            </option>
+                          ))}
+                      </select>
+
+                      {/* 1-Klick Dropdown: sheet_type ([1], [2], [3]) */}
+                      <select
+                        value=""
+                        disabled={actionBusy}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (!val) return;
+                          handleBatchOverwriteSelected('sheet_type', parseSheetTypeKey(val));
+                        }}
+                        className="rounded-xl border border-[#00ff66]/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-[#00ff66] focus:border-[#00ff66] focus:outline-none"
+                      >
+                        <option value="">📑 Sheet-Type ([1], [2], [3]) setzen…</option>
+                        {SHEET_TYPE_OPTIONS.map((opt) => (
+                          <option key={opt.key} value={opt.key}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Freitext-Eingabe für neue Gruppe in der Batch-Bar */}
+                    {batchCustomField && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-zinc-800">
+                        <span className="text-[10px] font-mono text-[#00ff66] shrink-0">
+                          {batchCustomField === 'category_group'
+                            ? 'Neue Category-Group:'
+                            : 'Neue Chrono-Group:'}
+                        </span>
+                        <input
+                          type="text"
+                          value={batchCustomValue}
+                          onChange={(e) => setBatchCustomValue(e.target.value)}
+                          placeholder="Gruppenname eingeben..."
+                          autoFocus
+                          className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-xs text-white focus:border-[#00ff66] focus:outline-none"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleBatchOverwriteSelected(batchCustomField, batchCustomValue);
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          disabled={actionBusy}
+                          onClick={() =>
+                            handleBatchOverwriteSelected(batchCustomField, batchCustomValue)
+                          }
+                          className="rounded-lg bg-[#00ff66] px-3 py-1 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90"
+                        >
+                          Auf {selectedRowIds.size} Zeilen anwenden
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBatchCustomField(null);
+                            setBatchCustomValue('');
+                          }}
+                          className="rounded-lg bg-zinc-800 px-2 py-1 text-xs text-zinc-400 hover:text-white"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* E. ACTION-BAR (Freigeben vs. Rohmaterial vs. Löschen) */}
                 <div className="sticky bottom-4 z-40 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-800 bg-[#121314]/95 backdrop-blur-md p-3 shadow-xl">
                   <div className="flex flex-wrap items-center gap-2">
@@ -2323,20 +4617,26 @@ export default function IntranetDrafts() {
                       className="flex items-center gap-2 rounded-xl bg-[#00ff66] px-4 py-2.5 text-xs font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50 transition shadow-lg shadow-[#00ff66]/10"
                     >
                       <span>✓</span>
-                      <span>Diesen Creator freigeben</span>
+                      <span>
+                        {activeDataSource === 'rohmaterial'
+                          ? 'Multi-Tab Guide jetzt freigeben'
+                          : 'Diesen Creator freigeben'}
+                      </span>
                     </button>
 
                     {/* [📦 Großes Spiel -> Rohmaterial (Multi-Tab)] (Lila/Blau, Sofort-Aktion ohne Confirm) */}
-                    <button
-                      type="button"
-                      disabled={actionBusy || currentCreatorRows.length === 0}
-                      onClick={handleMoveToRohmaterial}
-                      title="Verschiebt das Spiel ohne Rückfrage sofort zu Rohmaterial (Multi-Tab) und springt zum nächsten Spiel"
-                      className="flex items-center gap-2 rounded-xl border border-purple-500/50 bg-purple-600/20 px-3.5 py-2.5 text-xs font-bold text-purple-200 hover:bg-purple-600/35 hover:border-purple-400 disabled:opacity-50 transition shadow-lg shadow-purple-500/10"
-                    >
-                      <span>📦</span>
-                      <span>Großes Spiel -&gt; Rohmaterial (Multi-Tab)</span>
-                    </button>
+                    {activeDataSource === 'staging' && (
+                      <button
+                        type="button"
+                        disabled={actionBusy || currentCreatorRows.length === 0}
+                        onClick={handleMoveToRohmaterial}
+                        title="Verschiebt das Spiel ohne Rückfrage sofort zu Rohmaterial (Multi-Tab) und springt zum nächsten Spiel"
+                        className="flex items-center gap-2 rounded-xl border border-purple-500/50 bg-purple-600/20 px-3.5 py-2.5 text-xs font-bold text-purple-200 hover:bg-purple-600/35 hover:border-purple-400 disabled:opacity-50 transition shadow-lg shadow-purple-500/10"
+                      >
+                        <span>📦</span>
+                        <span>Großes Spiel -&gt; Rohmaterial (Multi-Tab)</span>
+                      </button>
+                    )}
 
                     {/* [✕ Creator verwerfen] (Orange) */}
                     {creatorTabs.length > 1 && (

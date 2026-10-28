@@ -18,6 +18,7 @@ export const TABLES = {
   profiles: 'profiles',
   earnedTrophies: 'user_earned_trophies',
   watchlist: 'user_watchlist',
+  gameRatings: 'user_game_ratings',
   /** Guide- + manuelle Trophäen-Häkchen (siehe user_state_schema.sql). */
   guideProgress: 'user_guide_progress',
   /** Ausgeblendete Spiele (siehe user_state_schema.sql). */
@@ -88,6 +89,8 @@ export const GAME_STRUCT = {
   slug: 'slug',
   /** false = darf nicht in den Suchindex (Quickwin, easy_platin, Servertot) */
   isIndexable: 'is_indexable',
+  /** true = Guide ist schreibgeschützt (trg_protect_published_guides) */
+  isGuideLocked: 'is_guide_locked',
   /** Guide-Seitenaufrufe; Startseite „Beliebt“ sortiert danach */
   views: 'views',
   /** Stimmungstags (Allowlist), z. B. soulslike, open_world */

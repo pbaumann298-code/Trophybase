@@ -10,7 +10,12 @@ import {
 } from './gameSchema';
 import { getGameUuid, getPlatformGameIds } from './gameModel';
 import { mergeGuideRow } from './guideQueries';
-import { GUIDE_PUBLICATION, guideStatusKey, parseStatusMap } from './guidePublication';
+import {
+  GUIDE_PUBLICATION,
+  buildUnifiedGuidePublishPatch,
+  parseStatusMap,
+  removeGameFromWiedervorlage,
+} from './guidePublication';
 import { getLocale, normalizeLocale } from './locale';
 import { resolveGuideLanguage } from './localeResolver';
 
@@ -244,7 +249,7 @@ export async function promoteRohmaterialBatchToGuide(
 
   const { data: current, error: statusReadError } = await supabase
     .from(TABLES.games)
-    .select(GAME_STRUCT.status)
+    .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}`)
     .eq(GAME_PK, id)
     .maybeSingle();
 
@@ -252,16 +257,17 @@ export async function promoteRohmaterialBatchToGuide(
     return { inserted: insertRows.length, status: null, error: statusReadError };
   }
 
-  const statusMap = { ...parseStatusMap(current?.[GAME_STRUCT.status]) };
-  const statusKey = guideStatusKey(lang);
-  if (String(statusMap[statusKey] ?? '').trim().toUpperCase() !== GUIDE_PUBLICATION.PUBLISHED) {
-    statusMap[statusKey] = GUIDE_PUBLICATION.DONE;
-  }
-  statusMap.guides = 'HAS_VIDEO';
+  const updatePatch = buildUnifiedGuidePublishPatch({
+    currentGame: current,
+    lang,
+    guideState: GUIDE_PUBLICATION.DONE,
+    hasVideo: true,
+    clearRohmaterial: true,
+  });
 
   const { data: updated, error: statusError } = await supabase
     .from(TABLES.games)
-    .update({ [GAME_STRUCT.status]: statusMap })
+    .update(updatePatch)
     .eq(GAME_PK, id)
     .select(GAME_STRUCT.status)
     .maybeSingle();
@@ -269,12 +275,14 @@ export async function promoteRohmaterialBatchToGuide(
   if (statusError) {
     return {
       inserted: insertRows.length,
-      status: statusMap,
+      status: updatePatch[GAME_STRUCT.status],
       error: statusError,
     };
   }
 
-  const status = parseStatusMap(updated?.[GAME_STRUCT.status] ?? statusMap);
+  await removeGameFromWiedervorlage(supabase, id);
+
+  const status = parseStatusMap(updated?.[GAME_STRUCT.status] ?? updatePatch[GAME_STRUCT.status]);
 
   if (clearOtherBatches) {
     const platformIds = [

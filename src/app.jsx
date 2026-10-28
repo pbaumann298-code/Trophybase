@@ -35,11 +35,13 @@ import {
   navigateToQuickwins,
   navigateToSimpleSearch,
   navigateToWatchlist,
+  navigateToProfile,
   navigateToPlatformTrophies,
   QUICKWINS_PATH,
   SERVERTOT_PATH,
   EASY_PLATINS_PATH,
   WATCHLIST_PATH,
+  PROFILE_PATH,
   PLATFORM_TROPHIES_PATH,
   parseSimpleSearchParams,
   parseExcludeQuickwins,
@@ -797,6 +799,10 @@ function App() {
       applyPathCanonical(WATCHLIST_PATH, { noIndex: true });
       return () => clearGameSeoLinks();
     }
+    if (currentView === 'profile') {
+      applyPathCanonical(PROFILE_PATH, { noIndex: true });
+      return () => clearGameSeoLinks();
+    }
     if (currentView === 'platform-trophies') {
       applyPathCanonical('/platinliste', { noIndex: false });
       return () => clearGameSeoLinks();
@@ -895,6 +901,13 @@ function App() {
     window.scrollTo(0, 0);
   }, []);
 
+  const openProfile = useCallback(() => {
+    setCurrentView('profile');
+    setSelectedGame(null);
+    navigateToProfile();
+    window.scrollTo(0, 0);
+  }, []);
+
   const openPlatformTrophies = useCallback(() => {
     setCurrentView('platform-trophies');
     setSelectedGame(null);
@@ -978,6 +991,7 @@ function App() {
         sessionUser={sessionUser} 
         onLogout={handleLogout}
         onOpenWatchlist={openWatchlist}
+        onOpenProfile={openProfile}
         onOpenPlatformTrophies={openPlatformTrophies}
       />
 
@@ -992,6 +1006,7 @@ function App() {
           currentView === 'servertot' ||
           currentView === 'easyplatins' ||
           currentView === 'watchlist' ||
+          currentView === 'profile' ||
           currentView === 'platform-trophies'
             ? 'justify-start'
             : 'justify-center'

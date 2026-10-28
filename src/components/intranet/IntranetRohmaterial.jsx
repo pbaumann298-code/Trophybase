@@ -5,6 +5,7 @@ import {
   discardRohmaterialBatch,
   fetchAllRohmaterialOverview,
 } from '../../lib/rohmaterialQueries';
+import IntranetDrafts from './IntranetDrafts';
 
 const FILTERS = [
   { id: 'all', label: 'Alle' },
@@ -30,6 +31,7 @@ function IntranetRohmaterial() {
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('all');
   const [busyKey, setBusyKey] = useState('');
+  const [editorGameId, setEditorGameId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +72,32 @@ function IntranetRohmaterial() {
     }
     setRows((prev) => prev.filter((row) => row.batchKey !== batchKey));
   };
+
+  if (editorGameId) {
+    return (
+      <section className="space-y-4">
+        <div className="flex items-center justify-between rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5">
+          <div className="flex items-center gap-2 text-xs text-amber-200 font-mono">
+            <span>📦 Rohmaterial Multi-Tab & Gruppen-Konsolidierung</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setEditorGameId(null);
+              load();
+            }}
+            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-[11px] font-mono font-bold text-zinc-200 hover:border-zinc-500"
+          >
+            ← Zurück zur Batch-Übersicht
+          </button>
+        </div>
+        <IntranetDrafts
+          initialDataSource="rohmaterial"
+          initialGameId={editorGameId === '__ALL__' ? null : editorGameId}
+        />
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-6">
@@ -149,6 +177,13 @@ function IntranetRohmaterial() {
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditorGameId(row.gameId || row.platformGameId || '__ALL__')}
+                      className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wider text-amber-300 hover:bg-amber-500/20"
+                    >
+                      🔬 Gruppen & Batch-Editor
+                    </button>
                     {href ? (
                       <a
                         href={href}

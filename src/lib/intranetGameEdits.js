@@ -19,9 +19,11 @@ import {
 import { formatHardwareValue } from './gameSlug';
 import {
   GUIDE_PUBLICATION,
+  buildUnifiedGuidePublishPatch,
   guideStatusKey,
   parseStatusMap,
   publishingFieldsFromStatus,
+  removeGameFromWiedervorlage,
 } from './guidePublication';
 import { normalizeLocale } from './locale';
 import { mergeLocalizedValue } from './translationUtils';
@@ -857,7 +859,7 @@ export async function insertQuickGuideSteps(
 
   const { data: current, error: statusReadError } = await supabase
     .from(TABLES.games)
-    .select(GAME_STRUCT.status)
+    .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}`)
     .eq(GAME_PK, id)
     .maybeSingle();
 
@@ -865,36 +867,27 @@ export async function insertQuickGuideSteps(
     return { inserted: rows.length, status: null, error: statusReadError };
   }
 
-  const statusMap = { ...parseStatusMap(current?.[GAME_STRUCT.status]) };
-  const key = guideStatusKey(lang);
-  let statusChanged = false;
-
-  if (String(statusMap[key] ?? '').trim().toUpperCase() !== GUIDE_PUBLICATION.PUBLISHED) {
-    if (statusMap[key] !== GUIDE_PUBLICATION.DONE) {
-      statusMap[key] = GUIDE_PUBLICATION.DONE;
-      statusChanged = true;
-    }
-  }
-  if (watchUrl && statusMap.guides !== 'HAS_VIDEO') {
-    statusMap.guides = 'HAS_VIDEO';
-    statusChanged = true;
-  }
-
-  if (!statusChanged) {
-    return { inserted: rows.length, status: statusMap, error: null };
-  }
+  const updatePatch = buildUnifiedGuidePublishPatch({
+    currentGame: current,
+    lang,
+    guideState: GUIDE_PUBLICATION.DONE,
+    hasVideo: Boolean(watchUrl),
+  });
 
   const { data: updated, error: statusError } = await supabase
     .from(TABLES.games)
-    .update({ [GAME_STRUCT.status]: statusMap })
+    .update(updatePatch)
     .eq(GAME_PK, id)
     .select(GAME_STRUCT.status)
     .maybeSingle();
 
-  if (statusError) return { inserted: rows.length, status: statusMap, error: statusError };
+  if (statusError) return { inserted: rows.length, status: updatePatch[GAME_STRUCT.status], error: statusError };
+
+  await removeGameFromWiedervorlage(supabase, id);
+
   return {
     inserted: rows.length,
-    status: parseStatusMap(updated?.[GAME_STRUCT.status] ?? statusMap),
+    status: parseStatusMap(updated?.[GAME_STRUCT.status] ?? updatePatch[GAME_STRUCT.status]),
     error: null,
   };
 }

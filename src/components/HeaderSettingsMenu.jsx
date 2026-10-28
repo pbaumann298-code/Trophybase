@@ -28,8 +28,10 @@ function HeaderSettingsMenu({
   isAdmin = false,
   onLogout,
   onOpenWatchlist,
+  onOpenProfile,
   onOpenPlatformTrophies,
   watchlistPath = '/watchlist',
+  profilePath = '/profile',
 }) {
   const { t, globalLocale, setGlobalLocale, availableLocales } = useLocale();
   const { displayMode, setDisplayMode, modes } = useVisibility();
@@ -75,6 +77,12 @@ function HeaderSettingsMenu({
     event.preventDefault();
     setOpen(false);
     onOpenWatchlist?.();
+  };
+
+  const openProfile = (event) => {
+    event.preventDefault();
+    setOpen(false);
+    onOpenProfile?.();
   };
 
   const logout = () => {
@@ -184,6 +192,17 @@ function HeaderSettingsMenu({
           </button>
 
           <div className="my-1.5 border-t border-zinc-800" role="separator" />
+
+          {sessionUser || isAdmin ? (
+            <a
+              href={profilePath}
+              role="menuitem"
+              className="block px-3 py-2 text-xs font-bold text-[#00ff66] no-underline hover:bg-zinc-800/80"
+              onClick={openProfile}
+            >
+              🏆 Mein Cockpit
+            </a>
+          ) : null}
 
           <a
             href={watchlistPath}

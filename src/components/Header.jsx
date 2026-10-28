@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react';
 import HeaderSettingsMenu from './HeaderSettingsMenu';
 import { hasAdminReturnFlag, isAdminUser } from '../lib/adminAccess';
-import { navigateToHome, WATCHLIST_PATH } from '../lib/routeUtils';
+import { navigateToHome, PROFILE_PATH, WATCHLIST_PATH } from '../lib/routeUtils';
 
-function Header({ setCurrentView, sessionUser, onLogout, onOpenWatchlist, onOpenPlatformTrophies }) {
+function Header({
+  setCurrentView,
+  sessionUser,
+  onLogout,
+  onOpenWatchlist,
+  onOpenProfile,
+  onOpenPlatformTrophies,
+}) {
   const [showAdminReturn, setShowAdminReturn] = useState(false);
   const isAdmin = isAdminUser(sessionUser);
+  const isLoggedIn = Boolean(sessionUser) || isAdmin || showAdminReturn;
 
   useEffect(() => {
     setShowAdminReturn(hasAdminReturnFlag());
@@ -37,6 +45,18 @@ function Header({ setCurrentView, sessionUser, onLogout, onOpenWatchlist, onOpen
       </a>
 
       <div className="site-header-right relative z-20 ml-auto flex h-full min-w-0 shrink-0 items-center gap-2 pr-4 md:pr-6 pl-2">
+        {isLoggedIn ? (
+          <a
+            href={PROFILE_PATH}
+            onClick={(e) => {
+              e.preventDefault();
+              onOpenProfile?.();
+            }}
+            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-[#00ff66] bg-[#00ff66]/10 hover:bg-[#00ff66]/20 border border-[#00ff66]/40 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline backdrop-blur-sm shadow-xs"
+          >
+            🏆 Mein Cockpit
+          </a>
+        ) : null}
         {isAdmin ? (
           <a
             href="/platinliste"
@@ -70,8 +90,10 @@ function Header({ setCurrentView, sessionUser, onLogout, onOpenWatchlist, onOpen
           isAdmin={isAdmin}
           onLogout={onLogout}
           onOpenWatchlist={onOpenWatchlist}
+          onOpenProfile={onOpenProfile}
           onOpenPlatformTrophies={onOpenPlatformTrophies}
           watchlistPath={WATCHLIST_PATH}
+          profilePath={PROFILE_PATH}
         />
       </div>
     </header>

@@ -1,0 +1,64 @@
+---
+description: Offizielles TrophyBase Supabase Datenbank-Schema, Spaltentypen, Trigger und PostgREST-Regeln
+globs: **/*.{js,jsx,ts,tsx,py,sql}
+alwaysApply: true
+---
+
+# TrophyBase – Offizielles Supabase Datenbank-Schema & Architektur-Regeln (Stand: 10/2026)
+
+## 1. Kritische Architektur- & Datentyp-Regeln (ZWINGEND BEACHTEN!)
+1. **PostgREST 1.000-Zeilen-Limit:** Jede Abfrage auf `staging_game_guides` (ca. 17.000+ Zeilen), `game_guides` (82.500+ Zeilen), `games` (20.250+ Zeilen) oder `game_achievements` (565.500+ Zeilen), die mehr als 1.000 Zeilen liefern kann, MUSS zwingend mit `.range(from, to)` paginiert oder per `game_id` gefiltert werden!
+2. **Typ-Unterschiede zwischen Staging und Produktion:**
+   - In `staging_game_guides` sind `guide_id` (`integer`), `trophy_id` (`integer`), `item_name` (`text`), `chronological_group` (`text`), `video_chapter` (`text`) flache Datentypen!
+   - In `game_guides` und `game_guides_rohmaterial` sind `guide_id` (`text`), `trophy_id` (`text`), `sheet_type` (`jsonb`, Format `[1, 2, 3]`), `item_name` (`jsonb`), `chronological_group` (`jsonb`), `category_group` (`jsonb`), `video_chapter` (`jsonb`), `localisation` (`jsonb`) mehrsprachige/strukturierte Typen!
+3. **Schreibschutz-Trigger (`trg_protect_published_guides`):**
+   - Veröffentlichte Spiele (`is_guide_locked = true` oder `PUBLISHED` in `fortschritt`/`status`/`publishing_status`) sind auf DB-Ebene gegen `DELETE` und strukturelle `UPDATE`s (`guide_id`, `sheet_type`, `video_url`, `timestamp`, `trophy_id`, `chronological_group`, `category_group`) gesperrt!
+   - Erlaubt ohne Entsperrung sind NUR Updates auf `localisation`, `translation_status`, `prod_note` und `item_name`.
+   - Für strukturelle Einzel-Änderungen an veröffentlichten Zeilen muss `edit_unlocked = true` auf der jeweiligen `game_guides`-Zeile gesetzt werden (setzt sich beim Speichern per Auto-Relock wieder auf `false`).
+4. **Doppelte Tabellen (Single Source of Truth):**
+   - **User-Profile:** Immer `public.profiles` nutzen (NICHT `user_profiles`).
+   - **Fehlermeldungen / Reports:** Immer `public.community_reports` nutzen (NICHT `report_tickets`).
+   - **Wiedervorlage:** Liegt in `public.game_wiedervorlage` (`id`, `platform_game_id`, `spieltitel`, `freitext`).
+
+---
+
+## 2. Vollständiges Tabellen- & Spaltenverzeichnis (`public`)
+
+### A. Kern-Tabellen (Spiele & Trophäen)
+- **`games` (~20.257 Zeilen):**
+  `id` (uuid, PK), `ecosystem` (varchar), `hardware` (varchar), `platform_game_id` (jsonb), `igdb_id` (text), `release_jahr` (bigint), `upcoming_date` (text), `entwickler` (text), `publisher` (text), `spiel_typ` (text), `fortschritt` (text), `status` (jsonb), `publishing_status` (jsonb), `published_locales` (jsonb), `game_locales` (jsonb), `original_locale` (varchar), `is_sony_fallback` (bool), `is_auto_translated` (bool), `is_indexable` (bool), `is_guide_locked` (bool), `has_online_trophies` (bool), `has_missable_trophies` (bool), `total_online_trophies` (int), `total_missable_trophies` (int), `platinum_achievable` (bool), `server_status` (text), `anzahl_trophaeen` (int), `spieltitel` (jsonb), `slug` (text), `slugs` (jsonb), `cover_url` (jsonb), `beschreibung` (jsonb), `status_explanation_localized` (jsonb), `views` (int), `home_tags` (ARRAY), `home_tags_locked` (bool), `spielzeit_hauptstory` (numeric), `spielzeit_komplettierer` (numeric), `steam_app_id` (int), `sub_genres` (ARRAY), `radar_profile` (jsonb), `created_at` (timestamptz)
+
+- **`game_achievements` (~565.509 Zeilen):**
+  `game_id` (uuid, FK), `platform_achievement_id` (varchar), `platform_game_id` (text), `trophy_type` (text), `ist_versteckt` (text), `trophy_gruppe` (text), `is_missable` (bool), `is_story_related` (bool), `is_online` (bool), `video_url` (text), `timestamp` (text), `trophy_name` (jsonb), `trophy_desc` (jsonb), `icon_url` (jsonb), `global_seltenheit` (jsonb), `guide_tip` (jsonb), `"Guide-Tip-lang"` (jsonb), `ai_translation` (jsonb), `spielname` (jsonb), `is_auto_translated` (bool), `original_locale` (varchar)
+
+### B. Guide-Pipeline (Produktion, Staging, Rohmaterial, Wiedervorlage)
+- **`game_guides` (~82.591 Zeilen – Produktiv):**
+  `id` (uuid, PK), `game_id` (uuid, FK), `platform_game_id` (text), `sheet_type` (jsonb – `[1]` Chrono, `[2]` Collectibles, `[3]` Bosse), `guide_id` (text), `chronological_group` (jsonb), `category_group` (jsonb), `video_chapter` (jsonb), `item_name` (jsonb), `timestamp` (text), `video_url` (text), `trophy_id` (text), `is_trophy_relevant` (text), `localisation` (jsonb), `localisation_type` (jsonb), `translation_status` (jsonb), `creator_id` (uuid), `prod_note` (text), `edit_unlocked` (bool), `created_at` (timestamptz)
+
+- **`staging_game_guides` (~17.076 Zeilen – Schnell-Queue / Entwürfe):**
+  `id` (uuid, PK), `game_id` (uuid, FK), `platform_game_id` (text), `creator_id` (uuid), `creator_name` (text), `creator_input_url` (text), `guide_id` (int), `chronological_group` (text), `video_chapter` (text), `item_name` (text), `timestamp` (text), `video_url` (text), `trophy_id` (int), `is_trophy_relevant` (text), `created_at` (timestamptz)
+
+- **`game_guides_rohmaterial` (~1.219 Zeilen – Multi-Tab / Große Spiele Queue):**
+  `id` (uuid, PK), `batch_key` (text), `batch_status` (text), `game_id` (uuid, FK), `platform_game_id` (text), `creator_id` (uuid), `creator_name` (text), `playlist_url` (text), `guide_id` (text), `sheet_type` (jsonb), `item_name` (jsonb), `localisation` (jsonb), `localisation_sheet` (jsonb), `chronological_group` (jsonb), `category_group` (jsonb), `video_chapter` (jsonb), `timestamp` (text), `video_url` (text), `trophy_id` (text), `is_trophy_relevant` (text), `created_at` (timestamptz)
+
+- **`game_wiedervorlage` (~38 Zeilen):**
+  `id` (uuid, PK), `platform_game_id` (jsonb), `spieltitel` (jsonb), `freitext` (text)
+
+- **`content_creators` (15 Zeilen):**
+  `id` (uuid, PK), `channel_name` (text), `youtube_url` (text), `signature_tags` (ARRAY), `is_active` (bool)
+
+### C. Admin, Taxonomie & Lokalisierung
+- **`admin_roadmap` (13 Zeilen):** `id` (uuid), `title` (text), `category` (text), `target_date` (date), `status` (text), `notes` (text), `updated_at` (timestamptz)
+- **`home_tag_defs` (38 Zeilen):** `slug` (text), `rail_id` (text), `label` (text), `sort_pos` (int)
+- **`quickwin_publisher_defs` (75 Zeilen):** `match_key` (text), `publisher` (text), `published` (bool), `sort_pos` (int), `seed_count` (int), `created_at` (timestamptz), `updated_at` (timestamptz)
+- **`tb_glossary` (45 Zeilen):** `match_de` (text), `de` (text), `en` (text), `fr` (text), `es` (text), `it` (text)
+
+### D. User, Community & Gamification
+- **`profiles` (User-Haupttabelle):** `id` (uuid, PK), `psn_id` (text), `verification_code` (text), `status` (text), `datenschutz_einwilligung` (bool), `eingewilligt_am` (timestamptz), `verification_status` (text), `verification_requested_at` (timestamptz), `created_at` (timestamptz), `updated_at` (timestamptz)
+- **`user_guide_progress`:** `user_id` (uuid), `game_id` (uuid), `completed_steps` (ARRAY), `is_platinum` (bool), `updated_at` (timestamptz)
+- **`user_watchlist`:** `id` (uuid), `user_id` (uuid), `game_id` (uuid), `progress_percent` (int), `status` (text), `last_played_at` (timestamptz), `created_at` (timestamptz), `updated_at` (timestamptz)
+- **`user_game_settings`:** `user_id` (uuid), `game_id` (uuid), `is_hidden` (bool), `updated_at` (timestamptz)
+- **`user_inbox`:** `id` (uuid), `user_id` (uuid), `type` (text), `title` (text), `body` (text), `reward_code` (text), `is_read` (bool), `created_at` (timestamptz)
+- **`platform_trophies` (24 Zeilen – TrophyBase eigene Plattform-Erfolge):** `id` (text), `sort_order` (int), `trophy_type` (text), `is_secret` (bool), `title_de` (text), `title_en` (text), `desc_de` (text), `desc_en` (text), `current_value` (int), `target_value` (int), `unlocked_at` (timestamptz), `updated_at` (timestamptz)
+- **`community_reports` (User-Fehlermeldungen):** `id` (bigint), `source_identifier` (text), `content_type` (text), `content_key` (text), `field_name` (text), `original_text` (text), `suggested_text` (text), `language_code` (varchar), `image_url` (text), `status` (text), `user_id` (uuid), `platform_game_id` (text), `spieltitel` (text), `display_key` (text), `reporter_ip` (text), `created_at` (timestamptz)
+- **`beta_testers`:** `id` (uuid), `tester_id` (text), `access_password` (text), `is_used` (bool), `used_by` (uuid), `used_at` (timestamptz), `note` (text), `created_at` (timestamptz)

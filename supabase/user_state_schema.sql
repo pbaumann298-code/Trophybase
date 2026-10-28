@@ -11,15 +11,15 @@
 begin;
 
 -- ---------------------------------------------------------------------------
--- user_profiles – Basisdaten, 1:1 zu auth.users
+-- profiles – Basisdaten, 1:1 zu auth.users
 -- ---------------------------------------------------------------------------
-create table if not exists public.user_profiles (
-  user_id uuid primary key references auth.users (id) on delete cascade,
+create table if not exists public.profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-comment on table public.user_profiles is
+comment on table public.profiles is
   'Minimale Auth-Verknüpfung; keine Checklisten hier.';
 
 -- ---------------------------------------------------------------------------
@@ -103,9 +103,9 @@ begin
 end;
 $$;
 
-drop trigger if exists user_profiles_set_updated_at on public.user_profiles;
-create trigger user_profiles_set_updated_at
-  before update on public.user_profiles
+drop trigger if exists profiles_set_updated_at on public.profiles;
+create trigger profiles_set_updated_at
+  before update on public.profiles
   for each row execute function public.tb_set_updated_at();
 
 drop trigger if exists user_guide_progress_set_updated_at on public.user_guide_progress;
@@ -128,47 +128,47 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.user_profiles (user_id)
+  insert into public.profiles (id)
   values (new.id)
-  on conflict (user_id) do nothing;
+  on conflict (id) do nothing;
   return new;
 end;
 $$;
 
-drop trigger if exists on_auth_user_created_user_profiles on auth.users;
-create trigger on_auth_user_created_user_profiles
+drop trigger if exists on_auth_user_created_profiles on auth.users;
+create trigger on_auth_user_created_profiles
   after insert on auth.users
   for each row execute function public.tb_handle_new_user();
 
 -- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
-alter table public.user_profiles enable row level security;
+alter table public.profiles enable row level security;
 alter table public.user_watchlist enable row level security;
 alter table public.user_guide_progress enable row level security;
 alter table public.user_game_settings enable row level security;
 
-drop policy if exists user_profiles_select_own on public.user_profiles;
-drop policy if exists user_profiles_insert_own on public.user_profiles;
-drop policy if exists user_profiles_update_own on public.user_profiles;
-drop policy if exists user_profiles_delete_own on public.user_profiles;
+drop policy if exists profiles_select_own on public.profiles;
+drop policy if exists profiles_insert_own on public.profiles;
+drop policy if exists profiles_update_own on public.profiles;
+drop policy if exists profiles_delete_own on public.profiles;
 
-create policy user_profiles_select_own
-  on public.user_profiles for select to authenticated
-  using (auth.uid() = user_id);
+create policy profiles_select_own
+  on public.profiles for select to authenticated
+  using (auth.uid() = id);
 
-create policy user_profiles_insert_own
-  on public.user_profiles for insert to authenticated
-  with check (auth.uid() = user_id);
+create policy profiles_insert_own
+  on public.profiles for insert to authenticated
+  with check (auth.uid() = id);
 
-create policy user_profiles_update_own
-  on public.user_profiles for update to authenticated
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+create policy profiles_update_own
+  on public.profiles for update to authenticated
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
 
-create policy user_profiles_delete_own
-  on public.user_profiles for delete to authenticated
-  using (auth.uid() = user_id);
+create policy profiles_delete_own
+  on public.profiles for delete to authenticated
+  using (auth.uid() = id);
 
 drop policy if exists user_watchlist_select_own on public.user_watchlist;
 drop policy if exists user_watchlist_insert_own on public.user_watchlist;
@@ -241,7 +241,7 @@ create policy user_game_settings_delete_own
 -- ---------------------------------------------------------------------------
 -- Grants
 -- ---------------------------------------------------------------------------
-grant select, insert, update, delete on public.user_profiles to authenticated;
+grant select, insert, update, delete on public.profiles to authenticated;
 grant select, insert, update, delete on public.user_watchlist to authenticated;
 grant select, insert, update, delete on public.user_guide_progress to authenticated;
 grant select, insert, update, delete on public.user_game_settings to authenticated;

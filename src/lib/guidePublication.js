@@ -43,27 +43,116 @@ export function guideStatusKey(lang) {
 
 /**
  * publishing_status und published_locales aus der Statusmappe.
- * Nur Sprachen mit PUBLISHED. status.guide_* bleibt die Quelle für
- * Intranet, Slugs und Sitemap.
+ * Berücksichtigt alle Sprachen mit PUBLISHED oder FERTIG (sowie optionale bestehende Werte).
  * @param {Record<string, unknown>} statusMap
+ * @param {unknown} [existingPublishingStatus]
+ * @param {unknown} [existingPublishedLocales]
  */
-export function publishingFieldsFromStatus(statusMap) {
-  const publishingStatus = {};
-  const publishedLocales = [];
+export function publishingFieldsFromStatus(
+  statusMap,
+  existingPublishingStatus = null,
+  existingPublishedLocales = null,
+) {
+  const publishingStatus =
+    existingPublishingStatus &&
+    typeof existingPublishingStatus === 'object' &&
+    !Array.isArray(existingPublishingStatus)
+      ? { ...existingPublishingStatus }
+      : {};
+  const localesSet = new Set(
+    Array.isArray(existingPublishedLocales)
+      ? existingPublishedLocales.map((l) => normalizeLocale(l)).filter(Boolean)
+      : [],
+  );
 
   for (const [key, value] of Object.entries(statusMap ?? {})) {
     if (!key.startsWith('guide_')) continue;
-    if (String(value ?? '').trim().toUpperCase() !== GUIDE_PUBLICATION.PUBLISHED) continue;
-    const lang = key.slice('guide_'.length);
+    const lang = normalizeLocale(key.slice('guide_'.length));
     if (!lang) continue;
-    publishingStatus[lang] = GUIDE_PUBLICATION.PUBLISHED;
-    publishedLocales.push(lang);
+    const upper = String(value ?? '').trim().toUpperCase();
+    if (upper === GUIDE_PUBLICATION.PUBLISHED || upper === GUIDE_PUBLICATION.DONE) {
+      publishingStatus[lang] = GUIDE_PUBLICATION.PUBLISHED;
+      localesSet.add(lang);
+    }
   }
 
-  publishedLocales.sort();
+  const publishedLocales = [...localesSet].sort();
   return {
     [GAME_STRUCT.publishingStatus]: publishingStatus,
     [GAME_STRUCT.publishedLocales]: publishedLocales,
+  };
+}
+
+/**
+ * Entfernt ein Spiel nach der Guide-Freigabe aus public.game_wiedervorlage.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameUuid
+ */
+export async function removeGameFromWiedervorlage(supabase, gameUuid) {
+  const id = String(gameUuid ?? '').trim();
+  if (!id) return { error: null };
+  const { error } = await supabase
+    .from(TABLES.gameWiedervorlage)
+    .delete()
+    .eq(GAME_PK, id);
+  return { error: error ?? null };
+}
+
+/**
+ * Erzeugt das einheitliche Update-Objekt für public.games bei Guide-Freigabe / Direkt-Upload
+ * (setzt guide_<lang>, publish_status: 'PUBLISHED', publishing_status, published_locales, is_guide_locked: true).
+ * @param {object} params
+ * @param {Record<string, unknown>} [params.currentGame] Aktuelle games-Zeile
+ * @param {string} params.lang Sprachkürzel ('de' | 'en' | ...)
+ * @param {string} [params.guideState] Standardmäßig 'FERTIG' (oder 'PUBLISHED')
+ * @param {boolean} [params.hasVideo] Falls true, setzt status.guides = 'HAS_VIDEO'
+ * @param {boolean} [params.clearRohmaterial] Falls true, löscht status.rohmaterial
+ */
+export function buildUnifiedGuidePublishPatch({
+  currentGame = null,
+  lang,
+  guideState = GUIDE_PUBLICATION.DONE,
+  hasVideo = false,
+  clearRohmaterial = false,
+}) {
+  const normalizedLang = normalizeLocale(lang);
+  const statusMap = { ...parseStatusMap(currentGame?.[GAME_STRUCT.status]) };
+  const statusKey = guideStatusKey(normalizedLang);
+
+  if (
+    guideState === GUIDE_PUBLICATION.PUBLISHED ||
+    String(statusMap[statusKey] ?? '').trim().toUpperCase() !== GUIDE_PUBLICATION.PUBLISHED
+  ) {
+    statusMap[statusKey] = guideState;
+  }
+
+  statusMap.publish_status = GUIDE_PUBLICATION.PUBLISHED;
+
+  if (hasVideo) {
+    statusMap.guides = 'HAS_VIDEO';
+  }
+  if (clearRohmaterial) {
+    delete statusMap.rohmaterial;
+  }
+
+  const pubFields = publishingFieldsFromStatus(
+    statusMap,
+    currentGame?.[GAME_STRUCT.publishingStatus],
+    currentGame?.[GAME_STRUCT.publishedLocales],
+  );
+
+  pubFields[GAME_STRUCT.publishingStatus][normalizedLang] = GUIDE_PUBLICATION.PUBLISHED;
+  if (!pubFields[GAME_STRUCT.publishedLocales].includes(normalizedLang)) {
+    pubFields[GAME_STRUCT.publishedLocales] = [
+      ...pubFields[GAME_STRUCT.publishedLocales],
+      normalizedLang,
+    ].sort();
+  }
+
+  return {
+    [GAME_STRUCT.status]: statusMap,
+    ...pubFields,
+    [GAME_STRUCT.isGuideLocked]: true,
   };
 }
 
@@ -210,21 +299,19 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
 
   const { data: current, error: readError } = await supabase
     .from(TABLES.games)
-    .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.slug}, ${GAME_STRUCT.hardware}, ${GAME_STRUCT.gameType}`)
+    .select(
+      `${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}, ${GAME_STRUCT.slug}, ${GAME_STRUCT.hardware}, ${GAME_STRUCT.gameType}`,
+    )
     .eq(GAME_PK, uuid)
     .maybeSingle();
 
   if (readError) return { status: null, error: readError };
 
-  const statusMap = parseStatusMap(current?.[GAME_STRUCT.status]);
-  const nextStatus = {
-    ...statusMap,
-    [guideStatusKey(lang)]: published ? GUIDE_PUBLICATION.PUBLISHED : GUIDE_PUBLICATION.DONE,
-  };
-  const update = {
-    [GAME_STRUCT.status]: nextStatus,
-    ...publishingFieldsFromStatus(nextStatus),
-  };
+  const update = buildUnifiedGuidePublishPatch({
+    currentGame: current,
+    lang,
+    guideState: published ? GUIDE_PUBLICATION.PUBLISHED : GUIDE_PUBLICATION.DONE,
+  });
   const gameType = String(current?.[GAME_STRUCT.gameType] ?? '').trim();
   if (published) {
     update[GAME_STRUCT.isIndexable] = computeIsIndexable(gameType);
@@ -238,6 +325,8 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
     .maybeSingle();
 
   if (error) return { status: null, error };
+
+  await removeGameFromWiedervorlage(supabase, uuid);
 
   let slug = String(data?.[GAME_STRUCT.slug] ?? current?.[GAME_STRUCT.slug] ?? '').trim() || null;
   const hardware = data?.[GAME_STRUCT.hardware] ?? current?.[GAME_STRUCT.hardware] ?? null;
