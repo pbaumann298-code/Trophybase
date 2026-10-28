@@ -1,10 +1,17 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { TABLES, GAME_FK, GAME_PK, GAME_STRUCT, GAME_TYPE, parseGameTypes } from '../../lib/gameSchema';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import { getYouTubeEmbedUrl, parseTimecodeToSeconds, buildVideoUrlWithTimestamp } from '../../utils/videoUrl';
 import { GUIDE_PUBLICATION, guideStatusKey, parseStatusMap } from '../../lib/guidePublication';
-import { setIntranetGameType, saveTrophyGuideTip } from '../../lib/intranetGameEdits';
+import {
+  setIntranetGameType,
+  saveTrophyGuideTip,
+  clearGameGuideTips,
+  removeIntranetStatusKey,
+} from '../../lib/intranetGameEdits';
+import { intranetGameHref } from '../../lib/intranetQueries';
+import { listPipelineStatusEntries } from '../../lib/gamePipelineStatus';
 import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { localeOptions } from '../../lib/uiStrings';
 
@@ -71,6 +78,131 @@ function TrophyTypeBadge({ type }) {
   );
 }
 
+function AdminGameStatusDropdown({ game, onStatusUpdated }) {
+  const [open, setOpen] = useState(false);
+  const [removingKey, setRemovingKey] = useState('');
+  const [error, setError] = useState('');
+  const containerRef = useRef(null);
+
+  const statusEntries = useMemo(() => listPipelineStatusEntries(game?.status), [game?.status]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleClickOutside = (event) => {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  const handleDeleteStatusKey = async (statusKey, value) => {
+    if (!game?.id || removingKey) return;
+    if (!window.confirm(`Status „${statusKey}“ (${value}) wirklich löschen?`)) return;
+
+    setRemovingKey(statusKey);
+    setError('');
+
+    const { status: updatedStatus, error: removeErr } = await removeIntranetStatusKey(
+      supabase,
+      game.id,
+      statusKey
+    );
+
+    setRemovingKey('');
+
+    if (removeErr) {
+      setError(removeErr.message || `Status „${statusKey}“ konnte nicht gelöscht werden.`);
+      return;
+    }
+
+    onStatusUpdated?.(updatedStatus);
+  };
+
+  return (
+    <div ref={containerRef} className="relative inline-block text-left">
+      <button
+        type="button"
+        disabled={!game?.id}
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800/90 px-2.5 py-1 text-[11px] font-mono font-medium text-zinc-200 transition hover:border-[#00ff66]/50 hover:bg-zinc-800 disabled:opacity-50"
+      >
+        {statusEntries.length === 0 ? (
+          <span className="text-zinc-400">Kein Status gesetzt</span>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1 max-w-[260px] sm:max-w-[340px]">
+            {statusEntries.slice(0, 3).map((entry) => (
+              <span
+                key={entry.key}
+                className="inline-flex items-center rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-mono text-[#00ff66]/90 border border-zinc-700"
+              >
+                {entry.key}={entry.value}
+              </span>
+            ))}
+            {statusEntries.length > 3 && (
+              <span className="text-[10px] font-mono text-zinc-400">
+                +{statusEntries.length - 3}
+              </span>
+            )}
+          </div>
+        )}
+        <span aria-hidden className="text-zinc-500 text-[10px] ml-0.5">
+          {open ? '▲' : '▼'}
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 z-50 mt-1.5 w-64 rounded-xl border border-zinc-700 bg-[#16181a] p-2.5 shadow-2xl backdrop-blur-md">
+          <div className="mb-1.5 px-1 py-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400 border-b border-zinc-800 flex items-center justify-between">
+            <span>Aktueller Spiel-Status</span>
+            <span className="text-zinc-500 font-normal">{statusEntries.length} Keys</span>
+          </div>
+
+          {statusEntries.length === 0 ? (
+            <p className="px-1.5 py-2 text-[11px] font-mono text-zinc-500">
+              Keine Status-Einträge vorhanden.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
+              {statusEntries.map((entry) => {
+                const isRemoving = removingKey === entry.key;
+                return (
+                  <div
+                    key={entry.key}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800/90 bg-zinc-900/80 px-2 py-1.5 text-[11px] font-mono"
+                  >
+                    <div className="min-w-0 flex-1 truncate">
+                      <span className="text-zinc-400">{entry.key}=</span>
+                      <span className="text-[#00ff66] font-bold">{entry.value}</span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={Boolean(removingKey)}
+                      onClick={() => handleDeleteStatusKey(entry.key, entry.value)}
+                      title={`Status "${entry.key}" löschen`}
+                      className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-red-500/20 hover:text-red-300 disabled:opacity-40 transition"
+                    >
+                      {isRemoving ? '…' : '🗑️'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {error && (
+            <p className="mt-1.5 px-1 text-[10px] font-mono text-red-400">
+              {error}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuideTip }) {
   const trophyId = trophy.platform_achievement_id || trophy.id;
   const nameStr = getLocalizedTrophyName(trophy.trophy_name);
@@ -92,6 +224,18 @@ function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuid
     }
     setSavingTip(true);
     await onSaveGuideTip(trophyId, tipDraft);
+    setSavingTip(false);
+    setIsEditingTip(false);
+  };
+
+  const handleDeleteSingleTip = async () => {
+    if (!tipStr || savingTip) return;
+    if (!window.confirm(`Guide-Tipp für Trophäe "${nameStr || trophyId}" [${trophyLang.toUpperCase()}] wirklich löschen?`)) {
+      return;
+    }
+    setSavingTip(true);
+    setTipDraft('');
+    await onSaveGuideTip(trophyId, '');
     setSavingTip(false);
     setIsEditingTip(false);
   };
@@ -150,18 +294,32 @@ function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuid
 
       {/* Guide Tip (guide_tip) */}
       <div className="rounded-lg border border-[#00ff66]/20 bg-[#00ff66]/5 p-2 text-[11px]">
-        <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center justify-between mb-1 gap-2">
           <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-[#00ff66]">
             💡 Guide-Tipp ({trophyLang.toUpperCase()}):
           </span>
           {!isEditingTip && (
-            <button
-              type="button"
-              onClick={() => setIsEditingTip(true)}
-              className="font-mono text-[9px] text-zinc-400 hover:text-[#00ff66] underline transition"
-            >
-              {tipStr ? '✏️ Bearbeiten' : '+ Tipp hinzufügen'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={savingTip}
+                onClick={() => setIsEditingTip(true)}
+                className="font-mono text-[9px] text-zinc-400 hover:text-[#00ff66] underline transition"
+              >
+                {tipStr ? '✏️ Bearbeiten' : '+ Tipp hinzufügen'}
+              </button>
+              {tipStr && (
+                <button
+                  type="button"
+                  disabled={savingTip}
+                  onClick={handleDeleteSingleTip}
+                  title="Diesen Guide-Tipp löschen"
+                  className="font-mono text-[9px] text-zinc-500 hover:text-red-400 transition"
+                >
+                  🗑️ Löschen
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -175,26 +333,40 @@ function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuid
               disabled={savingTip}
               className="w-full resize-y rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66] focus:outline-none font-sans"
             />
-            <div className="flex items-center justify-end gap-1.5">
-              <button
-                type="button"
-                disabled={savingTip}
-                onClick={() => {
-                  setTipDraft(tipStr);
-                  setIsEditingTip(false);
-                }}
-                className="rounded px-2 py-0.5 font-mono text-[10px] text-zinc-400 hover:text-white bg-zinc-800"
-              >
-                Abbrechen
-              </button>
-              <button
-                type="button"
-                disabled={savingTip}
-                onClick={handleCommit}
-                className="rounded px-2.5 py-0.5 font-mono text-[10px] font-bold text-black bg-[#00ff66] hover:bg-[#00ff66]/90 flex items-center gap-1"
-              >
-                {savingTip ? 'Speichert…' : '✓ Speichern'}
-              </button>
+            <div className="flex items-center justify-between gap-1.5">
+              {tipStr ? (
+                <button
+                  type="button"
+                  disabled={savingTip}
+                  onClick={handleDeleteSingleTip}
+                  className="rounded px-2 py-0.5 font-mono text-[10px] text-red-300 hover:bg-red-500/20 bg-red-500/10 border border-red-500/30"
+                >
+                  🗑️ Tipp löschen
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={savingTip}
+                  onClick={() => {
+                    setTipDraft(tipStr);
+                    setIsEditingTip(false);
+                  }}
+                  className="rounded px-2 py-0.5 font-mono text-[10px] text-zinc-400 hover:text-white bg-zinc-800"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="button"
+                  disabled={savingTip}
+                  onClick={handleCommit}
+                  className="rounded px-2.5 py-0.5 font-mono text-[10px] font-bold text-black bg-[#00ff66] hover:bg-[#00ff66]/90 flex items-center gap-1"
+                >
+                  {savingTip ? 'Speichert…' : '✓ Speichern'}
+                </button>
+              </div>
             </div>
           </div>
         ) : tipStr ? (
@@ -398,7 +570,7 @@ export default function IntranetDrafts() {
           const chunkIds = gameIds.slice(i, i + CHUNK_SIZE);
           const { data: gamesData, error: gamesError } = await supabase
             .from(TABLES.games)
-            .select('id, platform_game_id, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
+            .select('id, platform_game_id, slug, status, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
             .in('id', chunkIds);
 
           if (gamesError) {
@@ -1367,7 +1539,11 @@ export default function IntranetDrafts() {
       return;
     }
 
-    setNotice(`Guide-Tipp für Trophäe "${platformAchievementId}" [${trophyLang.toUpperCase()}] gespeichert.`);
+    setNotice(
+      newTipText.trim()
+        ? `Guide-Tipp für Trophäe "${platformAchievementId}" [${trophyLang.toUpperCase()}] gespeichert.`
+        : `Guide-Tipp für Trophäe "${platformAchievementId}" [${trophyLang.toUpperCase()}] gelöscht.`
+    );
     setGameTrophies((prev) =>
       prev.map((t) => {
         if (t.platform_achievement_id === platformAchievementId || t.id === platformAchievementId) {
@@ -1384,11 +1560,50 @@ export default function IntranetDrafts() {
             delete currentMap[trophyLang];
           }
 
-          return { ...t, guide_tip: currentMap };
+          return { ...t, guide_tip: Object.keys(currentMap).length ? currentMap : null };
         }
         return t;
       })
     );
+  };
+
+  // 9b. Alle Guide-Tipps für das Spiel in der gewählten Sprache löschen
+  const handleClearAllTrophyGuideTips = async () => {
+    if (!selectedGameId || actionBusy) return;
+    if (
+      !window.confirm(
+        `Möchtest du wirklich ALLE Guide-Tipps für "${getLocalizedTitle(selectedGame?.spieltitel)}" in der Sprache [${trophyLang.toUpperCase()}] komplett löschen?`
+      )
+    ) {
+      return;
+    }
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    const { error: clearErr } = await clearGameGuideTips(supabase, selectedGameId, trophyLang);
+    setActionBusy(false);
+
+    if (clearErr) {
+      setError(`Komplett-Löschen der Guide-Tipps fehlgeschlagen: ${clearErr.message}`);
+      return;
+    }
+
+    setGameTrophies((prev) =>
+      prev.map((t) => {
+        let currentMap = {};
+        if (typeof t.guide_tip === 'object' && t.guide_tip !== null && !Array.isArray(t.guide_tip)) {
+          currentMap = { ...t.guide_tip };
+        } else if (typeof t.guide_tip === 'string' && t.guide_tip) {
+          currentMap = { de: t.guide_tip };
+        }
+        delete currentMap[trophyLang];
+        return { ...t, guide_tip: Object.keys(currentMap).length ? currentMap : null };
+      })
+    );
+
+    setNotice(`🗑️ Alle Guide-Tipps in [${trophyLang.toUpperCase()}] wurden komplett gelöscht.`);
   };
 
   // Video embed URL
@@ -1656,16 +1871,34 @@ export default function IntranetDrafts() {
                         <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
                           {selectedGame.platform_game_id || 'ID unbekannt'}
                         </p>
-                        <h2 className="text-base font-bold text-white truncate leading-snug">
-                          {getLocalizedTitle(selectedGame.spieltitel)}
-                        </h2>
+                        {intranetGameHref(selectedGame) ? (
+                          <a
+                            href={intranetGameHref(selectedGame)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => handleStaffGamePreviewClick(e, intranetGameHref(selectedGame))}
+                            title="Spiel-Detail-Seite öffnen"
+                            className="group inline-flex items-center gap-1.5 max-w-full text-base font-bold text-white hover:text-[#00ff66] no-underline transition leading-snug"
+                          >
+                            <span className="truncate group-hover:underline">
+                              {getLocalizedTitle(selectedGame.spieltitel)}
+                            </span>
+                            <span className="shrink-0 text-xs font-mono text-zinc-400 group-hover:text-[#00ff66]">
+                              ↗
+                            </span>
+                          </a>
+                        ) : (
+                          <h2 className="text-base font-bold text-white truncate leading-snug">
+                            {getLocalizedTitle(selectedGame.spieltitel)}
+                          </h2>
+                        )}
                         <p className="text-xs text-zinc-400 mt-0.5">
                           {selectedGame.publisher || selectedGame.entwickler || 'Publisher N/A'}
                         </p>
 
                         {/* Spiel-Typ Multi-Select Dropdown */}
                         <div className="mt-2.5 flex items-center gap-2">
-                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Spiel-Typ:</span>
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider w-16 shrink-0">Spiel-Typ:</span>
                           <AdminGameTypeSelect
                             gameId={selectedGame.id}
                             gameType={selectedGame.spiel_typ}
@@ -1676,6 +1909,23 @@ export default function IntranetDrafts() {
                                 if (current) next.set(selectedGame.id, { ...current, spiel_typ: savedType });
                                 return next;
                               });
+                            }}
+                          />
+                        </div>
+
+                        {/* Status Dropdown mit Löschmöglichkeit */}
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider w-16 shrink-0">Status:</span>
+                          <AdminGameStatusDropdown
+                            game={selectedGame}
+                            onStatusUpdated={(updatedStatus) => {
+                              setGamesMap((prev) => {
+                                const next = new Map(prev);
+                                const current = next.get(selectedGame.id);
+                                if (current) next.set(selectedGame.id, { ...current, status: updatedStatus });
+                                return next;
+                              });
+                              setNotice('Status-Eintrag wurde gelöscht.');
                             }}
                           />
                         </div>
@@ -2123,34 +2373,50 @@ export default function IntranetDrafts() {
 
           {/* ==================== D. RECHTE SPALTE: Parallele Trophäen-Ansicht (3 Cols) ==================== */}
           <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 max-h-[calc(100vh-160px)] overflow-hidden">
-            <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5 px-1 flex-wrap gap-2">
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-white">Trophäen ({gameTrophies.length})</h3>
-                <p className="text-[10px] text-zinc-500 font-mono">
-                  Referenz-Abgleich & Tipps
-                </p>
+            <div className="flex flex-col gap-2 border-b border-zinc-800/80 pb-2.5 px-1">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-white">Trophäen ({gameTrophies.length})</h3>
+                  <p className="text-[10px] text-zinc-500 font-mono">
+                    Referenz-Abgleich & Tipps
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <select
+                    value={trophyLang}
+                    onChange={(e) => setTrophyLang(e.target.value)}
+                    className="rounded bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
+                    title="Sprache für Trophäentexte & Tipps"
+                  >
+                    <option value="de">DE 🇩🇪</option>
+                    <option value="en">EN 🇬🇧</option>
+                    <option value="es">ES 🇪🇸</option>
+                    <option value="fr">FR 🇫🇷</option>
+                    <option value="it">IT 🇮🇹</option>
+                    <option value="ja">JA 🇯🇵</option>
+                    <option value="pt">PT 🇵🇹</option>
+                  </select>
+                  {activeRowId && (
+                    <span className="text-[9px] font-mono text-[#00ff66] bg-[#00ff66]/10 px-1.5 py-0.5 rounded border border-[#00ff66]/30">
+                      Zuordnung bereit
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <select
-                  value={trophyLang}
-                  onChange={(e) => setTrophyLang(e.target.value)}
-                  className="rounded bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
-                  title="Sprache für Trophäentexte & Tipps"
+
+              {/* Button: Alle Guide-Tipps komplett löschen */}
+              {gameTrophies.some((t) => Boolean(getLocalizedGuideTip(t.guide_tip, trophyLang))) && (
+                <button
+                  type="button"
+                  disabled={actionBusy}
+                  onClick={handleClearAllTrophyGuideTips}
+                  title={`Alle Guide-Tipps dieses Spiels in [${trophyLang.toUpperCase()}] komplett löschen`}
+                  className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-[10px] font-mono font-bold text-red-300 hover:bg-red-500/20 disabled:opacity-40 transition"
                 >
-                  <option value="de">DE 🇩🇪</option>
-                  <option value="en">EN 🇬🇧</option>
-                  <option value="es">ES 🇪🇸</option>
-                  <option value="fr">FR 🇫🇷</option>
-                  <option value="it">IT 🇮🇹</option>
-                  <option value="ja">JA 🇯🇵</option>
-                  <option value="pt">PT 🇵🇹</option>
-                </select>
-                {activeRowId && (
-                  <span className="text-[9px] font-mono text-[#00ff66] bg-[#00ff66]/10 px-1.5 py-0.5 rounded border border-[#00ff66]/30">
-                    Zuordnung bereit
-                  </span>
-                )}
-              </div>
+                  <span>🗑️</span>
+                  <span>Alle Guide-Tipps ({trophyLang.toUpperCase()}) komplett löschen</span>
+                </button>
+              )}
             </div>
 
             {loadingTrophies ? (
