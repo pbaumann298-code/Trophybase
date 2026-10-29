@@ -65,6 +65,7 @@ export function mergeGuideRow(row, lang, index = 0) {
     FALLBACK_LANGUAGE,
   );
   const categoryGroup = localizeJsonField(row[GUIDE_I18N.categoryGroup], lang, FALLBACK_LANGUAGE);
+  const bossGroup = localizeJsonField(row[GUIDE_I18N.bossGroup], lang, FALLBACK_LANGUAGE);
   const videoChapter = localizeJsonField(row[GUIDE_I18N.videoChapter], lang, FALLBACK_LANGUAGE);
   const trophyId = row[GUIDE_STRUCT.trophyId] ?? null;
   const { video_url: safeVideoUrl, prod_note: safeProdNote } = resolveProductionVideoAndNote(
@@ -87,6 +88,7 @@ export function mergeGuideRow(row, lang, index = 0) {
     localisation_sheets: localisationSheets,
     chronological_group: chronologicalGroup,
     category_group: categoryGroup,
+    boss_group: bossGroup,
     video_chapter: videoChapter,
     timestamp: row[GUIDE_STRUCT.timestamp] ?? '',
     video_url: safeVideoUrl,

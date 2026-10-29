@@ -306,6 +306,7 @@ export const GUIDE_I18N = {
   localisationSheet: 'localisation_sheet',
   chronologicalGroup: 'chronological_group',
   categoryGroup: 'category_group',
+  bossGroup: 'boss_group',
   videoChapter: 'video_chapter',
 };
 

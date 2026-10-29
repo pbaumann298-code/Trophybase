@@ -24,32 +24,14 @@ import { localeOptions } from '../../lib/uiStrings';
 const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
 const MAX_VISIBLE_QUEUE_GAMES = 10;
 
-const SHEET_TYPE_OPTIONS = [
-  { key: '1', value: [1], label: 'Tab [1] Walkthrough / Chrono', shortLabel: '[1]' },
-  { key: '2', value: [2], label: 'Tab [2] Collectibles / Sammelobjekte', shortLabel: '[2]' },
-  { key: '3', value: [3], label: 'Tab [3] Bosse', shortLabel: '[3]' },
-  { key: '1,2', value: [1, 2], label: 'Tab [1, 2] Walkthrough + Collectibles', shortLabel: '[1,2]' },
-  { key: '1,3', value: [1, 3], label: 'Tab [1, 3] Walkthrough + Bosse', shortLabel: '[1,3]' },
-  { key: '2,3', value: [2, 3], label: 'Tab [2, 3] Collectibles + Bosse', shortLabel: '[2,3]' },
-  { key: '1,2,3', value: [1, 2, 3], label: 'Tab [1, 2, 3] Alle Tabs', shortLabel: '[1,2,3]' },
-];
-
-function normalizeSheetTypeArray(val) {
-  const resolved = resolveSheetTypes(val);
+function deriveSheetTypesFromRow(row) {
+  const types = [];
+  if (getLocalizedItemName(row?.chronological_group).trim()) types.push(1);
+  if (getLocalizedItemName(row?.category_group).trim()) types.push(2);
+  if (getLocalizedItemName(row?.boss_group).trim()) types.push(3);
+  if (types.length > 0) return types;
+  const resolved = resolveSheetTypes(row?.sheet_type);
   return resolved.length > 0 ? resolved : [1];
-}
-
-function formatSheetTypeKey(val) {
-  return normalizeSheetTypeArray(val).join(',');
-}
-
-function parseSheetTypeKey(keyStr) {
-  const nums = String(keyStr ?? '')
-    .split(',')
-    .map((s) => Number.parseInt(s.trim(), 10))
-    .filter((n) => n === 1 || n === 2 || n === 3);
-  const unique = [...new Set(nums)].sort((a, b) => a - b);
-  return unique.length > 0 ? unique : [1];
 }
 
 function areGroupNamesSimilar(nameA, nameB) {
@@ -1121,10 +1103,6 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         const valA = Number.isNaN(numA) ? Number.MAX_SAFE_INTEGER : numA;
         const valB = Number.isNaN(numB) ? Number.MAX_SAFE_INTEGER : numB;
         cmp = valA - valB;
-      } else if (sortField === 'sheet_type') {
-        const strA = formatSheetTypeKey(a.sheet_type);
-        const strB = formatSheetTypeKey(b.sheet_type);
-        cmp = strA.localeCompare(strB, 'de', { numeric: true });
       } else if (sortField === 'timestamp') {
         const secA = parseTimecodeToSeconds(a.timestamp);
         const secB = parseTimecodeToSeconds(b.timestamp);
@@ -1142,6 +1120,10 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       } else if (sortField === 'category_group') {
         const strA = getLocalizedItemName(a.category_group);
         const strB = getLocalizedItemName(b.category_group);
+        cmp = strA.localeCompare(strB, 'de', { numeric: true });
+      } else if (sortField === 'boss_group') {
+        const strA = getLocalizedItemName(a.boss_group);
+        const strB = getLocalizedItemName(b.boss_group);
         cmp = strA.localeCompare(strB, 'de', { numeric: true });
       } else if (sortField === 'video_chapter') {
         const strA = getLocalizedItemName(a.video_chapter);
@@ -1162,7 +1144,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     });
   }, [selectedCreatorName, creatorGroups, sortField, sortDirection]);
 
-  // 1. GRUPPEN-RÖNTGENBLICK: Berechne vorkommende Werte von category_group und chronological_group inkl. Anzahl
+  // 1. GRUPPEN-RÖNTGENBLICK: Berechne vorkommende Werte von category_group, chronological_group und boss_group inkl. Anzahl
   const groupStats = useMemo(() => {
     const buildFieldStats = (field) => {
       const counts = new Map();
@@ -1173,7 +1155,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         const key = str || EMPTY_GROUP_TOKEN;
         counts.set(key, (counts.get(key) || 0) + 1);
 
-        const sKey = formatSheetTypeKey(row.sheet_type);
+        const sKey = deriveSheetTypesFromRow(row).join(',');
         if (!sheetSets.has(key)) sheetSets.set(key, new Set());
         sheetSets.get(key).add(sKey);
       }
@@ -1209,13 +1191,16 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
 
     const categoryPills = buildFieldStats('category_group');
     const chronoPills = buildFieldStats('chronological_group');
+    const bossPills = buildFieldStats('boss_group');
     const outlierCount =
       categoryPills.filter((p) => p.isOutlier).length +
-      chronoPills.filter((p) => p.isOutlier).length;
+      chronoPills.filter((p) => p.isOutlier).length +
+      bossPills.filter((p) => p.isOutlier).length;
 
     return {
       categoryPills,
       chronoPills,
+      bossPills,
       outlierCount,
     };
   }, [currentCreatorRows, pillSortOrder]);
@@ -1230,7 +1215,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       }
       if (activeSheetFilter !== 'all') {
         const targetNum = Number.parseInt(activeSheetFilter, 10);
-        const types = normalizeSheetTypeArray(row.sheet_type);
+        const types = deriveSheetTypesFromRow(row);
         if (!types.includes(targetNum)) return false;
       }
       return true;
@@ -1339,10 +1324,6 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     const sourceTable = existingRow?._sourceTable || 'staging_game_guides';
     const isJsonbTable = sourceTable === TABLES.guidesRohmaterial || sourceTable === TABLES.guides;
 
-    if (field === 'sheet_type') {
-      return normalizeSheetTypeArray(rawValue);
-    }
-
     if (field === 'guide_id' || field === 'trophy_id') {
       const digits = String(rawValue ?? '').replace(/\D/g, '');
       if (!digits) return null;
@@ -1352,6 +1333,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     if (
       field === 'chronological_group' ||
       field === 'category_group' ||
+      field === 'boss_group' ||
       field === 'item_name' ||
       field === 'video_chapter'
     ) {
@@ -1391,12 +1373,12 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         const sourceTable = row._sourceTable || 'staging_game_guides';
         if (
           sourceTable === 'staging_game_guides' &&
-          (patch.category_group !== undefined || patch.sheet_type !== undefined)
+          (patch.category_group !== undefined || patch.boss_group !== undefined)
         ) {
           localOverrides[row.id] = {
             ...(localOverrides[row.id] || {}),
             ...(patch.category_group !== undefined ? { category_group: patch.category_group } : {}),
-            ...(patch.sheet_type !== undefined ? { sheet_type: patch.sheet_type } : {}),
+            ...(patch.boss_group !== undefined ? { boss_group: patch.boss_group } : {}),
           };
           localModified = true;
         }
@@ -1459,7 +1441,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
             const isMissingStagingCol =
               tableName === 'staging_game_guides' &&
               (msg.includes('category_group') ||
-                msg.includes('sheet_type') ||
+                msg.includes('boss_group') ||
                 msg.includes('column') ||
                 msg.includes('schema cache'));
 
@@ -1519,8 +1501,14 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
 
       const oldLabel = oldGroupKey === EMPTY_GROUP_TOKEN ? '(Ohne Gruppe)' : `"${oldGroupKey}"`;
       const newLabel = targetName ? `"${targetName}"` : '(Ohne Gruppe)';
+      const fieldLabel =
+        field === 'category_group'
+          ? 'Category-Gruppe'
+          : field === 'boss_group'
+            ? 'Boss-Gruppe'
+            : 'Chrono-Gruppe';
       setNotice(
-        `✓ ${field === 'category_group' ? 'Category-Gruppe' : 'Chrono-Gruppe'} ${oldLabel} (${updatedCount} Zeilen) → ${newLabel} aktualisiert.`
+        `✓ ${fieldLabel} ${oldLabel} (${updatedCount} Zeilen) → ${newLabel} aktualisiert.`
       );
     } catch (err) {
       setError(`Fehler beim Umbenennen/Zusammenführen: ${err.message}`);
@@ -1529,34 +1517,54 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     }
   };
 
-  // 1c) Sheet-Type ([1], [2], [3]) für eine gesamte Gruppe setzen
-  const handleSetGroupSheetType = async (field, groupKey, newSheetTypeArr) => {
-    if (!field || actionBusy) return;
-    const normalizedSheet = normalizeSheetTypeArray(newSheetTypeArr);
+  // 1c) Ganze Gruppe in eine andere Gruppen-Spalte verschieben (kopiert Gruppennamen in Zielspalte & leert Quellspalte)
+  const handleMoveGroupToField = async (sourceField, groupKey, targetField) => {
+    if (!sourceField || !targetField || sourceField === targetField || actionBusy) return;
+    if (groupKey === EMPTY_GROUP_TOKEN) return;
+
     const affectedRows = currentCreatorRows.filter((row) => {
-      const val = getLocalizedItemName(row[field]).trim();
+      const val = getLocalizedItemName(row[sourceField]).trim();
       const key = val || EMPTY_GROUP_TOKEN;
       return key === groupKey;
     });
 
-    if (affectedRows.length === 0) return;
+    if (affectedRows.length === 0) {
+      setActivePillPopover(null);
+      return;
+    }
 
     setActionBusy(true);
     setError('');
     setNotice('');
 
     try {
-      const updatedCount = await persistRowPatchesToSupabase(affectedRows, () => ({
-        sheet_type: normalizedSheet,
-      }));
+      const updatedCount = await persistRowPatchesToSupabase(affectedRows, (row) => {
+        const groupName = getLocalizedItemName(row[sourceField]).trim() || groupKey;
+        return {
+          [targetField]: formatFieldValueForTable(row, targetField, groupName),
+          [sourceField]: formatFieldValueForTable(row, sourceField, ''),
+        };
+      });
+
+      if (activeGroupFilter?.field === sourceField && activeGroupFilter?.value === groupKey) {
+        setActiveGroupFilter({
+          field: targetField,
+          value: groupKey,
+        });
+      }
 
       setActivePillPopover(null);
-      const groupLabel = groupKey === EMPTY_GROUP_TOKEN ? '(Ohne Gruppe)' : `"${groupKey}"`;
+      const labelFor = (f) =>
+        f === 'category_group'
+          ? 'Category (Tab 2)'
+          : f === 'boss_group'
+            ? 'Boss (Tab 3)'
+            : 'Chrono (Tab 1)';
       setNotice(
-        `📑 Sheet-Type [${normalizedSheet.join(', ')}] für Gruppe ${groupLabel} (${updatedCount} Zeilen) gesetzt.`
+        `⇄ Gruppe "${groupKey}" (${updatedCount} Zeilen) von ${labelFor(sourceField)} nach ${labelFor(targetField)} verschoben.`
       );
     } catch (err) {
-      setError(`Fehler beim Setzen des Sheet-Types: ${err.message}`);
+      setError(`Fehler beim Verschieben der Gruppe: ${err.message}`);
     } finally {
       setActionBusy(false);
     }
@@ -1612,7 +1620,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     });
   };
 
-  // 2b) Floating Batch-Bar: Überschreibe chronological_group, category_group oder sheet_type für alle ausgewählten Zeilen
+  // 2b) Floating Batch-Bar: Überschreibe chronological_group, category_group oder boss_group für alle ausgewählten Zeilen
   const handleBatchOverwriteSelected = async (field, value) => {
     if (selectedRowIds.size === 0 || actionBusy) return;
     const targetRows = currentCreatorRows.filter((r) => selectedRowIds.has(r.id));
@@ -1632,11 +1640,11 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
 
       let label = field;
       let valDisplay = String(value ?? '');
-      if (field === 'sheet_type') {
-        label = 'Sheet-Type';
-        valDisplay = `[${normalizeSheetTypeArray(value).join(', ')}]`;
-      } else if (field === 'category_group') {
+      if (field === 'category_group') {
         label = 'Category-Gruppe';
+        valDisplay = valDisplay.trim() ? `"${valDisplay.trim()}"` : '(geleert)';
+      } else if (field === 'boss_group') {
+        label = 'Boss-Gruppe';
         valDisplay = valDisplay.trim() ? `"${valDisplay.trim()}"` : '(geleert)';
       } else if (field === 'chronological_group') {
         label = 'Chrono-Gruppe';
@@ -1791,6 +1799,16 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
               'chronological_group',
               getLocalizedItemName(row.chronological_group)
             ),
+            category_group: formatFieldValueForTable(
+              row,
+              'category_group',
+              getLocalizedItemName(row.category_group)
+            ),
+            boss_group: formatFieldValueForTable(
+              row,
+              'boss_group',
+              getLocalizedItemName(row.boss_group)
+            ),
             video_chapter: formatFieldValueForTable(
               row,
               'video_chapter',
@@ -1869,13 +1887,14 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
             item_name: toLocalized(r.item_name),
             chronological_group: toLocalized(r.chronological_group),
             category_group: toLocalized(r.category_group),
+            boss_group: toLocalized(r.boss_group),
             video_chapter: toLocalized(r.video_chapter),
             timestamp: r.timestamp || null,
             video_url: r.video_url || null,
             trophy_id: parseDigitStr(r.trophy_id),
             is_trophy_relevant: r.is_trophy_relevant || null,
             creator_id: creatorId,
-            sheet_type: normalizeSheetTypeArray(r.sheet_type),
+            sheet_type: deriveSheetTypesFromRow(r),
           }));
 
           const { error: insertErr } = await supabase.from(TABLES.guides).insert(rowsToApprove);
@@ -2562,7 +2581,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
 
     const targetFields =
       searchTargetField === 'all'
-        ? ['item_name', 'chronological_group', 'category_group', 'video_chapter']
+        ? ['item_name', 'chronological_group', 'category_group', 'boss_group', 'video_chapter']
         : [searchTargetField];
 
     const matchedRows = [];
@@ -2636,10 +2655,11 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       const hasCustomCategoryOrSheet = currentCreatorRows.some(
         (r) =>
           Boolean(getLocalizedItemName(r.category_group).trim()) ||
-          formatSheetTypeKey(r.sheet_type) !== '1'
+          Boolean(getLocalizedItemName(r.boss_group).trim()) ||
+          deriveSheetTypesFromRow(r).join(',') !== '1'
       );
 
-      // 1. Versuche Supabase RPC move_staging_to_rohmaterial (nur wenn keine lokalen category_group/sheet_type Anpassungen vorliegen)
+      // 1. Versuche Supabase RPC move_staging_to_rohmaterial (nur wenn keine lokalen category_group/boss_group Anpassungen vorliegen)
       if (!hasCustomCategoryOrSheet) {
         const { error: rpcErr } = await supabase.rpc('move_staging_to_rohmaterial', {
           p_game_id: targetGameId,
@@ -2685,10 +2705,11 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
               : selectedGame?.platform_game_id) ||
             null,
           guide_id: String(parseNum(r.guide_id) ?? idx + 1),
-          sheet_type: normalizeSheetTypeArray(r.sheet_type),
+          sheet_type: deriveSheetTypesFromRow(r),
           item_name: toJsonb(r.item_name),
           chronological_group: toJsonb(r.chronological_group),
           category_group: toJsonb(r.category_group),
+          boss_group: toJsonb(r.boss_group),
           video_chapter: toJsonb(r.video_chapter),
           timestamp: r.timestamp || null,
           video_url: r.video_url || null,
@@ -3729,7 +3750,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-300">
-                            🔬 Gruppen-Röntgenblick (Klick auf Pille = Konsolidieren / Filtern / Sheet-Type)
+                            🔬 Gruppen-Röntgenblick (Klick auf Pille = Konsolidieren / Filtern / Gruppe verschieben)
                           </span>
                           {groupStats.outlierCount > 0 ? (
                             <span className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-300">
@@ -3773,7 +3794,12 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                             <span className="font-bold text-[#00ff66]">🔍 Aktiver Tabellen-Filter:</span>
                             {activeGroupFilter && (
                               <span className="rounded bg-zinc-900 px-2 py-0.5 text-white border border-zinc-700">
-                                {activeGroupFilter.field === 'category_group' ? 'Category' : 'Chrono'}:{' '}
+                                {activeGroupFilter.field === 'category_group'
+                                  ? 'Category'
+                                  : activeGroupFilter.field === 'boss_group'
+                                    ? 'Boss'
+                                    : 'Chrono'}
+                                :{' '}
                                 <strong className="text-[#00ff66]">
                                   {activeGroupFilter.value === EMPTY_GROUP_TOKEN
                                     ? '(Ohne Gruppe)'
@@ -3803,7 +3829,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                         </div>
                       )}
 
-                      {/* Zwei Zeilen: 1) category_group Pills, 2) chronological_group Pills */}
+                      {/* Drei Zeilen: 1) category_group Pills, 2) chronological_group Pills, 3) boss_group Pills */}
                       {[
                         {
                           field: 'category_group',
@@ -3816,6 +3842,12 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                           title: '⏱️ Chronological-Group (Kapitel / Gebiete)',
                           pills: groupStats.chronoPills,
                           accent: 'cyan',
+                        },
+                        {
+                          field: 'boss_group',
+                          title: '⚔️ Boss-Group (Bosse)',
+                          pills: groupStats.bossPills,
+                          accent: 'amber',
                         },
                       ].map((section) => (
                         <div key={section.field} className="flex flex-col gap-1.5">
@@ -3916,7 +3948,9 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                                           <span className="block text-[9px] font-mono uppercase tracking-wider text-zinc-400">
                                             {section.field === 'category_group'
                                               ? 'Category-Group bearbeiten'
-                                              : 'Chronological-Group bearbeiten'}
+                                              : section.field === 'boss_group'
+                                                ? 'Boss-Group bearbeiten'
+                                                : 'Chronological-Group bearbeiten'}
                                           </span>
                                           <p className="text-xs font-bold text-white truncate">
                                             {pill.label}{' '}
@@ -4076,32 +4110,44 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                                         )}
                                       </div>
 
-                                      {/* c) Sheet-Type (Tab [1], [2], [3]) für diese gesamte Gruppe setzen */}
-                                      <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
-                                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-300">
-                                          📑 Sheet-Type (Tab) für gesamte Gruppe setzen:
-                                        </span>
-                                        <div className="grid grid-cols-3 gap-1">
-                                          {SHEET_TYPE_OPTIONS.map((opt) => (
-                                            <button
-                                              key={opt.key}
-                                              type="button"
-                                              disabled={actionBusy}
-                                              onClick={() =>
-                                                handleSetGroupSheetType(
-                                                  section.field,
-                                                  pill.key,
-                                                  opt.value
-                                                )
-                                              }
-                                              title={opt.label}
-                                              className="rounded-lg border border-purple-500/35 bg-purple-500/10 px-2 py-1 text-[10px] font-mono font-bold text-purple-200 hover:bg-purple-500/25 hover:border-purple-400 transition"
-                                            >
-                                              Tab {opt.shortLabel}
-                                            </button>
-                                          ))}
+                                      {/* c) 1-Klick-Aktion: Ganze Gruppe verschieben nach Chrono / Category / Boss */}
+                                      {!pill.isEmpty && (
+                                        <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
+                                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-300">
+                                            ⇄ Ganze Gruppe verschieben nach:
+                                          </span>
+                                          <div className="grid grid-cols-3 gap-1">
+                                            {[
+                                              { field: 'chronological_group', label: 'Chrono (Tab 1)' },
+                                              { field: 'category_group', label: 'Category (Tab 2)' },
+                                              { field: 'boss_group', label: 'Boss (Tab 3)' },
+                                            ].map((target) => {
+                                              const isCurrent = target.field === section.field;
+                                              return (
+                                                <button
+                                                  key={target.field}
+                                                  type="button"
+                                                  disabled={actionBusy || isCurrent}
+                                                  onClick={() =>
+                                                    handleMoveGroupToField(
+                                                      section.field,
+                                                      pill.key,
+                                                      target.field
+                                                    )
+                                                  }
+                                                  className={`rounded-lg border px-2 py-1 text-[10px] font-mono font-bold transition ${
+                                                    isCurrent
+                                                      ? 'border-zinc-800 bg-zinc-900/50 text-zinc-600 cursor-not-allowed'
+                                                      : 'border-purple-500/35 bg-purple-500/10 text-purple-200 hover:bg-purple-500/25 hover:border-purple-400'
+                                                  }`}
+                                                >
+                                                  {target.label}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
                                         </div>
-                                      </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -4125,6 +4171,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                       <option value="item_name">Item / Bezeichnung (item_name)</option>
                       <option value="chronological_group">Chrono-Gruppe (chronological_group)</option>
                       <option value="category_group">Category-Gruppe (category_group)</option>
+                      <option value="boss_group">Boss-Gruppe (boss_group)</option>
                       <option value="video_chapter">Chapter (video_chapter)</option>
                     </select>
 
@@ -4273,18 +4320,6 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                             </span>
                           </th>
                           <th
-                            onClick={() => handleToggleSort('sheet_type')}
-                            className="py-2 px-1 w-14 cursor-pointer hover:text-white transition"
-                            title="Nach Sheet-Type (Tab [1], [2], [3]) sortieren"
-                          >
-                            <span className="inline-flex items-center gap-0.5">
-                              <span>Tab</span>
-                              {sortField === 'sheet_type' && (
-                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
-                              )}
-                            </span>
-                          </th>
-                          <th
                             onClick={() => handleToggleSort('item_name')}
                             className="py-2 px-1 cursor-pointer hover:text-white transition"
                             title="Nach Item / Bezeichnung sortieren"
@@ -4316,6 +4351,18 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                             <span className="inline-flex items-center gap-1">
                               <span>Category</span>
                               {sortField === 'category_group' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
+                          <th
+                            onClick={() => handleToggleSort('boss_group')}
+                            className="py-2 px-1 w-24 cursor-pointer hover:text-white transition"
+                            title="Nach Boss-Group sortieren"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <span>Boss</span>
+                              {sortField === 'boss_group' && (
                                 <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                               )}
                             </span>
@@ -4366,8 +4413,8 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                           const itemNameStr = getLocalizedItemName(row.item_name);
                           const chronoStr = getLocalizedItemName(row.chronological_group);
                           const categoryStr = getLocalizedItemName(row.category_group);
+                          const bossStr = getLocalizedItemName(row.boss_group);
                           const chapterStr = getLocalizedItemName(row.video_chapter);
-                          const sheetKey = formatSheetTypeKey(row.sheet_type);
 
                           return (
                             <tr
@@ -4414,28 +4461,6 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                                 />
                               </td>
 
-                              {/* sheet_type ([1], [2], [3]) */}
-                              <td className="py-1 px-1" onClick={(e) => e.stopPropagation()}>
-                                <select
-                                  value={sheetKey}
-                                  onChange={(e) =>
-                                    handleUpdateRowField(
-                                      row.id,
-                                      'sheet_type',
-                                      parseSheetTypeKey(e.target.value)
-                                    )
-                                  }
-                                  className="rounded border border-purple-500/30 bg-purple-500/10 px-1 py-0.5 text-[10px] font-mono font-bold text-purple-200 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
-                                  title="Sheet-Type (Tab [1] Walkthrough, [2] Collectibles, [3] Bosse)"
-                                >
-                                  {SHEET_TYPE_OPTIONS.map((opt) => (
-                                    <option key={opt.key} value={opt.key} className="bg-zinc-900 text-zinc-200">
-                                      {opt.shortLabel}
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>
-
                               {/* item_name */}
                               <td className="py-1 px-1">
                                 <input
@@ -4465,6 +4490,17 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                                   placeholder="—"
                                   onChange={(e) => handleUpdateRowField(row.id, 'category_group', e.target.value)}
                                   className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-purple-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                />
+                              </td>
+
+                              {/* boss_group */}
+                              <td className="py-1 px-1">
+                                <input
+                                  type="text"
+                                  value={bossStr}
+                                  placeholder="—"
+                                  onChange={(e) => handleUpdateRowField(row.id, 'boss_group', e.target.value)}
+                                  className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-amber-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
@@ -4660,23 +4696,34 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                           ))}
                       </select>
 
-                      {/* 1-Klick Dropdown: sheet_type ([1], [2], [3]) */}
+                      {/* 1-Klick Dropdown: boss_group */}
                       <select
                         value=""
                         disabled={actionBusy}
                         onChange={(e) => {
                           const val = e.target.value;
                           if (!val) return;
-                          handleBatchOverwriteSelected('sheet_type', parseSheetTypeKey(val));
+                          if (val === '__CUSTOM__') {
+                            setBatchCustomField('boss_group');
+                            setBatchCustomValue('');
+                          } else if (val === '__CLEAR__') {
+                            handleBatchOverwriteSelected('boss_group', '');
+                          } else {
+                            handleBatchOverwriteSelected('boss_group', val);
+                          }
                         }}
-                        className="rounded-xl border border-[#00ff66]/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-[#00ff66] focus:border-[#00ff66] focus:outline-none"
+                        className="rounded-xl border border-amber-500/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-amber-200 focus:border-[#00ff66] focus:outline-none"
                       >
-                        <option value="">📑 Sheet-Type ([1], [2], [3]) setzen…</option>
-                        {SHEET_TYPE_OPTIONS.map((opt) => (
-                          <option key={opt.key} value={opt.key}>
-                            {opt.label}
-                          </option>
-                        ))}
+                        <option value="">⚔️ Boss-Group setzen…</option>
+                        <option value="__CUSTOM__">✏️ + Neue Boss-Group eingeben…</option>
+                        <option value="__CLEAR__">🗑️ (Boss-Group leeren)</option>
+                        {groupStats.bossPills
+                          .filter((p) => !p.isEmpty)
+                          .map((p) => (
+                            <option key={p.key} value={p.rawValue}>
+                              {p.label} ({p.count})
+                            </option>
+                          ))}
                       </select>
                     </div>
 
@@ -4686,7 +4733,9 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                         <span className="text-[10px] font-mono text-[#00ff66] shrink-0">
                           {batchCustomField === 'category_group'
                             ? 'Neue Category-Group:'
-                            : 'Neue Chrono-Group:'}
+                            : batchCustomField === 'boss_group'
+                              ? 'Neue Boss-Group:'
+                              : 'Neue Chrono-Group:'}
                         </span>
                         <input
                           type="text"

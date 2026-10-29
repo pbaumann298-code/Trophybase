@@ -60,6 +60,7 @@ const GUIDE_SELECT = [
   GUIDE_I18N.localisation,
   GUIDE_I18N.chronologicalGroup,
   GUIDE_I18N.categoryGroup,
+  GUIDE_I18N.bossGroup,
 ].join(', ');
 
 function sheetTypesOf(value) {
@@ -364,6 +365,7 @@ function renderHtml({
         localizeJsonField(row[GUIDE_I18N.localisation], locale),
         localizeJsonField(row[GUIDE_I18N.chronologicalGroup], locale),
         localizeJsonField(row[GUIDE_I18N.categoryGroup], locale),
+        localizeJsonField(row[GUIDE_I18N.bossGroup], locale),
       ]
         .filter(Boolean)
         .join(' · '),

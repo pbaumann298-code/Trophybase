@@ -43,6 +43,7 @@ export function normalizeGuideEntryRow(row) {
     ),
     chronological_group: String(row.chronological_group ?? row.area ?? '').trim(),
     category_group: String(row.category_group ?? row.type ?? '').trim(),
+    boss_group: String(row.boss_group ?? '').trim(),
     sort_order: row.sort_order ?? null,
     trophy_id: row.trophy_id ?? null,
     is_trophy_relevant: row.is_trophy_relevant ?? (row.trophy_id ? 'Ja' : ''),
@@ -111,6 +112,14 @@ function applyLocalisationForSheet(rows, sheetType) {
 const GROUP_KEY_SEPARATOR = '\u0000';
 
 export function guideGroupName(row, groupByField = 'category_group') {
+  if (groupByField === 'boss_group') {
+    return (
+      String(row?.boss_group ?? '').trim() ||
+      String(row?.chronological_group ?? '').trim() ||
+      String(row?.category_group ?? '').trim() ||
+      'Allgemein'
+    );
+  }
   const fallbackField =
     groupByField === 'chronological_group' ? 'category_group' : 'chronological_group';
   return (
@@ -228,20 +237,20 @@ export function normalizeBossRow(row) {
 
 /**
  * Bosse (sheet_type 3): Gebiete (localisation), darin eine Kachel je Boss
- * (chronological_group). Ältere Datensätze tragen den Boss-Namen in
- * category_group – guideGroupName fällt darauf zurück.
+ * (boss_group). Ältere Datensätze tragen den Boss-Namen in
+ * chronological_group oder category_group – guideGroupName fällt darauf zurück.
  */
 export function sortBossRows(rows) {
-  return sortRowsByGroupLevels(rows, [guideLocalisationKey, groupNameKeyFn('chronological_group')]);
+  return sortRowsByGroupLevels(rows, [guideLocalisationKey, groupNameKeyFn('boss_group')]);
 }
 
 /**
  * Baut den zweistufigen Kachelbaum für die Anzeige: Gebiet (localisation) →
- * Gruppe (chronological_group/category_group) → Einträge. Die Reihenfolge folgt
+ * Gruppe (chronological_group/category_group/boss_group) → Einträge. Die Reihenfolge folgt
  * den bereits sortierten Zeilen; Einträge ohne localisation landen in einem
  * Abschnitt mit leerem Namen und werden ohne Gebiets-Rahmen gerendert.
  * @param {object[]} rows Bereits sortiert und gefiltert
- * @param {'chronological_group'|'category_group'} groupByField
+ * @param {'chronological_group'|'category_group'|'boss_group'} groupByField
  */
 export function buildGuideGroupTree(rows, groupByField = 'category_group') {
   /** @type {{ localisation: string, itemCount: number, groups: { key: string, name: string, items: object[] }[] }[]} */
@@ -349,7 +358,7 @@ export function buildByTypeGuideData(guideRows) {
   return sortByTypeGuideRows(mapped);
 }
 
-/** Bosse (sheet_type 3): group by chronological_group · Item: item_name / boss_name */
+/** Bosse (sheet_type 3): group by boss_group · Item: item_name / boss_name */
 export function buildBossOverviewData(bossRows) {
   const normalized = applyLocalisationForSheet(
     (bossRows || []).map(normalizeBossRow).filter(Boolean),

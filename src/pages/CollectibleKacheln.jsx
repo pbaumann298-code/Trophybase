@@ -412,7 +412,7 @@ function useTrophyRowExtras(trophyById) {
 
 /**
  * Generisches 40/60 Split-Screen-Layout.
- * @param {'chronological_group'|'category_group'} groupByField
+ * @param {'chronological_group'|'category_group'|'boss_group'} groupByField
  */
 function SplitScreenGuideKacheln({
   itemsData = [],
@@ -1549,7 +1549,7 @@ export function BossKacheln({
       emptyVideoMessage={t('videoEmptyBoss')}
       groupHeaderIcon="⚔️"
       localisationHeaderIcon="🗺️"
-      groupByField="chronological_group"
+      groupByField="boss_group"
       listTitle={listTitle || t('bosses')}
       hideCompleted={hideCompleted}
       setHideCompleted={setHideCompleted}

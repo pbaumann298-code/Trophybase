@@ -828,7 +828,6 @@ export async function insertQuickGuideSteps(
   const platformId = String(platformGameId ?? '').trim() || null;
   const creator = String(creatorId ?? '').trim() || null;
   const trophy = String(trophyId ?? '').trim() || null;
-  const useCategory = sheet === GUIDE_SHEET_TYPE.COLLECTIBLES;
 
   const rows = list.map((step, index) => {
     const name = String(step?.name ?? '').trim() || `Schritt ${index + 1}`;
@@ -846,8 +845,10 @@ export async function insertQuickGuideSteps(
       [GUIDE_STRUCT.trophyId]: trophy,
       [GUIDE_STRUCT.isTrophyRelevant]: trophy ? 'Ja' : null,
     };
-    if (useCategory) {
+    if (sheet === GUIDE_SHEET_TYPE.COLLECTIBLES) {
       row[GUIDE_I18N.categoryGroup] = { [lang]: group };
+    } else if (sheet === GUIDE_SHEET_TYPE.BOSSES) {
+      row[GUIDE_I18N.bossGroup] = { [lang]: group };
     } else {
       row[GUIDE_I18N.chronologicalGroup] = { [lang]: group };
     }
