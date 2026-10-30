@@ -11,9 +11,15 @@ import {
   TABLES,
   parseGameTypes,
 } from '../../lib/gameSchema';
-import { hasPublishedGuide, setGuidePublished } from '../../lib/guidePublication';
+import {
+  hasPublishedGuide,
+  isGameDraftMode,
+  parseStatusMap,
+  setGuidePublished,
+} from '../../lib/guidePublication';
 import { intranetGameHref } from '../../lib/intranetQueries';
 import {
+  clearGameGuideTips,
   pullGameBackToDrafts,
   saveGamePlaytime,
   saveTrophyGuideTip,
@@ -59,6 +65,7 @@ const GAME_LIST_COLUMNS = [
   'hardware',
   'spiel_typ',
   'guide_typ',
+  'fortschritt',
   'status',
   'publishing_status',
   'published_locales',
@@ -149,6 +156,53 @@ function pickText(value) {
   return first ? String(first).trim() : '';
 }
 
+/** Liest gezielt den Guide-Tipp für die Zielsprache (z. B. de), damit gelöschte Tipps nicht auf en zurückfallen. */
+function pickGuideTip(value, lang = PUBLISH_LANG) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if (typeof value !== 'object' || Array.isArray(value)) return '';
+  return String(value[lang] ?? '').trim();
+}
+
+function withGuideTipForLang(existingGuideTip, lang, text) {
+  const trimmed = String(text ?? '').trim();
+  const nextMap =
+    existingGuideTip && typeof existingGuideTip === 'object' && !Array.isArray(existingGuideTip)
+      ? { ...existingGuideTip }
+      : typeof existingGuideTip === 'string' && existingGuideTip.trim()
+        ? { [lang]: existingGuideTip.trim() }
+        : {};
+  if (trimmed) {
+    nextMap[lang] = trimmed;
+  } else {
+    delete nextMap[lang];
+  }
+  return Object.keys(nextMap).length ? nextMap : null;
+}
+
+const HIGHER_PIPELINE_STAGES = new Set(['FERTIG', 'READY', 'PUBLISHED', 'DRAFT']);
+
+/**
+ * Prüft für die D-Freigabe, ob games.status.refinement = VEREDELT gesetzt ist
+ * und (sofern nicht includePublished aktiv ist) noch keine höhere Stufe (FERTIG, READY, PUBLISHED, DRAFT) erreicht wurde.
+ */
+function isRefinedAtMaxStage(game, { includePublished = false } = {}) {
+  const statusMap = parseStatusMap(game?.status);
+  if (String(statusMap.refinement ?? '').trim().toUpperCase() !== 'VEREDELT') {
+    return false;
+  }
+  if (includePublished) return true;
+  if (hasPublishedGuide(game) || isGameDraftMode(game)) return false;
+  if (HIGHER_PIPELINE_STAGES.has(String(statusMap.publish_status ?? '').trim().toUpperCase())) return false;
+  if (HIGHER_PIPELINE_STAGES.has(String(statusMap.status ?? '').trim().toUpperCase())) return false;
+  if (HIGHER_PIPELINE_STAGES.has(String(game?.fortschritt ?? '').trim().toUpperCase())) return false;
+  for (const [key, val] of Object.entries(statusMap)) {
+    if (!key.startsWith('guide_')) continue;
+    if (HIGHER_PIPELINE_STAGES.has(String(val ?? '').trim().toUpperCase())) return false;
+  }
+  return true;
+}
+
 function allTexts(value) {
   if (value == null) return '';
   if (typeof value === 'string') return value;
@@ -184,6 +238,7 @@ function matchesMode(mode, game, { includePublished = false } = {}) {
   if (!includePublished && hasPublishedGuide(game)) return false;
   if (mode === 'd_freigabe') {
     if (isUnlesbar(game)) return false;
+    if (!isRefinedAtMaxStage(game, { includePublished })) return false;
     const typ = guideTyp(game);
     return typ === 'D' || (typ === 'C' && isQuickType(game));
   }
@@ -197,6 +252,7 @@ function matchesMode(mode, game, { includePublished = false } = {}) {
 function applyModeFilter(mode, query) {
   if (mode === 'd_freigabe') {
     return query
+      .ilike('status->>refinement', 'veredelt')
       .or('guide_typ.eq.D,and(guide_typ.eq.C,spiel_typ.ilike.*Quickwin*),and(guide_typ.eq.C,spiel_typ.ilike.*easy_platin*)')
       .or('spiel_typ.is.null,spiel_typ.not.ilike.*Unlesbar*');
   }
@@ -324,60 +380,155 @@ function PlaytimeInput({ label, value, onSave, disabled }) {
 }
 
 function GuideTipCell({ trophy, gameId, onSaved, disabled }) {
-  const current = pickText(trophy.guide_tip);
+  const current = pickGuideTip(trophy.guide_tip, PUBLISH_LANG);
+  const trophyLabel = pickText(trophy.trophy_name) || trophy[ACHIEVEMENT_PK];
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(current);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const startEditing = () => {
     setDraft(current);
+    setError('');
     setEditing(true);
   };
 
-  const save = async () => {
-    setEditing(false);
-    if (draft.trim() === current) return;
+  const commit = async (nextText) => {
+    const trimmed = String(nextText ?? '').trim();
+    if (trimmed === current) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
     setError('');
-    const { error: saveError } = await saveTrophyGuideTip(supabase, gameId, trophy[ACHIEVEMENT_PK], PUBLISH_LANG, draft);
+    const { error: saveError } = await saveTrophyGuideTip(
+      supabase,
+      gameId,
+      trophy[ACHIEVEMENT_PK],
+      PUBLISH_LANG,
+      trimmed,
+    );
+    setSaving(false);
     if (saveError) {
       setError(saveError.message || 'Tipp konnte nicht gespeichert werden.');
       return;
     }
-    onSaved(draft.trim());
+    setEditing(false);
+    onSaved(trimmed);
+  };
+
+  const handleDelete = async () => {
+    if (!current || saving || disabled) return;
+    if (
+      !window.confirm(
+        `Guide-Tipp für Trophäe „${trophyLabel}“ [${PUBLISH_LANG.toUpperCase()}] wirklich löschen?`,
+      )
+    ) {
+      return;
+    }
+    setDraft('');
+    await commit('');
   };
 
   if (editing) {
     return (
-      <textarea
-        autoFocus
-        value={draft}
-        disabled={disabled}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={save}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            setDraft(current);
-            setEditing(false);
-          }
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) event.currentTarget.blur();
-        }}
-        rows={3}
-        className="w-full rounded border border-[#00ff66]/40 bg-zinc-950 px-2 py-1 text-xs text-zinc-100 focus:outline-none"
-      />
+      <div className="flex flex-col gap-1.5">
+        <textarea
+          autoFocus
+          value={draft}
+          disabled={disabled || saving}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setDraft(current);
+              setEditing(false);
+            }
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              commit(draft);
+            }
+          }}
+          rows={3}
+          placeholder="Guide-Tipp (de) eingeben…"
+          className="w-full rounded border border-[#00ff66]/40 bg-zinc-950 px-2 py-1 text-xs text-zinc-100 focus:outline-none"
+        />
+        <div className="flex flex-wrap items-center justify-between gap-1.5">
+          {current ? (
+            <button
+              type="button"
+              disabled={disabled || saving}
+              onClick={handleDelete}
+              className="rounded border border-red-500/30 bg-red-500/10 px-2 py-0.5 font-mono text-[10px] text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+            >
+              🗑️ Tipp löschen
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setDraft(current);
+                setEditing(false);
+              }}
+              className="rounded bg-zinc-800 px-2 py-0.5 font-mono text-[10px] text-zinc-400 hover:text-white"
+            >
+              Abbrechen
+            </button>
+            <button
+              type="button"
+              disabled={disabled || saving}
+              onClick={() => commit(draft)}
+              className="rounded bg-[#00ff66] px-2.5 py-0.5 font-mono text-[10px] font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50"
+            >
+              {saving ? 'Speichert…' : '✓ Speichern'}
+            </button>
+          </div>
+        </div>
+        {error ? <span className="block text-[10px] text-red-400">{error}</span> : null}
+      </div>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={startEditing}
-      disabled={disabled}
-      className="block w-full text-left text-xs leading-snug text-zinc-300 hover:text-zinc-100"
-      title="Klicken zum Bearbeiten (guide_tip, de)"
-    >
-      {current ? current : <span className="italic text-zinc-600">+ Guide-Tipp (de)</span>}
-      {error ? <span className="mt-1 block text-[10px] text-red-400">{error}</span> : null}
-    </button>
+    <div className="space-y-1">
+      <div className="flex items-start justify-between gap-2">
+        <button
+          type="button"
+          onClick={startEditing}
+          disabled={disabled || saving}
+          className="min-w-0 flex-1 text-left text-xs leading-snug text-zinc-300 hover:text-zinc-100"
+          title="Klicken zum Bearbeiten (guide_tip, de)"
+        >
+          {current ? current : <span className="italic text-zinc-600">+ Guide-Tipp (de)</span>}
+        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            disabled={disabled || saving}
+            onClick={startEditing}
+            title="Guide-Tipp bearbeiten"
+            className="font-mono text-[10px] text-zinc-400 underline transition hover:text-[#00ff66] disabled:opacity-50"
+          >
+            {current ? '✏️ Bearbeiten' : '+ Tipp'}
+          </button>
+          {current ? (
+            <button
+              type="button"
+              disabled={disabled || saving}
+              onClick={handleDelete}
+              title="Diesen Guide-Tipp löschen"
+              className="rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 font-mono text-[10px] text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+            >
+              🗑️ Löschen
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {error ? <span className="block text-[10px] text-red-400">{error}</span> : null}
+    </div>
   );
 }
 
@@ -694,6 +845,30 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
       if (totals) patchGame(id, totals);
       setNotice(`${matched.length} Trophäe(n) als Online markiert.`);
     });
+
+  const handleClearAllGuideTips = () => {
+    if (!activeGame) return;
+    const title = pickText(activeGame.spieltitel) || 'dieses Spiel';
+    if (
+      !window.confirm(
+        `Möchtest du wirklich ALLE Guide-Tipps für „${title}“ in der Sprache [${PUBLISH_LANG.toUpperCase()}] komplett löschen?`,
+      )
+    ) {
+      return;
+    }
+    run('clear-tips', async () => {
+      const id = activeGame[GAME_PK];
+      const { error: clearError } = await clearGameGuideTips(supabase, id, PUBLISH_LANG);
+      if (clearError) throw clearError;
+      setAchievements((prev) =>
+        prev.map((entry) => ({
+          ...entry,
+          guide_tip: withGuideTipForLang(entry.guide_tip, PUBLISH_LANG, ''),
+        })),
+      );
+      setNotice(`🗑️ Alle Guide-Tipps in [${PUBLISH_LANG.toUpperCase()}] wurden komplett gelöscht.`);
+    });
+  };
 
   const handlePublish = () =>
     run('publish', async () => {
@@ -1020,14 +1195,29 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                   <h4 className="text-xs font-black uppercase tracking-wider text-zinc-300">
                     Trophäen {achievementsLoading ? '· lade…' : `· ${achievements.length}`}
                   </h4>
-                  <button
-                    type="button"
-                    onClick={handleBulkOnline}
-                    disabled={busy === 'bulk-online' || achievementsLoading || !achievements.length}
-                    className="rounded border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-sky-200 hover:bg-sky-500/20 disabled:opacity-50"
-                  >
-                    ⚡ Alle Online/Koop-Keywords automatisch markieren
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {achievements.some((trophy) => Boolean(pickGuideTip(trophy.guide_tip, PUBLISH_LANG))) ? (
+                      <button
+                        type="button"
+                        onClick={handleClearAllGuideTips}
+                        disabled={Boolean(busy) || achievementsLoading}
+                        title={`Alle Guide-Tipps dieses Spiels in [${PUBLISH_LANG.toUpperCase()}] komplett löschen`}
+                        className="rounded border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-red-300 hover:bg-red-500/20 disabled:opacity-50"
+                      >
+                        {busy === 'clear-tips'
+                          ? '… löscht Tipps'
+                          : `🗑️ Alle Guide-Tipps (${PUBLISH_LANG.toUpperCase()}) komplett löschen`}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={handleBulkOnline}
+                      disabled={busy === 'bulk-online' || achievementsLoading || !achievements.length}
+                      className="rounded border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-sky-200 hover:bg-sky-500/20 disabled:opacity-50"
+                    >
+                      ⚡ Alle Online/Koop-Keywords automatisch markieren
+                    </button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
@@ -1070,17 +1260,14 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                               <GuideTipCell
                                 trophy={trophy}
                                 gameId={activeGame[GAME_PK]}
-                                disabled={busy.startsWith('flag:')}
+                                disabled={busy.startsWith('flag:') || busy === 'clear-tips'}
                                 onSaved={(text) =>
                                   setAchievements((prev) =>
                                     prev.map((entry) =>
                                       entry[ACHIEVEMENT_PK] === id
                                         ? {
                                             ...entry,
-                                            guide_tip: {
-                                              ...(entry.guide_tip && typeof entry.guide_tip === 'object' ? entry.guide_tip : {}),
-                                              [PUBLISH_LANG]: text,
-                                            },
+                                            guide_tip: withGuideTipForLang(entry.guide_tip, PUBLISH_LANG, text),
                                           }
                                         : entry,
                                     ),

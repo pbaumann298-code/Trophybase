@@ -112,6 +112,119 @@ function isWholeWordContained(haystackNorm, needleNorm) {
   return pattern.test(haystackNorm);
 }
 
+const CHAPTER_TARGET_COLUMNS = [
+  { value: 'chronological_group', label: 'Chrono (chronological_group)', shortLabel: '⏱️ Chrono' },
+  { value: 'category_group', label: 'Category (category_group)', shortLabel: '🗂️ Category' },
+  { value: 'boss_group', label: 'Boss (boss_group)', shortLabel: '⚔️ Boss' },
+  { value: 'item_name', label: 'Item / Bezeichnung (item_name)', shortLabel: '🏷️ Item' },
+];
+
+/**
+ * Bereinigt den YouTube-Videotitel aus `video_chapter` (Chapter-Spalte):
+ * - Entfernt Spieltitel (DE/EN/Varianten ohne ®/™/Sonderzeichen) am Anfang
+ * - Entfernt typische YouTube-/Plattform-Zusätze (Trophy/Achievement Guide, 100% Platinum Walkthrough, PS4/PS5/Xbox, Dauer-Timestamps etc.)
+ * - Erhält relevante Teil-/Kapitel-/Boss-/Sammelobjekt-/Trophäen-Bezeichnungen
+ */
+export function cleanVideoChapterName(rawChapter, game = null) {
+  const original = getLocalizedItemName(rawChapter).trim();
+  if (!original) return '';
+
+  let s = original.replace(/[\u00A0\u3000\t\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // 1. Spieltitel-Kandidaten sammeln (inkl. Varianten ohne ®/™/Doppelpunkt & Römische/Arabische Zahlen)
+  const titleCandidates = new Set();
+  const addTitleVariants = (raw) => {
+    const base = String(raw ?? '').replace(/[®™©]/g, '').replace(/\s+/g, ' ').trim();
+    if (!base || base.length < 2) return;
+    titleCandidates.add(base);
+    const noPunct = base.replace(/[:!?,.'’"-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (noPunct.length >= 2) titleCandidates.add(noPunct);
+    const romanMap = [
+      [/\bII$/i, '2'],
+      [/\b2$/, 'II'],
+      [/\bIII$/i, '3'],
+      [/\b3$/, 'III'],
+      [/\bIV$/i, '4'],
+      [/\b4$/, 'IV'],
+    ];
+    for (const [pattern, repl] of romanMap) {
+      if (pattern.test(base)) titleCandidates.add(base.replace(pattern, repl));
+      if (pattern.test(noPunct)) titleCandidates.add(noPunct.replace(pattern, repl));
+    }
+  };
+
+  const spieltitel = game?.spieltitel;
+  if (typeof spieltitel === 'string') {
+    addTitleVariants(spieltitel);
+  } else if (spieltitel && typeof spieltitel === 'object') {
+    for (const val of Object.values(spieltitel)) {
+      addTitleVariants(val);
+    }
+  }
+
+  const sortedTitles = [...titleCandidates].sort((a, b) => b.length - a.length);
+  for (const title of sortedTitles) {
+    const words = title.split(/\s+/).filter(Boolean).map(escapeRegExp);
+    if (!words.length) continue;
+    const flexTitlePattern = words.join('[®™©:!,.\'’"\\s-]*');
+    const prefixRe = new RegExp(`^${flexTitlePattern}[®™©]*\\s*(?:[-–—:|]+\\s*|\\s+(?=[#(]))`, 'i');
+    if (prefixRe.test(s)) {
+      s = s.replace(prefixRe, '').trim();
+      break;
+    }
+    const exactPrefixRe = new RegExp(`^${flexTitlePattern}[®™©]*\\b\\s*[-–—:|]*\\s*`, 'i');
+    if (exactPrefixRe.test(s) && s.length > title.length) {
+      s = s.replace(exactPrefixRe, '').trim();
+      break;
+    }
+  }
+
+  // 2. Plattform-Tags, Promo-Klammern, Hashtags und Vollvideo-Timestamps entfernen
+  s = s.replace(/#(xbox\w*|ps[345]\w*|playstation\w*|trophy\w*|achievement\w*|gaming|walkthrough|guide)\b/gi, ' ');
+  s = s.replace(/\(\s*(?:xbox[^)]*|ps[345][^)]*|playstation[^)]*|pc[^)]*|switch[^)]*|w\/\s*downloadable[^)]*|4k[^)]*|60\s*fps[^)]*|crossbuy[^)]*)\s*\)/gi, ' ');
+  s = s.replace(/\[\s*(?:xbox[^\]]*|ps[345][^\]]*|playstation[^\]]*|pc[^\]]*|4k[^\]]*|60\s*fps[^\]]*|no\s*commentary[^\]]*)\s*\]/gi, ' ');
+  s = s.replace(/\*\s*(?:easy[^*]*|\d+\s*gs[^*]*|100%[^*]*)\*/gi, ' ');
+  s = s.replace(/\bw\/\s*written\s+solutions!*/gi, ' ');
+  s = s.replace(/\b(?:xbox\s+game\s+pass|crossbuy\s+ps4\s*,?\s*ps5|free\s*&\s*easy\s+ps[45]\s+platinum\s+game|easy\s*&\s*fun\s+platinum\s+game(?:\s+ps4\s*,?\s*ps5)?)\b/gi, ' ');
+  s = s.replace(/\b(?:ps4\s*[,/&]\s*ps5|ps5\s*[,/&]\s*ps4|ps[345]|xbox\s*(?:one|series\s*[xs])?)\b/gi, ' ');
+  s = s.replace(/\b\d{1,2}:\d{2}:\d{2}\b/g, ' ');
+  s = s.replace(/\b\d+(?:[.,]\d+)?\s*(?:hour|hr|h|minute|min)s?\s+(?:platinum|completion)\b/gi, ' ');
+
+  // 3. Generische Guide-/Walkthrough-Phrasen entfernen (aber "Walkthrough 5/28" bzw. Teilenummern erhalten)
+  s = s.replace(/\b(?:100%\s+)?(?:full\s+(?:game\s+)?)?(?:platinum\s+)(?=walkthrough\s+(?:#?\d+|\d+\/\d+|part\b|ep(?:isode)?\b))/gi, '');
+
+  s = s.replace(
+    /\b(?:100%\s*)?(?:full\s+(?:game\s+)?)?(?:platinum\s+|complete\s+|all\s+|easy\s+|beginner\s+)*(?:trophy\s*(?:\/|&|and)\s*achievement|achievement\s*(?:\/|&|and)\s*trophy|trophies\s*(?:\/|&|and)\s*achievements|achievements\s*(?:\/|&|and)\s*trophies|trophy|trophies|achievement|achievements|trophäen|platin)\s*(?:[-–—]?\s*)?(?:guide|walkthrough|roadmap|locations?)?(?:\s*(?:&|and)\s*(?:full\s+)?(?:game\s+)?(?:walkthrough|guide|collectibles?))?!*/gi,
+    ' '
+  );
+  s = s.replace(
+    /\b(?:100%\s*)?(?:full\s+(?:game\s+)?|platinum\s+|complete\s+|easy\s+|beginner\s+)walkthrough\b(?!\s*(?:#?\d+|\d+\/\d+|part\b|ep(?:isode)?\b))/gi,
+    ' '
+  );
+  s = s.replace(/\b(?:collectibles?|collectible\s+locations?|locations?)\s+guide\b/gi, (m) =>
+    m.replace(/\s+guide$/i, '')
+  );
+  s = s.replace(/\b(?:easy|beginner|full)\s+guide\b/gi, ' ');
+  s = s.replace(/(?:^|[-–—|:])\s*guide\s*$/gi, ' ');
+
+  // 4. Mehrfache Trenner und Rand-Satzzeichen bereinigen
+  s = s.replace(/\s+/g, ' ').trim();
+  let prev;
+  do {
+    prev = s;
+    s = s
+      .replace(/(?:^|\s+)[-–—|:!]+\s*(?=[-–—|:!]+|$)/g, ' ')
+      .replace(/^[\s\-–—|:;,./!*+&]+|[\s\-–—|:;,./!*+&]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  } while (s !== prev);
+
+  if (!s) {
+    return 'Walkthrough';
+  }
+  return s;
+}
+
 const STAGING_LOCAL_OVERRIDES_KEY = 'tb_intranet_staging_group_overrides_v1';
 
 function loadStagingLocalOverrides() {
@@ -588,6 +701,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
   const [selectedRowIds, setSelectedRowIds] = useState(() => new Set());
   const [batchCustomField, setBatchCustomField] = useState(null); // 'chronological_group' | 'category_group' | null
   const [batchCustomValue, setBatchCustomValue] = useState('');
+  const [chapterCopyTargetField, setChapterCopyTargetField] = useState('chronological_group');
 
   // 3. Trophäen-Schnell-Picker & Auto-Matcher ("Just Do It") State
   const [showTrophyMatcher, setShowTrophyMatcher] = useState(false);
@@ -1654,6 +1768,56 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       setNotice(`⚡ Batch-Update: ${label} = ${valDisplay} für ${updatedCount} markierte Zeilen gespeichert.`);
     } catch (err) {
       setError(`Batch-Update fehlgeschlagen: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // 2c) Bereinigten Video-Namen aus Chapter (video_chapter) in Chrono, Category, Boss oder Item übernehmen
+  const handleApplyCleanedChapterToColumn = async (targetField = chapterCopyTargetField, scope = 'all') => {
+    if (!targetField || actionBusy) return;
+    const baseRows =
+      scope === 'selected'
+        ? currentCreatorRows.filter((r) => selectedRowIds.has(r.id))
+        : visibleCreatorRows;
+
+    const rowsWithChapter = baseRows.filter((r) => Boolean(getLocalizedItemName(r.video_chapter).trim()));
+    if (rowsWithChapter.length === 0) {
+      setError(
+        scope === 'selected'
+          ? 'Keine markierten Zeilen mit Chapter (video_chapter) vorhanden.'
+          : 'Keine Zeilen mit Chapter (video_chapter) zum Übernehmen gefunden.'
+      );
+      return;
+    }
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const cleanedByRowId = new Map();
+      let sampleCleaned = '';
+      for (const row of rowsWithChapter) {
+        const cleaned = cleanVideoChapterName(row.video_chapter, selectedGame);
+        if (!cleaned) continue;
+        cleanedByRowId.set(row.id, cleaned);
+        if (!sampleCleaned) sampleCleaned = cleaned;
+      }
+
+      const targetRows = rowsWithChapter.filter((r) => cleanedByRowId.has(r.id));
+      const updatedCount = await persistRowPatchesToSupabase(targetRows, (row) => ({
+        [targetField]: formatFieldValueForTable(row, targetField, cleanedByRowId.get(row.id)),
+      }));
+
+      const colMeta = CHAPTER_TARGET_COLUMNS.find((c) => c.value === targetField);
+      const colLabel = colMeta ? colMeta.label : targetField;
+      const scopeLabel = scope === 'selected' ? `${updatedCount} markierte Zeile(n)` : `alle ${updatedCount} Zeile(n)`;
+      setNotice(
+        `🎬 Bereinigter Video-Name aus Chapter (z. B. „${sampleCleaned}“) in ${colLabel} für ${scopeLabel} übernommen.`
+      );
+    } catch (err) {
+      setError(`Chapter-Übernahme fehlgeschlagen: ${err.message}`);
     } finally {
       setActionBusy(false);
     }
@@ -4256,8 +4420,8 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                     )}
                   </div>
 
-                  {/* Multi-Select Schnell-Leiste über der Tabelle */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[10px] font-mono text-zinc-400">
+                  {/* Multi-Select Schnell-Leiste + Bereinigten Video-Namen aus Chapter übernehmen */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800/80 bg-zinc-900/50 px-2.5 py-1.5 text-[10px] font-mono text-zinc-400">
                     <div className="flex items-center gap-2 flex-wrap">
                       <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-zinc-300 hover:text-white">
                         <input
@@ -4284,10 +4448,48 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                           </button>
                         </>
                       )}
+                      <span className="text-zinc-500 hidden xl:inline">
+                        · Button <strong className="text-zinc-300">⤵</strong> wählt ab Zeile abwärts aus
+                      </span>
                     </div>
-                    <span className="text-zinc-500">
-                      Tipp: Button <strong className="text-zinc-300">⤵</strong> in einer Zeile wählt ab dieser Zeile abwärts alle sichtbaren Zeilen aus
-                    </span>
+
+                    {/* Bereinigten Video-Namen aus Chapter (video_chapter) in Spalte übernehmen */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-zinc-300 font-bold" title="Bereinigt den Videotitel aus Chapter (ohne Spielname & Trophy-Guide-Zusätze) und übernimmt ihn in die Zielspalte">
+                        🎬 Chapter (bereinigt) →
+                      </span>
+                      <select
+                        value={chapterCopyTargetField}
+                        onChange={(e) => setChapterCopyTargetField(e.target.value)}
+                        disabled={actionBusy}
+                        className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
+                        title="Zielspalte für den bereinigten Video-Namen aus Chapter"
+                      >
+                        {CHAPTER_TARGET_COLUMNS.map((col) => (
+                          <option key={col.value} value={col.value}>
+                            {col.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={actionBusy || selectedRowIds.size === 0}
+                        onClick={() => handleApplyCleanedChapterToColumn(chapterCopyTargetField, 'selected')}
+                        title="Bereinigten Video-Namen aus Chapter nur für die ausgewählten Zeilen in die gewählte Spalte übernehmen"
+                        className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2 py-0.5 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40 transition"
+                      >
+                        ☑️ Auswahl ({selectedRowIds.size})
+                      </button>
+                      <button
+                        type="button"
+                        disabled={actionBusy || visibleCreatorRows.length === 0}
+                        onClick={() => handleApplyCleanedChapterToColumn(chapterCopyTargetField, 'all')}
+                        title="Bereinigten Video-Namen aus Chapter für alle sichtbaren Zeilen in die gewählte Spalte übernehmen"
+                        className="rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-mono font-bold text-cyan-200 hover:bg-cyan-500/25 disabled:opacity-40 transition"
+                      >
+                        ⚡ Alle Zeilen ({visibleCreatorRows.length})
+                      </button>
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto">
@@ -4725,6 +4927,27 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                             </option>
                           ))}
                       </select>
+                    </div>
+
+                    {/* 1-Klick: Bereinigten Video-Namen aus Chapter in Spalte übernehmen */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800/80 pt-2">
+                      <span className="text-[10px] font-mono text-zinc-300">
+                        🎬 Bereinigten Chapter-Namen in Spalte übernehmen ({selectedRowIds.size} markiert):
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {CHAPTER_TARGET_COLUMNS.map((col) => (
+                          <button
+                            key={col.value}
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => handleApplyCleanedChapterToColumn(col.value, 'selected')}
+                            title={`Bereinigten Video-Namen aus Chapter für die ${selectedRowIds.size} markierten Zeilen in ${col.label} übernehmen`}
+                            className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[10px] font-mono font-bold text-zinc-200 hover:border-[#00ff66]/50 hover:text-[#00ff66] disabled:opacity-40 transition"
+                          >
+                            → {col.shortLabel}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     {/* Freitext-Eingabe für neue Gruppe in der Batch-Bar */}
