@@ -37,7 +37,7 @@ const TABS = [
   { id: 'games', label: 'Spiele', icon: '🎮' },
   { id: 'entwuerfe', label: 'Entwürfe', icon: '📝' },
   { id: 'd_freigabe', label: 'D-Freigabe (Radar)', icon: '⚡' },
-  { id: 'servertot_qa', label: 'Servertot-Prüfung', icon: '💀' },
+  { id: 'servertot_qa', label: 'Krankenstation', icon: '🏥' },
   { id: 'roadmap', label: 'Roadmap & Ideen', icon: '🗺️' },
   { id: 'followups', label: 'Wiedervorlage', icon: '⚑' },
   { id: 'creators', label: 'Creator', icon: '▶' },

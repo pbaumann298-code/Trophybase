@@ -22,7 +22,7 @@ const TABS = [
   { id: 'database', label: 'Datenbank', icon: '🗄' },
   { id: 'entwuerfe', label: 'Entwürfe', icon: '📝' },
   { id: 'd_freigabe', label: 'D-Freigabe (Radar)', icon: '⚡' },
-  { id: 'servertot_qa', label: 'Servertot-Prüfung', icon: '💀' },
+  { id: 'servertot_qa', label: 'Krankenstation', icon: '🏥' },
   { id: 'roadmap', label: 'Roadmap & Ideen', icon: '🗺️' },
   { id: 'reports', label: 'Community Reports', icon: '⚑' },
   { id: 'scripts', label: 'Skripte', icon: '⚙️' },

@@ -36,6 +36,8 @@ export const TABLES = {
   gameGuideCreators: 'game_guide_creators',
   /** Temporäre Admin-Merkliste. Siehe game_wiedervorlage.sql. Kein Fremdschlüssel. */
   gameWiedervorlage: 'game_wiedervorlage',
+  /** Krankenstation View für fehlerhafte oder fehlende Cover. */
+  sickbayCovers: 'v_sickbay_covers',
 };
 
 export const QA_STATUS = {
@@ -102,6 +104,10 @@ export const GAME_STRUCT = {
   homeTagsLocked: 'home_tags_locked',
   /** Platin-Anforderungsprofil (6-Achsen-DNA) */
   radarProfile: 'radar_profile',
+  /** Cover-Prüfstatus ('valid' | 'invalid' | null) */
+  coverStatus: 'cover_status',
+  /** Fehlerhinweis aus der Cover-Prüfung (z. B. Qwen-VL) */
+  coverNotes: 'cover_notes',
 };
 
 /** Allowlist-Slugs für games.home_tags (muss mit home_tag_defs übereinstimmen). */

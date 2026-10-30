@@ -1192,9 +1192,29 @@ function GamePageContent({
           {gameCover ? (
             <img
               src={gameCover}
-              className="w-full h-full object-cover"
+              onClick={
+                isAdmin
+                  ? () => {
+                      setCoverError('');
+                      setIgdbPrompt(true);
+                    }
+                  : undefined
+              }
+              title={isAdmin ? 'Klicken, um Cover-Link zu ändern' : undefined}
+              className={`w-full h-full object-cover ${isAdmin ? 'cursor-pointer transition hover:opacity-90' : ''}`}
               alt="Game Cover"
             />
+          ) : isAdmin ? (
+            <button
+              type="button"
+              onClick={() => {
+                setCoverError('');
+                setIgdbPrompt(true);
+              }}
+              className="flex h-full w-full cursor-pointer items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-wider text-zinc-400 transition hover:bg-zinc-900/80 hover:text-[#00ff66]"
+            >
+              Kein Cover – Klicken
+            </button>
           ) : (
             <div className="flex h-full w-full items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-wider text-zinc-600">
               kein Cover

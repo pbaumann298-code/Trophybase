@@ -149,6 +149,19 @@ export async function resolveApplyTarget(supabase, report) {
   return { target: null, error: `Unbekannter content_type: ${content_type}` };
 }
 
+const REPORT_GAME_COLUMNS = [
+  GAME_PK,
+  'slug',
+  GAME_I18N.title,
+  'hardware',
+  'ecosystem',
+  'spiel_typ',
+  GAME_I18N.coverUrl,
+  'cover_status',
+  'cover_notes',
+  GAME_PLATFORM_ID,
+].join(', ');
+
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  */
@@ -161,38 +174,91 @@ export async function fetchCommunityReports(supabase) {
   if (error) return { reports: [], error };
 
   const reports = data ?? [];
-  const uuidIds = [
-    ...new Set(
-      reports
-        .filter(
-          (row) =>
-            isUuid(row.source_identifier) &&
-            (!hasDisplayValue(row.spieltitel) || !hasDisplayValue(row.platform_game_id)),
-        )
-        .map((row) => String(row.source_identifier).trim()),
-    ),
-  ];
+  if (reports.length === 0) return { reports: [], error: null };
 
-  if (uuidIds.length === 0) return { reports, error: null };
+  const uuidSet = new Set();
+  const npwrSet = new Set();
+  const slugSet = new Set();
 
-  const { data: games, error: gamesError } = await supabase
-    .from(TABLES.games)
-    .select([GAME_PK, GAME_I18N.title, GAME_PLATFORM_ID].join(', '))
-    .in(GAME_PK, uuidIds);
-
-  if (gamesError) {
-    // Meldungen trotzdem zeigen – nur Anzeige-Anreicherung fehlt.
-    console.error('community_reports game lookup:', gamesError.message);
-    return { reports, error: null };
+  for (const row of reports) {
+    const src = String(row.source_identifier ?? '').trim();
+    if (src) {
+      if (isUuid(src)) {
+        uuidSet.add(src);
+      } else if (/^NPWR/i.test(src)) {
+        npwrSet.add(src.toUpperCase());
+      } else {
+        slugSet.add(src.toLowerCase());
+      }
+    }
+    const npwrFromCol = formatReportNpwr(row.platform_game_id);
+    if (npwrFromCol && npwrFromCol !== '—' && /^NPWR/i.test(npwrFromCol)) {
+      npwrSet.add(npwrFromCol.toUpperCase());
+    }
   }
 
-  const byId = new Map((games ?? []).map((game) => [game[GAME_PK], game]));
+  const queries = [];
+  if (uuidSet.size > 0) {
+    queries.push(
+      supabase.from(TABLES.games).select(REPORT_GAME_COLUMNS).in(GAME_PK, [...uuidSet]),
+    );
+  }
+  if (slugSet.size > 0) {
+    queries.push(
+      supabase.from(TABLES.games).select(REPORT_GAME_COLUMNS).in('slug', [...slugSet]),
+    );
+  }
+  if (npwrSet.size > 0) {
+    const orFilter = [...npwrSet]
+      .slice(0, 100)
+      .map((npwr) => `${GAME_PLATFORM_ID}.cs.["${npwr}"]`)
+      .join(',');
+    if (orFilter) {
+      queries.push(supabase.from(TABLES.games).select(REPORT_GAME_COLUMNS).or(orFilter));
+    }
+  }
+
+  const byId = new Map();
+  const bySlug = new Map();
+  const byNpwr = new Map();
+
+  if (queries.length > 0) {
+    const results = await Promise.all(queries);
+    for (const res of results) {
+      if (res.error) {
+        console.error('community_reports game lookup:', res.error.message);
+        continue;
+      }
+      for (const game of res.data ?? []) {
+        if (game[GAME_PK]) byId.set(String(game[GAME_PK]).trim(), game);
+        if (game.slug) bySlug.set(String(game.slug).trim().toLowerCase(), game);
+        const npwrs = Array.isArray(game[GAME_PLATFORM_ID])
+          ? game[GAME_PLATFORM_ID]
+          : [game[GAME_PLATFORM_ID]];
+        for (const n of npwrs) {
+          const clean = String(n ?? '').trim().toUpperCase();
+          if (clean) byNpwr.set(clean, game);
+        }
+      }
+    }
+  }
+
   const enriched = reports.map((row) => {
-    if (!isUuid(row.source_identifier)) return row;
-    const game = byId.get(row.source_identifier);
-    if (!game) return row;
+    const src = String(row.source_identifier ?? '').trim();
+    const npwrCol = formatReportNpwr(row.platform_game_id);
+    let game = null;
+    if (src) {
+      if (isUuid(src)) game = byId.get(src) ?? null;
+      else if (/^NPWR/i.test(src)) game = byNpwr.get(src.toUpperCase()) ?? null;
+      else game = bySlug.get(src.toLowerCase()) ?? null;
+    }
+    if (!game && npwrCol && npwrCol !== '—') {
+      game = byNpwr.get(npwrCol.toUpperCase()) ?? null;
+    }
+    if (!game) return { ...row, game: null };
     return {
       ...row,
+      game,
       spieltitel: hasDisplayValue(row.spieltitel) ? row.spieltitel : game[GAME_I18N.title],
       platform_game_id: hasDisplayValue(row.platform_game_id)
         ? row.platform_game_id
@@ -201,6 +267,19 @@ export async function fetchCommunityReports(supabase) {
   });
 
   return { reports: enriched, error: null };
+}
+
+/**
+ * Löscht eine Fehlermeldung endgültig aus community_reports.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {number|string} reportId
+ */
+export async function deleteCommunityReport(supabase, reportId) {
+  const { error } = await supabase
+    .from(TABLES.communityReports)
+    .delete()
+    .eq('id', reportId);
+  return { error: error ?? null };
 }
 
 /**

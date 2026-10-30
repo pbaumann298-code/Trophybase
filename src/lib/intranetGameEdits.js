@@ -739,7 +739,109 @@ export function parseIgdbCoverUrl(input) {
 }
 
 /**
- * Setzt das Cover aus einem IGDB-Bildlink und markiert status.igdb als COMPLETED,
+ * Normalisiert einen eingegebenen Cover-Link:
+ * - IGDB-URLs und nackte IGDB-IDs (z. B. co2l7t) werden auf t_1080p normiert.
+ * - Sonstige gültige http(s)-Bild-URLs werden direkt übernommen.
+ * @param {string} input
+ * @returns {string|null}
+ */
+export function normalizeCoverInputUrl(input) {
+  const igdbUrl = parseIgdbCoverUrl(input);
+  if (igdbUrl) return igdbUrl;
+
+  const raw = String(input ?? '').trim();
+  if (!raw) return null;
+  const withProtocol = raw.startsWith('//') ? `https:${raw}` : raw;
+  try {
+    const parsed = new URL(withProtocol);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Speichert ein neues Cover für ein Spiel in der Krankenstation / Admin-Ansicht:
+ * Ruft die Supabase RPC `admin_fix_game_cover({ p_game_id, p_new_url })` auf
+ * und fällt bei Bedarf auf ein direktes Update der `games`-Tabelle zurück:
+ * - `cover_url: { ...(game.cover_url || {}), de: newUrl, en: newUrl }`
+ * - `cover_status: 'valid'`
+ * - `cover_notes: null`
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @param {string} rawUrl
+ * @param {Record<string, string>|null} [existingCoverUrl]
+ */
+export async function fixGameCover(supabase, gameId, rawUrl, existingCoverUrl = null) {
+  const id = String(gameId ?? '').trim();
+  const newUrl = normalizeCoverInputUrl(rawUrl);
+  if (!id) {
+    return { coverUrl: null, coverMap: null, error: new Error('Kein Spiel ausgewählt.') };
+  }
+  if (!newUrl) {
+    return {
+      coverUrl: null,
+      coverMap: null,
+      error: new Error('Bitte eine gültige Bild-URL (https://… oder IGDB-Link) eingeben.'),
+    };
+  }
+
+  const baseCover =
+    existingCoverUrl && typeof existingCoverUrl === 'object' && !Array.isArray(existingCoverUrl)
+      ? { ...existingCoverUrl }
+      : {};
+  const nextCoverMap = { ...baseCover, de: newUrl, en: newUrl };
+
+  const { error: rpcError } = await supabase.rpc('admin_fix_game_cover', {
+    p_game_id: id,
+    p_new_url: newUrl,
+  });
+
+  if (rpcError) {
+    const { error: updateError } = await supabase
+      .from(TABLES.games)
+      .update({
+        [GAME_I18N.coverUrl]: nextCoverMap,
+        [GAME_STRUCT.coverStatus]: 'valid',
+        [GAME_STRUCT.coverNotes]: null,
+      })
+      .eq(GAME_PK, id);
+
+    if (updateError) {
+      return { coverUrl: null, coverMap: null, error: updateError };
+    }
+  }
+
+  return { coverUrl: newUrl, coverMap: nextCoverMap, error: null };
+}
+
+/**
+ * Quick-Action „Trotzdem OK" (False Positive):
+ * Setzt `cover_status = 'valid'` und `cover_notes = null` direkt auf `public.games`.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ */
+export async function markGameCoverValid(supabase, gameId) {
+  const id = String(gameId ?? '').trim();
+  if (!id) return { error: new Error('Kein Spiel ausgewählt.') };
+
+  const { error } = await supabase
+    .from(TABLES.games)
+    .update({
+      [GAME_STRUCT.coverStatus]: 'valid',
+      [GAME_STRUCT.coverNotes]: null,
+    })
+    .eq(GAME_PK, id);
+
+  return { error: error ?? null };
+}
+
+/**
+ * Setzt das Cover aus einem IGDB-Bildlink (oder einer Bild-URL) und markiert status.igdb als COMPLETED,
  * damit der nächste Pipeline-Lauf dieses Cover nicht wieder ersetzt.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
@@ -747,13 +849,13 @@ export function parseIgdbCoverUrl(input) {
  */
 export async function setIntranetIgdbCover(supabase, gameId, imageUrl) {
   const id = String(gameId ?? '').trim();
-  const coverUrl = parseIgdbCoverUrl(imageUrl);
+  const coverUrl = normalizeCoverInputUrl(imageUrl);
   if (!id) return { coverUrl: null, status: null, error: new Error('Kein Spiel ausgewählt.') };
   if (!coverUrl) {
     return {
       coverUrl: null,
       status: null,
-      error: new Error('Bitte einen Bildlink von images.igdb.com einfügen.'),
+      error: new Error('Bitte einen gültigen Bildlink (z. B. von images.igdb.com) einfügen.'),
     };
   }
 
@@ -780,6 +882,8 @@ export async function setIntranetIgdbCover(supabase, gameId, imageUrl) {
     .update({
       [GAME_I18N.coverUrl]: cover,
       [GAME_STRUCT.status]: statusMap,
+      [GAME_STRUCT.coverStatus]: 'valid',
+      [GAME_STRUCT.coverNotes]: null,
     })
     .eq(GAME_PK, id)
     .select(GAME_STRUCT.status)
