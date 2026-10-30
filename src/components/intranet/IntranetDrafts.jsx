@@ -7,6 +7,8 @@ import {
   GUIDE_PUBLICATION,
   buildUnifiedGuidePublishPatch,
   guideStatusKey,
+  hasPublishedGuide,
+  publishedGuideLocales,
   parseStatusMap,
   removeGameFromWiedervorlage,
 } from '../../lib/guidePublication';
@@ -18,11 +20,28 @@ import {
 } from '../../lib/intranetGameEdits';
 import { intranetGameHref } from '../../lib/intranetQueries';
 import { listPipelineStatusEntries } from '../../lib/gamePipelineStatus';
-import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
+import {
+  handleStaffGamePreviewClick,
+  setDraftReturnContext,
+  readDraftReturnContext,
+  clearDraftReturnContext,
+} from '../../lib/adminAccess';
 import { localeOptions } from '../../lib/uiStrings';
 
 const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
 const MAX_VISIBLE_QUEUE_GAMES = 10;
+const GAMES_QUEUE_SELECT_COLS =
+  'id, platform_game_id, slug, status, publishing_status, published_locales, fortschritt, is_guide_locked, guide_typ, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen';
+
+function isGameAlreadyPublishedOrLocked(game) {
+  if (!game) return false;
+  if (hasPublishedGuide(game)) return true;
+  if (game.is_guide_locked === true) return true;
+  if (String(game.fortschritt ?? '').trim().toUpperCase() === 'PUBLISHED') return true;
+  if (String(game.status?.publish_status ?? '').trim().toUpperCase() === 'PUBLISHED') return true;
+  if (Array.isArray(game.published_locales) && game.published_locales.length > 0) return true;
+  return false;
+}
 
 function deriveSheetTypesFromRow(row) {
   const types = [];
@@ -656,6 +675,15 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
   const [approveLocale, setApproveLocale] = useState('');
   const [selectedGameTypes, setSelectedGameTypes] = useState([]);
 
+  // Vorabprüfung (Conflict Detection: Bereits Published oder Guide-Daten in game_guides)
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [liveGuideRows, setLiveGuideRows] = useState([]);
+  const [loadingLiveGuides, setLoadingLiveGuides] = useState(false);
+  const [liveGuideCountsMap, setLiveGuideCountsMap] = useState(() => new Map());
+  const dismissedConflictGameIdsRef = useRef(new Set());
+  const pendingReopenConflictRef = useRef(null);
+  const pendingReturnCreatorRef = useRef(null);
+
   // Sort state for Guide-Zeilen
   const [sortField, setSortField] = useState('guide_id');
   const [sortDirection, setSortDirection] = useState('asc');
@@ -681,6 +709,28 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     if (initialDataSource) setActiveDataSource(initialDataSource);
     if (initialGameId) setSelectedGameId(initialGameId);
   }, [initialDataSource, initialGameId]);
+
+  // Restore context when returning from live game page ("⬅️ Zurück zum Entwurf")
+  useEffect(() => {
+    const draftCtx = readDraftReturnContext();
+    if (!draftCtx?.gameId) return;
+    if (draftCtx.filterQuery) {
+      setFilterQuery(draftCtx.filterQuery);
+    }
+    if (draftCtx.activeDataSource === 'rohmaterial' || draftCtx.activeDataSource === 'staging') {
+      setActiveDataSource(draftCtx.activeDataSource);
+    }
+    setSelectedGameId(draftCtx.gameId);
+    if (draftCtx.creatorName) {
+      pendingReturnCreatorRef.current = draftCtx.creatorName;
+      setSelectedCreatorName(draftCtx.creatorName);
+    }
+    if (draftCtx.reopenConflictModal) {
+      dismissedConflictGameIdsRef.current.delete(draftCtx.gameId);
+      pendingReopenConflictRef.current = draftCtx.gameId;
+    }
+    clearDraftReturnContext();
+  }, []);
 
   // 1. Gruppen-Röntgenblick State (Category & Chrono Pills + Popover + Filter)
   const [showRoentgenblick, setShowRoentgenblick] = useState(true);
@@ -758,7 +808,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
 
       const { data: pendingGames } = await supabase
         .from(TABLES.games)
-        .select('id, platform_game_id, slug, status, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
+        .select(GAMES_QUEUE_SELECT_COLS)
         .eq('status->>rohmaterial', 'PENDING_MULTI_TAB');
 
       const gameIdsFromRoh = [...new Set(rohRows.map((r) => r.game_id).filter(Boolean))];
@@ -770,7 +820,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
           const slice = missingIds.slice(i, i + 100);
           const { data: extraGames } = await supabase
             .from(TABLES.games)
-            .select('id, platform_game_id, slug, status, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
+            .select(GAMES_QUEUE_SELECT_COLS)
             .in('id', slice);
           for (const g of extraGames ?? []) {
             existingMap.set(g.id, g);
@@ -882,7 +932,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         const initialIds = gameIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
         const { data: initialGames, error: initialErr } = await supabase
           .from(TABLES.games)
-          .select('id, platform_game_id, slug, status, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
+          .select(GAMES_QUEUE_SELECT_COLS)
           .in('id', initialIds);
 
         if (initialErr) {
@@ -904,7 +954,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
             chunks.map((chunkIds) =>
               supabase
                 .from(TABLES.games)
-                .select('id, platform_game_id, slug, status, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen')
+                .select(GAMES_QUEUE_SELECT_COLS)
                 .in('id', chunkIds)
             )
           );
@@ -1184,7 +1234,13 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
   // Keep creator selection valid
   useEffect(() => {
     if (creatorTabs.length > 0) {
-      if (!selectedCreatorName || !creatorGroups.has(selectedCreatorName)) {
+      if (
+        pendingReturnCreatorRef.current &&
+        creatorGroups.has(pendingReturnCreatorRef.current)
+      ) {
+        setSelectedCreatorName(pendingReturnCreatorRef.current);
+        pendingReturnCreatorRef.current = null;
+      } else if (!selectedCreatorName || !creatorGroups.has(selectedCreatorName)) {
         setSelectedCreatorName(creatorTabs[0].creatorName);
       }
     } else {
@@ -1367,6 +1423,157 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       null
     );
   }, [selectedGameId, gamesMap, rohGamesMap, rohmaterialGames]);
+
+  // Batch-check existing game_guides counts for visible queue games so sidebar badges show conflicts immediately
+  useEffect(() => {
+    const visibleIds = visibleQueueList
+      .map((item) => item.gameId)
+      .filter((id) => id && !liveGuideCountsMap.has(id));
+    if (visibleIds.length === 0) return undefined;
+
+    let cancelled = false;
+    async function checkVisibleGuideCounts() {
+      const { data, error: gErr } = await supabase
+        .from(TABLES.guides)
+        .select('game_id')
+        .in('game_id', visibleIds);
+      if (cancelled || gErr) return;
+
+      const counts = new Map();
+      for (const id of visibleIds) counts.set(id, 0);
+      for (const row of data ?? []) {
+        if (row.game_id) {
+          counts.set(row.game_id, (counts.get(row.game_id) || 0) + 1);
+        }
+      }
+      setLiveGuideCountsMap((prev) => {
+        const next = new Map(prev);
+        for (const [k, v] of counts.entries()) next.set(k, v);
+        return next;
+      });
+    }
+
+    checkVisibleGuideCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleQueueList, liveGuideCountsMap]);
+
+  // Vorabprüfung: Lade bestehende game_guides & aktuellen Spiel-Status für selectedGameId
+  useEffect(() => {
+    if (!selectedGameId) {
+      setLiveGuideRows([]);
+      setShowConflictModal(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    async function checkSelectedGameConflict() {
+      setLoadingLiveGuides(true);
+      try {
+        const [guidesRes, gameRes] = await Promise.all([
+          supabase
+            .from(TABLES.guides)
+            .select('id, guide_id, sheet_type, item_name, chronological_group, category_group, boss_group, video_chapter, timestamp, video_url, trophy_id')
+            .eq('game_id', selectedGameId)
+            .order('id', { ascending: true })
+            .limit(1000),
+          supabase
+            .from(TABLES.games)
+            .select(GAMES_QUEUE_SELECT_COLS)
+            .eq(GAME_PK, selectedGameId)
+            .maybeSingle(),
+        ]);
+
+        if (cancelled) return;
+
+        const fetchedGuides = guidesRes.data ?? [];
+        const freshGame = gameRes.data ?? null;
+
+        setLiveGuideRows(fetchedGuides);
+        setLiveGuideCountsMap((prev) => {
+          const next = new Map(prev);
+          next.set(selectedGameId, fetchedGuides.length);
+          return next;
+        });
+
+        if (freshGame) {
+          setGamesMap((prev) => {
+            const next = new Map(prev);
+            next.set(selectedGameId, freshGame);
+            return next;
+          });
+          setRohGamesMap((prev) => {
+            if (!prev.has(selectedGameId)) return prev;
+            const next = new Map(prev);
+            next.set(selectedGameId, freshGame);
+            return next;
+          });
+        }
+
+        const effectiveGame = freshGame || selectedGame;
+        const alreadyPub = isGameAlreadyPublishedOrLocked(effectiveGame);
+        const hasExistingGuides = fetchedGuides.length > 0;
+
+        if (alreadyPub || hasExistingGuides) {
+          setApproveLocale((prev) => prev || 'de');
+          setSelectedGameTypes(parseGameTypes(effectiveGame?.spiel_typ));
+
+          const shouldOpen =
+            pendingReopenConflictRef.current === selectedGameId ||
+            !dismissedConflictGameIdsRef.current.has(selectedGameId);
+
+          if (shouldOpen) {
+            pendingReopenConflictRef.current = null;
+            setShowConflictModal(true);
+          }
+        } else {
+          setShowConflictModal(false);
+        }
+      } catch (err) {
+        console.warn('Vorabprüfung konnte nicht geladen werden:', err);
+      } finally {
+        if (!cancelled) {
+          setLoadingLiveGuides(false);
+        }
+      }
+    }
+
+    checkSelectedGameConflict();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGameId]);
+
+  // Berechnete Konflikt-Details für Vorabprüfungs-Banner & Modal
+  const conflictInfo = useMemo(() => {
+    if (!selectedGame) {
+      return {
+        hasConflict: false,
+        isPublished: false,
+        isLocked: false,
+        publishedLocales: [],
+        liveRowCount: 0,
+      };
+    }
+    const isPublished = isGameAlreadyPublishedOrLocked(selectedGame);
+    const isLocked = Boolean(selectedGame.is_guide_locked);
+    const pubLocales = publishedGuideLocales(selectedGame);
+    const fallbackLocales = Array.isArray(selectedGame.published_locales)
+      ? selectedGame.published_locales
+      : [];
+    const mergedLocales = [...new Set([...pubLocales, ...fallbackLocales])];
+    const liveRowCount = liveGuideRows.length;
+
+    return {
+      hasConflict: isPublished || liveRowCount > 0,
+      isPublished,
+      isLocked,
+      publishedLocales: mergedLocales,
+      liveRowCount,
+    };
+  }, [selectedGame, liveGuideRows]);
 
   // Load trophies for selected game
   useEffect(() => {
@@ -1915,34 +2122,162 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     }
   };
 
-  // Open approval modal
-  const handleOpenApproveModal = () => {
-    if (!selectedGameId || !selectedCreatorName || actionBusy) return;
-    setApproveLocale('');
+  // Vorabprüfung: Modal gezielt öffnen
+  const handleOpenConflictModal = () => {
+    if (!selectedGameId || actionBusy) return;
+    setApproveLocale((prev) => prev || 'de');
     setSelectedGameTypes(parseGameTypes(selectedGame?.spiel_typ));
-    setShowApproveModal(true);
+    setShowConflictModal(true);
   };
 
-  // 3. Creator freigeben (Zentraler Freigabe-Prozess über RPC approve_staging_guide bzw. Rohmaterial-Pipeline)
-  const handleApproveCreatorConfirm = async () => {
-    if (!selectedGameId || !selectedCreatorName || actionBusy || !approveLocale || selectedGameTypes.length === 0) return;
+  // Vorabprüfung: Schließen, um Entwurf-Daten/Videos im Editor anzuschauen
+  const handleCloseConflictModalForInspection = () => {
+    if (selectedGameId) {
+      dismissedConflictGameIdsRef.current.add(selectedGameId);
+    }
+    setShowConflictModal(false);
+  };
+
+  // Vorabprüfung: Zum aktuellen Live-Spiel springen (mit Rückkehr-Kontext für "⬅️ Zurück zum Entwurf")
+  const handleNavigateToLiveGameFromDraft = (event) => {
+    if (event) event.preventDefault();
+    if (!selectedGame) return;
+    const href =
+      intranetGameHref(selectedGame) ||
+      `/guide/${encodeURIComponent(selectedGame.slug || selectedGame.id)}`;
+    const staffPath =
+      typeof window !== 'undefined'
+        ? `${window.location.pathname}${window.location.search}#entwuerfe`
+        : '/intranet.html#entwuerfe';
+
+    setDraftReturnContext({
+      gameId: selectedGame.id,
+      creatorName: selectedCreatorName || '',
+      title: getLocalizedTitle(selectedGame.spieltitel),
+      filterQuery: filterQuery || '',
+      activeDataSource,
+      staffPath,
+      reopenConflictModal: true,
+    });
+
+    window.location.assign(href);
+  };
+
+  // Vorabprüfung: Entwurf verwerfen (Live-Spiel & bestehende game_guides bleiben unangetastet)
+  const handleConflictDiscardDraft = async () => {
+    if (!selectedGameId || actionBusy) return;
+    const targetGameId = selectedGameId;
+    const targetCreator = selectedCreatorName;
+    const isSingleCreator = creatorTabs.length <= 1 || !targetCreator;
+    const targetTable =
+      activeDataSource === 'rohmaterial' ? TABLES.guidesRohmaterial : 'staging_game_guides';
 
     setActionBusy(true);
     setNotice('');
     setError('');
 
-    const selectedLanguage = approveLocale;
+    let query = supabase.from(targetTable).delete().eq('game_id', targetGameId);
+    if (!isSingleCreator && targetCreator) {
+      query = query.eq('creator_name', targetCreator);
+    }
+
+    const { error: delErr } = await query;
+    setActionBusy(false);
+
+    if (delErr) {
+      setError(`Entwurf verwerfen fehlgeschlagen: ${delErr.message}`);
+      return;
+    }
+
+    setShowConflictModal(false);
+    setNotice(
+      `🗑️ Vorabprüfung: Entwurf für "${getLocalizedTitle(selectedGame?.spieltitel)}"${!isSingleCreator ? ` (Creator: ${targetCreator})` : ''} verworfen. Das veröffentlichte Live-Spiel bleibt unverändert.`
+    );
+
+    if (isSingleCreator) {
+      jumpToNextGame(targetGameId);
+      if (activeDataSource === 'rohmaterial') {
+        setRohmaterialRows((prev) =>
+          prev.filter(
+            (r) =>
+              r.game_id !== targetGameId &&
+              r.platform_game_id !== targetGameId &&
+              r.batch_key !== targetGameId
+          )
+        );
+        setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== targetGameId));
+      } else {
+        setStagingRows((prev) => prev.filter((r) => r.game_id !== targetGameId));
+      }
+    } else {
+      jumpToNextCreatorOrGame(targetGameId, targetCreator);
+      if (activeDataSource === 'rohmaterial') {
+        setRohmaterialRows((prev) =>
+          prev.filter((r) => !(r.game_id === targetGameId && r.creator_name === targetCreator))
+        );
+        fetchRohmaterialSummary();
+      } else {
+        setStagingRows((prev) =>
+          prev.filter((r) => !(r.game_id === targetGameId && r.creator_name === targetCreator))
+        );
+      }
+    }
+  };
+
+  // Open approval modal (oder Vorabprüfung, falls Spiel bereits Published / Guide-Daten in game_guides hat)
+  const handleOpenApproveModal = () => {
+    if (!selectedGameId || !selectedCreatorName || actionBusy) return;
+    if (conflictInfo.hasConflict) {
+      handleOpenConflictModal();
+      return;
+    }
+    setApproveLocale('de');
+    setSelectedGameTypes(parseGameTypes(selectedGame?.spiel_typ));
+    setShowApproveModal(true);
+  };
+
+  // 3. Creator freigeben (Zentraler Freigabe-Prozess über RPC approve_staging_guide bzw. Rohmaterial-Pipeline)
+  // Unterstützt p_conflict_mode: null | 'replace' | 'keep_both' für die Vorabprüfung
+  const handleApproveCreatorConfirm = async (conflictMode = null) => {
+    const resolvedConflictMode =
+      conflictMode === 'replace' || conflictMode === 'keep_both' ? conflictMode : null;
+    const selectedLanguage = approveLocale || 'de';
+    const effectiveGameTypes =
+      selectedGameTypes.length > 0 ? selectedGameTypes : parseGameTypes(selectedGame?.spiel_typ);
+
+    if (
+      !selectedGameId ||
+      !selectedCreatorName ||
+      actionBusy ||
+      !selectedLanguage ||
+      effectiveGameTypes.length === 0
+    ) {
+      return;
+    }
+
+    setActionBusy(true);
+    setNotice('');
+    setError('');
 
     try {
       // 1. Spieltyp speichern, falls gewählt/geändert
-      const { error: typeErr } = await setIntranetGameType(supabase, selectedGameId, selectedGameTypes);
+      const { error: typeErr } = await setIntranetGameType(
+        supabase,
+        selectedGameId,
+        effectiveGameTypes
+      );
       if (typeErr) {
         console.warn('Fehler beim Speichern des Spiel-Typs im Freigabe-Modal:', typeErr.message);
       } else {
         const updateGameMap = (prev) => {
           const next = new Map(prev);
           const current = next.get(selectedGameId);
-          if (current) next.set(selectedGameId, { ...current, spiel_typ: selectedGameTypes.join(', ') });
+          if (current) {
+            next.set(selectedGameId, {
+              ...current,
+              spiel_typ: effectiveGameTypes.join(', '),
+            });
+          }
           return next;
         };
         setGamesMap(updateGameMap);
@@ -1957,7 +2292,11 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         if (stagingTargets.length > 0) {
           await persistRowPatchesToSupabase(stagingTargets, (row) => ({
             guide_id: formatFieldValueForTable(row, 'guide_id', row.guide_id),
-            item_name: formatFieldValueForTable(row, 'item_name', getLocalizedItemName(row.item_name)),
+            item_name: formatFieldValueForTable(
+              row,
+              'item_name',
+              getLocalizedItemName(row.item_name)
+            ),
             chronological_group: formatFieldValueForTable(
               row,
               'chronological_group',
@@ -1985,22 +2324,36 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
           }));
         }
 
-        // 3. Zentrale Supabase-RPC aufrufen (keine manuellen Einzel-Updates auf game_guides / games.status)
-        const { error: rpcErr } = await supabase.rpc('approve_staging_guide', {
+        // 3. Zentrale Supabase-RPC aufrufen (inkl. Vorabprüfungs-Entscheidung p_conflict_mode)
+        const rpcPayload = {
           p_game_id: selectedGameId,
           p_lang: selectedLanguage,
           p_creator_name: selectedCreatorName,
-        });
+        };
+        if (resolvedConflictMode) {
+          rpcPayload.p_conflict_mode = resolvedConflictMode;
+        }
+
+        const { error: rpcErr } = await supabase.rpc('approve_staging_guide', rpcPayload);
 
         if (rpcErr) {
           setActionBusy(false);
+          if (String(rpcErr.message || '').includes('VORABPRUEFUNG_ERFORDERLICH')) {
+            setShowApproveModal(false);
+            setShowConflictModal(true);
+            return;
+          }
           setError(`Freigabe über approve_staging_guide fehlgeschlagen: ${rpcErr.message}`);
           return;
         }
       } else {
         // Rohmaterial / Multi-Tab Freigabe
         let creatorId = currentCreatorRows.find((r) => r.creator_id)?.creator_id || null;
-        if (!creatorId && selectedCreatorName && !selectedCreatorName.startsWith('Produktiver Guide')) {
+        if (
+          !creatorId &&
+          selectedCreatorName &&
+          !selectedCreatorName.startsWith('Produktiver Guide')
+        ) {
           const { data: existingCreator } = await supabase
             .from(TABLES.contentCreators)
             .select('id')
@@ -2010,8 +2363,15 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
           if (existingCreator?.id) {
             creatorId = existingCreator.id;
           } else {
-            const sampleRowWithUrl = currentCreatorRows.find((r) => r.creator_input_url || r.playlist_url);
-            const inputUrl = sampleRowWithUrl?.creator_input_url || sampleRowWithUrl?.playlist_url || '';
+            const sampleRowWithUrl = currentCreatorRows.find(
+              (r) => r.creator_input_url || r.playlist_url || r.video_url
+            );
+            const rawUrl =
+              sampleRowWithUrl?.creator_input_url ||
+              sampleRowWithUrl?.playlist_url ||
+              sampleRowWithUrl?.video_url ||
+              '';
+            const inputUrl = rawUrl.trim() || 'https://www.youtube.com';
             const { data: newCreator } = await supabase
               .from(TABLES.contentCreators)
               .insert({ channel_name: selectedCreatorName.trim(), youtube_url: inputUrl })
@@ -2034,20 +2394,37 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
           return str ? { [selectedLanguage]: str } : null;
         };
 
-        const parseDigitStr = (val) => {
+        const parseDigitStr = (val, offset = 0) => {
           const digits = String(val ?? '').replace(/\D/g, '');
-          return digits ? String(Number.parseInt(digits, 10)) : null;
+          if (!digits) return offset > 0 ? String(offset + 1) : null;
+          return String(Number.parseInt(digits, 10) + offset);
         };
+
+        if (resolvedConflictMode === 'replace') {
+          await supabase
+            .from(TABLES.games)
+            .update({ is_guide_locked: false })
+            .eq(GAME_PK, selectedGameId);
+          await supabase.from(TABLES.guides).delete().eq('game_id', selectedGameId);
+        }
+
+        let guideIdOffset = 0;
+        if (resolvedConflictMode === 'keep_both' && liveGuideRows.length > 0) {
+          for (const lr of liveGuideRows) {
+            const n = Number.parseInt(String(lr.guide_id ?? '').replace(/\D/g, ''), 10);
+            if (Number.isFinite(n) && n > guideIdOffset) guideIdOffset = n;
+          }
+        }
 
         const rowsFromNonProductive = currentCreatorRows.filter(
           (r) => r._sourceTable !== TABLES.guides
         );
 
         if (rowsFromNonProductive.length > 0) {
-          const rowsToApprove = rowsFromNonProductive.map((r) => ({
+          const rowsToApprove = rowsFromNonProductive.map((r, idx) => ({
             game_id: r.game_id || selectedGameId,
             platform_game_id: r.platform_game_id || null,
-            guide_id: parseDigitStr(r.guide_id),
+            guide_id: parseDigitStr(r.guide_id ?? idx + 1, guideIdOffset),
             item_name: toLocalized(r.item_name),
             chronological_group: toLocalized(r.chronological_group),
             category_group: toLocalized(r.category_group),
@@ -2055,7 +2432,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
             video_chapter: toLocalized(r.video_chapter),
             timestamp: r.timestamp || null,
             video_url: r.video_url || null,
-            trophy_id: parseDigitStr(r.trophy_id),
+            trophy_id: parseDigitStr(r.trophy_id, 0),
             is_trophy_relevant: r.is_trophy_relevant || null,
             creator_id: creatorId,
             sheet_type: deriveSheetTypesFromRow(r),
@@ -2070,10 +2447,12 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
           }
         }
 
-        // Einheitliches Update auf public.games (guide_<lang>: 'FERTIG', publish_status: 'PUBLISHED', publishing_status, published_locales, is_guide_locked: true)
+        // Einheitliches Update auf public.games (guide_<lang>: 'PUBLISHED', publish_status: 'PUBLISHED', is_guide_locked: true)
         const { data: current } = await supabase
           .from(TABLES.games)
-          .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}`)
+          .select(
+            `${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}`
+          )
           .eq(GAME_PK, selectedGameId)
           .maybeSingle();
 
@@ -2081,7 +2460,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         const updatePatch = buildUnifiedGuidePublishPatch({
           currentGame: current,
           lang: selectedLanguage,
-          guideState: GUIDE_PUBLICATION.DONE,
+          guideState: GUIDE_PUBLICATION.PUBLISHED,
           hasVideo,
           clearRohmaterial: true,
         });
@@ -2106,15 +2485,39 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       }
 
       const approvedGameId = selectedGameId;
+      const approvedCreator = selectedCreatorName;
+      const hadMultipleCreators = creatorTabs.length > 1;
+
       setShowApproveModal(false);
+      setShowConflictModal(false);
       setActionBusy(false);
-      setNotice(`Guide von Creator "${selectedCreatorName}" erfolgreich in [${selectedLanguage.toUpperCase()}] freigegeben!`);
-      jumpToNextGame(approvedGameId);
+
+      if (resolvedConflictMode === 'replace') {
+        setNotice(
+          `🔄 Vorabprüfung: Bestehende Guide-Daten wurden ersetzt und Entwurf von "${approvedCreator}" in [${selectedLanguage.toUpperCase()}] veröffentlicht!`
+        );
+      } else if (resolvedConflictMode === 'keep_both') {
+        setNotice(
+          `➕ Vorabprüfung: Bestehende Live-Daten behalten und Entwurf von "${approvedCreator}" zusätzlich in [${selectedLanguage.toUpperCase()}] übernommen!`
+        );
+      } else {
+        setNotice(
+          `✓ Guide von Creator "${approvedCreator}" erfolgreich in [${selectedLanguage.toUpperCase()}] freigegeben!`
+        );
+      }
+
       if (activeDataSource === 'rohmaterial') {
+        jumpToNextGame(approvedGameId);
         setRohmaterialRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
         setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== approvedGameId));
         setProductiveRohRows([]);
+      } else if (hadMultipleCreators) {
+        jumpToNextCreatorOrGame(approvedGameId, approvedCreator);
+        setStagingRows((prev) =>
+          prev.filter((r) => !(r.game_id === approvedGameId && r.creator_name === approvedCreator))
+        );
       } else {
+        jumpToNextGame(approvedGameId);
         setStagingRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
       }
     } catch (err) {
@@ -3308,14 +3711,24 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
             <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-1">
               {visibleQueueList.map((item) => {
                 const isSelected = item.gameId === selectedGameId;
+                const itemPublished = isGameAlreadyPublishedOrLocked(item.game);
+                const itemGuideCount = liveGuideCountsMap.get(item.gameId) || 0;
+                const itemHasConflict = itemPublished || itemGuideCount > 0;
                 return (
                   <div
                     key={item.gameId}
-                    onClick={() => setSelectedGameId(item.gameId)}
+                    onClick={() => {
+                      dismissedConflictGameIdsRef.current.delete(item.gameId);
+                      setSelectedGameId(item.gameId);
+                    }}
                     className={`group relative flex items-center justify-between gap-2 rounded-xl border p-2 cursor-pointer transition select-none ${
                       isSelected
-                        ? 'border-[#00ff66]/50 bg-[#00ff66]/10 text-white'
-                        : 'border-zinc-800/80 bg-[#17181a] hover:border-zinc-700 hover:bg-zinc-800/60 text-zinc-300'
+                        ? itemHasConflict
+                          ? 'border-amber-400/70 bg-amber-500/15 text-white'
+                          : 'border-[#00ff66]/50 bg-[#00ff66]/10 text-white'
+                        : itemHasConflict
+                          ? 'border-amber-500/35 bg-amber-500/5 hover:border-amber-400/60 text-zinc-200'
+                          : 'border-zinc-800/80 bg-[#17181a] hover:border-zinc-700 hover:bg-zinc-800/60 text-zinc-300'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -3331,7 +3744,21 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                         </div>
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold leading-tight truncate">{item.title}</p>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <p className="text-xs font-bold leading-tight truncate">{item.title}</p>
+                          {itemHasConflict && (
+                            <span
+                              title={
+                                itemPublished
+                                  ? `Bereits veröffentlicht (${item.game?.spiel_typ || 'Live'})`
+                                  : `${itemGuideCount} Guide-Zeilen in game_guides`
+                              }
+                              className="shrink-0 rounded bg-amber-500/20 border border-amber-400/40 px-1 py-0.5 text-[9px] font-mono font-bold text-amber-300"
+                            >
+                              🛡️ Live
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[10px] font-mono text-zinc-400 truncate">{item.platformGameId}</p>
                         <div className="mt-0.5 flex items-center gap-2 text-[9px] font-mono text-zinc-500">
                           <span>▶ {item.creatorCount} Creator</span>
@@ -3364,6 +3791,59 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
             
             {selectedGame ? (
               <>
+                {/* 🛡️ VORABPRÜFUNGS-BANNER (wenn Spiel bereits Published ist oder Guide-Daten in game_guides hat) */}
+                {conflictInfo.hasConflict && (
+                  <div className="rounded-2xl border-2 border-amber-500/60 bg-amber-500/10 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-amber-500/5">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <span className="text-lg leading-none shrink-0 mt-0.5">🛡️</span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                            Vorabprüfung aktiv – Datenbankschutz greift
+                          </span>
+                          {selectedGame.spiel_typ && (
+                            <span className="rounded bg-amber-500/25 border border-amber-400/40 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-200">
+                              Typ: {selectedGame.spiel_typ}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-zinc-300 mt-1 leading-relaxed">
+                          Dieses Spiel ist {conflictInfo.isPublished ? (
+                            <>
+                              bereits <strong className="text-amber-200">PUBLISHED</strong>
+                              {conflictInfo.publishedLocales.length > 0
+                                ? ` (${conflictInfo.publishedLocales.map((l) => l.toUpperCase()).join(', ')})`
+                                : ''}
+                            </>
+                          ) : (
+                            'bereits mit Guide-Daten hinterlegt'
+                          )}{' '}
+                          und hat <strong className="text-amber-200">{conflictInfo.liveRowCount} Zeilen</strong> in <code className="text-amber-200">game_guides</code>.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleNavigateToLiveGameFromDraft}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-xs font-mono font-bold text-zinc-100 hover:border-[#00ff66]/50 hover:text-[#00ff66] transition"
+                      >
+                        <span>🔎</span>
+                        <span>Zum aktuellen Spiel</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleOpenConflictModal}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-amber-400 px-3.5 py-2 text-xs font-mono font-bold text-black hover:bg-amber-300 transition shadow-md shadow-amber-500/20"
+                      >
+                        <span>⚖️</span>
+                        <span>Entscheidung treffen</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* B. GAME-HEADER & CREATOR TABS & VIDEO PLAYER */}
                 <div className="rounded-2xl border border-zinc-800 bg-[#121314] p-4 flex flex-col gap-4">
                   
@@ -5265,7 +5745,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
               <button
                 type="button"
                 disabled={actionBusy || !approveLocale || selectedGameTypes.length === 0}
-                onClick={handleApproveCreatorConfirm}
+                onClick={() => handleApproveCreatorConfirm(null)}
                 className="flex items-center gap-1.5 rounded-xl bg-[#00ff66] px-4 py-2 text-xs font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-40 transition shadow-lg shadow-[#00ff66]/10"
               >
                 <span>✓</span>
@@ -5273,6 +5753,294 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                   {approveLocale ? `Jetzt in [${approveLocale.toUpperCase()}] freigegeben` : 'Sprache wählen…'}
                 </span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🛡️ Vorabprüfung Modal (Konflikt-Erkennung bei bereits veröffentlichten Spielen / bestehenden Guide-Daten) */}
+      {showConflictModal && selectedGame && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl border-2 border-amber-500/60 bg-[#151719] p-4 sm:p-5 shadow-2xl flex flex-col gap-4 text-zinc-200 my-auto max-h-[92vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-zinc-800 pb-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <span className="text-xl leading-none mt-0.5">🛡️</span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm sm:text-base font-bold text-amber-300 uppercase tracking-wider">
+                      Vorabprüfung: Spiel ist bereits aktiv / geschützt
+                    </h3>
+                    {selectedGame.spiel_typ && (
+                      <span className="rounded bg-amber-500/20 border border-amber-400/40 px-2 py-0.5 text-[10px] font-mono font-bold text-amber-200">
+                        {selectedGame.spiel_typ}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-zinc-300 mt-1">
+                    <strong className="text-white">{getLocalizedTitle(selectedGame.spieltitel)}</strong>{' '}
+                    <span className="font-mono text-zinc-400">({selectedGame.platform_game_id || selectedGame.id})</span>{' '}
+                    ist durch die Datenbank-Sperre vor versehentlichem Überschreiben geschützt.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseConflictModalForInspection}
+                title="Schließen und Entwurf im Editor prüfen"
+                className="text-zinc-400 hover:text-white text-base leading-none p-1 shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 1. Button: Zum aktuellen Live-Spiel wechseln & Entwurf im Editor sichten */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 rounded-xl border border-zinc-800 bg-zinc-900/90 p-3">
+              <div className="text-[11px] text-zinc-300 leading-snug">
+                Prüfe beide Datenstände vor deiner Entscheidung. Über <strong className="text-[#00ff66]">„⬅️ Zurück zum Entwurf“</strong> oben im Header landest du von der Spieleseite sofort wieder hier.
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleNavigateToLiveGameFromDraft}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#00ff66] px-3.5 py-2 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90 transition shadow-md shadow-[#00ff66]/15"
+                >
+                  <span>🔎</span>
+                  <span>Zum aktuellen Spiel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCloseConflictModalForInspection}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs font-mono font-bold text-zinc-200 hover:bg-zinc-700 hover:text-white transition"
+                >
+                  <span>👁️</span>
+                  <span>Entwurf im Editor sichten</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 2. Gegenüberstellung: Aktuelles Live-Spiel vs. Neuer Entwurf */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Linke Karte: Aktueller Live-Bestand */}
+              <div className="rounded-xl border border-amber-500/35 bg-amber-500/5 p-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between border-b border-amber-500/20 pb-1.5">
+                  <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-amber-300">
+                    🔒 Aktuell Live in DB
+                  </span>
+                  <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-amber-200">
+                    {conflictInfo.isPublished ? 'PUBLISHED' : 'GUIDE IN DB'}
+                  </span>
+                </div>
+                <div className="text-xs space-y-1 font-mono text-zinc-300">
+                  <div>
+                    <span className="text-zinc-500">Spiel-Typ: </span>
+                    <strong className="text-white">{selectedGame.spiel_typ || '—'}</strong>
+                    {selectedGame.guide_typ ? ` (Kategorie ${selectedGame.guide_typ})` : ''}
+                  </div>
+                  <div>
+                    <span className="text-zinc-500">Freigegebene Sprachen: </span>
+                    <strong className="text-[#00ff66]">
+                      {conflictInfo.publishedLocales.length > 0
+                        ? conflictInfo.publishedLocales.map((l) => l.toUpperCase()).join(', ')
+                        : '—'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500">Zeilen in game_guides: </span>
+                    <strong className="text-amber-200">
+                      {loadingLiveGuides ? 'Prüfe…' : `${conflictInfo.liveRowCount} Zeilen`}
+                    </strong>
+                  </div>
+                </div>
+
+                {liveGuideRows.length > 0 ? (
+                  <div className="mt-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-2 max-h-28 overflow-y-auto space-y-1">
+                    <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-500">
+                      Vorschau bestehende Guide-Zeilen:
+                    </p>
+                    {liveGuideRows.slice(0, 5).map((lr) => (
+                      <div key={lr.id} className="text-[10px] font-mono text-zinc-300 truncate">
+                        #{lr.guide_id || '—'} · {getLocalizedItemName(lr.item_name) || getLocalizedItemName(lr.chronological_group) || 'Eintrag'}
+                        {lr.timestamp ? ` (${lr.timestamp})` : ''}
+                      </div>
+                    ))}
+                    {liveGuideRows.length > 5 && (
+                      <div className="text-[9px] font-mono text-zinc-500">
+                        … +{liveGuideRows.length - 5} weitere Zeilen in game_guides
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-1 rounded-lg border border-zinc-800/80 bg-zinc-950/60 p-2 text-[10px] font-mono text-zinc-400">
+                    0 Zeilen in <code className="text-zinc-300">game_guides</code> (z. B. als Servertot / Quickwin / Radar veröffentlicht).
+                  </p>
+                )}
+              </div>
+
+              {/* Rechte Karte: Neuer Entwurf in der Queue */}
+              <div className="rounded-xl border border-[#00ff66]/35 bg-[#00ff66]/5 p-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between border-b border-[#00ff66]/20 pb-1.5">
+                  <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-[#00ff66]">
+                    📝 Neuer Entwurf ({activeDataSource === 'rohmaterial' ? 'Rohmaterial' : 'Staging'})
+                  </span>
+                  <span className="rounded bg-[#00ff66]/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#00ff66]">
+                    {currentCreatorRows.length} Zeilen
+                  </span>
+                </div>
+                <div className="text-xs space-y-1 font-mono text-zinc-300">
+                  <div>
+                    <span className="text-zinc-500">Creator: </span>
+                    <strong className="text-white">{selectedCreatorName || '—'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500">Umfang: </span>
+                    <strong className="text-[#00ff66]">
+                      {currentCreatorRows.length} Guide-Zeilen
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500">Mit Trophäen-ID: </span>
+                    <strong className="text-zinc-200">
+                      {currentCreatorRows.length - openUnassignedRowCount} / {currentCreatorRows.length}
+                    </strong>
+                  </div>
+                </div>
+
+                {currentCreatorRows.length > 0 && (
+                  <div className="mt-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-2 max-h-28 overflow-y-auto space-y-1">
+                    <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-500">
+                      Vorschau Entwurf-Zeilen:
+                    </p>
+                    {currentCreatorRows.slice(0, 5).map((dr) => (
+                      <div key={dr.id} className="text-[10px] font-mono text-zinc-300 truncate">
+                        #{dr.guide_id ?? '—'} · {getLocalizedItemName(dr.item_name) || getLocalizedItemName(dr.chronological_group) || 'Eintrag'}
+                        {dr.timestamp ? ` (${dr.timestamp})` : ''}
+                      </div>
+                    ))}
+                    {currentCreatorRows.length > 5 && (
+                      <div className="text-[9px] font-mono text-zinc-500">
+                        … +{currentCreatorRows.length - 5} weitere Zeilen im Entwurf
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Einstellungen für Übernahme (Sprache & Spiel-Typ, falls Ersetzen oder Beide behalten gewählt wird) */}
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 flex flex-col gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-zinc-200">
+                  Ziel-Sprache & Spiel-Typ (bei Übernahme des Entwurfs):
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {['de', 'en', 'es', 'fr', 'ja', 'pt', 'it'].map((code) => {
+                    const isSelected = (approveLocale || 'de') === code;
+                    return (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => setApproveLocale(code)}
+                        className={`px-2 py-0.5 rounded font-mono text-[11px] font-bold uppercase transition ${
+                          isSelected
+                            ? 'bg-[#00ff66] text-black border border-[#00ff66]'
+                            : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:text-white'
+                        }`}
+                      >
+                        {code}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1">
+                {Object.values(GAME_TYPE).map((type) => {
+                  const isChecked = selectedGameTypes.includes(type);
+                  const isDisabled = !isChecked && selectedGameTypes.length >= 2;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => {
+                        if (isChecked) {
+                          setSelectedGameTypes((prev) => prev.filter((t) => t !== type));
+                        } else if (selectedGameTypes.length < 2) {
+                          setSelectedGameTypes((prev) => [...prev, type]);
+                        }
+                      }}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg font-mono text-[10px] transition ${
+                        isChecked
+                          ? 'bg-[#00ff66]/20 text-[#00ff66] border border-[#00ff66]/50 font-bold'
+                          : isDisabled
+                            ? 'opacity-30 cursor-not-allowed bg-zinc-800 text-zinc-500 border border-transparent'
+                            : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:text-white'
+                      }`}
+                    >
+                      <span>{isChecked ? '✓' : '+'}</span>
+                      <span>{type}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 4. Die 3 Entscheidungs-Buttons nach Sichtung beider Daten */}
+            <div className="flex flex-col gap-2 border-t border-zinc-800 pt-3">
+              <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">
+                Entscheidung nach Sichtung beider Daten treffen:
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {/* Entscheidung A: Entwurf weg (Live bleibt) */}
+                <button
+                  type="button"
+                  disabled={actionBusy}
+                  onClick={handleConflictDiscardDraft}
+                  className="flex flex-col items-start gap-1 rounded-xl border border-red-500/45 bg-red-500/15 p-3 text-left hover:bg-red-500/25 hover:border-red-400 disabled:opacity-40 transition"
+                >
+                  <span className="text-xs font-bold text-red-300 flex items-center gap-1.5">
+                    <span>🗑️</span>
+                    <span>Entwurf verwerfen</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-300 leading-snug">
+                    Entwurf wird gelöscht. Das veröffentlichte Spiel ({selectedGame.spiel_typ || 'Live'}) bleibt unverändert.
+                  </span>
+                </button>
+
+                {/* Entscheidung B: Alte Daten weg, Entwurf übernimmt (Ersetzen) */}
+                <button
+                  type="button"
+                  disabled={actionBusy || selectedGameTypes.length === 0}
+                  onClick={() => handleApproveCreatorConfirm('replace')}
+                  className="flex flex-col items-start gap-1 rounded-xl border border-amber-500/50 bg-amber-500/15 p-3 text-left hover:bg-amber-500/25 hover:border-amber-400 disabled:opacity-40 transition"
+                >
+                  <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <span>🔄</span>
+                    <span>Live-Guide ersetzen</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-300 leading-snug">
+                    Alte <code className="text-amber-200">game_guides</code> ({conflictInfo.liveRowCount}) löschen & durch diesen Entwurf ({currentCreatorRows.length}) ersetzen.
+                  </span>
+                </button>
+
+                {/* Entscheidung C: Beide behalten */}
+                <button
+                  type="button"
+                  disabled={actionBusy || selectedGameTypes.length === 0}
+                  onClick={() => handleApproveCreatorConfirm('keep_both')}
+                  className="flex flex-col items-start gap-1 rounded-xl border border-[#00ff66]/50 bg-[#00ff66]/15 p-3 text-left hover:bg-[#00ff66]/25 hover:border-[#00ff66] disabled:opacity-40 transition"
+                >
+                  <span className="text-xs font-bold text-[#00ff66] flex items-center gap-1.5">
+                    <span>➕</span>
+                    <span>Beide behalten</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-300 leading-snug">
+                    Bestehende Live-Daten bleiben erhalten & die {currentCreatorRows.length} Entwurf-Zeilen werden zusätzlich angehängt.
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

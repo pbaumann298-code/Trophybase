@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import HeaderSettingsMenu from './HeaderSettingsMenu';
-import { hasAdminReturnFlag, isAdminUser } from '../lib/adminAccess';
+import { hasAdminReturnFlag, isAdminUser, readDraftReturnContext } from '../lib/adminAccess';
 import { navigateToHome, PROFILE_PATH, WATCHLIST_PATH } from '../lib/routeUtils';
 
 function Header({
@@ -12,11 +12,13 @@ function Header({
   onOpenPlatformTrophies,
 }) {
   const [showAdminReturn, setShowAdminReturn] = useState(false);
+  const [draftReturnCtx, setDraftReturnCtx] = useState(null);
   const isAdmin = isAdminUser(sessionUser);
-  const isLoggedIn = Boolean(sessionUser) || isAdmin || showAdminReturn;
+  const isLoggedIn = Boolean(sessionUser) || isAdmin || showAdminReturn || Boolean(draftReturnCtx);
 
   useEffect(() => {
     setShowAdminReturn(hasAdminReturnFlag());
+    setDraftReturnCtx(readDraftReturnContext());
   }, []);
 
   const handleHomeClick = (event) => {
@@ -67,6 +69,22 @@ function Header({
             className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-[#00ff66] bg-[#00ff66]/10 hover:bg-[#00ff66]/15 border border-[#00ff66]/30 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline backdrop-blur-sm"
           >
             🏆 Platinliste V1
+          </a>
+        ) : null}
+        {draftReturnCtx?.gameId ? (
+          <a
+            href={draftReturnCtx.staffPath || '/intranet.html#entwuerfe'}
+            onClick={(e) => {
+              e.preventDefault();
+              window.location.assign(draftReturnCtx.staffPath || '/intranet.html#entwuerfe');
+            }}
+            title={`Zurück zum Entwurf: ${draftReturnCtx.title || draftReturnCtx.gameId}`}
+            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-black bg-[#00ff66] hover:bg-[#00ff66]/90 border border-[#00ff66] px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline shadow-md shadow-[#00ff66]/20"
+          >
+            ⬅️ Zurück zum Entwurf
+            {draftReturnCtx.title
+              ? `: ${draftReturnCtx.title.length > 20 ? `${draftReturnCtx.title.slice(0, 20)}…` : draftReturnCtx.title}`
+              : ''}
           </a>
         ) : null}
         {isAdmin ? (

@@ -3,6 +3,7 @@ import { ALLOWED_ADMINS, normalizeEmail } from './maintenanceAccess';
 export const ADMIN_RETURN_STORAGE_KEY = 'tb_admin_return';
 export const ADMIN_TAB_STORAGE_KEY = 'tb_admin_tab';
 export const INTRANET_GAME_SEARCH_STORAGE_KEY = 'tb_intranet_game_search';
+export const DRAFT_RETURN_STORAGE_KEY = 'tb_draft_return_context';
 
 /** Öffentliche SPA darf /intranet und /admin nicht als Startseite rendern. */
 const STAFF_HTML_BY_PATH = {
@@ -56,6 +57,70 @@ export function hasAdminReturnFlag() {
     return sessionStorage.getItem(ADMIN_RETURN_STORAGE_KEY) === '1';
   } catch {
     return false;
+  }
+}
+
+/**
+ * Speichert den Entwurfs-Kontext, wenn der Admin aus der Vorabprüfung
+ * zum aktuellen Live-Spiel wechselt, damit „Zurück zum Entwurf“ wieder
+ * exakt bei demselben Spiel (und Filter) landet.
+ */
+export function setDraftReturnContext(ctx) {
+  try {
+    if (!ctx || !ctx.gameId) {
+      sessionStorage.removeItem(DRAFT_RETURN_STORAGE_KEY);
+      localStorage.removeItem(DRAFT_RETURN_STORAGE_KEY);
+      return;
+    }
+    const payload = {
+      gameId: String(ctx.gameId),
+      creatorName: String(ctx.creatorName ?? ''),
+      title: String(ctx.title ?? ''),
+      filterQuery: String(ctx.filterQuery ?? ''),
+      activeDataSource: ctx.activeDataSource === 'rohmaterial' ? 'rohmaterial' : 'staging',
+      staffPath: String(
+        ctx.staffPath ||
+          (typeof window !== 'undefined' && window.location.pathname.includes('admin')
+            ? '/admin.html'
+            : '/intranet.html#entwuerfe'),
+      ),
+      reopenConflictModal: Boolean(ctx.reopenConflictModal),
+      savedAt: Date.now(),
+    };
+    const serialized = JSON.stringify(payload);
+    sessionStorage.setItem(DRAFT_RETURN_STORAGE_KEY, serialized);
+    localStorage.setItem(DRAFT_RETURN_STORAGE_KEY, serialized);
+    setAdminReturnFlag(true);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readDraftReturnContext() {
+  try {
+    const raw =
+      sessionStorage.getItem(DRAFT_RETURN_STORAGE_KEY) ||
+      localStorage.getItem(DRAFT_RETURN_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.gameId) return null;
+    if (parsed.savedAt && Date.now() - Number(parsed.savedAt) > 60 * 60 * 1000) {
+      sessionStorage.removeItem(DRAFT_RETURN_STORAGE_KEY);
+      localStorage.removeItem(DRAFT_RETURN_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function clearDraftReturnContext() {
+  try {
+    sessionStorage.removeItem(DRAFT_RETURN_STORAGE_KEY);
+    localStorage.removeItem(DRAFT_RETURN_STORAGE_KEY);
+  } catch {
+    /* ignore */
   }
 }
 

@@ -1,6 +1,6 @@
 import { Component, useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
-import { getSessionOrTimeout, isAdminUser } from '../lib/adminAccess';
+import { getSessionOrTimeout, isAdminUser, readDraftReturnContext } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch';
@@ -51,6 +51,8 @@ function IntranetApp() {
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window === 'undefined') return 'games';
+    const draftCtx = readDraftReturnContext();
+    if (draftCtx?.gameId) return 'entwuerfe';
     const hash = String(window.location.hash ?? '').replace('#', '').toLowerCase();
     const searchTab = new URLSearchParams(window.location.search).get('tab')?.toLowerCase();
     const pathname = window.location.pathname.toLowerCase();
@@ -75,8 +77,11 @@ function IntranetApp() {
   });
   const { entries: followups } = useAdminFollowups(sessionUser?.id);
   const [draftsCount, setDraftsCount] = useState(0);
-  // „🚀 Entwürfe + Follow“: Spiel, das der Entwürfe-Tab beim Öffnen vorauswählen soll.
-  const [draftTargetGameId, setDraftTargetGameId] = useState(null);
+  // „🚀 Entwürfe + Follow“ oder Rückkehr über „⬅️ Zurück zum Entwurf“: Spiel vorauswählen.
+  const [draftTargetGameId, setDraftTargetGameId] = useState(() => {
+    const draftCtx = readDraftReturnContext();
+    return draftCtx?.gameId || null;
+  });
 
   const openInDrafts = (gameId) => {
     setDraftTargetGameId(gameId || null);

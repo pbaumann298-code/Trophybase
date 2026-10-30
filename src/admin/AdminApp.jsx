@@ -4,6 +4,7 @@ import {
   getSessionOrTimeout,
   isAdminUser,
   readAdminTab,
+  readDraftReturnContext,
   writeAdminTab,
 } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
@@ -35,11 +36,16 @@ function AdminApp() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState(() => {
+    const draftCtx = readDraftReturnContext();
+    if (draftCtx?.gameId) return 'entwuerfe';
     const saved = readAdminTab('database');
     return TAB_IDS.has(saved) ? saved : 'database';
   });
-  // „🚀 Entwürfe + Follow“: Spiel, das der Entwürfe-Tab beim Öffnen vorauswählen soll.
-  const [draftTargetGameId, setDraftTargetGameId] = useState(null);
+  // „🚀 Entwürfe + Follow“ oder Rückkehr über „⬅️ Zurück zum Entwurf“: Spiel vorauswählen.
+  const [draftTargetGameId, setDraftTargetGameId] = useState(() => {
+    const draftCtx = readDraftReturnContext();
+    return draftCtx?.gameId || null;
+  });
 
   const openInDrafts = (gameId) => {
     setDraftTargetGameId(gameId || null);
