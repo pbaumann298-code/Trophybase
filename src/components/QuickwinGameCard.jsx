@@ -143,7 +143,10 @@ function QuickwinGameCard({
       uuid
         ? fetchGameByRouteRef(supabase, uuid, globalLocale)
         : Promise.resolve({ data: null }),
-      fetchGameTrophiesWithEarned(supabase, sessionUser?.id ?? null, game, globalLocale),
+      // Hubs: guide_tip fällt auf de/en zurück, wenn die Locale noch nicht übersetzt ist.
+      fetchGameTrophiesWithEarned(supabase, sessionUser?.id ?? null, game, globalLocale, null, {
+        textFallback: true,
+      }),
       fetchGameGuideBundle(supabase, game, globalLocale),
       fetchContentCreatorsForGame(supabase, game),
       newerVersions
@@ -363,7 +366,8 @@ function QuickwinGameCard({
   }, [tabs, activeTab]);
 
   const tabIndex = tabs.findIndex((tab) => tab.id === activeTab);
-  const description = getGameDescription(detailGame, globalLocale);
+  // Hub-Karte: Beschreibung mit de/en-Fallback statt leer.
+  const description = getGameDescription(detailGame, globalLocale, { exact: false });
 
   const platinumDone = isPlatinumUnlocked(trophies, unlocked, earnedIds);
 

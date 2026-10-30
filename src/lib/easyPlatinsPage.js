@@ -48,6 +48,12 @@ export const EASY_PLATINS_PAGE = {
     lead: 'Guias curtos para platinas rápidas – visual novels, hidden object e títulos semelhantes.',
     notice: '',
   },
+  pl: {
+    slug: 'latwe-platyny',
+    title: 'Łatwe platyny',
+    lead: 'Krótkie poradniki do szybkich platyn – visual novele, hidden object i podobnie krótkie tytuły.',
+    notice: '',
+  },
   ru: {
     slug: 'legkie-platiny',
     title: 'Лёгкие платины',

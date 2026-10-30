@@ -48,6 +48,12 @@ export const SERVERTOT_PAGE = {
     lead: 'Jogos cujo troféu de platina já não pode ser obtido porque os servidores foram desligados.',
     notice: 'Com o encerramento dos servidores, a platina já não pode ser obtida normalmente.',
   },
+  pl: {
+    slug: 'nieosiagalne-platyny',
+    title: 'Nieosiągalne platyny',
+    lead: 'Gry, w których trofeum platynowego nie da się już zdobyć, ponieważ serwery zostały wyłączone.',
+    notice: 'Z powodu wyłączenia serwerów platyny nie da się już zdobyć w normalnej rozgrywce.',
+  },
   ru: {
     slug: 'nedostizhimye-platiny',
     title: 'Недостижимые платины',

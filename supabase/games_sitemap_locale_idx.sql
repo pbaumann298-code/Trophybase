@@ -41,6 +41,10 @@ create index if not exists games_status_guide_pt_pub_idx
   on public.games ((status ->> 'guide_pt'))
   where (status ->> 'guide_pt') = 'PUBLISHED';
 
+create index if not exists games_status_guide_pl_pub_idx
+  on public.games ((status ->> 'guide_pl'))
+  where (status ->> 'guide_pl') = 'PUBLISHED';
+
 create index if not exists games_status_guide_ru_pub_idx
   on public.games ((status ->> 'guide_ru'))
   where (status ->> 'guide_ru') = 'PUBLISHED';

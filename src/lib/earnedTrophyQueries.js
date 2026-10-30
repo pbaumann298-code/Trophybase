@@ -58,6 +58,8 @@ export function earnedIdsToUnlockedMap(ids) {
  * @param {string|null} userId
  * @param {unknown} gameRef
  * @param {string} [locale]
+ * @param {string|null} [overrideLang]
+ * @param {{ textFallback?: boolean }} [options] textFallback: guide_tip de/en-Fallback (Hubs)
  */
 export async function fetchGameTrophiesWithEarned(
   supabase,
@@ -65,13 +67,20 @@ export async function fetchGameTrophiesWithEarned(
   gameRef,
   locale = getLocale(),
   overrideLang = null,
+  options = {},
 ) {
   const { uuid } = await resolveGameUuid(supabase, gameRef);
   if (!uuid) {
     return { trophies: [], earnedIds: new Set(), trophiesError: null, earnedError: null };
   }
 
-  const achievementsQuery = fetchAchievementsForGame(supabase, uuid, locale, overrideLang);
+  const achievementsQuery = fetchAchievementsForGame(
+    supabase,
+    uuid,
+    locale,
+    overrideLang,
+    options,
+  );
   const earnedQuery = userId
     ? fetchEarnedTrophyIdsForGame(supabase, userId, uuid)
     : Promise.resolve({ ids: new Set(), error: null });

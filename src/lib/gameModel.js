@@ -117,24 +117,31 @@ export function trophyIconUrl(value) {
  * @param {Record<string, unknown>} row
  * @param {string} locale
  * @param {string} [fallbackLocale]
+ * @param {{ textFallback?: boolean }} [options] textFallback: guide_tip auf de/en zurückfallen lassen (Hubs)
  */
-export function mergeAchievementRecord(row, locale, fallbackLocale = FALLBACK_LANGUAGE) {
+export function mergeAchievementRecord(
+  row,
+  locale,
+  fallbackLocale = FALLBACK_LANGUAGE,
+  options = {},
+) {
   if (!row) return null;
 
+  const tipExact = options.textFallback !== true;
   const platformId = String(row[ACHIEVEMENT_PK] ?? '');
   const namePick = pickLocalized(row[ACHIEVEMENT_I18N.name], locale, fallbackLocale);
   const trophy_desc = localizeSonyDescription(row[ACHIEVEMENT_I18N.desc], locale);
   const aiTranslation = readAiTranslation(row[ACHIEVEMENT_I18N.aiTranslation], locale);
   const trophy_desc_translation = aiTranslation && aiTranslation !== trophy_desc ? aiTranslation : '';
   const guide_tip = localizeJsonField(row[ACHIEVEMENT_I18N.guideTip], locale, fallbackLocale, {
-    exact: true,
+    exact: tipExact,
   });
   // Spalte ist noch leer; pickLocalized verträgt Sprachmap und reinen Text.
   const guide_tip_long = localizeJsonField(
     row[ACHIEVEMENT_I18N.guideTipLong],
     locale,
     fallbackLocale,
-    { exact: true },
+    { exact: tipExact },
   );
   const icon_url = trophyIconUrl(row[ACHIEVEMENT_STRUCT.iconUrl]);
   const rarity = localizeJsonField(row[ACHIEVEMENT_I18N.rarity], locale, fallbackLocale);
@@ -270,16 +277,18 @@ export function getGameCover(game, locale = PRIMARY_LANGUAGE) {
 /**
  * @param {object|null|undefined} game
  * @param {string} [locale]
+ * @param {{ exact?: boolean }} [options] exact=false: Hubs fallen auf de/en zurück
  * @returns {string}
  */
-export function getGameDescription(game, locale = PRIMARY_LANGUAGE) {
+export function getGameDescription(game, locale = PRIMARY_LANGUAGE, options = {}) {
   if (!game || typeof game !== 'object') return '';
+  const exact = options.exact !== false;
   const raw = game[GAME_I18N.description];
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return localizeJsonField(raw, locale, FALLBACK_LANGUAGE, { exact: true });
+    return localizeJsonField(raw, locale, FALLBACK_LANGUAGE, { exact });
   }
   return localizeJsonField(raw ?? game[GAME_FIELDS.description], locale, FALLBACK_LANGUAGE, {
-    exact: true,
+    exact,
   });
 }
 

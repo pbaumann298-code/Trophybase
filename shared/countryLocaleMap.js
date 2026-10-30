@@ -1,9 +1,9 @@
 /**
- * Sprachen der Trophy-Dateien (Sony TROPCONF.SFM, Einträge 00–13).
- * da / no / pl existieren in neueren Trophy-Containern zusätzlich – bewusst
- * noch nicht in den URLs, damit die 14er-Liste stabil bleibt.
+ * Sprachen der Trophy-Dateien (Sony TROPCONF.SFM, Einträge 00–13) plus pl
+ * (neuere Trophy-Container; Guides werden per tb_auto_release_locales auch
+ * für pl freigegeben). da / no bleiben bewusst draußen.
  *
- * @typedef {'ja'|'en'|'fr'|'es'|'de'|'it'|'nl'|'pt'|'ru'|'ko'|'zh-hant'|'zh-hans'|'fi'|'sv'} SupportedLocale
+ * @typedef {'ja'|'en'|'fr'|'es'|'de'|'it'|'nl'|'pt'|'pl'|'ru'|'ko'|'zh-hant'|'zh-hans'|'fi'|'sv'} SupportedLocale
  */
 
 export const SUPPORTED_LOCALES = [
@@ -15,6 +15,7 @@ export const SUPPORTED_LOCALES = [
   'it',
   'nl',
   'pt',
+  'pl',
   'ru',
   'ko',
   'zh-hant',
@@ -91,6 +92,7 @@ const REGION_TO_LOCALE = {
   AO: 'pt',
   MZ: 'pt',
   CV: 'pt',
+  PL: 'pl',
   RU: 'ru',
   BY: 'ru',
   KZ: 'ru',

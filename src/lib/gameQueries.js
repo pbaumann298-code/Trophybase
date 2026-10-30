@@ -474,13 +474,21 @@ async function fetchSearchRows(makeQuery, limit) {
  * Öffentliche Kataloge: nur PUBLISHED.
  * Admin-Vorschau: FERTIG oder PUBLISHED (noch nicht der ganze 20k-Katalog).
  * inkl. nur Trophäen: kein Guide-Statusfilter (Login + RLS).
+ * Hubs (Quickwins, easy_platin, Servertot): `publishedInAny` = PUBLISHED in
+ * mindestens einer der angegebenen Sprachen (Locale, de, en) statt nur in der
+ * aktuellen Locale.
  * @param {object} query
- * @param {{ includeReady?: boolean, publishedOnly?: boolean, includeTrophiesOnly?: boolean }} [catalog]
+ * @param {{ includeReady?: boolean, publishedOnly?: boolean, publishedInAny?: string[], includeTrophiesOnly?: boolean, locale?: string }} [catalog]
  */
-function guideStatusMatch(state) {
-  return SUPPORTED_LOCALES
+function guideStatusMatch(state, locales = SUPPORTED_LOCALES) {
+  return locales
     .map((lang) => `${GAME_STRUCT.status}->>${guideStatusKey(lang)}.eq.${state}`)
     .join(',');
+}
+
+/** Hub-Seiten: Spiel ist für jede Sprache sichtbar, sobald es in Locale, de oder en PUBLISHED ist. */
+export function hubPublishedLocales(locale) {
+  return [...new Set([String(locale || '').toLowerCase(), 'de', 'en'].filter(Boolean))];
 }
 
 export function applyGuideCatalogFilter(query, catalog = {}) {
@@ -489,6 +497,9 @@ export function applyGuideCatalogFilter(query, catalog = {}) {
     return query.or(
       `${guideStatusMatch(GUIDE_PUBLICATION.DONE)},${guideStatusMatch(GUIDE_PUBLICATION.PUBLISHED)},${guideStatusMatch(GUIDE_PUBLICATION.DRAFT)},${GAME_STRUCT.status}->>production_roadmap.eq.ACTIVE`,
     );
+  }
+  if (Array.isArray(catalog.publishedInAny) && catalog.publishedInAny.length > 0) {
+    return query.or(guideStatusMatch(GUIDE_PUBLICATION.PUBLISHED, catalog.publishedInAny));
   }
   if (catalog.publishedOnly) {
     const locale = catalog.locale || getLocale();
@@ -989,6 +1000,9 @@ function isMissingPublisherError(error) {
   );
 }
 
+/** Spieltypen mit eigener Hub-Seite (Quickwins, Easy Platins, Unobtainable). */
+const HUB_GAME_TYPES = [GAME_TYPE.QUICKWIN, GAME_TYPE.EASY_PLATIN, GAME_TYPE.SERVER_DEAD];
+
 /**
  * Veröffentlichte Spiele eines Typs (Quickwins, Easy Platins, Servertot, …).
  * Mit `limit`/`offset` nur eine Seite; sonst bis SEARCH_RESULT_CAP.
@@ -1008,9 +1022,14 @@ export async function fetchGamesByType(supabase, gameType, locale = getLocale(),
     ? capSearchLimit(options.limit ?? CATALOG_FETCH_PAGE, CATALOG_FETCH_PAGE)
     : SEARCH_RESULT_CAP;
   const mode = options.mode === 'list' || options.mode === 'tiles' ? options.mode : 'full';
+  const isHubType = HUB_GAME_TYPES.some(
+    (type) => type.toLowerCase() === String(gameType ?? '').toLowerCase(),
+  );
   const catalog = {
     includeReady,
     publishedOnly: !includeReady,
+    // Hubs: in allen Sprachen voll, sobald der Guide in Locale, de oder en live ist.
+    publishedInAny: !includeReady && isHubType ? hubPublishedLocales(locale) : undefined,
     locale,
   };
 

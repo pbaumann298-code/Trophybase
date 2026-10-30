@@ -38,6 +38,7 @@ function GameSeoInfobox({
     it: 'e',
     nl: 'en',
     pt: 'e',
+    pl: 'i',
     ru: 'и',
     ko: '및',
     'zh-hant': '和',

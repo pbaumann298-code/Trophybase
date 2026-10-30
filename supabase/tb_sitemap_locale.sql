@@ -1,16 +1,15 @@
 -- Sitemap-RPC: eine Sprache, fester Timeout, schlanke Spalten.
--- Einmal in der Supabase-SQL-Konsole ausfuehren (zusammen mit
--- games_sitemap_locale_idx.sql fuer schnelle Plaene).
+-- Stand: Migration sitemap_locale_limit_10000 (10/2026) – identisch mit der Live-DB.
+-- Zusammen mit games_sitemap_locale_idx.sql fuer schnelle Plaene.
 --
 -- Ohne Index wuerde PostgREST oft an statement_timeout (oft 8s) scheitern.
--- Die Funktion setzt lokal 30s und filtert nur guide_<lang> = PUBLISHED.
-
-drop function if exists public.tb_sitemap_locale(text);
-drop function if exists public.tb_sitemap_locale(text, integer);
+-- Die Funktion setzt lokal 30s, filtert guide_<lang> = PUBLISHED und schliesst
+-- noindex-Spiele sowie Quickwin / easy_platin / Servertot / Unlesbar aus.
+-- server/sitemap.js ruft sie per supabase.rpc('tb_sitemap_locale', ...) auf.
 
 create or replace function public.tb_sitemap_locale(
   p_locale text,
-  p_limit integer default 5000
+  p_limit integer default 10000
 )
 returns table (
   slug text,
@@ -28,7 +27,7 @@ as $$
 declare
   lang text := lower(trim(both from coalesce(p_locale, '')));
   status_key text;
-  row_cap integer := least(greatest(coalesce(p_limit, 5000), 1), 5000);
+  row_cap integer := least(greatest(coalesce(p_limit, 10000), 1), 10000);
 begin
   if lang = '' or lang !~ '^[a-z]{2}(-[a-z]+)?$' then
     return;
@@ -38,14 +37,17 @@ begin
 
   return query
   select
-    g.slug,
-    g.hardware,
-    g.spiel_typ,
-    g.is_indexable,
-    g.created_at
+    g.slug::text,
+    g.hardware::text,
+    g.spiel_typ::text,
+    coalesce(g.is_indexable, true)::boolean,
+    g.created_at::timestamptz
   from public.games g
   where g.slug is not null
+    and btrim(g.slug) <> ''
     and g.status ->> status_key = 'PUBLISHED'
+    and coalesce(g.is_indexable, true) = true
+    and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot', 'Unlesbar')
   order by g.created_at desc nulls last
   limit row_cap;
 end;

@@ -22,12 +22,14 @@ function compareAchievements(a, b) {
  * @param {unknown} gameRef games.id, gemergtes Spiel-Objekt oder Route-Ref
  * @param {string} [locale]
  * @param {string|null} [overrideLang]
+ * @param {{ textFallback?: boolean }} [options] textFallback: guide_tip de/en-Fallback (Hubs)
  */
 export async function fetchAchievementsForGame(
   supabase,
   gameRef,
   locale = getLocale(),
   overrideLang = null,
+  options = {},
 ) {
   const { uuid, error: resolveError } = await resolveGameUuid(supabase, gameRef);
   if (resolveError) return { data: [], error: resolveError };
@@ -57,7 +59,7 @@ export async function fetchAchievementsForGame(
 
   const merged = [...(data ?? [])]
     .sort(compareAchievements)
-    .map((row) => mergeAchievementRecord(row, targetLang))
+    .map((row) => mergeAchievementRecord(row, targetLang, undefined, options))
     .filter(Boolean);
 
   return { data: merged, error: null };

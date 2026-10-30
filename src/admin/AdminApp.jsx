@@ -7,6 +7,7 @@ import {
   writeAdminTab,
 } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
+import AdminPipelineLawNotice from '../components/admin/AdminPipelineLawNotice';
 import CommunityReportsPanel from '../components/admin/CommunityReportsPanel';
 import ScriptsPanel from '../components/admin/ScriptsPanel';
 import WebsitePanel from '../components/admin/WebsitePanel';
@@ -162,6 +163,8 @@ function AdminApp() {
       </header>
 
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-8">
+        {/* Nur hinter dem Admin-Login sichtbar (isAdminUser-Guard oben). */}
+        <AdminPipelineLawNotice />
         {activeTab === 'website' && <WebsitePanel />}
         {activeTab === 'database' && <IntranetGameSearch sessionUser={sessionUser} />}
         {activeTab === 'entwuerfe' && <IntranetDrafts />}

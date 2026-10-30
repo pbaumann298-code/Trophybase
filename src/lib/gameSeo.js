@@ -22,6 +22,7 @@ const OG_LOCALES = {
   it: 'it_IT',
   nl: 'nl_NL',
   pt: 'pt_PT',
+  pl: 'pl_PL',
   ru: 'ru_RU',
   ko: 'ko_KR',
   'zh-hant': 'zh_TW',

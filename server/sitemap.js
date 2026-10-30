@@ -2,7 +2,6 @@ import { SUPPORTED_LOCALES } from '../shared/countryLocaleMap.js';
 import { PUBLIC_SITE_LOCALES } from '../src/lib/contentLocales.js';
 import { GAME_STRUCT, GAME_TYPE } from '../src/lib/gameSchema.js';
 import { hardwareToUrlSegment, buildPrettyGamePath } from '../src/lib/gameSlug.js';
-import { GUIDE_PUBLICATION, guideStatusKey } from '../src/lib/guidePublication.js';
 import { servertotPublicPath } from '../src/lib/servertotPage.js';
 import { easyPlatinsPublicPath } from '../src/lib/easyPlatinsPage.js';
 import { quickwinsPublicPath } from '../src/lib/quickwinsPage.js';
@@ -10,39 +9,31 @@ import { getPublicSupabase, publicOrigin } from './publicSupabase.js';
 import { parseSitemapLocale } from './prettyPath.js';
 import { escapeHtml } from './escapeHtml.js';
 
-const SITEMAP_URL_CAP = 5000;
-const SITEMAP_COLUMNS = [
-  'slug',
-  'hardware',
-  GAME_STRUCT.gameType,
-  GAME_STRUCT.isIndexable,
-  GAME_STRUCT.createdAt,
-].join(', ');
+/** Entspricht dem Cap in public.tb_sitemap_locale (supabase/tb_sitemap_locale.sql). */
+const SITEMAP_URL_CAP = 10000;
+const SITEMAP_RPC = 'tb_sitemap_locale';
 
 function xmlWrap(body) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n${body}`;
 }
 
 /**
- * Nur status->>guide_<lang> = PUBLISHED — damit der Ausdrucksindex greifen kann.
- * Quickwins / easy_platin / Servertot und noindex-Spiele bleiben draußen.
+ * RPC public.tb_sitemap_locale(p_locale, p_limit):
+ * nur status->>guide_<lang> = PUBLISHED, is_indexable <> false und ohne
+ * Quickwin / easy_platin / Servertot / Unlesbar. Liefert
+ * { slug, hardware, spiel_typ, is_indexable, created_at } – dieselben Spalten,
+ * die die XML-Generierung braucht (created_at → lastmod).
  */
-function publishedGuideQuery(supabase, locale) {
-  return supabase
-    .from('games')
-    .select(SITEMAP_COLUMNS)
-    .not('slug', 'is', null)
-    .filter(
-      `${GAME_STRUCT.status}->>${guideStatusKey(locale)}`,
-      'eq',
-      GUIDE_PUBLICATION.PUBLISHED,
-    )
-    .neq(GAME_STRUCT.isIndexable, false)
-    .neq(GAME_STRUCT.gameType, GAME_TYPE.SERVER_DEAD)
-    .neq(GAME_STRUCT.gameType, GAME_TYPE.QUICKWIN)
-    .neq(GAME_STRUCT.gameType, GAME_TYPE.EASY_PLATIN);
+async function rpcSitemapRows(supabase, locale, limit) {
+  const { data, error } = await supabase.rpc(SITEMAP_RPC, {
+    p_locale: locale,
+    p_limit: limit,
+  });
+  if (error) return { data: null, error };
+  return { data: Array.isArray(data) ? data : [], error: null };
 }
 
+/** Defensive Nachfilterung – die RPC filtert bereits, Hardware-Segment prüft nur der Server. */
 function isSitemapRow(row) {
   if (!row?.slug || !hardwareToUrlSegment(row.hardware)) return false;
   if (row[GAME_STRUCT.isIndexable] === false) return false;
@@ -52,25 +43,19 @@ function isSitemapRow(row) {
   return true;
 }
 
-async function loadViaTable(supabase, locale) {
-  const { data, error } = await publishedGuideQuery(supabase, locale).limit(SITEMAP_URL_CAP);
-  if (error) return { data: null, error };
-  return { data: (data ?? []).filter(isSitemapRow), error: null };
-}
-
 async function loadIndexablePublishedGames(supabase, locale) {
-  const table = await loadViaTable(supabase, locale);
-  if (table.error) throw table.error;
-  return table.data;
+  const { data, error } = await rpcSitemapRows(supabase, locale, SITEMAP_URL_CAP);
+  if (error) throw error;
+  return data.filter(isSitemapRow);
 }
 
 async function localesWithIndexableGames(supabase) {
   const checks = await Promise.all(
     SUPPORTED_LOCALES.map(async (locale) => {
       try {
-        const { data, error } = await publishedGuideQuery(supabase, locale).limit(1);
+        const { data, error } = await rpcSitemapRows(supabase, locale, 1);
         if (error) return null;
-        return (data ?? []).some(isSitemapRow) ? locale : null;
+        return data.some(isSitemapRow) ? locale : null;
       } catch {
         return null;
       }
@@ -92,7 +77,11 @@ function urlEntry(loc, lastmod = '') {
     .join('\n');
 }
 
-/** Statische Sammelseiten – immer vor den Einzelspielen. */
+/**
+ * Statische Sammelseiten – immer vor den Einzelspielen.
+ * Die drei Hub-Seiten (Quickwins, Unerreichbare Platins, Easy Platins) stehen
+ * in jeder Sprache fest drin; die Root-URL nur einmal (Default-Sprache de).
+ */
 function staticCollectionUrls(origin, locale) {
   const urls = [];
   if (locale === 'de') {

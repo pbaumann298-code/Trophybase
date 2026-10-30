@@ -48,6 +48,12 @@ export const QUICKWINS_PAGE = {
     lead: 'Visão geral de jogos para platinas rápidas e tempos de jogo curtos.',
     notice: '',
   },
+  pl: {
+    slug: 'quickwins',
+    title: 'Quickwins',
+    lead: 'Przegląd gier na szybkie platyny i krótki czas rozgrywki.',
+    notice: '',
+  },
   ru: {
     slug: 'quickwins',
     title: 'Quickwins',
