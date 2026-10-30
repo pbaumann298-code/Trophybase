@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { getPlatformGameIds } from '../../lib/gameModel';
-import { GAME_TYPE } from '../../lib/gameSchema';
+import { GAME_FK, GAME_TYPE, TABLES } from '../../lib/gameSchema';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import { formatIntranetTitles, intranetGameHref } from '../../lib/intranetQueries';
 import {
@@ -12,9 +12,11 @@ import {
 } from '../../lib/gamePipelineStatus';
 import {
   discardIntranetGuide,
+  pullGameBackToDrafts,
   removeIntranetStatusKey,
   setIntranetGameType,
   statusAfterGuideDiscard,
+  statusAfterPullBackToDrafts,
 } from '../../lib/intranetGameEdits';
 import {
   fetchHomeTagDefs,
@@ -70,7 +72,16 @@ function StatusDeleteButton({ label, disabled, onClick }) {
   );
 }
 
-function IntranetGameTable({ games, sessionUser, onGamePatch }) {
+/**
+ * @param {object} props
+ * @param {object[]} props.games
+ * @param {object|null} props.sessionUser
+ * @param {(gameId: string, partial: object) => void} [props.onGamePatch]
+ * @param {(gameId: string) => void} [props.onOpenInDrafts]
+ *   Wird nach „🚀 Entwürfe + Follow“ aufgerufen; der Host wechselt in den Entwürfe-Tab
+ *   und wählt das Spiel dort vor (IntranetDrafts initialGameId).
+ */
+function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts }) {
   const userId = sessionUser?.id ?? '';
   const { entries: followups, error: followupError } = useAdminFollowups(userId);
   const followedIds = new Set(followups.map((entry) => entry.id));
@@ -170,6 +181,81 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
       game_guides: [{ count: 0 }],
     });
     setNotice('Guide erfolgreich gelöscht und Status zurückgesetzt.');
+  };
+
+  /**
+   * Holt den Guide aus game_guides zurück nach staging_game_guides (Entwürfe).
+   * Patcht die Zeile optimistisch wie beim Verwerfen; rollt bei Fehler zurück.
+   * @returns {Promise<boolean>} ob das Spiel jetzt in den Entwürfen liegt
+   */
+  const pullToDrafts = async (game, { confirm = true } = {}) => {
+    const title = formatIntranetTitles(game.spieltitel);
+    if (confirm) {
+      const ok = window.confirm(
+        `„${title}“ in die Entwürfe zurückholen?\n\nDas Spiel wird entsperrt, der Guide nach staging_game_guides kopiert und aus game_guides entfernt.`,
+      );
+      if (!ok) return false;
+    }
+
+    const previous = {
+      status: game.status,
+      publishing_status: game.publishing_status,
+      published_locales: game.published_locales,
+      game_guides: game.game_guides,
+      is_guide_locked: game.is_guide_locked,
+    };
+    setErrorMessage('');
+    setNotice('');
+    patch(game.id, {
+      status: statusAfterPullBackToDrafts(game.status),
+      publishing_status: {},
+      published_locales: [],
+      is_guide_locked: false,
+      game_guides: [{ count: 0 }],
+    });
+
+    const { ok, status, stagedCount, error } = await pullGameBackToDrafts(supabase, game.id, 'de');
+    if (!ok) {
+      patch(game.id, previous);
+      setErrorMessage(error?.message || 'Spiel konnte nicht in die Entwürfe zurückgeholt werden.');
+      return false;
+    }
+    patch(game.id, {
+      status,
+      publishing_status: {},
+      published_locales: [],
+      is_guide_locked: false,
+      game_guides: [{ count: 0 }],
+    });
+    setNotice(`„${title}“ liegt jetzt in den Entwürfen (${stagedCount} Zeile(n) in staging_game_guides).`);
+    return true;
+  };
+
+  const handlePullToDrafts = async (game) => {
+    const key = `${game.id}:drafts`;
+    setBusyKey(key);
+    await pullToDrafts(game);
+    setBusyKey('');
+  };
+
+  /** Liegt das Spiel bereits in staging_game_guides, wird direkt gesprungen – sonst erst zurückgeholt. */
+  const handleDraftsAndFollow = async (game) => {
+    const key = `${game.id}:drafts-follow`;
+    setBusyKey(key);
+    setErrorMessage('');
+    const { count, error } = await supabase
+      .from(TABLES.stagingGuides)
+      .select('id', { count: 'exact', head: true })
+      .eq(GAME_FK, game.id);
+    if (error) {
+      setBusyKey('');
+      setErrorMessage(error.message || 'Entwürfe konnten nicht geprüft werden.');
+      return;
+    }
+    let ready = (count ?? 0) > 0;
+    if (!ready) ready = await pullToDrafts(game, { confirm: false });
+    setBusyKey('');
+    if (ready) onOpenInDrafts?.(game.id);
   };
 
   const handleRemoveStatus = async (game, statusKey, value) => {
@@ -353,6 +439,26 @@ function IntranetGameTable({ games, sessionUser, onGamePatch }) {
                       >
                         {noted ? 'Notiert' : 'Merken'}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePullToDrafts(game)}
+                        disabled={busyKey === `${game.id}:drafts` || busyKey === `${game.id}:drafts-follow`}
+                        title="Guide entsperren, nach staging_game_guides kopieren und aus game_guides entfernen"
+                        className="text-[10px] font-bold uppercase tracking-wider text-sky-300 hover:text-sky-200 disabled:opacity-50"
+                      >
+                        📝 In Entwürfe
+                      </button>
+                      {onOpenInDrafts ? (
+                        <button
+                          type="button"
+                          onClick={() => handleDraftsAndFollow(game)}
+                          disabled={busyKey === `${game.id}:drafts` || busyKey === `${game.id}:drafts-follow`}
+                          title="In die Entwürfe holen (falls nötig) und dort direkt öffnen"
+                          className="text-[10px] font-bold uppercase tracking-wider text-fuchsia-300 hover:text-fuchsia-200 disabled:opacity-50"
+                        >
+                          🚀 Entwürfe + Follow
+                        </button>
+                      ) : null}
                       {href ? (
                         <a
                           href={href}

@@ -30,7 +30,6 @@ export const GAME_SELECT = [
   GAME_STRUCT.gameType,
   GAME_STRUCT.progress,
   GAME_STRUCT.status,
-  GAME_STRUCT.serverStatus,
   GAME_STRUCT.hasOnlineTrophies,
   GAME_STRUCT.hasMissableTrophies,
   GAME_STRUCT.totalOnlineTrophies,
@@ -82,12 +81,11 @@ export const GAME_SELECT_LIST = [
   GAME_I18N.coverUrl,
 ].join(', ');
 
-/** Kachel-Karussells: Liste + Online-/Servertot-Flags, ohne schwere Textfelder. */
+/** Kachel-Karussells: Liste + Online-/Verpassbar-Flags, ohne schwere Textfelder. */
 export const GAME_SELECT_TILES = [
   GAME_SELECT_LIST,
   GAME_STRUCT.hasOnlineTrophies,
   GAME_STRUCT.hasMissableTrophies,
-  GAME_STRUCT.serverStatus,
 ].join(', ');
 
 let activeGameSelect = GAME_SELECT;

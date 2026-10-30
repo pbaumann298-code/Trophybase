@@ -7,6 +7,7 @@ import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch'
 import IntranetFollowups from '../components/intranet/IntranetFollowups';
 import IntranetRohmaterial from '../components/intranet/IntranetRohmaterial';
 import IntranetDrafts from '../components/intranet/IntranetDrafts';
+import IntranetRadarAndServertot from '../components/intranet/IntranetRadarAndServertot';
 import IntranetRoadmap from '../components/intranet/IntranetRoadmap';
 import { useAdminFollowups } from '../hooks/useAdminFollowups';
 
@@ -35,6 +36,8 @@ class IntranetErrorBoundary extends Component {
 const TABS = [
   { id: 'games', label: 'Spiele', icon: '🎮' },
   { id: 'entwuerfe', label: 'Entwürfe', icon: '📝' },
+  { id: 'd_freigabe', label: 'D-Freigabe (Radar)', icon: '⚡' },
+  { id: 'servertot_qa', label: 'Servertot-Prüfung', icon: '💀' },
   { id: 'roadmap', label: 'Roadmap & Ideen', icon: '🗺️' },
   { id: 'followups', label: 'Wiedervorlage', icon: '⚑' },
   { id: 'creators', label: 'Creator', icon: '▶' },
@@ -72,6 +75,13 @@ function IntranetApp() {
   });
   const { entries: followups } = useAdminFollowups(sessionUser?.id);
   const [draftsCount, setDraftsCount] = useState(0);
+  // „🚀 Entwürfe + Follow“: Spiel, das der Entwürfe-Tab beim Öffnen vorauswählen soll.
+  const [draftTargetGameId, setDraftTargetGameId] = useState(null);
+
+  const openInDrafts = (gameId) => {
+    setDraftTargetGameId(gameId || null);
+    setActiveTab('entwuerfe');
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -233,10 +243,30 @@ function IntranetApp() {
 
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-8">
         <IntranetErrorBoundary>
-          {activeTab === 'games' && <IntranetGameSearch sessionUser={sessionUser} />}
-          {activeTab === 'entwuerfe' && <IntranetDrafts />}
+          {activeTab === 'games' && (
+            <IntranetGameSearch sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
+          )}
+          {activeTab === 'entwuerfe' && (
+            <IntranetDrafts initialDataSource="staging" initialGameId={draftTargetGameId} />
+          )}
+          {activeTab === 'd_freigabe' && (
+            <IntranetRadarAndServertot
+              mode="d_freigabe"
+              sessionUser={sessionUser}
+              onOpenInDrafts={openInDrafts}
+            />
+          )}
+          {activeTab === 'servertot_qa' && (
+            <IntranetRadarAndServertot
+              mode="servertot"
+              sessionUser={sessionUser}
+              onOpenInDrafts={openInDrafts}
+            />
+          )}
           {activeTab === 'roadmap' && <IntranetRoadmap />}
-          {activeTab === 'followups' && <IntranetFollowups sessionUser={sessionUser} />}
+          {activeTab === 'followups' && (
+            <IntranetFollowups sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
+          )}
           {activeTab === 'creators' && <IntranetCreatorSearch />}
           {activeTab === 'rohmaterial' && <IntranetRohmaterial />}
         </IntranetErrorBoundary>

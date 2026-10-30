@@ -5,7 +5,7 @@ import { toggleAdminFollowup } from '../../lib/adminFollowups';
 import { useAdminFollowups } from '../../hooks/useAdminFollowups';
 import IntranetGameTable from './IntranetGameTable';
 
-function IntranetFollowups({ sessionUser }) {
+function IntranetFollowups({ sessionUser, onOpenInDrafts }) {
   const userId = sessionUser?.id ?? '';
   const { entries, error: followupError } = useAdminFollowups(userId);
   const [games, setGames] = useState([]);
@@ -79,7 +79,12 @@ function IntranetFollowups({ sessionUser }) {
       ) : null}
 
       {!loading && games.length > 0 ? (
-        <IntranetGameTable games={games} sessionUser={sessionUser} onGamePatch={handlePatch} />
+        <IntranetGameTable
+          games={games}
+          sessionUser={sessionUser}
+          onGamePatch={handlePatch}
+          onOpenInDrafts={onOpenInDrafts}
+        />
       ) : null}
 
       {!loading && missing.length > 0 ? (

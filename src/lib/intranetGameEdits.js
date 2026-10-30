@@ -5,6 +5,7 @@ import {
   GAME_FK,
   GAME_I18N,
   GAME_PK,
+  GAME_PLATFORM_ID,
   GAME_STRUCT,
   GAME_TYPE,
   GUIDE_I18N,
@@ -26,7 +27,8 @@ import {
   removeGameFromWiedervorlage,
 } from './guidePublication';
 import { normalizeLocale } from './locale';
-import { mergeLocalizedValue } from './translationUtils';
+import { localizeJsonField, mergeLocalizedValue } from './translationUtils';
+import { getPlatformGameId } from './gameModel';
 import { normalizeTrophyVideoInput, getYouTubeVideoId } from '../utils/videoUrl';
 
 /** Pipeline-Schlüssel, die einen vorhandenen Guide markieren und mit ihm wegfallen. */
@@ -146,12 +148,12 @@ async function recountTrophyFlagTotals(supabase, game) {
 }
 
 /**
- * Online und Verpassbar einer Trophäe. Versteckt bleibt Sony-Bestand.
- * Zählt danach die Spiel-Summen neu, damit die Übersicht mitzieht.
+ * Online, Verpassbar, Sammelobjekt und Story einer Trophäe. Versteckt bleibt Sony-Bestand.
+ * Zählt danach die Spiel-Summen (Online/Verpassbar) neu, damit die Übersicht mitzieht.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
  * @param {string} achievementId
- * @param {{ is_online?: boolean, is_missable?: boolean }} flags
+ * @param {{ is_online?: boolean, is_missable?: boolean, is_collectible?: boolean, is_story_related?: boolean }} flags
  */
 export async function setAchievementFlags(supabase, gameId, achievementId, flags) {
   const game = String(gameId ?? '').trim();
@@ -161,6 +163,12 @@ export async function setAchievementFlags(supabase, gameId, achievementId, flags
   const patch = {};
   if (typeof flags?.is_online === 'boolean') patch[ACHIEVEMENT_STRUCT.isOnline] = flags.is_online;
   if (typeof flags?.is_missable === 'boolean') patch[ACHIEVEMENT_STRUCT.isMissable] = flags.is_missable;
+  if (typeof flags?.is_collectible === 'boolean') {
+    patch[ACHIEVEMENT_STRUCT.isCollectible] = flags.is_collectible;
+  }
+  if (typeof flags?.is_story_related === 'boolean') {
+    patch[ACHIEVEMENT_STRUCT.isStoryRelated] = flags.is_story_related;
+  }
   if (!Object.keys(patch).length) return { totals: null, error: new Error('Keine Trophäen-Art gewählt.') };
 
   const { error: writeError } = await supabase
@@ -468,6 +476,200 @@ export async function discardIntranetGuide(supabase, gameId) {
 
   if (error) return { status: null, error };
   return { status: parseStatusMap(data?.[GAME_STRUCT.status] ?? nextStatus), error: null };
+}
+
+const PULL_BACK_PAGE = 1000;
+const PULL_BACK_INSERT_CHUNK = 500;
+const PULL_BACK_CREATOR_FALLBACK = 'Redaktion (Re-Import)';
+
+/** Erste Zahl aus einem Text (guide_id „12“, trophy_id „trophy_7“) als Integer, sonst null. */
+function firstInteger(value) {
+  const match = String(value ?? '').match(/\d+/);
+  if (!match) return null;
+  const n = Number.parseInt(match[0], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Statusmappe nach dem Zurückholen in die Entwürfe:
+ * guide_* mit PUBLISHED/READY → FERTIG, publish_status → FERTIG. Übrige Pipeline-Keys bleiben.
+ * @param {unknown} currentStatus
+ */
+export function statusAfterPullBackToDrafts(currentStatus) {
+  const statusMap = { ...parseStatusMap(currentStatus) };
+  for (const [key, value] of Object.entries(statusMap)) {
+    if (!key.startsWith('guide_')) continue;
+    const upper = String(value ?? '').trim().toUpperCase();
+    if (upper === GUIDE_PUBLICATION.PUBLISHED || upper === 'READY') {
+      statusMap[key] = GUIDE_PUBLICATION.DONE;
+    }
+  }
+  statusMap.publish_status = GUIDE_PUBLICATION.DONE;
+  return statusMap;
+}
+
+/**
+ * Holt ein (veröffentlichtes) Spiel zurück in die Entwürfe (staging_game_guides).
+ *
+ * Reihenfolge ist durch den DB-Trigger `trg_protect_published_guides` vorgegeben:
+ * Solange `games.is_guide_locked = true`, `fortschritt = 'PUBLISHED'`,
+ * `status.publish_status = 'PUBLISHED'` oder `publishing_status` ein PUBLISHED enthält,
+ * blockiert die DB DELETE/UPDATE auf `game_guides`. Deshalb wird zuerst `games`
+ * entsperrt, dann nach Staging kopiert und erst zuletzt aus `game_guides` gelöscht.
+ *
+ * game_guides (jsonb-Sprachmaps) → staging_game_guides (flache text/integer-Spalten):
+ * `item_name`, `chronological_group`, `category_group`, `boss_group`, `video_chapter`
+ * werden über `localizeJsonField(value, lang, 'en')` aufgelöst; `guide_id`/`trophy_id`
+ * werden zu Integern. 0 Guide-Zeilen (Regel 0: valide) → 1 Platzhalter-Zeile, damit das
+ * Spiel in IntranetDrafts in der Queue auftaucht.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId games.id (UUID)
+ * @param {string} [lang='de'] Sprache, aus der die flachen Staging-Texte gezogen werden
+ * @returns {Promise<{ ok: boolean, status: Record<string, unknown>|null, stagedCount: number, error: Error|null }>}
+ */
+export async function pullGameBackToDrafts(supabase, gameId, lang = 'de') {
+  const id = String(gameId ?? '').trim();
+  const fail = (error) => ({ ok: false, status: null, stagedCount: 0, error });
+  if (!id) return fail(new Error('Kein Spiel ausgewählt.'));
+  const locale = normalizeLocale(lang) || 'de';
+
+  // 1. Spiel lesen
+  const { data: game, error: gameError } = await supabase
+    .from(TABLES.games)
+    .select(
+      `${GAME_PK}, ${GAME_PLATFORM_ID}, ${GAME_I18N.title}, ${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}, ${GAME_STRUCT.progress}, ${GAME_STRUCT.isGuideLocked}`,
+    )
+    .eq(GAME_PK, id)
+    .maybeSingle();
+  if (gameError) return fail(gameError);
+  if (!game) return fail(new Error('Spiel nicht gefunden.'));
+
+  // 2. Bestehende game_guides-Zeilen (paginiert, 1.000er-Limit) + Creator auflösen
+  const guideRows = [];
+  for (let from = 0; ; from += PULL_BACK_PAGE) {
+    const { data, error } = await supabase
+      .from(TABLES.guides)
+      .select('*')
+      .eq(GAME_FK, id)
+      .order(GUIDE_PK, { ascending: true })
+      .range(from, from + PULL_BACK_PAGE - 1);
+    if (error) return fail(error);
+    guideRows.push(...(data ?? []));
+    if ((data ?? []).length < PULL_BACK_PAGE) break;
+  }
+  guideRows.sort(
+    (a, b) =>
+      (firstInteger(a[GUIDE_STRUCT.guideId]) ?? Number.MAX_SAFE_INTEGER) -
+      (firstInteger(b[GUIDE_STRUCT.guideId]) ?? Number.MAX_SAFE_INTEGER),
+  );
+
+  const creatorIds = [
+    ...new Set(guideRows.map((row) => String(row[GUIDE_STRUCT.creatorId] ?? '').trim()).filter(Boolean)),
+  ];
+  const creatorsById = new Map();
+  if (creatorIds.length) {
+    const { data: creators, error: creatorError } = await supabase
+      .from(TABLES.contentCreators)
+      .select('id, channel_name, youtube_url')
+      .in('id', creatorIds);
+    if (creatorError) return fail(creatorError);
+    for (const creator of creators ?? []) creatorsById.set(String(creator.id), creator);
+  }
+
+  // 3. games entsperren (sonst blockiert trg_protect_published_guides das DELETE)
+  const nextStatus = statusAfterPullBackToDrafts(game[GAME_STRUCT.status]);
+  const unlockPatch = {
+    [GAME_STRUCT.isGuideLocked]: false,
+    [GAME_STRUCT.status]: nextStatus,
+    [GAME_STRUCT.publishingStatus]: {},
+    [GAME_STRUCT.publishedLocales]: [],
+  };
+  if (String(game[GAME_STRUCT.progress] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.PUBLISHED) {
+    unlockPatch[GAME_STRUCT.progress] = GUIDE_PUBLICATION.DONE;
+  }
+  const { error: unlockError } = await supabase
+    .from(TABLES.games)
+    .update(unlockPatch)
+    .eq(GAME_PK, id);
+  if (unlockError) return fail(unlockError);
+
+  // 4. game_guides → flaches staging_game_guides-Schema
+  // staging.platform_game_id ist NOT NULL – zur Not leerer String statt Insert-Fehler.
+  const fallbackPlatformId = getPlatformGameId(game) || '';
+  const flat = (value) => String(localizeJsonField(value, locale, 'en') ?? '').trim();
+  const stagingRows = guideRows.map((row, index) => {
+    const creator = creatorsById.get(String(row[GUIDE_STRUCT.creatorId] ?? ''));
+    const trophyId = firstInteger(row[GUIDE_STRUCT.trophyId]);
+    return {
+      [GAME_FK]: id,
+      [GUIDE_STRUCT.platformGameId]: row[GUIDE_STRUCT.platformGameId] || fallbackPlatformId,
+      [GUIDE_I18N.localisation]: flat(row[GUIDE_I18N.localisation]) || null,
+      [GUIDE_STRUCT.creatorId]: row[GUIDE_STRUCT.creatorId] || null,
+      creator_name: creator?.channel_name || PULL_BACK_CREATOR_FALLBACK,
+      creator_input_url: creator?.youtube_url || row[GUIDE_STRUCT.videoUrl] || null,
+      [GUIDE_STRUCT.guideId]: firstInteger(row[GUIDE_STRUCT.guideId]) ?? index + 1,
+      [GUIDE_I18N.itemName]: flat(row[GUIDE_I18N.itemName]) || `Schritt ${index + 1}`,
+      // NOT NULL in Staging (Default 'Walkthrough'); Tab-2/3-Zeilen tragen zusätzlich category/boss.
+      [GUIDE_I18N.chronologicalGroup]: flat(row[GUIDE_I18N.chronologicalGroup]) || 'Walkthrough',
+      [GUIDE_I18N.categoryGroup]: flat(row[GUIDE_I18N.categoryGroup]) || null,
+      [GUIDE_I18N.bossGroup]: flat(row[GUIDE_I18N.bossGroup]) || null,
+      // video_chapter (Videotitel) und video_url sind in Staging NOT NULL ohne Default.
+      [GUIDE_I18N.videoChapter]: flat(row[GUIDE_I18N.videoChapter]) || '',
+      [GUIDE_STRUCT.timestamp]: row[GUIDE_STRUCT.timestamp] || '00:00',
+      [GUIDE_STRUCT.videoUrl]: row[GUIDE_STRUCT.videoUrl] || '',
+      [GUIDE_STRUCT.trophyId]: trophyId,
+      [GUIDE_STRUCT.isTrophyRelevant]:
+        row[GUIDE_STRUCT.isTrophyRelevant] || (trophyId != null ? 'Ja' : 'Nein'),
+    };
+  });
+
+  // Sonderfall 0-Row-Guide: Platzhalter, damit das Spiel in der Entwürfe-Queue erscheint
+  if (stagingRows.length === 0) {
+    stagingRows.push({
+      [GAME_FK]: id,
+      [GUIDE_STRUCT.platformGameId]: fallbackPlatformId,
+      [GUIDE_I18N.localisation]: null,
+      [GUIDE_STRUCT.creatorId]: null,
+      creator_name: 'Redaktion',
+      creator_input_url: null,
+      [GUIDE_STRUCT.guideId]: 1,
+      [GUIDE_I18N.itemName]: 'Überarbeitung / Start',
+      [GUIDE_I18N.chronologicalGroup]: 'Walkthrough',
+      [GUIDE_I18N.categoryGroup]: null,
+      [GUIDE_I18N.bossGroup]: null,
+      [GUIDE_I18N.videoChapter]: '',
+      [GUIDE_STRUCT.timestamp]: '00:00',
+      [GUIDE_STRUCT.videoUrl]: '',
+      [GUIDE_STRUCT.trophyId]: null,
+      [GUIDE_STRUCT.isTrophyRelevant]: 'Nein',
+    });
+  }
+
+  // 5. Duplikate vermeiden: alte Staging-Zeilen dieses Spiels raus, neue rein
+  const { error: stagingDeleteError } = await supabase
+    .from(TABLES.stagingGuides)
+    .delete()
+    .eq(GAME_FK, id);
+  if (stagingDeleteError) return fail(stagingDeleteError);
+
+  for (let index = 0; index < stagingRows.length; index += PULL_BACK_INSERT_CHUNK) {
+    const chunk = stagingRows.slice(index, index + PULL_BACK_INSERT_CHUNK);
+    const { error: insertError } = await supabase.from(TABLES.stagingGuides).insert(chunk);
+    if (insertError) return fail(insertError);
+  }
+
+  // 6. Produktive Zeilen löschen (jetzt entsperrt)
+  if (guideRows.length > 0) {
+    const { error: deleteError } = await supabase
+      .from(TABLES.guides)
+      .delete()
+      .eq(GAME_FK, id);
+    if (deleteError) return fail(deleteError);
+  }
+
+  // 7.
+  return { ok: true, status: nextStatus, stagedCount: stagingRows.length, error: null };
 }
 
 /**

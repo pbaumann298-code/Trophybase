@@ -61,7 +61,7 @@ function Field({ id, label, value, onChange, placeholder = '', type = 'text', di
   );
 }
 
-function IntranetGameSearch({ sessionUser }) {
+function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
   const initial = useMemo(() => readIntranetGameSearchState(), []);
   const [filters, setFilters] = useState(() => mergeSavedFilters(initial?.filters));
   const [results, setResults] = useState(() => (
@@ -364,6 +364,7 @@ function IntranetGameSearch({ sessionUser }) {
           games={results}
           sessionUser={sessionUser}
           onGamePatch={handleGamePatch}
+          onOpenInDrafts={onOpenInDrafts}
         />
       )}
 

@@ -13,12 +13,15 @@ import ScriptsPanel from '../components/admin/ScriptsPanel';
 import WebsitePanel from '../components/admin/WebsitePanel';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetDrafts from '../components/intranet/IntranetDrafts';
+import IntranetRadarAndServertot from '../components/intranet/IntranetRadarAndServertot';
 import IntranetRoadmap from '../components/intranet/IntranetRoadmap';
 
 const TABS = [
   { id: 'website', label: 'Website', icon: '🌐' },
   { id: 'database', label: 'Datenbank', icon: '🗄' },
   { id: 'entwuerfe', label: 'Entwürfe', icon: '📝' },
+  { id: 'd_freigabe', label: 'D-Freigabe (Radar)', icon: '⚡' },
+  { id: 'servertot_qa', label: 'Servertot-Prüfung', icon: '💀' },
   { id: 'roadmap', label: 'Roadmap & Ideen', icon: '🗺️' },
   { id: 'reports', label: 'Community Reports', icon: '⚑' },
   { id: 'scripts', label: 'Skripte', icon: '⚙️' },
@@ -35,6 +38,13 @@ function AdminApp() {
     const saved = readAdminTab('database');
     return TAB_IDS.has(saved) ? saved : 'database';
   });
+  // „🚀 Entwürfe + Follow“: Spiel, das der Entwürfe-Tab beim Öffnen vorauswählen soll.
+  const [draftTargetGameId, setDraftTargetGameId] = useState(null);
+
+  const openInDrafts = (gameId) => {
+    setDraftTargetGameId(gameId || null);
+    setActiveTab('entwuerfe');
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -166,8 +176,26 @@ function AdminApp() {
         {/* Nur hinter dem Admin-Login sichtbar (isAdminUser-Guard oben). */}
         <AdminPipelineLawNotice />
         {activeTab === 'website' && <WebsitePanel />}
-        {activeTab === 'database' && <IntranetGameSearch sessionUser={sessionUser} />}
-        {activeTab === 'entwuerfe' && <IntranetDrafts />}
+        {activeTab === 'database' && (
+          <IntranetGameSearch sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
+        )}
+        {activeTab === 'entwuerfe' && (
+          <IntranetDrafts initialDataSource="staging" initialGameId={draftTargetGameId} />
+        )}
+        {activeTab === 'd_freigabe' && (
+          <IntranetRadarAndServertot
+            mode="d_freigabe"
+            sessionUser={sessionUser}
+            onOpenInDrafts={openInDrafts}
+          />
+        )}
+        {activeTab === 'servertot_qa' && (
+          <IntranetRadarAndServertot
+            mode="servertot"
+            sessionUser={sessionUser}
+            onOpenInDrafts={openInDrafts}
+          />
+        )}
         {activeTab === 'roadmap' && <IntranetRoadmap />}
         {activeTab === 'reports' && <CommunityReportsPanel />}
         {activeTab === 'scripts' && <ScriptsPanel />}

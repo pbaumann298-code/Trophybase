@@ -15,6 +15,8 @@ export const TABLES = {
    * Siehe game_guides_rohmaterial – gleiche Guide-Spalten plus batch_key/batch_status.
    */
   guidesRohmaterial: 'game_guides_rohmaterial',
+  /** Schnell-Queue / Entwürfe (flache Spalten, siehe SUPABASE_SCHEMA.mdc). */
+  stagingGuides: 'staging_game_guides',
   profiles: 'profiles',
   earnedTrophies: 'user_earned_trophies',
   watchlist: 'user_watchlist',
@@ -69,13 +71,14 @@ export const GAME_STRUCT = {
   /** IGDB-Publisher, getrennt vom Hauptstudio */
   publisher: 'publisher',
   gameType: 'spiel_typ',
+  /** Redaktionelle Guide-Kategorie S/A/B/C/D (D = Radar-only, ohne Video-Guide). */
+  guideTyp: 'guide_typ',
   progress: 'fortschritt',
   status: 'status',
   /** Nur die freigegebenen Sprachen, z. B. { de: 'PUBLISHED', en: 'PUBLISHED' }. */
   publishingStatus: 'publishing_status',
   /** Kürzel der freigegebenen Sprachen, z. B. ['de', 'en']. */
   publishedLocales: 'published_locales',
-  serverStatus: 'server_status',
   hasOnlineTrophies: 'has_online_trophies',
   hasMissableTrophies: 'has_missable_trophies',
   totalOnlineTrophies: 'total_online_trophies',
@@ -252,6 +255,7 @@ export const ACHIEVEMENT_STRUCT = {
   isMissable: 'is_missable',
   isOnline: 'is_online',
   isStoryRelated: 'is_story_related',
+  isCollectible: 'is_collectible',
   videoUrl: 'video_url',
   timestamp: 'timestamp',
   isAutoTranslated: 'is_auto_translated',
@@ -412,7 +416,6 @@ export const GAME_FIELDS = {
   developer: 'entwickler',
   publisher: 'publisher',
   status: 'status',
-  serverStatus: 'server_status',
   hasOnlineTrophies: 'has_online_trophies',
   description: 'description',
   statusExplanation: 'status_explanation',

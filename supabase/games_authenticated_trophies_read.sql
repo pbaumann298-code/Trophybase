@@ -61,7 +61,6 @@ begin
       g.spiel_typ,
       g.fortschritt,
       g.status,
-      g.server_status,
       g.has_online_trophies,
       g.has_missable_trophies,
       g.total_online_trophies,

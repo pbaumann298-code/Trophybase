@@ -21,7 +21,6 @@
  * @property {number} [views]
  * @property {string} [fortschritt]
  * @property {string} [status]
- * @property {string} [server_status]
  * @property {boolean} [has_online_trophies]
  * @property {boolean} [has_missable_trophies]
  * @property {number} [total_online_trophies]
