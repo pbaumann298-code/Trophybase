@@ -25,7 +25,6 @@
  * @property {boolean} [has_missable_trophies]
  * @property {number} [total_online_trophies]
  * @property {number} [total_missable_trophies]
- * @property {boolean} [platinum_achievable]
  * @property {number} [anzahl_trophaeen]
  * @property {boolean} [is_sony_fallback]
  * @property {boolean} [is_auto_translated]

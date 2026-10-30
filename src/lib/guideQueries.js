@@ -121,15 +121,28 @@ export async function fetchGuidesForGame(
 
   const targetLang = resolveGuideLanguage(locale, overrideLang);
 
-  const { data, error: queryError } = await supabase
-    .from(TABLES.guides)
-    .select('*')
-    .eq(GAME_FK, uuid)
-    .order(GUIDE_STRUCT.createdAt, { ascending: true, nullsFirst: false });
+  const PAGE_SIZE = 1000;
+  let allRows = [];
+  let from = 0;
 
-  if (queryError) return { data: [], error: queryError };
+  while (true) {
+    const { data: rows, error: queryError } = await supabase
+      .from(TABLES.guides)
+      .select('*')
+      .eq(GAME_FK, uuid)
+      .order(GUIDE_STRUCT.createdAt, { ascending: true, nullsFirst: false })
+      .order(GUIDE_STRUCT.id, { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
 
-  const merged = (data ?? [])
+    if (queryError) return { data: [], error: queryError };
+
+    const chunk = rows ?? [];
+    allRows = allRows.concat(chunk);
+    if (chunk.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  const merged = allRows
     .map((row, index) => mergeGuideRow(row, targetLang, index))
     .filter(Boolean);
 

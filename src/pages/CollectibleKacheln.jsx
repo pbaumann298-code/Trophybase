@@ -20,6 +20,19 @@ function cleanGuideRowId(item) {
   return raw.replace(/^(?:walkthrough|collectible|boss|guide-s\d+)-/, '');
 }
 
+const VIDEO_SIDE_STORAGE_KEY = 'tb_guide_video_side';
+const VIDEO_SIDE_CHANGE_EVENT = 'tb-video-side-change';
+
+function readStoredVideoSide() {
+  if (typeof window === 'undefined' || !window.localStorage) return 'right';
+  try {
+    const val = window.localStorage.getItem(VIDEO_SIDE_STORAGE_KEY);
+    return val === 'left' ? 'left' : 'right';
+  } catch {
+    return 'right';
+  }
+}
+
 function ProductionInlineRowEditor({
   item,
   prodNote,
@@ -455,11 +468,63 @@ function SplitScreenGuideKacheln({
   const [expandedGroups, setExpandedGroups] = useState({});
   const [expandedLocalisations, setExpandedLocalisations] = useState({});
   const [activeVideos, setActiveVideos] = useState({});
+  const [videoSide, setVideoSide] = useState(() => readStoredVideoSide());
   const [productionMode, setProductionMode] = useState(() => Boolean(isAdmin && isDraftMode));
   const [localProdOverrides, setLocalProdOverrides] = useState({});
   /** 'all' | 'open' | 'recorded' | 'linked' */
   const [prodStatusFilter, setProdStatusFilter] = useState('all');
   const [prodTakeQuery, setProdTakeQuery] = useState('');
+
+  useEffect(() => {
+    const handleSideChange = (event) => {
+      const next = event?.detail === 'left' ? 'left' : 'right';
+      setVideoSide(next);
+    };
+    window.addEventListener(VIDEO_SIDE_CHANGE_EVENT, handleSideChange);
+    return () => {
+      window.removeEventListener(VIDEO_SIDE_CHANGE_EVENT, handleSideChange);
+    };
+  }, []);
+
+  const toggleVideoSide = useCallback(() => {
+    setVideoSide((prev) => {
+      const next = prev === 'right' ? 'left' : 'right';
+      try {
+        window.localStorage?.setItem(VIDEO_SIDE_STORAGE_KEY, next);
+      } catch {
+        // ignore storage errors
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(VIDEO_SIDE_CHANGE_EVENT, { detail: next }));
+      }
+      return next;
+    });
+  }, []);
+
+  const renderVideoSideToggleButton = () => (
+    <button
+      type="button"
+      onClick={toggleVideoSide}
+      title="Split-Screen-Anordnung zwischen Items und Video tauschen"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '5px 10px',
+        borderRadius: '8px',
+        fontSize: '11px',
+        fontFamily: 'monospace',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        backgroundColor: '#121314',
+        border: '1px solid #27272a',
+        color: '#e4e4e7',
+        transition: 'border-color 150ms ease, color 150ms ease',
+      }}
+    >
+      {videoSide === 'right' ? '⇄ Items links | Video rechts' : '⇄ Video links | Items rechts'}
+    </button>
+  );
 
   useEffect(() => {
     if (isAdmin && isDraftMode) {
@@ -610,7 +675,7 @@ function SplitScreenGuideKacheln({
     if (!embedUrl) return;
     setActiveVideos((prev) => ({
       ...prev,
-      [groupKey]: { itemId: item.id, embedUrl },
+      [groupKey]: { itemId: item.id, embedUrl, seekKey: Date.now() },
     }));
     notifyVideoStarted();
   };
@@ -669,9 +734,17 @@ function SplitScreenGuideKacheln({
         }
       >
         {!hideGroupHeader && (
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             onClick={() => toggleGroup(group.key)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleGroup(group.key);
+              }
+            }}
+            aria-expanded={isExpanded}
             style={{
               width: '100%',
               display: 'flex',
@@ -753,11 +826,15 @@ function SplitScreenGuideKacheln({
             <span style={{ color: '#71717a', fontSize: '12px' }} aria-hidden>
               {isExpanded ? '▲' : '▼'}
             </span>
-          </button>
+          </div>
         )}
 
         {isExpanded && (
-          <div className="guide-split guide-split--expanded">
+          <div
+            className={`guide-split guide-split--expanded ${
+              videoSide === 'left' ? 'guide-split--video-left' : 'guide-split--video-right'
+            }`}
+          >
             <div className="guide-split__list">
               {groupTipNode}
               <table className="guide-split__table">
@@ -867,6 +944,24 @@ function SplitScreenGuideKacheln({
                                 fontWeight: isActive ? 'bold' : 'normal',
                               }}
                             >
+                              {item.timestamp ? (
+                                <span
+                                  style={{
+                                    fontFamily: 'monospace',
+                                    fontSize: '11px',
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    backgroundColor: isActive ? 'rgba(0, 255, 102, 0.18)' : '#121314',
+                                    border: isActive
+                                      ? '1px solid rgba(0, 255, 102, 0.5)'
+                                      : '1px solid #27272a',
+                                    color: hasVideo ? '#00ff66' : '#a1a1aa',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {hasVideo ? `▶ ${item.timestamp}` : item.timestamp}
+                                </span>
+                              ) : null}
                               {gameId && reportKey ? (
                                 <Reportable
                                   as="span"
@@ -929,7 +1024,7 @@ function SplitScreenGuideKacheln({
               <div className="guide-split__video-inner">
                 {embedUrl ? (
                   <YouTubeEmbed
-                    key={`${group.key}-${activeVideo?.itemId || 'default'}-${embedUrl}`}
+                    key={`${group.key}-${activeVideo?.itemId || 'default'}-${embedUrl}-${activeVideo?.seekKey || 0}`}
                     src={embedUrl}
                     title={activeItem ? getDisplayName(activeItem) : group.name}
                   />
@@ -988,10 +1083,17 @@ function SplitScreenGuideKacheln({
 
     return (
       <div key={section.localisation} className="guide-localisation">
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           className="guide-localisation__header"
           onClick={() => toggleLocalisation(section.localisation)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleLocalisation(section.localisation);
+            }
+          }}
           aria-expanded={isExpanded}
           style={{ opacity: isSectionAllCompleted ? 0.65 : 1 }}
         >
@@ -1056,7 +1158,7 @@ function SplitScreenGuideKacheln({
           <span className="guide-localisation__chevron" aria-hidden>
             {isExpanded ? '▲' : '▼'}
           </span>
-        </button>
+        </div>
 
         {isExpanded && (
           <div className="guide-localisation__body">{section.groups.map(renderGroupBox)}</div>
@@ -1131,6 +1233,7 @@ function SplitScreenGuideKacheln({
                   🎬 Produktions-Modus {productionMode ? 'AN' : 'AUS'}
                 </button>
               )}
+              {renderVideoSideToggleButton()}
               {typeof setHideCompleted === 'function' && (
                 <label
                   style={{
@@ -1161,7 +1264,7 @@ function SplitScreenGuideKacheln({
           </div>
         )}
 
-        {embedInAccordion && (isAdmin || typeof setHideCompleted === 'function') && (
+        {embedInAccordion && (
           <div
             style={{
               display: 'flex',
@@ -1201,32 +1304,35 @@ function SplitScreenGuideKacheln({
                 </button>
               )}
             </div>
-            {typeof setHideCompleted === 'function' && (
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  fontSize: '12px',
-                  color: '#a1a1aa',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={hideCompleted}
-                  onChange={(e) => setHideCompleted(e.target.checked)}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              {renderVideoSideToggleButton()}
+              {typeof setHideCompleted === 'function' && (
+                <label
                   style={{
-                    accentColor: '#00ff66',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '12px',
+                    color: '#a1a1aa',
                     cursor: 'pointer',
-                    width: '16px',
-                    height: '16px',
+                    userSelect: 'none',
                   }}
-                />
-                {t('hideCompleted')}
-              </label>
-            )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={hideCompleted}
+                    onChange={(e) => setHideCompleted(e.target.checked)}
+                    style={{
+                      accentColor: '#00ff66',
+                      cursor: 'pointer',
+                      width: '16px',
+                      height: '16px',
+                    }}
+                  />
+                  {t('hideCompleted')}
+                </label>
+              )}
+            </div>
           </div>
         )}
 

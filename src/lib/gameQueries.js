@@ -34,7 +34,6 @@ export const GAME_SELECT = [
   GAME_STRUCT.hasMissableTrophies,
   GAME_STRUCT.totalOnlineTrophies,
   GAME_STRUCT.totalMissableTrophies,
-  GAME_STRUCT.platinumAchievable,
   GAME_STRUCT.trophyCount,
   GAME_STRUCT.isSonyFallback,
   GAME_STRUCT.isAutoTranslated,
@@ -47,6 +46,8 @@ export const GAME_SELECT = [
   GAME_I18N.coverUrl,
   GAME_I18N.description,
   GAME_I18N.statusExplanation,
+  'spielzeit_hauptstory',
+  'spielzeit_komplettierer',
   GAME_STRUCT.radarProfile,
 ].join(', ');
 

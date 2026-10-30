@@ -141,8 +141,17 @@ function GamePageContent({
   const [coverError, setCoverError] = useState('');
   const [igdbPrompt, setIgdbPrompt] = useState(false);
   const [igdbLink, setIgdbLink] = useState('');
-  const [playtime, setPlaytime] = useState(null);
-  const [radarProfileData, setRadarProfileData] = useState(null);
+  const [playtime, setPlaytime] = useState(() =>
+    selectedGame && selectedGame.spielzeit_hauptstory !== undefined
+      ? {
+          hauptstory: selectedGame.spielzeit_hauptstory ?? null,
+          komplett: selectedGame.spielzeit_komplettierer ?? null,
+        }
+      : null,
+  );
+  const [radarProfileData, setRadarProfileData] = useState(
+    () => selectedGame?.radar_profile ?? null,
+  );
   const [descriptionOverrides, setDescriptionOverrides] = useState({});
   const [quickGuideOpen, setQuickGuideOpen] = useState(false);
   const [guideReloadToken, setGuideReloadToken] = useState(0);
@@ -220,6 +229,13 @@ function GamePageContent({
   }, [creatorGameId]);
 
   useEffect(() => {
+    // App.jsx lädt guideItems, chapterItems, bossItems und activeTrophies bereits beim Öffnen.
+    // Hier nur nachladen, wenn der Admin/User die Guide-Sprache explizit überschreibt
+    // oder ein Reload nach dem Speichern angefordert wurde.
+    if (guideLanguageOverride === null && guideReloadToken === 0) {
+      return undefined;
+    }
+
     let cancelled = false;
 
     async function loadGuideBundle() {
@@ -560,6 +576,14 @@ function GamePageContent({
       setRadarProfileData(null);
       return undefined;
     }
+    if (selectedGame?.spielzeit_hauptstory !== undefined) {
+      setPlaytime({
+        hauptstory: selectedGame.spielzeit_hauptstory ?? null,
+        komplett: selectedGame.spielzeit_komplettierer ?? null,
+      });
+      setRadarProfileData(selectedGame.radar_profile ?? null);
+      return undefined;
+    }
     let cancelled = false;
     supabase
       .from('games')
@@ -593,7 +617,12 @@ function GamePageContent({
     return () => {
       cancelled = true;
     };
-  }, [gameUuid]);
+  }, [
+    gameUuid,
+    selectedGame?.spielzeit_hauptstory,
+    selectedGame?.spielzeit_komplettierer,
+    selectedGame?.radar_profile,
+  ]);
 
   useEffect(() => {
     let cancelled = false;

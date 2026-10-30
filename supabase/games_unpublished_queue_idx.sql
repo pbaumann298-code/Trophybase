@@ -12,13 +12,13 @@ create index if not exists games_unpublished_by_id_idx
 
 create index if not exists games_servertot_candidates_idx
   on public.games (id)
-  where (spiel_typ ilike '%Servertot%' or platinum_achievable is false or total_online_trophies > 0);
+  where (spiel_typ ilike '%Servertot%' or total_online_trophies > 0);
 
 create index if not exists games_servertot_unpub_queue_idx
   on public.games (id)
   where (
     published_locales = '[]'::jsonb
-    and (spiel_typ ilike '%Servertot%' or platinum_achievable is false or total_online_trophies > 0)
+    and (spiel_typ ilike '%Servertot%' or total_online_trophies > 0)
   );
 
 create index if not exists games_d_freigabe_candidates_idx

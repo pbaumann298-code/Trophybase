@@ -85,7 +85,6 @@ export const GAME_STRUCT = {
   hasMissableTrophies: 'has_missable_trophies',
   totalOnlineTrophies: 'total_online_trophies',
   totalMissableTrophies: 'total_missable_trophies',
-  platinumAchievable: 'platinum_achievable',
   trophyCount: 'anzahl_trophaeen',
   isSonyFallback: 'is_sony_fallback',
   isAutoTranslated: 'is_auto_translated',

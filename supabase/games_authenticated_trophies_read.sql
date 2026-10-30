@@ -65,7 +65,6 @@ begin
       g.has_missable_trophies,
       g.total_online_trophies,
       g.total_missable_trophies,
-      g.platinum_achievable,
       g.anzahl_trophaeen,
       g.is_sony_fallback,
       g.is_auto_translated,
@@ -77,7 +76,10 @@ begin
       g.spieltitel,
       g.cover_url,
       g.beschreibung,
-      g.status_explanation_localized
+      g.status_explanation_localized,
+      g.spielzeit_hauptstory,
+      g.spielzeit_komplettierer,
+      g.radar_profile
     from public.games g
     where
       coalesce(g.spiel_typ, '') is distinct from 'Servertot'

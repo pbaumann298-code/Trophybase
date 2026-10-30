@@ -20,6 +20,8 @@ import {
 import { intranetGameHref } from '../../lib/intranetQueries';
 import {
   clearGameGuideTips,
+  fixGameCover,
+  markGameCoverValid,
   pullGameBackToDrafts,
   saveGamePlaytime,
   saveTrophyGuideTip,
@@ -27,6 +29,15 @@ import {
   setAchievementsOnline,
   setIntranetGameType,
 } from '../../lib/intranetGameEdits';
+import {
+  deleteCommunityReport,
+  fetchCommunityReports,
+  formatReportDisplayKey,
+  formatReportGameTitle,
+  formatReportNpwr,
+  setReportStatus,
+} from '../../lib/communityReportAdmin';
+import { parseReportImageUrls } from '../../lib/errorReport';
 import { LocaleProvider } from '../../context/LocaleContext';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import AdminHardwareSelect from '../AdminHardwareSelect';
@@ -39,9 +50,9 @@ import TrophyTypeIcon from '../TrophyTypeIcon';
  *
  * mode="d_freigabe": unveröffentlichte Spiele mit guide_typ = D (alle Spieltypen außer Unlesbar)
  *   sowie Quickwin/easy_platin-Spiele mit guide_typ = C. Freigabe = Radar + Trophäenliste live.
- * mode="servertot": Spiele der spiel_typ-Kategorie „Servertot“ (Standard-Pill). Zusätzliche Kandidaten-Pills
- *   (Platin unmöglich, Online-Trophäen) helfen, noch nicht kategorisierte Spiele zu finden.
- *   Freigabe stellt Servertot-Typ + platinum_achievable=false sicher.
+ * mode="servertot": Spiele der spiel_typ-Kategorie „Servertot“ (Standard-Pill). Zusätzliche Kandidaten-Pill
+ *   (Online-Trophäen) hilft, noch nicht kategorisierte Spiele zu finden.
+ *   Freigabe stellt den Servertot-Typ sicher.
  *
  * Datenregeln (SUPABASE_SCHEMA.mdc): `games`/`game_achievements` werden mit `.range()` paginiert;
  * „unveröffentlicht“ = `!hasPublishedGuide(game)` (published_locales leer), zusätzlich clientseitig
@@ -61,8 +72,11 @@ const GAME_LIST_COLUMNS = [
   'platform_game_id',
   'spieltitel',
   'cover_url',
+  'cover_status',
+  'cover_notes',
   'slug',
   'hardware',
+  'ecosystem',
   'spiel_typ',
   'guide_typ',
   'fortschritt',
@@ -70,7 +84,6 @@ const GAME_LIST_COLUMNS = [
   'publishing_status',
   'published_locales',
   'is_indexable',
-  'platinum_achievable',
   'anzahl_trophaeen',
   'total_online_trophies',
   'total_missable_trophies',
@@ -80,6 +93,27 @@ const GAME_LIST_COLUMNS = [
   'publisher',
   'entwickler',
 ].join(', ');
+
+const SICKBAY_COVER_COLUMNS = [
+  'id',
+  'slug',
+  'spieltitel',
+  'display_title',
+  'ecosystem',
+  'hardware',
+  'spiel_typ',
+  'cover_url',
+  'extracted_cover_url',
+  'cover_status',
+  'cover_notes',
+  'computed_error_reason',
+].join(', ');
+
+const SICKBAY_TABS = [
+  { id: 'servertot', label: 'Servertot', icon: '💀' },
+  { id: 'covers', label: 'Cover-Fehler', icon: '🖼️' },
+  { id: 'reports', label: 'Fehlermeldungen', icon: '⚑' },
+];
 
 /** Schwere jsonb-Felder, erst beim Auswählen eines Spiels nachgeladen. */
 const GAME_DETAIL_COLUMNS = [GAME_PK, 'radar_profile', 'status_explanation_localized'].join(', ');
@@ -120,17 +154,12 @@ const MODES = {
     publishLabel: '✅ Freigeben (Ohne Video live schalten)',
   },
   servertot: {
-    title: 'Servertot-Prüfung',
+    title: 'Krankenstation',
     subtitle:
-      'Spiele der Kategorie spiel_typ = Servertot (wie Quickwin, Evergreen …) prüfen und auf den Servertot-Hub schalten. Die weiteren Pills sind nur Suchhilfen für noch nicht kategorisierte Kandidaten.',
+      'Zentrale Prüf- & Reparaturstation: Servertot-Spiele freigeben, fehlerhafte/fehlende Cover (v_sickbay_covers) reparieren und Community-Fehlermeldungen abarbeiten.',
     defaultPill: 'typ',
     pills: [
       { id: 'typ', label: 'spiel_typ = Servertot', test: (game) => hasType(game, GAME_TYPE.SERVER_DEAD) },
-      {
-        id: 'plat',
-        label: 'Kandidat: Platin unmöglich',
-        test: (game) => game.platinum_achievable === false && !hasType(game, GAME_TYPE.SERVER_DEAD),
-      },
       {
         id: 'online',
         label: 'Kandidat: Online-Trophäen',
@@ -154,6 +183,40 @@ function pickText(value) {
   if (en) return en;
   const first = Object.values(value).find((entry) => String(entry ?? '').trim());
   return first ? String(first).trim() : '';
+}
+
+/**
+ * Liest das Cover-Bild gemäß Spezifikation aus:
+ * `extracted_cover_url` (in v_sickbay_covers) bzw. `cover_url.de || cover_url.en`.
+ */
+function extractGameCoverUrl(game) {
+  if (!game || typeof game !== 'object') return '';
+  const extracted = String(game.extracted_cover_url ?? '').trim();
+  if (extracted) return extracted;
+  const raw = game.cover_url;
+  if (!raw) return '';
+  if (typeof raw === 'string') return raw.trim();
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const de = String(raw.de ?? '').trim();
+    if (de) return de;
+    const en = String(raw.en ?? '').trim();
+    if (en) return en;
+  }
+  return '';
+}
+
+/**
+ * 1-Click Google Images Such-URL für ein Spiel-Cover.
+ */
+function buildGoogleImagesCoverUrl(game) {
+  const title =
+    game?.spieltitel?.de ||
+    game?.spieltitel?.en ||
+    game?.display_title ||
+    pickText(game?.spieltitel) ||
+    '';
+  const query = `${title} ${game?.hardware || ''} cover igdb`.trim();
+  return `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(query)}`;
 }
 
 /** Liest gezielt den Guide-Tipp für die Zielsprache (z. B. de), damit gelöschte Tipps nicht auf en zurückfallen. */
@@ -244,7 +307,6 @@ function matchesMode(mode, game, { includePublished = false } = {}) {
   }
   return (
     hasType(game, GAME_TYPE.SERVER_DEAD) ||
-    game.platinum_achievable === false ||
     Number(game.total_online_trophies ?? 0) > 0
   );
 }
@@ -257,7 +319,7 @@ function applyModeFilter(mode, query) {
       .or('spiel_typ.is.null,spiel_typ.not.ilike.*Unlesbar*');
   }
   return query.or(
-    'spiel_typ.ilike.*Servertot*,platinum_achievable.is.false,total_online_trophies.gt.0',
+    'spiel_typ.ilike.*Servertot*,total_online_trophies.gt.0',
   );
 }
 
@@ -315,6 +377,238 @@ async function fetchAchievements(gameId) {
   }
   rows.sort((a, b) => collator.compare(String(a[ACHIEVEMENT_PK] ?? ''), String(b[ACHIEVEMENT_PK] ?? '')));
   return { rows, error: null };
+}
+
+/**
+ * Lädt paginiert alle Zeilen aus der View `v_sickbay_covers` (PostgREST 1.000-Zeilen-Limit).
+ */
+async function fetchSickbayCovers() {
+  const rows = [];
+  for (let from = 0; from < MAX_QUEUE_ROWS; from += PAGE) {
+    const { data, error } = await supabase
+      .from(TABLES.sickbayCovers)
+      .select(SICKBAY_COVER_COLUMNS)
+      .order(GAME_PK, { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) return { rows: [], error };
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < PAGE) break;
+  }
+  rows.sort((a, b) =>
+    collator.compare(
+      String(a.display_title || pickText(a.spieltitel) || ''),
+      String(b.display_title || pickText(b.spieltitel) || ''),
+    ),
+  );
+  return { rows, error: null };
+}
+
+/**
+ * Anklickbares Cover-Element nach Vorbild von @GameDetailPage für alle 3 Krankenstation-Tabs.
+ * Liest das Bild aus `cover_url.de || cover_url.en` (bzw. `extracted_cover_url`).
+ * Wenn kein Bild vorhanden ist (`null` oder `{}`), zeigt es die anklickbare Platzhalter-Kachel
+ * „Kein Cover – Klicken“.
+ */
+function SickbayCoverThumb({ game, onOpenEdit, size = 'sm' }) {
+  const coverUrl = extractGameCoverUrl(game);
+  const canEdit = Boolean(game?.id && onOpenEdit);
+
+  const dims =
+    size === 'lg'
+      ? 'h-28 w-21'
+      : size === 'md'
+        ? 'h-20 w-15'
+        : 'h-14 w-11';
+
+  const handleClick = (event) => {
+    if (!canEdit) return;
+    event.stopPropagation();
+    event.preventDefault();
+    onOpenEdit(game);
+  };
+
+  if (coverUrl) {
+    return (
+      <div
+        role={canEdit ? 'button' : undefined}
+        tabIndex={canEdit ? 0 : undefined}
+        onClick={handleClick}
+        onKeyDown={(event) => {
+          if (canEdit && (event.key === 'Enter' || event.key === ' ')) {
+            handleClick(event);
+          }
+        }}
+        title={canEdit ? 'Cover anklicken zum Ändern (IGDB / Bild-URL)' : undefined}
+        className={`group relative ${dims} flex-none overflow-hidden rounded-lg border border-zinc-800 bg-[#121314] shadow ${
+          canEdit ? 'cursor-pointer hover:border-[#00ff66]/60' : ''
+        }`}
+      >
+        <img
+          src={coverUrl}
+          alt=""
+          loading="lazy"
+          className="h-full w-full object-cover transition group-hover:opacity-80"
+        />
+        {canEdit ? (
+          <span className=" absolute inset-0 flex items-center justify-center bg-black/70 px-1 text-center font-mono text-[8px] font-bold uppercase leading-tight tracking-wider text-[#00ff66] opacity-0 transition group-hover:opacity-100">
+            Cover ändern
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      role={canEdit ? 'button' : undefined}
+      tabIndex={canEdit ? 0 : undefined}
+      onClick={handleClick}
+      onKeyDown={(event) => {
+        if (canEdit && (event.key === 'Enter' || event.key === ' ')) {
+          handleClick(event);
+        }
+      }}
+      title={canEdit ? 'Kein Cover vorhanden – Klicken zum Setzen' : 'Kein Cover vorhanden'}
+      className={`${dims} flex flex-none items-center justify-center rounded-lg border border-dashed border-amber-500/40 bg-[#121314] px-1 text-center font-mono text-[8px] font-bold uppercase leading-tight tracking-wider text-amber-300 transition ${
+        canEdit ? 'cursor-pointer hover:border-[#00ff66] hover:bg-[#00ff66]/10 hover:text-[#00ff66]' : ' opacity-60'
+      }`}
+    >
+      Kein Cover – Klicken
+    </div>
+  );
+}
+
+/**
+ * Direkt-Edit-Dialog für das Spiel-Cover (analog zu @GameDetailPage).
+ * Speichert über `admin_fix_game_cover` bzw. direktes `games`-Update (`cover_url`, `cover_status='valid'`, `cover_notes=null`).
+ */
+function CoverEditModal({ game, onClose, onSaved }) {
+  const [urlInput, setUrlInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  if (!game) return null;
+
+  const title =
+    game.display_title ||
+    game.spieltitel?.de ||
+    game.spieltitel?.en ||
+    pickText(game.spieltitel) ||
+    'Unbenanntes Spiel';
+  const currentCover = extractGameCoverUrl(game);
+  const googleSearchUrl = buildGoogleImagesCoverUrl(game);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!urlInput.trim() || saving) return;
+
+    setSaving(true);
+    setErrorMsg('');
+    const { coverUrl, coverMap, error } = await fixGameCover(
+      supabase,
+      game.id,
+      urlInput,
+      game.cover_url,
+    );
+    setSaving(false);
+
+    if (error) {
+      setErrorMsg(error.message || 'Cover konnte nicht gespeichert werden.');
+      return;
+    }
+
+    onSaved?.(game.id, coverUrl, coverMap);
+    onClose?.();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="sickbay-cover-modal-title"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={handleSubmit}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border border-zinc-700 bg-[#1a1b1c] p-5 shadow-2xl"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id="sickbay-cover-modal-title" className="text-sm font-bold text-white">
+              Cover direkt setzen / ändern
+            </h2>
+            <p className="mt-0.5 truncate text-xs text-zinc-400" title={title}>
+              {title} {game.hardware ? `· ${game.hardware}` : ''}
+            </p>
+          </div>
+          <a
+            href={googleSearchUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-sky-300 hover:bg-sky-500/20"
+          >
+            🔍 Bild suchen
+          </a>
+        </div>
+
+        {currentCover ? (
+          <div className="mt-3 flex items-center gap-3 rounded-xl border border-zinc-800 bg-[#121314] p-2">
+            <img src={currentCover} alt="" className="h-16 w-12 rounded object-cover" />
+            <div className="min-w-0 flex-1">
+              <p className="font-mono text-[10px] uppercase text-zinc-500">Aktuelles Cover</p>
+              <p className="truncate font-mono text-[11px] text-zinc-300">{currentCover}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 px-3 py-2 font-mono text-[11px] text-amber-300">
+            Aktuell kein Cover vorhanden (NULL / &#123;&#125;)
+          </p>
+        )}
+
+        <p className="mt-3 text-xs leading-relaxed text-zinc-400">
+          Bildlink (z. B. von <code className="text-zinc-300">images.igdb.com</code>) einfügen. Setzt{' '}
+          <code className="text-zinc-300">cover_url.de</code> &amp;{' '}
+          <code className="text-zinc-300">cover_url.en</code>, markiert{' '}
+          <code className="text-zinc-300">cover_status = &apos;valid&apos;</code> und leert{' '}
+          <code className="text-zinc-300">cover_notes</code>.
+        </p>
+
+        <input
+          type="text"
+          inputMode="url"
+          value={urlInput}
+          onChange={(event) => setUrlInput(event.target.value)}
+          placeholder="https://images.igdb.com/igdb/image/upload/…"
+          autoFocus
+          className="mt-3 w-full rounded-xl border border-zinc-700 bg-[#121314] px-3 py-2 text-sm text-zinc-200 focus:border-[#00ff66]/40 focus:outline-none"
+        />
+
+        {errorMsg ? (
+          <p className="mt-2 font-mono text-[11px] text-red-300">{errorMsg}</p>
+        ) : null}
+
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onClose}
+            className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+          >
+            Abbrechen
+          </button>
+          <button
+            type="submit"
+            disabled={saving || !urlInput.trim()}
+            className="rounded-xl bg-[#00ff66] px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-wider text-[#121314] hover:bg-[#00ff66]/90 disabled:opacity-50"
+          >
+            {saving ? 'Speichert…' : '✓ Cover speichern'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
 }
 
 function formatHours(value) {
@@ -533,24 +827,10 @@ function GuideTipCell({ trophy, gameId, onSaved, disabled }) {
 }
 
 /** Servertot-Zusatzfelder; per `key={game.id}` remountet, Inputs unkontrolliert (Speichern bei Blur). */
-function ServertotFields({ game, busy, onTogglePlatinum, onExplanation }) {
+function ServertotFields({ game, busy, onExplanation }) {
   const savedExplanation = pickText(game.status_explanation_localized);
   return (
-    <div className="mt-4 grid gap-3 border-t border-zinc-800 pt-4 md:grid-cols-2">
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={onTogglePlatinum}
-          disabled={busy === GAME_STRUCT.platinumAchievable}
-          className={`rounded border px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition ${
-            game.platinum_achievable === false
-              ? 'border-red-500/40 bg-red-500/10 text-red-300'
-              : 'border-zinc-800 text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          {game.platinum_achievable === false ? '🚫 Platin unmöglich' : '🏆 Platin erreichbar'}
-        </button>
-      </div>
+    <div className="mt-4 border-t border-zinc-800 pt-4">
       <label className="block text-[11px] text-zinc-400">
         <span className="uppercase tracking-wider">Status-Erklärung (de)</span>
         <textarea
@@ -576,7 +856,9 @@ function ServertotFields({ game, busy, onTogglePlatinum, onExplanation }) {
  * @param {(gameId: string) => void} [props.onOpenInDrafts]
  */
 export default function IntranetRadarAndServertot({ mode = 'd_freigabe', sessionUser, onOpenInDrafts }) {
+  const isSickbayMode = mode === 'servertot';
   const config = MODES[mode] ?? MODES.d_freigabe;
+  const [sickbayTab, setSickbayTab] = useState('servertot');
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [truncated, setTruncated] = useState(false);
@@ -592,6 +874,22 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
   const [notice, setNotice] = useState('');
   const reloadToken = useRef(0);
 
+  // Tab 2 (Cover-Fehler: v_sickbay_covers) & Tab 3 (Fehlermeldungen: community_reports)
+  const [coverRows, setCoverRows] = useState([]);
+  const [coversLoading, setCoversLoading] = useState(false);
+  const [coverFilter, setCoverFilter] = useState('all');
+  const [coverSearch, setCoverSearch] = useState('');
+  const [coverBusyId, setCoverBusyId] = useState('');
+
+  const [reportRows, setReportRows] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportFilter, setReportFilter] = useState('pending');
+  const [reportSearch, setReportSearch] = useState('');
+  const [reportBusyId, setReportBusyId] = useState('');
+
+  // Anklickbares Cover-Modal für alle 3 Tabs
+  const [editingCoverGame, setEditingCoverGame] = useState(null);
+
   const applyQueueResult = useCallback(
     (result, withPublished) => {
       setLoading(false);
@@ -606,13 +904,38 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
     [mode],
   );
 
+  const loadSickbayExtras = useCallback(async () => {
+    if (!isSickbayMode) return;
+    setCoversLoading(true);
+    setReportsLoading(true);
+    const [coversRes, reportsRes] = await Promise.all([
+      fetchSickbayCovers(),
+      fetchCommunityReports(supabase),
+    ]);
+    setCoversLoading(false);
+    setReportsLoading(false);
+    if (coversRes.error) {
+      setError((prev) => prev || coversRes.error.message || 'Cover-Fehler konnten nicht geladen werden.');
+    } else {
+      setCoverRows(coversRes.rows);
+    }
+    if (reportsRes.error) {
+      setError((prev) => prev || reportsRes.error.message || 'Fehlermeldungen konnten nicht geladen werden.');
+    } else {
+      setReportRows(reportsRes.reports);
+    }
+  }, [isSickbayMode]);
+
   // Initial-Load; der Host rendert pro Tab eine eigene Instanz, `mode` wechselt nicht zur Laufzeit.
   useEffect(() => {
     const token = ++reloadToken.current;
     fetchQueue(mode, { includePublished: false }).then((result) => {
       if (token === reloadToken.current) applyQueueResult(result, false);
     });
-  }, [mode, applyQueueResult]);
+    if (isSickbayMode) {
+      loadSickbayExtras();
+    }
+  }, [mode, isSickbayMode, applyQueueResult, loadSickbayExtras]);
 
   const reload = (withPublished = includePublished) => {
     const token = ++reloadToken.current;
@@ -621,6 +944,9 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
     fetchQueue(mode, { includePublished: withPublished }).then((result) => {
       if (token === reloadToken.current) applyQueueResult(result, withPublished);
     });
+    if (isSickbayMode) {
+      loadSickbayExtras();
+    }
   };
 
   const toggleIncludePublished = (checked) => {
@@ -882,13 +1208,6 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
           const { error: typeError } = await setIntranetGameType(supabase, id, nextTypes);
           if (typeError) throw typeError;
         }
-        if (activeGame.platinum_achievable !== false) {
-          const { error: platError } = await supabase
-            .from(TABLES.games)
-            .update({ [GAME_STRUCT.platinumAchievable]: false })
-            .eq(GAME_PK, id);
-          if (platError) throw platError;
-        }
       }
       const { error: publishError } = await setGuidePublished(supabase, id, PUBLISH_LANG, true);
       if (publishError) throw publishError;
@@ -928,6 +1247,205 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
     setSkipped((prev) => new Set(prev).add(id));
   };
 
+  /**
+   * Optimistic UI Callback nach erfolgreichem Speichern eines Covers im Modal.
+   * - In Tab 1 (Servertot / D-Freigabe): aktualisiert `cover_url` am Spiel.
+   * - In Tab 2 (Cover-Fehler): entfernt die Zeile sofort per Optimistic UI aus `coverRows`.
+   * - In Tab 3 (Fehlermeldungen): aktualisiert das verknüpfte Spiel-Cover in `reportRows`.
+   */
+  const handleCoverSaved = useCallback((gameId, newUrl, nextCoverMap) => {
+    const resolvedMap =
+      nextCoverMap && typeof nextCoverMap === 'object'
+        ? nextCoverMap
+        : { de: newUrl, en: newUrl };
+
+    setGames((prev) =>
+      prev.map((game) =>
+        game[GAME_PK] === gameId
+          ? {
+              ...game,
+              cover_url: { ...(game.cover_url || {}), ...resolvedMap },
+              cover_status: 'valid',
+              cover_notes: null,
+            }
+          : game,
+      ),
+    );
+    // Optimistic UI: im Tab "Cover-Fehler" verschwindet die Zeile sofort aus der Liste
+    setCoverRows((prev) => prev.filter((row) => row.id !== gameId));
+    setReportRows((prev) =>
+      prev.map((report) =>
+        report.game?.id === gameId
+          ? {
+              ...report,
+              game: {
+                ...report.game,
+                cover_url: { ...(report.game.cover_url || {}), ...resolvedMap },
+                cover_status: 'valid',
+                cover_notes: null,
+              },
+            }
+          : report,
+      ),
+    );
+    setNotice('✓ Cover gespeichert (cover_status = valid) und Liste aktualisiert.');
+  }, []);
+
+  /**
+   * Quick-Action „Trotzdem OK" (False Positive) im Tab „Cover-Fehler":
+   * Setzt in `games` direkt `cover_status = 'valid'` und `cover_notes = null`
+   * und entfernt das Spiel sofort per Optimistic UI aus der Liste.
+   */
+  const handleMarkCoverOk = async (row) => {
+    if (!row?.id || coverBusyId) return;
+    const previousRows = coverRows;
+    const title = row.display_title || pickText(row.spieltitel) || 'Spiel';
+    setError('');
+    setNotice('');
+    // Optimistic UI: sofort aus der Liste entfernen
+    setCoverRows((prev) => prev.filter((entry) => entry.id !== row.id));
+    setCoverBusyId(row.id);
+    const { error: updateError } = await markGameCoverValid(supabase, row.id);
+    setCoverBusyId('');
+    if (updateError) {
+      setCoverRows(previousRows);
+      setError(updateError.message || 'Cover-Status konnte nicht auf valid gesetzt werden.');
+      return;
+    }
+    setGames((prev) =>
+      prev.map((game) =>
+        game[GAME_PK] === row.id ? { ...game, cover_status: 'valid', cover_notes: null } : game,
+      ),
+    );
+    setNotice(`✓ „${title}“ als Trotzdem OK markiert (cover_status = valid).`);
+  };
+
+  /**
+   * Fehlermeldung erledigen (Approve / Status setzen) oder löschen.
+   */
+  const handleResolveReport = async (report, modeAction = 'resolve') => {
+    if (!report?.id || reportBusyId) return;
+    setReportBusyId(String(report.id));
+    setError('');
+    setNotice('');
+
+    if (modeAction === 'delete') {
+      const previous = reportRows;
+      setReportRows((prev) => prev.filter((entry) => entry.id !== report.id));
+      const { error: delError } = await deleteCommunityReport(supabase, report.id);
+      setReportBusyId('');
+      if (delError) {
+        setReportRows(previous);
+        setError(delError.message || 'Meldung konnte nicht gelöscht werden.');
+        return;
+      }
+      setNotice(`🗑️ Meldung #${report.id} gelöscht.`);
+      return;
+    }
+
+    if (modeAction === 'apply') {
+      const { error: applyError } = await setReportStatus(supabase, report.id, 'approved', report);
+      setReportBusyId('');
+      if (applyError) {
+        setError(applyError.message || 'Vorschlag konnte nicht übernommen werden.');
+        return;
+      }
+      setReportRows((prev) =>
+        prev.map((entry) => (entry.id === report.id ? { ...entry, status: 'approved' } : entry)),
+      );
+      setNotice(`✓ Meldung #${report.id} übernommen & erledigt.`);
+      return;
+    }
+
+    // Standard „Erledigen": setzt Status direkt auf approved (ohne automatisches Überschreiben, falls manuell geprüft)
+    const { error: statusError } = await setReportStatus(supabase, report.id, 'approved', null);
+    setReportBusyId('');
+    if (statusError) {
+      setError(statusError.message || 'Meldung konnte nicht als erledigt markiert werden.');
+      return;
+    }
+    setReportRows((prev) =>
+      prev.map((entry) => (entry.id === report.id ? { ...entry, status: 'approved' } : entry)),
+    );
+    setNotice(`✓ Meldung #${report.id} als erledigt markiert.`);
+  };
+
+  const coverCounts = useMemo(() => {
+    let invalid = 0;
+    let missing = 0;
+    for (const row of coverRows) {
+      if (row.cover_status === 'invalid') invalid += 1;
+      else missing += 1;
+    }
+    return { all: coverRows.length, invalid, missing };
+  }, [coverRows]);
+
+  const filteredCovers = useMemo(() => {
+    const needle = coverSearch.trim().toLowerCase();
+    return coverRows.filter((row) => {
+      if (coverFilter === 'invalid' && row.cover_status !== 'invalid') return false;
+      if (coverFilter === 'missing' && row.cover_status === 'invalid') return false;
+      if (!needle) return true;
+      const haystack = [
+        row.display_title,
+        allTexts(row.spieltitel),
+        row.slug,
+        row.hardware,
+        row.ecosystem,
+        row.computed_error_reason,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [coverRows, coverFilter, coverSearch]);
+
+  const reportCounts = useMemo(() => {
+    const pendingCount = reportRows.filter((r) => (r.status || 'pending') === 'pending').length;
+    return {
+      pending: pendingCount,
+      all: reportRows.length,
+    };
+  }, [reportRows]);
+
+  const filteredReports = useMemo(() => {
+    const needle = reportSearch.trim().toLowerCase();
+    return reportRows.filter((row) => {
+      const status = row.status || 'pending';
+      if (reportFilter === 'pending' && status !== 'pending') return false;
+      if (!needle) return true;
+      const title = row.game
+        ? pickText(row.game.spieltitel)
+        : formatReportGameTitle(row.spieltitel);
+      const haystack = [
+        title,
+        formatReportNpwr(row.platform_game_id),
+        row.source_identifier,
+        row.content_type,
+        row.field_name,
+        row.original_text,
+        row.suggested_text,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [reportRows, reportFilter, reportSearch]);
+
+  const servertotTabCount = useMemo(
+    () => pillCounts[config.defaultPill] ?? games.length,
+    [pillCounts, config.defaultPill, games.length],
+  );
+
+  const sickbayTabCounts = useMemo(
+    () => ({
+      servertot: servertotTabCount,
+      covers: coverRows.length,
+      reports: reportCounts.pending,
+    }),
+    [servertotTabCount, coverRows.length, reportCounts.pending],
+  );
+
   const href = activeGame ? intranetGameHref(activeGame) : '';
   const npwr = activeGame ? getPlatformGameId(activeGame) : '';
   const totals = useMemo(() => {
@@ -946,19 +1464,21 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
           <p className="mt-1 max-w-3xl text-xs text-zinc-500">{config.subtitle}</p>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-zinc-400">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={includePublished}
-              onChange={(event) => toggleIncludePublished(event.target.checked)}
-              className="accent-[#00ff66]"
-            />
-            Bereits veröffentlichte einbeziehen
-          </label>
+          {!isSickbayMode || sickbayTab === 'servertot' ? (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={includePublished}
+                onChange={(event) => toggleIncludePublished(event.target.checked)}
+                className="accent-[#00ff66]"
+              />
+              Bereits veröffentlichte einbeziehen
+            </label>
+          ) : null}
           <button
             type="button"
             onClick={() => reload()}
-            disabled={loading}
+            disabled={loading || coversLoading || reportsLoading}
             className="rounded border border-zinc-800 px-2 py-1 font-bold uppercase tracking-wider hover:text-zinc-200 disabled:opacity-50"
           >
             ↻ Neu laden
@@ -966,33 +1486,40 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {config.pills.map((definition) => (
-          <Pill
-            key={definition.id}
-            active={pill === definition.id}
-            onClick={() => setPill(definition.id)}
-            count={pillCounts[definition.id]}
-          >
-            {definition.label}
-          </Pill>
-        ))}
-        {skipped.size ? (
-          <button
-            type="button"
-            onClick={() => setSkipped(new Set())}
-            className="text-[11px] text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
-          >
-            {skipped.size} übersprungen · zurückholen
-          </button>
-        ) : null}
-      </div>
-
-      {truncated ? (
-        <p className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          Queue auf {MAX_QUEUE_ROWS} Zeilen gedeckelt – Filter oder Suche eingrenzen.
-        </p>
+      {/* 3 Umschalt-Tabs der Krankenstation (jeweils mit Anzahl-Badge) */}
+      {isSickbayMode ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 pb-3">
+          {SICKBAY_TABS.map((tab) => {
+            const active = sickbayTab === tab.id;
+            const count = sickbayTabCounts[tab.id] ?? 0;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setSickbayTab(tab.id)}
+                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-black uppercase tracking-wider transition ${
+                  active
+                    ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66] shadow-[0_0_20px_rgba(0,255,102,0.12)]'
+                    : 'border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+                }`}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
+                    active
+                      ? 'bg-[#00ff66]/20 text-[#00ff66]'
+                      : 'bg-zinc-900 text-zinc-400'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       ) : null}
+
       {error ? (
         <p className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">{error}</p>
       ) : null}
@@ -1000,48 +1527,91 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
         <p className="rounded border border-[#00ff66]/30 bg-[#00ff66]/10 px-3 py-2 text-xs text-[#00ff66]">{notice}</p>
       ) : null}
 
-      <div className="grid grid-cols-12 gap-4">
-        {/* Linke Queue */}
-        <aside className="col-span-12 lg:col-span-3">
-          <div className="rounded-xl border border-zinc-800 bg-zinc-950/60">
-            <div className="border-b border-zinc-800 p-3">
+      {/* TAB 2: Cover-Fehler (Datenquelle: v_sickbay_covers) */}
+      {isSickbayMode && sickbayTab === 'covers' ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill
+                active={coverFilter === 'all'}
+                onClick={() => setCoverFilter('all')}
+                count={coverCounts.all}
+              >
+                Alle Cover-Fehler
+              </Pill>
+              <Pill
+                active={coverFilter === 'invalid'}
+                onClick={() => setCoverFilter('invalid')}
+                count={coverCounts.invalid}
+              >
+                Defekt / Invalid
+              </Pill>
+              <Pill
+                active={coverFilter === 'missing'}
+                onClick={() => setCoverFilter('missing')}
+                count={coverCounts.missing}
+              >
+                Fehlend (NULL / &#123;&#125;)
+              </Pill>
+            </div>
+            <div className="flex items-center gap-2">
               <input
                 type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Titel, NPWR, Publisher…"
-                className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-100 focus:border-[#00ff66]/40 focus:outline-none"
+                value={coverSearch}
+                onChange={(event) => setCoverSearch(event.target.value)}
+                placeholder="Spieltitel, Hardware, Fehler-Grund…"
+                className="w-64 rounded border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-100 focus:border-[#00ff66]/40 focus:outline-none"
               />
-              <p className="mt-2 text-[10px] uppercase tracking-wider text-zinc-500">
-                {loading ? 'Lade Queue…' : `${queue.length} Spiel(e) in der Queue`}
-              </p>
+              <span className="font-mono text-[11px] text-zinc-500">
+                {coversLoading ? 'Lädt…' : `${filteredCovers.length} Einträge`}
+              </span>
             </div>
-            <ul className="max-h-[70vh] overflow-y-auto">
-              {queue.map((game) => {
-                const id = game[GAME_PK];
-                const cover = pickText(game.cover_url);
-                const isActive = id === activeId;
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950/60">
+            <ul className="divide-y divide-zinc-900">
+              {filteredCovers.map((row) => {
+                const gameHref = intranetGameHref(row);
+                const title = row.display_title || pickText(row.spieltitel) || 'Unbenanntes Spiel';
+                const googleUrl = buildGoogleImagesCoverUrl(row);
+                const isInvalid = row.cover_status === 'invalid';
                 return (
-                  <li key={id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(id)}
-                      className={`flex w-full items-center gap-3 border-b border-zinc-900 px-3 py-2 text-left transition ${
-                        isActive ? 'bg-[#00ff66]/10' : 'hover:bg-zinc-900/60'
-                      }`}
-                    >
-                      {cover ? (
-                        <img src={cover} alt="" loading="lazy" className="h-12 w-9 flex-none rounded object-cover" />
-                      ) : (
-                        <div className="h-12 w-9 flex-none rounded bg-zinc-800" />
-                      )}
+                  <li
+                    key={row.id}
+                    className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 transition hover:bg-zinc-900/40"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-3.5">
+                      <SickbayCoverThumb
+                        game={row}
+                        onOpenEdit={(target) => setEditingCoverGame(target)}
+                        size="md"
+                      />
                       <div className="min-w-0 flex-1">
-                        <p className={`truncate text-xs font-bold ${isActive ? 'text-[#00ff66]' : 'text-zinc-200'}`}>
-                          {pickText(game.spieltitel) || 'Unbenanntes Spiel'}
-                        </p>
-                        <p className="truncate font-mono text-[10px] text-zinc-500">{getPlatformGameId(game) || '—'}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                          {parseGameTypes(game.spiel_typ).map((type) => (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {gameHref ? (
+                            <a
+                              href={gameHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(event) => handleStaffGamePreviewClick(event, gameHref)}
+                              className="truncate text-sm font-black text-zinc-100 hover:text-[#00ff66] hover:underline"
+                            >
+                              {title}
+                            </a>
+                          ) : (
+                            <span className="truncate text-sm font-black text-zinc-100">{title}</span>
+                          )}
+                          {row.hardware ? (
+                            <span className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase text-zinc-300">
+                              {row.hardware}
+                            </span>
+                          ) : null}
+                          {row.ecosystem ? (
+                            <span className="rounded border border-zinc-800 bg-zinc-900/70 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
+                              {row.ecosystem}
+                            </span>
+                          ) : null}
+                          {parseGameTypes(row.spiel_typ).map((type) => (
                             <span
                               key={type}
                               className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-300"
@@ -1049,75 +1619,443 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                               {type}
                             </span>
                           ))}
-                          <GuideTypBadge value={game.guide_typ} />
-                          {hasPublishedGuide(game) ? (
-                            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-emerald-300">
-                              live
-                            </span>
+                        </div>
+
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-[10px] font-bold ${
+                              isInvalid
+                                ? 'border-red-500/40 bg-red-500/10 text-red-300'
+                                : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                            }`}
+                          >
+                            {isInvalid ? '⚠️' : '🖼️'} {row.computed_error_reason || 'Cover fehlt / ungültig'}
+                          </span>
+                          {row.slug ? (
+                            <span className="font-mono text-[10px] text-zinc-500">/{row.slug}</span>
                           ) : null}
                         </div>
                       </div>
-                    </button>
+                    </div>
+
+                    {/* Quick-Actions im Tab "Cover-Fehler" */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a
+                        href={googleUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-sky-200 transition hover:bg-sky-500/20"
+                        title="1-Click Google Images Suche nach Cover / IGDB"
+                      >
+                        🔍 Bild suchen
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setEditingCoverGame(row)}
+                        className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-[#00ff66] transition hover:bg-[#00ff66]/20"
+                      >
+                        ✏️ Cover setzen
+                      </button>
+                      <button
+                        type="button"
+                        disabled={coverBusyId === row.id}
+                        onClick={() => handleMarkCoverOk(row)}
+                        className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                        title="False Positive: Setzt cover_status = 'valid' & cover_notes = null"
+                      >
+                        ✓ Trotzdem OK
+                      </button>
+                    </div>
                   </li>
                 );
               })}
-              {!loading && !queue.length ? (
-                <li className="px-3 py-6 text-center text-xs text-zinc-500">Keine Spiele in dieser Queue.</li>
+              {!coversLoading && !filteredCovers.length ? (
+                <li className="px-4 py-10 text-center text-xs text-zinc-500">
+                  Keine Cover-Fehler für diesen Filter gefunden.
+                </li>
               ) : null}
             </ul>
           </div>
-        </aside>
+        </div>
+      ) : null}
 
-        {/* Rechter Arbeitsbereich */}
-        <section className="col-span-12 lg:col-span-9">
-          {!activeGame ? (
-            <div className="rounded-xl border border-dashed border-zinc-800 p-10 text-center text-sm text-zinc-500">
-              {loading ? 'Lade…' : 'Wähle links ein Spiel aus.'}
+      {/* TAB 3: Fehlermeldungen (Datenquelle: community_reports inkl. Join auf games) */}
+      {isSickbayMode && sickbayTab === 'reports' ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill
+                active={reportFilter === 'pending'}
+                onClick={() => setReportFilter('pending')}
+                count={reportCounts.pending}
+              >
+                Offen (Pending)
+              </Pill>
+              <Pill
+                active={reportFilter === 'all'}
+                onClick={() => setReportFilter('all')}
+                count={reportCounts.all}
+              >
+                Alle Meldungen
+              </Pill>
             </div>
-          ) : (
-            <div className="flex flex-col gap-4 pb-24">
-              {/* Header-Leiste */}
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="text-base font-black text-zinc-100">
-                      {href ? (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(event) => handleStaffGamePreviewClick(event, href)}
-                          className="hover:text-[#00ff66] hover:underline"
-                          title="Vorschau öffnen"
+            <div className="flex items-center gap-2">
+              <input
+                type="search"
+                value={reportSearch}
+                onChange={(event) => setReportSearch(event.target.value)}
+                placeholder="Spiel, Fehlertext, NPWR…"
+                className="w-64 rounded border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-100 focus:border-[#00ff66]/40 focus:outline-none"
+              />
+              <span className="font-mono text-[11px] text-zinc-500">
+                {reportsLoading ? 'Lädt…' : `${filteredReports.length} Meldung(en)`}
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950/60">
+            <ul className="divide-y divide-zinc-900">
+              {filteredReports.map((report) => {
+                const linkedGame = report.game;
+                const gameHref = linkedGame ? intranetGameHref(linkedGame) : report.gameHref || '';
+                const title = linkedGame
+                  ? pickText(linkedGame.spieltitel) || 'Unbenanntes Spiel'
+                  : formatReportGameTitle(report.spieltitel) || report.source_identifier || 'Unbekanntes Spiel';
+                const npwrCode = formatReportNpwr(report.platform_game_id);
+                const displayKey = formatReportDisplayKey(report);
+                const images = parseReportImageUrls(report.image_url);
+                const isBusy = reportBusyId === String(report.id);
+                const isResolved = report.status && report.status !== 'pending';
+
+                return (
+                  <li
+                    key={report.id}
+                    className="flex flex-col gap-3 px-4 py-3.5 transition hover:bg-zinc-900/40 lg:flex-row lg:items-start lg:justify-between"
+                  >
+                    {/* Linke Seite: Identisches Spiel-Zeilen-Layout inkl. anklickbarem Cover + gemeldetem Fehlertext */}
+                    <div className="flex min-w-0 flex-1 items-start gap-3.5">
+                      <SickbayCoverThumb
+                        game={linkedGame}
+                        onOpenEdit={linkedGame ? (target) => setEditingCoverGame(target) : undefined}
+                        size="md"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {gameHref ? (
+                            <a
+                              href={gameHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(event) => handleStaffGamePreviewClick(event, gameHref)}
+                              className="truncate text-sm font-black text-zinc-100 hover:text-[#00ff66] hover:underline"
+                            >
+                              {title}
+                            </a>
+                          ) : (
+                            <span className="truncate text-sm font-black text-zinc-100">{title}</span>
+                          )}
+                          {linkedGame?.hardware ? (
+                            <span className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase text-zinc-300">
+                              {linkedGame.hardware}
+                            </span>
+                          ) : null}
+                          {linkedGame?.ecosystem ? (
+                            <span className="rounded border border-zinc-800 bg-zinc-900/70 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
+                              {linkedGame.ecosystem}
+                            </span>
+                          ) : null}
+                          {linkedGame
+                            ? parseGameTypes(linkedGame.spiel_typ).map((type) => (
+                                <span
+                                  key={type}
+                                  className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-300"
+                                >
+                                  {type}
+                                </span>
+                              ))
+                            : null}
+                          {npwrCode ? (
+                            <span className="font-mono text-[10px] text-zinc-500">{npwrCode}</span>
+                          ) : null}
+                          <span className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] text-amber-300">
+                            {report.content_type || 'report'} · {displayKey}
+                          </span>
+                          {report.language_code ? (
+                            <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
+                              {report.language_code}
+                            </span>
+                          ) : null}
+                          {isResolved ? (
+                            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase text-emerald-300">
+                              {report.status}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {/* Gemeldeter Fehlertext */}
+                        <div className="mt-2 grid gap-2 md:grid-cols-2">
+                          {report.original_text ? (
+                            <div className="rounded-lg border border-zinc-800/90 bg-zinc-950 p-2">
+                              <p className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">
+                                Original / Kontext ({report.field_name || 'Feld'})
+                              </p>
+                              <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-zinc-300">
+                                {report.original_text}
+                              </p>
+                            </div>
+                          ) : null}
+                          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2">
+                            <p className="font-mono text-[9px] uppercase tracking-wider text-amber-300">
+                              Gemeldeter Fehler / Korrekturvorschlag
+                            </p>
+                            <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-zinc-100">
+                              {report.suggested_text || '—'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {images.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {images.map((imgUrl, idx) => (
+                              <a
+                                key={imgUrl}
+                                href={imgUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-[10px] text-sky-300 hover:border-sky-400"
+                              >
+                                📎 Screenshot #{idx + 1}
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Rechte Seite: Aktionen zum Erledigen / Übernehmen / Löschen */}
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {linkedGame ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditingCoverGame(linkedGame)}
+                          className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
+                          title="Cover dieses Spiels direkt bearbeiten"
                         >
-                          {pickText(activeGame.spieltitel) || 'Unbenanntes Spiel'}
-                        </a>
-                      ) : (
-                        pickText(activeGame.spieltitel) || 'Unbenanntes Spiel'
-                      )}
-                    </h3>
-                    {activeGame.spieltitel?.en && activeGame.spieltitel.en !== activeGame.spieltitel?.de ? (
-                      <p className="text-xs text-zinc-500">EN: {activeGame.spieltitel.en}</p>
-                    ) : null}
-                    <p className="mt-1 font-mono text-[11px] text-zinc-500">
-                      {npwr || '—'}
-                      {activeGame.release_jahr ? ` · ${activeGame.release_jahr}` : ''}
-                      {activeGame.publisher ? ` · ${activeGame.publisher}` : ''}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <AdminHardwareSelect
-                      gameId={activeGame[GAME_PK]}
-                      hardware={activeGame.hardware}
-                      onSaved={(saved) => patchGame(activeGame[GAME_PK], { hardware: saved })}
-                    />
-                    <AdminGameTypeSelect
-                      gameId={activeGame[GAME_PK]}
-                      gameType={activeGame.spiel_typ}
-                      onSaved={(saved) => patchAndRecheck(activeGame[GAME_PK], { spiel_typ: saved })}
-                    />
-                  </div>
+                          🖼️ Cover
+                        </button>
+                      ) : null}
+                      {!isResolved ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleResolveReport(report, 'apply')}
+                            className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66] transition hover:bg-[#00ff66]/20 disabled:opacity-50"
+                            title="Korrekturvorschlag in DB übernehmen & als erledigt markieren"
+                          >
+                            ✓ Übernehmen
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleResolveReport(report, 'resolve')}
+                            className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                            title="Meldung als erledigt markieren"
+                          >
+                            ✓ Erledigt
+                          </button>
+                        </>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => handleResolveReport(report, 'delete')}
+                        className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+                        title="Fehlermeldung endgültig aus community_reports löschen"
+                      >
+                        🗑️ Löschen
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+              {!reportsLoading && !filteredReports.length ? (
+                <li className="px-4 py-10 text-center text-xs text-zinc-500">
+                  Keine Fehlermeldungen für diesen Filter vorhanden.
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        </div>
+      ) : null}
+
+      {/* TAB 1: Servertot (bzw. Standard-Ansicht bei d_freigabe) */}
+      {!isSickbayMode || sickbayTab === 'servertot' ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            {config.pills.map((definition) => (
+              <Pill
+                key={definition.id}
+                active={pill === definition.id}
+                onClick={() => setPill(definition.id)}
+                count={pillCounts[definition.id]}
+              >
+                {definition.label}
+              </Pill>
+            ))}
+            {skipped.size ? (
+              <button
+                type="button"
+                onClick={() => setSkipped(new Set())}
+                className="text-[11px] text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
+              >
+                {skipped.size} übersprungen · zurückholen
+              </button>
+            ) : null}
+          </div>
+
+          {truncated ? (
+            <p className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Queue auf {MAX_QUEUE_ROWS} Zeilen gedeckelt – Filter oder Suche eingrenzen.
+            </p>
+          ) : null}
+
+          <div className="grid grid-cols-12 gap-4">
+            {/* Linke Queue */}
+            <aside className="col-span-12 lg:col-span-3">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950/60">
+                <div className="border-b border-zinc-800 p-3">
+                  <input
+                    type="search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Titel, NPWR, Publisher…"
+                    className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-100 focus:border-[#00ff66]/40 focus:outline-none"
+                  />
+                  <p className="mt-2 text-[10px] uppercase tracking-wider text-zinc-500">
+                    {loading ? 'Lade Queue…' : `${queue.length} Spiel(e) in der Queue`}
+                  </p>
                 </div>
+                <ul className="max-h-[70vh] overflow-y-auto">
+                  {queue.map((game) => {
+                    const id = game[GAME_PK];
+                    const isActive = id === activeId;
+                    return (
+                      <li key={id}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedId(id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              setSelectedId(id);
+                            }
+                          }}
+                          className={`flex w-full cursor-pointer items-center gap-3 border-b border-zinc-900 px-3 py-2 text-left transition ${
+                            isActive ? 'bg-[#00ff66]/10' : 'hover:bg-zinc-900/60'
+                          }`}
+                        >
+                          <SickbayCoverThumb
+                            game={game}
+                            onOpenEdit={(target) => setEditingCoverGame(target)}
+                            size="sm"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className={`truncate text-xs font-bold ${isActive ? 'text-[#00ff66]' : 'text-zinc-200'}`}>
+                              {pickText(game.spieltitel) || 'Unbenanntes Spiel'}
+                            </p>
+                            <p className="truncate font-mono text-[10px] text-zinc-500">
+                              {getPlatformGameId(game) || '—'}
+                              {game.hardware ? ` · ${game.hardware}` : ''}
+                              {game.ecosystem ? ` · ${game.ecosystem}` : ''}
+                            </p>
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              {parseGameTypes(game.spiel_typ).map((type) => (
+                                <span
+                                  key={type}
+                                  className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-300"
+                                >
+                                  {type}
+                                </span>
+                              ))}
+                              <GuideTypBadge value={game.guide_typ} />
+                              {hasPublishedGuide(game) ? (
+                                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-emerald-300">
+                                  live
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                  {!loading && !queue.length ? (
+                    <li className="px-3 py-6 text-center text-xs text-zinc-500">Keine Spiele in dieser Queue.</li>
+                  ) : null}
+                </ul>
+              </div>
+            </aside>
+
+            {/* Rechter Arbeitsbereich */}
+            <section className="col-span-12 lg:col-span-9">
+              {!activeGame ? (
+                <div className="rounded-xl border border-dashed border-zinc-800 p-10 text-center text-sm text-zinc-500">
+                  {loading ? 'Lade…' : 'Wähle links ein Spiel aus.'}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4 pb-24">
+                  {/* Header-Leiste */}
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-3.5">
+                        <SickbayCoverThumb
+                          game={activeGame}
+                          onOpenEdit={(target) => setEditingCoverGame(target)}
+                          size="lg"
+                        />
+                        <div className="min-w-0">
+                          <h3 className="text-base font-black text-zinc-100">
+                            {href ? (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(event) => handleStaffGamePreviewClick(event, href)}
+                                className="hover:text-[#00ff66] hover:underline"
+                                title="Vorschau öffnen"
+                              >
+                                {pickText(activeGame.spieltitel) || 'Unbenanntes Spiel'}
+                              </a>
+                            ) : (
+                              pickText(activeGame.spieltitel) || 'Unbenanntes Spiel'
+                            )}
+                          </h3>
+                          {activeGame.spieltitel?.en && activeGame.spieltitel.en !== activeGame.spieltitel?.de ? (
+                            <p className="text-xs text-zinc-500">EN: {activeGame.spieltitel.en}</p>
+                          ) : null}
+                          <p className="mt-1 font-mono text-[11px] text-zinc-500">
+                            {npwr || '—'}
+                            {activeGame.ecosystem ? ` · ${activeGame.ecosystem}` : ''}
+                            {activeGame.release_jahr ? ` · ${activeGame.release_jahr}` : ''}
+                            {activeGame.publisher ? ` · ${activeGame.publisher}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <AdminHardwareSelect
+                          gameId={activeGame[GAME_PK]}
+                          hardware={activeGame.hardware}
+                          onSaved={(saved) => patchGame(activeGame[GAME_PK], { hardware: saved })}
+                        />
+                        <AdminGameTypeSelect
+                          gameId={activeGame[GAME_PK]}
+                          gameType={activeGame.spiel_typ}
+                          onSaved={(saved) => patchAndRecheck(activeGame[GAME_PK], { spiel_typ: saved })}
+                        />
+                      </div>
+                    </div>
 
                 <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
                   <div className="flex items-center gap-1">
@@ -1166,9 +2104,6 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                     key={`${activeGame[GAME_PK]}:${detailsLoaded ? 'full' : 'light'}`}
                     game={activeGame}
                     busy={busy}
-                    onTogglePlatinum={() =>
-                      handleGameField(GAME_STRUCT.platinumAchievable, activeGame.platinum_achievable === false)
-                    }
                     onExplanation={(text) => handlePlaytime({ statusExplanation: text })}
                   />
                 ) : null}
@@ -1313,48 +2248,59 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
               </div>
             </div>
           )}
-        </section>
-      </div>
-
-      {/* Sticky Footer */}
-      {activeGame ? (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur">
-          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-            <p className="min-w-0 truncate text-xs text-zinc-400">
-              <span className="font-bold text-zinc-200">{pickText(activeGame.spieltitel)}</span>
-              <span className="ml-2 font-mono text-zinc-500">{npwr}</span>
-              <GuideTypBadge value={activeGame.guide_typ} className="ml-2" />
-              {sessionUser?.email ? <span className="ml-2 text-zinc-600">· {sessionUser.email}</span> : null}
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={handleSkip}
-                disabled={Boolean(busy)}
-                className="rounded border border-zinc-800 px-3 py-2 text-xs font-bold uppercase tracking-wider text-zinc-400 hover:text-zinc-200 disabled:opacity-50"
-              >
-                ⏭️ Überspringen
-              </button>
-              <button
-                type="button"
-                onClick={handleDraftsAndFollow}
-                disabled={Boolean(busy) || !onOpenInDrafts}
-                title="Spiel in die Entwürfe holen und dort öffnen (Video-Guide nachziehen)"
-                className="rounded border border-fuchsia-500/40 bg-fuchsia-500/10 px-3 py-2 text-xs font-bold uppercase tracking-wider text-fuchsia-200 hover:bg-fuchsia-500/20 disabled:opacity-50"
-              >
-                🚀 In Entwürfe & Follow
-              </button>
-              <button
-                type="button"
-                onClick={handlePublish}
-                disabled={Boolean(busy)}
-                className="rounded border border-[#00ff66]/50 bg-[#00ff66]/15 px-4 py-2 text-xs font-black uppercase tracking-wider text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-50"
-              >
-                {busy === 'publish' ? '… wird freigegeben' : config.publishLabel}
-              </button>
-            </div>
+            </section>
           </div>
-        </div>
+
+          {/* Sticky Footer */}
+          {activeGame ? (
+            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur">
+              <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+                <p className="min-w-0 truncate text-xs text-zinc-400">
+                  <span className="font-bold text-zinc-200">{pickText(activeGame.spieltitel)}</span>
+                  <span className="ml-2 font-mono text-zinc-500">{npwr}</span>
+                  <GuideTypBadge value={activeGame.guide_typ} className="ml-2" />
+                  {sessionUser?.email ? <span className="ml-2 text-zinc-600">· {sessionUser.email}</span> : null}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSkip}
+                    disabled={Boolean(busy)}
+                    className="rounded border border-zinc-800 px-3 py-2 text-xs font-bold uppercase tracking-wider text-zinc-400 hover:text-zinc-200 disabled:opacity-50"
+                  >
+                    ⏭️ Überspringen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDraftsAndFollow}
+                    disabled={Boolean(busy) || !onOpenInDrafts}
+                    title="Spiel in die Entwürfe holen und dort öffnen (Video-Guide nachziehen)"
+                    className="rounded border border-fuchsia-500/40 bg-fuchsia-500/10 px-3 py-2 text-xs font-bold uppercase tracking-wider text-fuchsia-200 hover:bg-fuchsia-500/20 disabled:opacity-50"
+                  >
+                    🚀 In Entwürfe & Follow
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePublish}
+                    disabled={Boolean(busy)}
+                    className="rounded border border-[#00ff66]/50 bg-[#00ff66]/15 px-4 py-2 text-xs font-black uppercase tracking-wider text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-50"
+                  >
+                    {busy === 'publish' ? '… wird freigegeben' : config.publishLabel}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      {/* Direkt-Edit Modal für das Cover (alle 3 Tabs) */}
+      {editingCoverGame ? (
+        <CoverEditModal
+          game={editingCoverGame}
+          onClose={() => setEditingCoverGame(null)}
+          onSaved={handleCoverSaved}
+        />
       ) : null}
     </div>
   );
