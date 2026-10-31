@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import {
-  getSessionOrTimeout,
   isAdminUser,
   readAdminTab,
+  readCachedSessionUser,
   readDraftReturnContext,
   writeAdminTab,
 } from '../lib/adminAccess';
@@ -31,8 +31,9 @@ const TABS = [
 const TAB_IDS = new Set(TABS.map((tab) => tab.id));
 
 function AdminApp() {
-  const [sessionUser, setSessionUser] = useState(null);
+  const [sessionUser, setSessionUser] = useState(() => readCachedSessionUser());
   const [authLoading, setAuthLoading] = useState(true);
+  const [bootStep, setBootStep] = useState('Prüfe Session...');
   const authReady = !authLoading;
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
@@ -53,21 +54,47 @@ function AdminApp() {
     setActiveTab('entwuerfe');
   };
 
+  // Harter 3,5-Sekunden-Fallback (Watchdog-Timer)
+  useEffect(() => {
+    if (!authLoading) return undefined;
+    const watchdog = window.setTimeout(() => {
+      setSessionUser((prev) => prev || readCachedSessionUser());
+      setAuthLoading(false);
+    }, 3500);
+    return () => window.clearTimeout(watchdog);
+  }, [authLoading]);
+
   useEffect(() => {
     let cancelled = false;
     let initialResolved = false;
 
     async function init() {
+      setBootStep('Prüfe Session...');
       try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) {
-          console.error('Admin getSession Fehler:', error.message);
+        const timeoutPromise = new Promise((resolve) => {
+          window.setTimeout(
+            () => resolve({ data: { session: null }, timedOut: true }),
+            3000,
+          );
+        });
+        const sessionResult = await Promise.race([
+          supabase.auth.getSession(),
+          timeoutPromise,
+        ]);
+        if (sessionResult?.error) {
+          console.error('Admin getSession Fehler:', sessionResult.error.message);
         }
+        const user =
+          sessionResult?.data?.session?.user ?? readCachedSessionUser() ?? null;
         if (!cancelled) {
-          setSessionUser(data?.session?.user ?? null);
+          setBootStep('Prüfe Admin-Rechte...');
+          setSessionUser(user);
         }
       } catch (err) {
         console.error('Admin Auth-Init Fehler:', err);
+        if (!cancelled) {
+          setSessionUser((prev) => prev || readCachedSessionUser());
+        }
       } finally {
         initialResolved = true;
         if (!cancelled) {
@@ -130,8 +157,19 @@ function AdminApp() {
 
   if (!authReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-zinc-500 text-sm font-mono">
-        Admin wird geladen…
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-[#0a0b0c] px-4 text-center font-mono">
+        <p className="text-sm text-zinc-300">Admin wird geladen…</p>
+        <p className="text-xs text-zinc-500">{bootStep}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setSessionUser((prev) => prev || readCachedSessionUser());
+            setAuthLoading(false);
+          }}
+          className="mt-2 rounded-xl border border-[#00ff66]/40 bg-[#00ff66]/10 px-4 py-2 text-xs font-bold text-[#00ff66] hover:bg-[#00ff66]/20 transition cursor-pointer"
+        >
+          ⚡ Lade-Sperre überspringen &amp; direkt öffnen
+        </button>
       </div>
     );
   }

@@ -847,12 +847,6 @@ export default function IntranetDrafts({
   const fetchRohmaterialSummary = useCallback(async () => {
     setLoadingRohmaterial(true);
     try {
-      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
-      if (sessionErr) throw sessionErr;
-      if (!sessionData?.session) {
-        throw new Error('Keine aktive Sitzung gefunden. Bitte neu anmelden.');
-      }
-
       let rohRows = [];
       let rFrom = 0;
       const PAGE_SIZE = 1000;
@@ -968,12 +962,6 @@ export default function IntranetDrafts({
     setLoading(true);
     setError('');
     try {
-      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
-      if (sessionErr) throw sessionErr;
-      if (!sessionData?.session) {
-        throw new Error('Keine aktive Sitzung gefunden. Bitte neu anmelden.');
-      }
-
       let allRows = [];
       let from = 0;
       const PAGE_SIZE = 1000;

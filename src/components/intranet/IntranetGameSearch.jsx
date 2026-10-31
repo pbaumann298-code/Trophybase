@@ -97,12 +97,6 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
     });
 
     try {
-      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
-      if (sessionErr) throw sessionErr;
-      if (!sessionData?.session) {
-        throw new Error('Keine aktive Admin-Sitzung gefunden. Bitte neu anmelden.');
-      }
-
       const { data, count: total, error } = await searchIntranetGames(supabase, nextFilters);
       if (error) throw error;
 
@@ -138,12 +132,6 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
       setLoading(true);
       setErrorMessage('');
       try {
-        const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
-        if (sessionErr) throw sessionErr;
-        if (!sessionData?.session) {
-          throw new Error('Keine aktive Admin-Sitzung gefunden. Bitte neu anmelden.');
-        }
-
         const nextFilters = mergeSavedFilters(filters);
         const { data, count: total, error } = await searchIntranetGames(supabase, nextFilters);
         if (cancelled) return;

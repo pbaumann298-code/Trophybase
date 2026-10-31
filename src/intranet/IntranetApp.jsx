@@ -2,8 +2,8 @@ import { Component, useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import {
   fetchMyCreatorProfile,
-  getSessionOrTimeout,
   isAdminUser,
+  readCachedSessionUser,
   readDraftReturnContext,
 } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
@@ -50,9 +50,10 @@ const TABS = [
 ];
 
 function IntranetApp() {
-  const [sessionUser, setSessionUser] = useState(null);
+  const [sessionUser, setSessionUser] = useState(() => readCachedSessionUser());
   const [creatorProfile, setCreatorProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [bootStep, setBootStep] = useState('Prüfe Session...');
   const authReady = !authLoading;
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
@@ -120,27 +121,67 @@ function IntranetApp() {
     };
   }, [activeTab, authLoading, sessionUser, isAdmin]);
 
+  // Harter 3,5-Sekunden-Fallback (Watchdog-Timer): verhindert zu 100 % einen ewigen Ladebildschirm
+  useEffect(() => {
+    if (!authLoading) return undefined;
+    const watchdog = window.setTimeout(() => {
+      setSessionUser((prev) => prev || readCachedSessionUser());
+      setAuthLoading(false);
+    }, 3500);
+    return () => window.clearTimeout(watchdog);
+  }, [authLoading]);
+
   useEffect(() => {
     let cancelled = false;
     let initialResolved = false;
 
     async function init() {
+      setBootStep('Prüfe Session...');
       try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) {
-          console.error('Intranet getSession Fehler:', error.message);
+        const timeoutPromise = new Promise((resolve) => {
+          window.setTimeout(
+            () => resolve({ data: { session: null }, timedOut: true }),
+            3000,
+          );
+        });
+
+        const sessionResult = await Promise.race([
+          supabase.auth.getSession(),
+          timeoutPromise,
+        ]);
+
+        if (sessionResult?.error) {
+          console.error('Intranet getSession Fehler:', sessionResult.error.message);
         }
-        const user = data?.session?.user ?? null;
-        let profile = null;
-        if (user) {
-          profile = await fetchMyCreatorProfile(supabase);
-        }
+
+        const user =
+          sessionResult?.data?.session?.user ?? readCachedSessionUser() ?? null;
+
         if (!cancelled) {
+          setBootStep('Prüfe Admin-Rechte...');
           setSessionUser(user);
-          setCreatorProfile(profile);
+        }
+
+        if (user) {
+          if (isAdminUser(user)) {
+            // Admin braucht nicht auf Creator-RPC zu warten; im Hintergrund nachladen
+            window.setTimeout(() => {
+              fetchMyCreatorProfile(supabase).then((profile) => {
+                if (!cancelled && profile) setCreatorProfile(profile);
+              });
+            }, 0);
+          } else {
+            const profile = await fetchMyCreatorProfile(supabase, 2000);
+            if (!cancelled) {
+              setCreatorProfile(profile);
+            }
+          }
         }
       } catch (err) {
         console.error('Intranet Auth-Init Fehler:', err);
+        if (!cancelled) {
+          setSessionUser((prev) => prev || readCachedSessionUser());
+        }
       } finally {
         initialResolved = true;
         if (!cancelled) {
@@ -151,9 +192,8 @@ function IntranetApp() {
 
     init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Während supabase.auth.getSession() noch lädt (authLoading === true),
-      // niemals den User-State löschen oder zum Login weiterleiten!
+    // WICHTIG: KEINE await supabase...-Calls direkt in onAuthStateChange (verursacht Lock-Deadlock in supabase-js v2)!
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!initialResolved && event === 'INITIAL_SESSION') {
         return;
       }
@@ -167,12 +207,15 @@ function IntranetApp() {
       }
 
       const user = session?.user ?? null;
-      if (user) {
-        const profile = await fetchMyCreatorProfile(supabase);
-        if (!cancelled) {
-          setCreatorProfile(profile);
-          setSessionUser(user);
-        }
+      if (user && !cancelled) {
+        setSessionUser(user);
+        // DB-/RPC-Aufruf zwingend über setTimeout entkoppeln!
+        window.setTimeout(() => {
+          if (cancelled) return;
+          fetchMyCreatorProfile(supabase).then((profile) => {
+            if (!cancelled) setCreatorProfile(profile);
+          });
+        }, 0);
       }
     });
 
@@ -216,8 +259,19 @@ function IntranetApp() {
 
   if (!authReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-zinc-500 text-sm font-mono">
-        Intranet wird geladen…
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-[#0a0b0c] px-4 text-center font-mono">
+        <p className="text-sm text-zinc-300">Intranet wird geladen…</p>
+        <p className="text-xs text-zinc-500">{bootStep}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setSessionUser((prev) => prev || readCachedSessionUser());
+            setAuthLoading(false);
+          }}
+          className="mt-2 rounded-xl border border-[#00ff66]/40 bg-[#00ff66]/10 px-4 py-2 text-xs font-bold text-[#00ff66] hover:bg-[#00ff66]/20 transition cursor-pointer"
+        >
+          ⚡ Lade-Sperre überspringen &amp; direkt öffnen
+        </button>
       </div>
     );
   }

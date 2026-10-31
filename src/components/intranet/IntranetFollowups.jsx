@@ -29,12 +29,6 @@ function IntranetFollowups({ sessionUser, onOpenInDrafts }) {
       setLoading(true);
       setErrorMessage('');
       try {
-        const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
-        if (sessionErr) throw sessionErr;
-        if (!sessionData?.session) {
-          throw new Error('Keine aktive Sitzung gefunden.');
-        }
-
         const { data, error } = await fetchIntranetGamesByIds(supabase, ids);
         if (cancelled) return;
         if (error) throw error;

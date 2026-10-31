@@ -241,8 +241,9 @@ function App() {
 
     initAuth();
 
+    // KEINE await supabase...-Calls direkt in onAuthStateChange (verhindert Lock-Deadlock in supabase-js v2)!
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         // Während supabase.auth.getSession() noch lädt (authLoading === true),
         // niemals den User-State löschen oder Redirects auslösen!
         if (!initialResolved && event === 'INITIAL_SESSION' && !session?.user) {
@@ -270,12 +271,18 @@ function App() {
           // Deep Links bei Session-Restore nicht überschreiben (F5 auf /guide/…)
           if (getViewFromPath(path)) return;
 
-          const redirectResult = await handleSocialLinkRedirect(supabase);
-          if (redirectResult.handled && redirectResult.ok) {
-            setCurrentView(resolveAppViewForSession(session.user, path));
-            return;
-          }
-          setCurrentView(resolveAppViewForSession(session.user, path));
+          const currentUser = session.user;
+          window.setTimeout(() => {
+            if (cancelled) return;
+            handleSocialLinkRedirect(supabase).then((redirectResult) => {
+              if (cancelled) return;
+              if (redirectResult.handled && redirectResult.ok) {
+                setCurrentView(resolveAppViewForSession(currentUser, path));
+                return;
+              }
+              setCurrentView(resolveAppViewForSession(currentUser, path));
+            });
+          }, 0);
         }
       },
     );

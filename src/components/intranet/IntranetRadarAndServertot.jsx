@@ -894,12 +894,6 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
     setCoversLoading(true);
     setReportsLoading(true);
     try {
-      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
-      if (sessionErr) throw sessionErr;
-      if (!sessionData?.session) {
-        throw new Error('Keine aktive Admin-Sitzung gefunden. Bitte neu anmelden.');
-      }
-
       const [coversRes, reportsRes] = await Promise.all([
         fetchSickbayCovers(),
         fetchCommunityReports(supabase),
@@ -930,12 +924,6 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
       setLoading(true);
       setError('');
       try {
-        const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
-        if (sessionErr) throw sessionErr;
-        if (!sessionData?.session) {
-          throw new Error('Keine aktive Admin-Sitzung gefunden. Bitte neu anmelden.');
-        }
-
         const result = await fetchQueue(mode, { includePublished: withPublished });
         if (token !== reloadToken.current) return;
         if (result.error) throw result.error;

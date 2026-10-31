@@ -11,7 +11,36 @@ const STAFF_HTML_BY_PATH = {
   '/admin': '/admin.html',
 };
 
-export const AUTH_SESSION_TIMEOUT_MS = 8000;
+export const AUTH_SESSION_TIMEOUT_MS = 3000;
+
+/**
+ * Liest synchron den gecachten Supabase-User aus localStorage (`tb-auth-token` oder `sb-*-auth-token`),
+ * falls `supabase.auth.getSession()` durch einen internen Lock verzögert wird.
+ */
+export function readCachedSessionUser() {
+  if (typeof window === 'undefined' || !window.localStorage) return null;
+  try {
+    const rawPrimary = window.localStorage.getItem('tb-auth-token');
+    const candidates = [rawPrimary];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) {
+        candidates.push(window.localStorage.getItem(k));
+      }
+    }
+    for (const raw of candidates) {
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const user = parsed?.user || parsed?.currentSession?.user || parsed?.session?.user || null;
+      if (user && typeof user === 'object' && (user.id || user.email)) {
+        return user;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
 
 function pathWithoutTrailingSlash(pathname = '') {
   const path = pathname || (typeof window !== 'undefined' ? window.location.pathname : '');
@@ -24,18 +53,38 @@ export function staffAppHtmlForPath(pathname) {
 }
 
 export async function getSessionOrTimeout(client, timeoutMs = AUTH_SESSION_TIMEOUT_MS) {
+  let timerId = null;
   const timeout = new Promise((resolve) => {
-    window.setTimeout(() => {
+    timerId = window.setTimeout(() => {
       resolve({ data: { session: null }, timedOut: true });
     }, timeoutMs);
   });
 
   try {
     const result = await Promise.race([client.auth.getSession(), timeout]);
-    if (result?.timedOut) return { data: { session: null }, timedOut: true };
-    return { data: { session: result?.data?.session ?? null }, timedOut: false };
+    if (timerId) window.clearTimeout(timerId);
+    if (result?.timedOut) {
+      const cachedUser = readCachedSessionUser();
+      return {
+        data: { session: cachedUser ? { user: cachedUser } : null },
+        timedOut: true,
+      };
+    }
+    const session = result?.data?.session ?? null;
+    if (!session) {
+      const cachedUser = readCachedSessionUser();
+      if (cachedUser) {
+        return { data: { session: { user: cachedUser } }, timedOut: false };
+      }
+    }
+    return { data: { session }, timedOut: false };
   } catch {
-    return { data: { session: null }, timedOut: false };
+    if (timerId) window.clearTimeout(timerId);
+    const cachedUser = readCachedSessionUser();
+    return {
+      data: { session: cachedUser ? { user: cachedUser } : null },
+      timedOut: false,
+    };
   }
 }
 
@@ -230,10 +279,18 @@ export function isAdminUser(user) {
  * Supabase-User einem aktiven Creator in `public.content_creators` zugeordnet ist.
  * Gibt `{ id, channel_name, youtube_url, auto_approve }` oder `null` zurück.
  */
-export async function fetchMyCreatorProfile(client) {
+export async function fetchMyCreatorProfile(client, timeoutMs = 2500) {
   if (!client) return null;
+  let timerId = null;
+  const timeout = new Promise((resolve) => {
+    timerId = window.setTimeout(() => resolve({ data: null, error: new Error('timeout') }), timeoutMs);
+  });
   try {
-    const { data, error } = await client.rpc('tb_get_my_creator_profile');
+    const { data, error } = await Promise.race([
+      client.rpc('tb_get_my_creator_profile'),
+      timeout,
+    ]);
+    if (timerId) window.clearTimeout(timerId);
     if (error || !data || typeof data !== 'object' || !data.id) {
       return null;
     }
@@ -245,6 +302,7 @@ export async function fetchMyCreatorProfile(client) {
       user_id: data.user_id ?? null,
     };
   } catch {
+    if (timerId) window.clearTimeout(timerId);
     return null;
   }
 }
