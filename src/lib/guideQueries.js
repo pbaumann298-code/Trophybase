@@ -53,7 +53,6 @@ export function mergeGuideRow(row, lang, index = 0) {
 
   const guideUuid = row[GUIDE_STRUCT.id] ?? null;
   const guideSequence = row[GUIDE_STRUCT.guideId] ?? row.local_id ?? null;
-  const sheetTypes = resolveSheetTypes(row[GUIDE_I18N.sheetType]);
   const itemName = localizeJsonField(row[GUIDE_I18N.itemName], lang, FALLBACK_LANGUAGE);
   const localisation = localizeJsonField(row[GUIDE_I18N.localisation], lang, FALLBACK_LANGUAGE);
   const localisationSheets = resolveSheetTypes(
@@ -67,6 +66,13 @@ export function mergeGuideRow(row, lang, index = 0) {
   const categoryGroup = localizeJsonField(row[GUIDE_I18N.categoryGroup], lang, FALLBACK_LANGUAGE);
   const bossGroup = localizeJsonField(row[GUIDE_I18N.bossGroup], lang, FALLBACK_LANGUAGE);
   const videoChapter = localizeJsonField(row[GUIDE_I18N.videoChapter], lang, FALLBACK_LANGUAGE);
+  let sheetTypes = resolveSheetTypes(row[GUIDE_I18N.sheetType]);
+  if (sheetTypes.length === 0) {
+    if (chronologicalGroup) sheetTypes.push(GUIDE_SHEET_TYPE.WALKTHROUGH);
+    if (categoryGroup) sheetTypes.push(GUIDE_SHEET_TYPE.COLLECTIBLES);
+    if (bossGroup) sheetTypes.push(GUIDE_SHEET_TYPE.BOSSES);
+    if (sheetTypes.length === 0) sheetTypes = [GUIDE_SHEET_TYPE.WALKTHROUGH];
+  }
   const trophyId = row[GUIDE_STRUCT.trophyId] ?? null;
   const { video_url: safeVideoUrl, prod_note: safeProdNote } = resolveProductionVideoAndNote(
     row[GUIDE_STRUCT.videoUrl],
@@ -140,6 +146,26 @@ export async function fetchGuidesForGame(
     allRows = allRows.concat(chunk);
     if (chunk.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
+  }
+
+  // Fallback auf staging_game_guides für Creator-Entwürfe oder Admin-Vorabprüfung,
+  // wenn noch keine produktiven Zeilen in game_guides liegen (RLS schützt vor öffentlichem Zugriff).
+  if (allRows.length === 0) {
+    let sFrom = 0;
+    while (true) {
+      const { data: sRows, error: sErr } = await supabase
+        .from('staging_game_guides')
+        .select('*')
+        .eq(GAME_FK, uuid)
+        .order('guide_id', { ascending: true })
+        .order('id', { ascending: true })
+        .range(sFrom, sFrom + PAGE_SIZE - 1);
+
+      if (sErr || !sRows?.length) break;
+      allRows = allRows.concat(sRows);
+      if (sRows.length < PAGE_SIZE) break;
+      sFrom += PAGE_SIZE;
+    }
   }
 
   const merged = allRows

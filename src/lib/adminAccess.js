@@ -225,4 +225,28 @@ export function isAdminUser(user) {
   return ALLOWED_ADMINS.includes(normalizeEmail(user.email));
 }
 
+/**
+ * Prüft über die DB-RPC `tb_get_my_creator_profile`, ob der aktuell eingeloggte
+ * Supabase-User einem aktiven Creator in `public.content_creators` zugeordnet ist.
+ * Gibt `{ id, channel_name, youtube_url, auto_approve }` oder `null` zurück.
+ */
+export async function fetchMyCreatorProfile(client) {
+  if (!client) return null;
+  try {
+    const { data, error } = await client.rpc('tb_get_my_creator_profile');
+    if (error || !data || typeof data !== 'object' || !data.id) {
+      return null;
+    }
+    return {
+      id: data.id,
+      channel_name: String(data.channel_name ?? '').trim(),
+      youtube_url: String(data.youtube_url ?? '').trim(),
+      auto_approve: Boolean(data.auto_approve),
+      user_id: data.user_id ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export { ALLOWED_ADMINS };

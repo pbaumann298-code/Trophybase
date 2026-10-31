@@ -138,6 +138,50 @@ const CHAPTER_TARGET_COLUMNS = [
   { value: 'item_name', label: 'Item / Bezeichnung (item_name)', shortLabel: '🏷️ Item' },
 ];
 
+const WORKFLOW_STATUS_META = {
+  CREATOR_RECORDING: {
+    label: '🎥 Aufnahme läuft',
+    shortLabel: '🎥 Aufnahme',
+    badgeClass: 'border-amber-500/40 bg-amber-500/15 text-amber-200',
+  },
+  QWEN_QUEUE: {
+    label: '🤖 Wartet auf Qwen-VL',
+    shortLabel: '🤖 Qwen-VL',
+    badgeClass: 'border-purple-500/45 bg-purple-500/15 text-purple-200',
+  },
+  CREATOR_REVIEW: {
+    label: '✂️ Creator-Feinschliff',
+    shortLabel: '✂️ Feinschliff',
+    badgeClass: 'border-cyan-500/45 bg-cyan-500/15 text-cyan-200',
+  },
+  CREATOR_POLISH: {
+    label: '✂️ Creator-Feinschliff',
+    shortLabel: '✂️ Feinschliff',
+    badgeClass: 'border-cyan-500/45 bg-cyan-500/15 text-cyan-200',
+  },
+  READY_FOR_ADMIN: {
+    label: '🚀 Eingereicht ans Admin-Gate',
+    shortLabel: '🚀 Bereit zur Abnahme',
+    badgeClass: 'border-[#00ff66]/60 bg-[#00ff66]/20 text-[#00ff66] shadow-sm shadow-[#00ff66]/20',
+  },
+};
+
+function getWorkflowStatusMeta(statusRaw) {
+  const key = String(statusRaw ?? 'CREATOR_RECORDING').trim().toUpperCase();
+  return WORKFLOW_STATUS_META[key] || WORKFLOW_STATUS_META.CREATOR_RECORDING;
+}
+
+function formatSecondsAsTimecode(totalSeconds) {
+  const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 /**
  * Bereinigt den YouTube-Videotitel aus `video_chapter` (Chapter-Spalte):
  * - Entfernt Spieltitel (DE/EN/Varianten ohne ®/™/Sonderzeichen) am Anfang
@@ -633,7 +677,12 @@ function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuid
   );
 }
 
-export default function IntranetDrafts({ initialDataSource = 'staging', initialGameId = null }) {
+export default function IntranetDrafts({
+  initialDataSource = 'staging',
+  initialGameId = null,
+  creatorProfile = null,
+  isCreatorMode = false,
+}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -746,6 +795,24 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
   const [activeGroupFilter, setActiveGroupFilter] = useState(null);
   /** 'all' | '1' | '2' | '3' */
   const [activeSheetFilter, setActiveSheetFilter] = useState('all');
+  const [activeTakeFilter, setActiveTakeFilter] = useState('');
+
+  // Creator Studio: Neues Guide-Projekt / Dreh-Liste Modal & Qwen-VL Modal State
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [newProjectSearchQuery, setNewProjectSearchQuery] = useState('');
+  const [newProjectSearchResults, setNewProjectSearchResults] = useState([]);
+  const [newProjectSearching, setNewProjectSearching] = useState(false);
+  const [newProjectSelectedGame, setNewProjectSelectedGame] = useState(null);
+  const [newProjectMode, setNewProjectMode] = useState('trophies'); // 'trophies' | 'custom'
+  const [newProjectCustomLines, setNewProjectCustomLines] = useState('');
+  const [newProjectDefaultGroup, setNewProjectDefaultGroup] = useState('Walkthrough');
+  const [newProjectCreatorName, setNewProjectCreatorName] = useState(
+    creatorProfile?.channel_name || 'RaTrophies'
+  );
+  const [newProjectCreating, setNewProjectCreating] = useState(false);
+
+  const [showQwenModal, setShowQwenModal] = useState(false);
+  const [qwenVideoUrlInput, setQwenVideoUrlInput] = useState('');
 
   // 2. Multi-Select & Floating Batch-Bar State
   const [selectedRowIds, setSelectedRowIds] = useState(() => new Set());
@@ -913,7 +980,17 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       }
 
       const localOverrides = loadStagingLocalOverrides();
-      const mergedStaging = allRows.map((r) => {
+      const filteredRawRows =
+        isCreatorMode && creatorProfile?.id
+          ? allRows.filter(
+              (r) =>
+                String(r.creator_id ?? '') === String(creatorProfile.id) ||
+                (creatorProfile.channel_name &&
+                  String(r.creator_name ?? '').toLowerCase() ===
+                    String(creatorProfile.channel_name).toLowerCase())
+            )
+          : allRows;
+      const mergedStaging = filteredRawRows.map((r) => {
         const ov = localOverrides[r.id];
         return {
           ...r,
@@ -980,8 +1057,10 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
 
   useEffect(() => {
     fetchQueue();
-    fetchRohmaterialSummary();
-  }, [fetchQueue, fetchRohmaterialSummary]);
+    if (!isCreatorMode) {
+      fetchRohmaterialSummary();
+    }
+  }, [fetchQueue, fetchRohmaterialSummary, isCreatorMode]);
 
   // Load productive game_guides rows when a Rohmaterial game has PENDING_MULTI_TAB in game_guides
   useEffect(() => {
@@ -1062,6 +1141,15 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       const game = gamesMap.get(gameId) || { id: gameId };
       const title = getLocalizedTitle(game.spieltitel);
       const creators = new Set(rows.map((r) => r.creator_name || 'Unbekannt'));
+      const statuses = new Set(
+        rows.map((r) => String(r.workflow_status ?? 'CREATOR_RECORDING').trim().toUpperCase())
+      );
+      let workflowStatus = 'CREATOR_RECORDING';
+      if (statuses.has('READY_FOR_ADMIN')) workflowStatus = 'READY_FOR_ADMIN';
+      else if (statuses.has('QWEN_QUEUE')) workflowStatus = 'QWEN_QUEUE';
+      else if (statuses.has('CREATOR_REVIEW') || statuses.has('CREATOR_POLISH')) {
+        workflowStatus = 'CREATOR_REVIEW';
+      }
 
       list.push({
         gameId,
@@ -1071,6 +1159,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         creatorCount: creators.size,
         rowCount: rows.length,
         coverUrl: getLocalizedCover(game.cover_url),
+        workflowStatus,
         source: 'staging',
       });
     }
@@ -1299,6 +1388,10 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         const strA = getLocalizedItemName(a.video_chapter);
         const strB = getLocalizedItemName(b.video_chapter);
         cmp = strA.localeCompare(strB, 'de', { numeric: true });
+      } else if (sortField === 'prod_note') {
+        const strA = String(a.prod_note ?? '').trim();
+        const strB = String(b.prod_note ?? '').trim();
+        cmp = strA.localeCompare(strB, 'de', { numeric: true });
       } else if (sortField === 'trophy_id') {
         const numA = Number.parseInt(String(a.trophy_id ?? '').replace(/\D/g, ''), 10);
         const numB = Number.parseInt(String(b.trophy_id ?? '').replace(/\D/g, ''), 10);
@@ -1375,8 +1468,36 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     };
   }, [currentCreatorRows, pillSortOrder]);
 
-  // Sichtbare Zeilen in der Tabelle (nach Gruppen-Filter & Sheet-Filter)
+  // Distinct prod_note (Take) values across currentCreatorRows
+  const distinctTakeNotes = useMemo(() => {
+    const counts = new Map();
+    for (const row of currentCreatorRows) {
+      const note = String(row.prod_note ?? '').trim();
+      if (note) {
+        counts.set(note, (counts.get(note) || 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .map(([note, count]) => ({ note, count }))
+      .sort((a, b) => a.note.localeCompare(b.note, 'de', { numeric: true }));
+  }, [currentCreatorRows]);
+
+  // Current workflow_status for the selected draft
+  const currentWorkflowStatus = useMemo(() => {
+    const rows = currentCreatorRows.length > 0 ? currentCreatorRows : currentGameRows;
+    if (!rows.length) return 'CREATOR_RECORDING';
+    const statuses = new Set(
+      rows.map((r) => String(r.workflow_status ?? 'CREATOR_RECORDING').trim().toUpperCase())
+    );
+    if (statuses.has('READY_FOR_ADMIN')) return 'READY_FOR_ADMIN';
+    if (statuses.has('QWEN_QUEUE')) return 'QWEN_QUEUE';
+    if (statuses.has('CREATOR_REVIEW') || statuses.has('CREATOR_POLISH')) return 'CREATOR_REVIEW';
+    return 'CREATOR_RECORDING';
+  }, [currentCreatorRows, currentGameRows]);
+
+  // Sichtbare Zeilen in der Tabelle (nach Gruppen-Filter, Sheet-Filter & Take-Filter)
   const visibleCreatorRows = useMemo(() => {
+    const takeTrim = activeTakeFilter.trim().toLowerCase();
     return currentCreatorRows.filter((row) => {
       if (activeGroupFilter) {
         const val = getLocalizedItemName(row[activeGroupFilter.field]).trim();
@@ -1388,9 +1509,13 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
         const types = deriveSheetTypesFromRow(row);
         if (!types.includes(targetNum)) return false;
       }
+      if (takeTrim) {
+        const rowTake = String(row.prod_note ?? '').trim().toLowerCase();
+        if (!rowTake.includes(takeTrim)) return false;
+      }
       return true;
     });
-  }, [currentCreatorRows, activeGroupFilter, activeSheetFilter]);
+  }, [currentCreatorRows, activeGroupFilter, activeSheetFilter, activeTakeFilter]);
 
   // Set initial video player URL when game or creator changes
   useEffect(() => {
@@ -1575,7 +1700,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     };
   }, [selectedGame, liveGuideRows]);
 
-  // Load trophies for selected game
+  // Load trophies for selected game (nutzt tb_fetch_achievements_for_auth als Fallback/Creator-RPC für unveröffentlichte Spiele)
   useEffect(() => {
     if (!selectedGameId) {
       setGameTrophies([]);
@@ -1585,28 +1710,48 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     let cancelled = false;
     async function loadTrophies() {
       setLoadingTrophies(true);
-      const { data, error: trophyErr } = await supabase
-        .from(TABLES.achievements)
-        .select('*')
-        .eq(GAME_FK, selectedGameId)
-        .order('platform_achievement_id', { ascending: true });
+
+      let loaded = [];
+      if (!isCreatorMode) {
+        const { data, error: trophyErr } = await supabase
+          .from(TABLES.achievements)
+          .select('*')
+          .eq(GAME_FK, selectedGameId)
+          .order('platform_achievement_id', { ascending: true });
+
+        if (!trophyErr && Array.isArray(data) && data.length > 0) {
+          loaded = data;
+        }
+      }
+
+      if (loaded.length === 0) {
+        const { data: rpcData, error: rpcErr } = await supabase.rpc(
+          'tb_fetch_achievements_for_auth',
+          { p_game_id: selectedGameId }
+        );
+        if (rpcErr) {
+          console.error('Fehler beim Laden der Trophäen via RPC:', rpcErr.message);
+        } else if (Array.isArray(rpcData)) {
+          loaded = [...rpcData].sort((a, b) =>
+            String(a.platform_achievement_id ?? '').localeCompare(
+              String(b.platform_achievement_id ?? ''),
+              'de',
+              { numeric: true }
+            )
+          );
+        }
+      }
 
       if (cancelled) return;
       setLoadingTrophies(false);
-
-      if (trophyErr) {
-        console.error('Fehler beim Laden der Trophäen:', trophyErr.message);
-        setGameTrophies([]);
-        return;
-      }
-      setGameTrophies(data ?? []);
+      setGameTrophies(loaded);
     }
 
     loadTrophies();
     return () => {
       cancelled = true;
     };
-  }, [selectedGameId]);
+  }, [selectedGameId, isCreatorMode]);
 
   // Jump to next game in queue
   const jumpToNextGame = useCallback(
@@ -1651,6 +1796,11 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       return isJsonbTable ? String(Number.parseInt(digits, 10)) : Number.parseInt(digits, 10);
     }
 
+    if (field === 'prod_note') {
+      const str = String(rawValue ?? '').trim();
+      return str || null;
+    }
+
     if (
       field === 'chronological_group' ||
       field === 'category_group' ||
@@ -1660,6 +1810,13 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     ) {
       const str = String(rawValue ?? '').trim();
       if (!isJsonbTable) {
+        if (
+          field === 'chronological_group' ||
+          field === 'item_name' ||
+          field === 'video_chapter'
+        ) {
+          return str;
+        }
         return str || null;
       }
       if (!str) return null;
@@ -2051,10 +2208,11 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     setError('');
 
     const targetTable = isRoh ? TABLES.guidesRohmaterial : 'staging_game_guides';
-    const { error: delErr } = await supabase
-      .from(targetTable)
-      .delete()
-      .eq('game_id', gameId);
+    let delQuery = supabase.from(targetTable).delete().eq('game_id', gameId);
+    if (isCreatorMode && creatorProfile?.id && !isRoh) {
+      delQuery = delQuery.eq('creator_id', creatorProfile.id);
+    }
+    const { error: delErr } = await delQuery;
 
     setActionBusy(false);
 
@@ -2317,8 +2475,9 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
               'video_chapter',
               getLocalizedItemName(row.video_chapter)
             ),
-            timestamp: row.timestamp || null,
-            video_url: row.video_url || null,
+            timestamp: row.timestamp || '00:00',
+            video_url: row.video_url || '',
+            prod_note: formatFieldValueForTable(row, 'prod_note', row.prod_note),
             trophy_id: formatFieldValueForTable(row, 'trophy_id', row.trophy_id),
             is_trophy_relevant: row.is_trophy_relevant || null,
           }));
@@ -3148,7 +3307,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
 
     const targetFields =
       searchTargetField === 'all'
-        ? ['item_name', 'chronological_group', 'category_group', 'boss_group', 'video_chapter']
+        ? ['item_name', 'chronological_group', 'category_group', 'boss_group', 'video_chapter', 'prod_note']
         : [searchTargetField];
 
     const matchedRows = [];
@@ -3423,6 +3582,370 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
     setNotice(`🗑️ Alle Guide-Tipps in [${trophyLang.toUpperCase()}] wurden komplett gelöscht.`);
   };
 
+  // --- CREATOR STUDIO: NEUES GUIDE-PROJEKT, WORKFLOW-STATUS & YOUTUBE-CHAPTERS ---
+
+  // 10a. Spielsuche für "+ Neues Guide-Projekt" (Spieltitel oder NPWR)
+  const handleSearchGamesForNewProject = async (e) => {
+    if (e) e.preventDefault();
+    const raw = newProjectSearchQuery.trim();
+    if (!raw || newProjectSearching) return;
+
+    const words = raw
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter(Boolean);
+    if (words.length === 0) return;
+
+    setNewProjectSearching(true);
+    setError('');
+    try {
+      const { data, error: rpcErr } = await supabase.rpc('tb_search_games_trophies_only', {
+        p_words: words,
+        p_limit: 25,
+      });
+      if (rpcErr) {
+        setError(`Spielsuche fehlgeschlagen: ${rpcErr.message}`);
+        setNewProjectSearchResults([]);
+      } else {
+        const list = Array.isArray(data) ? data : [];
+        setNewProjectSearchResults(list);
+        if (list.length === 1) {
+          setNewProjectSelectedGame(list[0]);
+        }
+      }
+    } catch (err) {
+      setError(`Spielsuche fehlgeschlagen: ${err.message}`);
+    } finally {
+      setNewProjectSearching(false);
+    }
+  };
+
+  // 10b. Neues Guide-Projekt / Dreh-Liste in staging_game_guides anlegen
+  const handleCreateNewGuideProject = async () => {
+    if (!newProjectSelectedGame?.id || newProjectCreating) return;
+    const game = newProjectSelectedGame;
+    const resolvedCreatorName =
+      (isCreatorMode && creatorProfile?.channel_name) ||
+      newProjectCreatorName.trim() ||
+      creatorProfile?.channel_name ||
+      'RaTrophies';
+    const resolvedCreatorId = creatorProfile?.id || null;
+    const resolvedPlatformGameId = Array.isArray(game.platform_game_id)
+      ? String(game.platform_game_id[0] || game.id)
+      : String(game.platform_game_id || game.id);
+    const defaultGroup = newProjectDefaultGroup.trim() || 'Walkthrough';
+
+    setNewProjectCreating(true);
+    setError('');
+    setNotice('');
+
+    try {
+      let rowsToInsert = [];
+
+      if (newProjectMode === 'trophies') {
+        const { data: achRows, error: achErr } = await supabase.rpc(
+          'tb_fetch_achievements_for_auth',
+          { p_game_id: game.id }
+        );
+        if (achErr) {
+          throw new Error(`Trophäen konnten nicht geladen werden: ${achErr.message}`);
+        }
+        const sortedAch = [...(achRows ?? [])].sort((a, b) =>
+          String(a.platform_achievement_id ?? '').localeCompare(
+            String(b.platform_achievement_id ?? ''),
+            'de',
+            { numeric: true }
+          )
+        );
+
+        if (sortedAch.length === 0) {
+          throw new Error('Für dieses Spiel wurden keine Trophäen gefunden. Nutze Option B (Leere Checkliste).');
+        }
+
+        rowsToInsert = sortedAch.map((ach, idx) => {
+          const numericId = extractNumericTrophyId(ach.platform_achievement_id, idx + 1);
+          const trophyTitle =
+            getLocalizedTrophyName(ach.trophy_name) ||
+            String(ach.platform_achievement_id || `Trophäe ${idx + 1}`);
+          return {
+            game_id: game.id,
+            platform_game_id: resolvedPlatformGameId,
+            creator_id: resolvedCreatorId,
+            creator_name: resolvedCreatorName,
+            guide_id: idx + 1,
+            chronological_group: defaultGroup,
+            video_chapter: '',
+            item_name: trophyTitle,
+            timestamp: '00:00',
+            video_url: '',
+            trophy_id: numericId,
+            is_trophy_relevant: 'ja',
+            workflow_status: 'CREATOR_RECORDING',
+          };
+        });
+      } else {
+        const customLines = newProjectCustomLines
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        const effectiveLines = customLines.length > 0 ? customLines : ['Schritt 1'];
+
+        rowsToInsert = effectiveLines.map((lineText, idx) => ({
+          game_id: game.id,
+          platform_game_id: resolvedPlatformGameId,
+          creator_id: resolvedCreatorId,
+          creator_name: resolvedCreatorName,
+          guide_id: idx + 1,
+          chronological_group: defaultGroup,
+          video_chapter: '',
+          item_name: lineText,
+          timestamp: '00:00',
+          video_url: '',
+          trophy_id: null,
+          is_trophy_relevant: 'Nein',
+          workflow_status: 'CREATOR_RECORDING',
+        }));
+      }
+
+      const { error: insErr } = await supabase.from('staging_game_guides').insert(rowsToInsert);
+      if (insErr) {
+        throw new Error(insErr.message);
+      }
+
+      setGamesMap((prev) => {
+        const next = new Map(prev);
+        next.set(game.id, game);
+        return next;
+      });
+
+      await fetchQueue();
+      setActiveDataSource('staging');
+      setSelectedGameId(game.id);
+      setSelectedCreatorName(resolvedCreatorName);
+      setShowNewProjectModal(false);
+      setNewProjectSelectedGame(null);
+      setNewProjectCustomLines('');
+      setNotice(
+        `🎬 Neues Guide-Projekt "${getLocalizedTitle(game.spieltitel)}" mit ${rowsToInsert.length} Zeilen für ${resolvedCreatorName} angelegt!`
+      );
+    } catch (err) {
+      setError(`Anlegen des Guide-Projekts fehlgeschlagen: ${err.message}`);
+    } finally {
+      setNewProjectCreating(false);
+    }
+  };
+
+  // 10c. Einzelne neue Zeile zum aktuellen Entwurf hinzufügen
+  const handleAddSingleDraftRow = async () => {
+    if (!selectedGameId || actionBusy) return;
+    const resolvedCreatorName =
+      selectedCreatorName || creatorProfile?.channel_name || 'RaTrophies';
+    const resolvedCreatorId =
+      creatorProfile?.id ||
+      currentCreatorRows.find((r) => r.creator_id)?.creator_id ||
+      null;
+    const resolvedPlatformGameId =
+      currentCreatorRows[0]?.platform_game_id ||
+      (Array.isArray(selectedGame?.platform_game_id)
+        ? selectedGame.platform_game_id[0]
+        : selectedGame?.platform_game_id) ||
+      String(selectedGameId);
+
+    let maxGuideId = 0;
+    for (const r of currentCreatorRows) {
+      const n = Number.parseInt(String(r.guide_id ?? '').replace(/\D/g, ''), 10);
+      if (Number.isFinite(n) && n > maxGuideId) maxGuideId = n;
+    }
+
+    const lastRow = currentCreatorRows[currentCreatorRows.length - 1];
+    const defaultChrono =
+      getLocalizedItemName(lastRow?.chronological_group).trim() || 'Walkthrough';
+
+    setActionBusy(true);
+    setError('');
+    try {
+      const newRowPayload = {
+        game_id: selectedGameId,
+        platform_game_id: String(resolvedPlatformGameId),
+        creator_id: resolvedCreatorId,
+        creator_name: resolvedCreatorName,
+        guide_id: maxGuideId + 1,
+        chronological_group: defaultChrono,
+        category_group: getLocalizedItemName(lastRow?.category_group).trim() || null,
+        boss_group: getLocalizedItemName(lastRow?.boss_group).trim() || null,
+        video_chapter: '',
+        item_name: `Neuer Schritt ${maxGuideId + 1}`,
+        timestamp: '00:00',
+        video_url: lastRow?.video_url || '',
+        prod_note: lastRow?.prod_note || null,
+        trophy_id: null,
+        is_trophy_relevant: 'Nein',
+        workflow_status: currentWorkflowStatus || 'CREATOR_RECORDING',
+      };
+
+      const { data: inserted, error: insErr } = await supabase
+        .from('staging_game_guides')
+        .insert(newRowPayload)
+        .select('*')
+        .maybeSingle();
+
+      if (insErr) throw new Error(insErr.message);
+
+      if (inserted) {
+        setStagingRows((prev) => [
+          ...prev,
+          { ...inserted, _sourceTable: 'staging_game_guides' },
+        ]);
+        setActiveRowId(inserted.id);
+      }
+      setNotice(`➕ Zeile #${maxGuideId + 1} hinzugefügt.`);
+    } catch (err) {
+      setError(`Zeile konnte nicht hinzugefügt werden: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // 10d. Creator Workflow-Status ändern (Qwen-VL Queue / Ready for Admin / Creator Recording)
+  const handleSetCreatorWorkflowStatus = async (targetStatus, optionalVideoUrl = null) => {
+    if (!selectedGameId || actionBusy) return;
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const cleanUrl = optionalVideoUrl ? String(optionalVideoUrl).trim() : null;
+      const { error: rpcErr } = await supabase.rpc('tb_set_creator_workflow_status', {
+        p_game_id: selectedGameId,
+        p_status: targetStatus,
+        p_video_url: cleanUrl,
+      });
+
+      if (rpcErr) {
+        throw new Error(rpcErr.message);
+      }
+
+      setStagingRows((prev) =>
+        prev.map((row) => {
+          if (row.game_id !== selectedGameId) return row;
+          const nextUrl =
+            cleanUrl && !String(row.video_url ?? '').trim() ? cleanUrl : row.video_url;
+          return {
+            ...row,
+            workflow_status: targetStatus,
+            video_url: nextUrl,
+          };
+        })
+      );
+
+      if (cleanUrl && !activeVideoUrl) {
+        setActiveVideoUrl(cleanUrl);
+      }
+
+      setShowQwenModal(false);
+      const statusMeta = getWorkflowStatusMeta(targetStatus);
+      if (targetStatus === 'QWEN_QUEUE') {
+        setNotice(
+          `🤖 Video an Qwen-VL gesendet! Status: "${statusMeta.label}". Sobald die KI-Timestamps eingetragen sind, wechselt das Projekt in den Creator-Feinschliff.`
+        );
+      } else if (targetStatus === 'READY_FOR_ADMIN') {
+        setNotice(
+          `🚀 Guide für "${getLocalizedTitle(selectedGame?.spieltitel)}" erfolgreich ans Admin-Gate zur Freigabe eingereicht!`
+        );
+      } else {
+        setNotice(`✓ Workflow-Status geändert auf: ${statusMeta.label}`);
+      }
+    } catch (err) {
+      setError(`Workflow-Status konnte nicht aktualisiert werden: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // 10e. Killer-Feature: YouTube-Chapters in die Zwischenablage kopieren
+  const handleCopyYouTubeChapters = async () => {
+    const sourceRows = visibleCreatorRows.length > 0 ? visibleCreatorRows : currentCreatorRows;
+    if (!sourceRows.length) {
+      setError('Keine Guide-Zeilen zum Kopieren vorhanden.');
+      return;
+    }
+
+    // Falls eine aktive Video-URL gewählt ist und mehrere Videos existieren, auf das aktive Video filtern
+    const baseVideoUrl = activeVideoUrl
+      ? String(activeVideoUrl).split('&t=')[0].split('?t=')[0].trim()
+      : '';
+    const rowsForActiveVideo = baseVideoUrl
+      ? sourceRows.filter((r) => {
+          const rUrl = String(r.video_url ?? '').split('&t=')[0].split('?t=')[0].trim();
+          return !rUrl || rUrl === baseVideoUrl;
+        })
+      : sourceRows;
+
+    const targetRows = rowsForActiveVideo.length > 0 ? rowsForActiveVideo : sourceRows;
+
+    const sortedByTime = [...targetRows].sort((a, b) => {
+      const secA = parseTimecodeToSeconds(a.timestamp) ?? 0;
+      const secB = parseTimecodeToSeconds(b.timestamp) ?? 0;
+      if (secA !== secB) return secA - secB;
+      const idA = Number.parseInt(String(a.guide_id ?? '').replace(/\D/g, ''), 10) || 0;
+      const idB = Number.parseInt(String(b.guide_id ?? '').replace(/\D/g, ''), 10) || 0;
+      return idA - idB;
+    });
+
+    const lines = [];
+    const firstSec =
+      sortedByTime.length > 0 ? (parseTimecodeToSeconds(sortedByTime[0].timestamp) ?? 0) : 0;
+
+    if (firstSec > 0) {
+      lines.push('00:00 Intro');
+    }
+
+    for (const row of sortedByTime) {
+      const sec = parseTimecodeToSeconds(row.timestamp) ?? 0;
+      const rawTs = String(row.timestamp ?? '').trim();
+      const formattedTs =
+        rawTs && /^\d{1,2}:\d{2}(?::\d{2})?$/.test(rawTs)
+          ? rawTs.replace(/^(\d):/, '0$1:')
+          : formatSecondsAsTimecode(sec);
+
+      const itemName = getLocalizedItemName(row.item_name).trim() || `Schritt ${row.guide_id ?? ''}`.trim();
+      const rawGroup =
+        getLocalizedItemName(row.chronological_group).trim() ||
+        getLocalizedItemName(row.category_group).trim() ||
+        getLocalizedItemName(row.boss_group).trim();
+      const groupPrefix =
+        rawGroup &&
+        rawGroup.toLowerCase() !== 'walkthrough' &&
+        rawGroup.toLowerCase() !== itemName.toLowerCase()
+          ? `${rawGroup} – `
+          : '';
+
+      lines.push(`${formattedTs} ${groupPrefix}${itemName}`);
+    }
+
+    const guidePath =
+      (selectedGame && intranetGameHref(selectedGame)) ||
+      `/guide/${encodeURIComponent(selectedGame?.slug || selectedGameId || '')}`;
+    const fullGuideUrl = `https://trophybase.app${guidePath.startsWith('/') ? guidePath : `/${guidePath}`}`;
+    const gameTitle = getLocalizedTitle(selectedGame?.spieltitel);
+
+    const clipboardBlock = [
+      `🏆 Interaktiver Platin- & Sammelobjekte-Guide zu ${gameTitle}: ${fullGuideUrl}`,
+      '',
+      '⏱️ Kapitel / Timestamps:',
+      ...lines,
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(clipboardBlock);
+      setNotice(
+        `📋 YouTube-Chapters (${lines.length} Einträge) inkl. TrophyBase-Link in die Zwischenablage kopiert!`
+      );
+    } catch (err) {
+      setError(`Kopieren in die Zwischenablage fehlgeschlagen: ${err.message}`);
+    }
+  };
+
   // Video embed URL
   const currentEmbedUrl = useMemo(() => {
     if (!activeVideoUrl) return null;
@@ -3449,47 +3972,72 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
       {/* Umschalter / Zähler für verschobene große Spiele (Rohmaterial) & Datenquelle */}
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-800 bg-[#121314] px-4 py-2.5">
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Modus-Umschalter: Entwürfe (staging_game_guides) vs. Rohmaterial / Multi-Tab */}
-          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-900/90 p-0.5">
-            <button
-              type="button"
-              onClick={() => setActiveDataSource('staging')}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-mono font-bold transition ${
-                activeDataSource === 'staging'
-                  ? 'bg-[#00ff66]/15 text-[#00ff66] border border-[#00ff66]/40'
-                  : 'text-zinc-400 hover:text-zinc-200 border border-transparent'
-              }`}
-            >
-              <span>📝 Staging-Entwürfe ({queueGamesList.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveDataSource('rohmaterial')}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-mono font-bold transition ${
-                activeDataSource === 'rohmaterial'
-                  ? 'bg-purple-500/20 text-purple-200 border border-purple-400/50'
-                  : 'text-zinc-400 hover:text-purple-200 border border-transparent'
-              }`}
-            >
-              <span>📦 Multi-Tab / Rohmaterial ({rohmaterialGames.length})</span>
-            </button>
-          </div>
-
           <button
             type="button"
-            onClick={() => setShowRohmaterialView((prev) => !prev)}
-            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-mono font-bold transition ${
-              showRohmaterialView
-                ? 'border-purple-500/60 bg-purple-500/20 text-purple-200'
-                : 'border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20'
-            }`}
+            onClick={() => {
+              setNewProjectCreatorName(
+                creatorProfile?.channel_name || selectedCreatorName || 'RaTrophies'
+              );
+              setShowNewProjectModal(true);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#00ff66] px-3.5 py-1.5 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90 transition shadow-md shadow-[#00ff66]/15"
           >
-            <span>📦 Rohmaterial-Übersicht ({rohmaterialGames.length})</span>
-            <span>{showRohmaterialView ? '▲' : '▼'}</span>
+            <span>+ Neues Guide-Projekt</span>
           </button>
-          <span className="text-[11px] font-mono text-zinc-500">
-            Staging: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({stagingRows.length} Zeilen) · Rohmaterial: <strong className="text-purple-300">{rohmaterialGames.length} Spiele</strong> ({rohmaterialRows.length} Zeilen)
-          </span>
+
+          {!isCreatorMode ? (
+            <>
+              {/* Modus-Umschalter: Entwürfe (staging_game_guides) vs. Rohmaterial / Multi-Tab */}
+              <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-900/90 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveDataSource('staging')}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-mono font-bold transition ${
+                    activeDataSource === 'staging'
+                      ? 'bg-[#00ff66]/15 text-[#00ff66] border border-[#00ff66]/40'
+                      : 'text-zinc-400 hover:text-zinc-200 border border-transparent'
+                  }`}
+                >
+                  <span>📝 Staging-Entwürfe ({queueGamesList.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveDataSource('rohmaterial')}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-mono font-bold transition ${
+                    activeDataSource === 'rohmaterial'
+                      ? 'bg-purple-500/20 text-purple-200 border border-purple-400/50'
+                      : 'text-zinc-400 hover:text-purple-200 border border-transparent'
+                  }`}
+                >
+                  <span>📦 Multi-Tab / Rohmaterial ({rohmaterialGames.length})</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowRohmaterialView((prev) => !prev)}
+                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-mono font-bold transition ${
+                  showRohmaterialView
+                    ? 'border-purple-500/60 bg-purple-500/20 text-purple-200'
+                    : 'border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20'
+                }`}
+              >
+                <span>📦 Rohmaterial-Übersicht ({rohmaterialGames.length})</span>
+                <span>{showRohmaterialView ? '▲' : '▼'}</span>
+              </button>
+              <span className="text-[11px] font-mono text-zinc-500">
+                Staging: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({stagingRows.length} Zeilen) · Rohmaterial: <strong className="text-purple-300">{rohmaterialGames.length} Spiele</strong> ({rohmaterialRows.length} Zeilen)
+              </span>
+            </>
+          ) : (
+            <span className="text-xs font-mono text-zinc-400">
+              🎬 Creator-Arbeitsbereich:{' '}
+              <strong className="text-[#00ff66]">
+                {creatorProfile?.channel_name || 'Creator'}
+              </strong>{' '}
+              · <strong className="text-zinc-200">{queueGamesList.length} Projekte</strong> ({stagingRows.length} Zeilen)
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -3505,7 +4053,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
             type="button"
             onClick={() => {
               fetchQueue();
-              fetchRohmaterialSummary();
+              if (!isCreatorMode) fetchRohmaterialSummary();
             }}
             className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] font-mono text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66] transition"
           >
@@ -3638,8 +4186,20 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
               <>Die Staging Queue (<span className="font-mono text-zinc-300">staging_game_guides</span>) ist aktuell leer.</>
             )}
           </p>
-          <div className="mt-4 flex items-center gap-2">
-            {activeDataSource === 'staging' && rohmaterialGames.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setNewProjectCreatorName(
+                  creatorProfile?.channel_name || selectedCreatorName || 'RaTrophies'
+                );
+                setShowNewProjectModal(true);
+              }}
+              className="rounded-xl bg-[#00ff66] px-4 py-2 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90 shadow-md shadow-[#00ff66]/15"
+            >
+              + Neues Guide-Projekt anlegen
+            </button>
+            {!isCreatorMode && activeDataSource === 'staging' && rohmaterialGames.length > 0 && (
               <button
                 type="button"
                 onClick={() => setActiveDataSource('rohmaterial')}
@@ -3652,7 +4212,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
               type="button"
               onClick={() => {
                 fetchQueue();
-                fetchRohmaterialSummary();
+                if (!isCreatorMode) fetchRohmaterialSummary();
               }}
               className="rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-200 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
             >
@@ -3666,6 +4226,20 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
           
           {/* ==================== A. LINKE SPALTE: Spiele-Queue (3 Cols) ==================== */}
           <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 max-h-[calc(100vh-160px)] overflow-hidden">
+            {/* Button "+ Neues Guide-Projekt" oben links in der Queue */}
+            <button
+              type="button"
+              onClick={() => {
+                setNewProjectCreatorName(
+                  creatorProfile?.channel_name || selectedCreatorName || 'RaTrophies'
+                );
+                setShowNewProjectModal(true);
+              }}
+              className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-[#00ff66] px-3 py-2 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90 transition shadow-md shadow-[#00ff66]/15"
+            >
+              <span>+ Neues Guide-Projekt</span>
+            </button>
+
             <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-2.5 px-1">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-white">
@@ -3688,7 +4262,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                   type="button"
                   onClick={() => {
                     fetchQueue();
-                    fetchRohmaterialSummary();
+                    if (!isCreatorMode) fetchRohmaterialSummary();
                   }}
                   title="Queue aktualisieren"
                   className="rounded-lg border border-zinc-700 bg-zinc-800 p-1.5 text-xs text-zinc-400 hover:text-[#00ff66]"
@@ -3714,6 +4288,8 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                 const itemPublished = isGameAlreadyPublishedOrLocked(item.game);
                 const itemGuideCount = liveGuideCountsMap.get(item.gameId) || 0;
                 const itemHasConflict = itemPublished || itemGuideCount > 0;
+                const isReadyForAdmin = item.workflowStatus === 'READY_FOR_ADMIN';
+                const wfMeta = getWorkflowStatusMeta(item.workflowStatus);
                 return (
                   <div
                     key={item.gameId}
@@ -3726,9 +4302,11 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                         ? itemHasConflict
                           ? 'border-amber-400/70 bg-amber-500/15 text-white'
                           : 'border-[#00ff66]/50 bg-[#00ff66]/10 text-white'
-                        : itemHasConflict
-                          ? 'border-amber-500/35 bg-amber-500/5 hover:border-amber-400/60 text-zinc-200'
-                          : 'border-zinc-800/80 bg-[#17181a] hover:border-zinc-700 hover:bg-zinc-800/60 text-zinc-300'
+                        : isReadyForAdmin && !isCreatorMode
+                          ? 'border-[#00ff66]/60 bg-[#00ff66]/5 hover:border-[#00ff66] text-white shadow-sm shadow-[#00ff66]/10'
+                          : itemHasConflict
+                            ? 'border-amber-500/35 bg-amber-500/5 hover:border-amber-400/60 text-zinc-200'
+                            : 'border-zinc-800/80 bg-[#17181a] hover:border-zinc-700 hover:bg-zinc-800/60 text-zinc-300'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -3744,9 +4322,24 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                         </div>
                       )}
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                           <p className="text-xs font-bold leading-tight truncate">{item.title}</p>
-                          {itemHasConflict && (
+                          {!isCreatorMode && isReadyForAdmin && (
+                            <span
+                              title="Creator hat diesen Guide fertiggestellt und ans Admin-Gate eingereicht"
+                              className="shrink-0 rounded-md bg-[#00ff66]/20 border border-[#00ff66]/70 px-1.5 py-0.5 text-[9px] font-mono font-bold text-[#00ff66] shadow-sm shadow-[#00ff66]/25 animate-pulse"
+                            >
+                              🚀 Bereit zur Abnahme
+                            </span>
+                          )}
+                          {isCreatorMode && item.workflowStatus && (
+                            <span
+                              className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-mono font-bold border ${wfMeta.badgeClass}`}
+                            >
+                              {wfMeta.shortLabel}
+                            </span>
+                          )}
+                          {!isCreatorMode && itemHasConflict && (
                             <span
                               title={
                                 itemPublished
@@ -3771,7 +4364,11 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                     {/* Quick Delete Game Button */}
                     <button
                       type="button"
-                      title="Komplettes Spiel verworfen/löschen"
+                      title={
+                        isCreatorMode
+                          ? 'Eigenes Guide-Projekt löschen'
+                          : 'Komplettes Spiel verworfen/löschen'
+                      }
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDeleteWholeGame(item.gameId);
@@ -3886,38 +4483,81 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                           {selectedGame.publisher || selectedGame.entwickler || 'Publisher N/A'}
                         </p>
 
-                        {/* Spiel-Typ Multi-Select Dropdown */}
-                        <div className="mt-2.5 flex items-center gap-2">
-                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider w-16 shrink-0">Spiel-Typ:</span>
-                          <AdminGameTypeSelect
-                            gameId={selectedGame.id}
-                            gameType={selectedGame.spiel_typ}
-                            onSaved={(savedType) => {
-                              setGamesMap((prev) => {
-                                const next = new Map(prev);
-                                const current = next.get(selectedGame.id);
-                                if (current) next.set(selectedGame.id, { ...current, spiel_typ: savedType });
-                                return next;
-                              });
-                            }}
-                          />
-                        </div>
+                        {/* Spiel-Typ & Status Dropdowns (nur Admin) */}
+                        {!isCreatorMode && (
+                          <>
+                            <div className="mt-2.5 flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider w-16 shrink-0">Spiel-Typ:</span>
+                              <AdminGameTypeSelect
+                                gameId={selectedGame.id}
+                                gameType={selectedGame.spiel_typ}
+                                onSaved={(savedType) => {
+                                  setGamesMap((prev) => {
+                                    const next = new Map(prev);
+                                    const current = next.get(selectedGame.id);
+                                    if (current) next.set(selectedGame.id, { ...current, spiel_typ: savedType });
+                                    return next;
+                                  });
+                                }}
+                              />
+                            </div>
 
-                        {/* Status Dropdown mit Löschmöglichkeit */}
-                        <div className="mt-2 flex items-center gap-2">
-                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider w-16 shrink-0">Status:</span>
-                          <AdminGameStatusDropdown
-                            game={selectedGame}
-                            onStatusUpdated={(updatedStatus) => {
-                              setGamesMap((prev) => {
-                                const next = new Map(prev);
-                                const current = next.get(selectedGame.id);
-                                if (current) next.set(selectedGame.id, { ...current, status: updatedStatus });
-                                return next;
-                              });
-                              setNotice('Status-Eintrag wurde gelöscht.');
+                            <div className="mt-2 flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider w-16 shrink-0">Status:</span>
+                              <AdminGameStatusDropdown
+                                game={selectedGame}
+                                onStatusUpdated={(updatedStatus) => {
+                                  setGamesMap((prev) => {
+                                    const next = new Map(prev);
+                                    const current = next.get(selectedGame.id);
+                                    if (current) next.set(selectedGame.id, { ...current, status: updatedStatus });
+                                    return next;
+                                  });
+                                  setNotice('Status-Eintrag wurde gelöscht.');
+                                }}
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {/* Workflow-Leiste & Qwen-VL Eichung */}
+                        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-800/90 bg-zinc-900/70 px-3 py-2">
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
+                            Workflow:
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-0.5 text-[11px] font-mono font-bold ${getWorkflowStatusMeta(currentWorkflowStatus).badgeClass}`}
+                          >
+                            {getWorkflowStatusMeta(currentWorkflowStatus).label}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => {
+                              setQwenVideoUrlInput(
+                                activeVideoUrl ||
+                                  currentCreatorRows.find((r) => r.video_url)?.video_url ||
+                                  ''
+                              );
+                              setShowQwenModal(true);
                             }}
-                          />
+                            title="Ungelistetes Rohvideo an Qwen-VL zur automatischen Timestamp-Eichung übergeben"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/45 bg-purple-500/15 px-2.5 py-1 text-[11px] font-mono font-bold text-purple-200 hover:bg-purple-500/25 hover:border-purple-400 disabled:opacity-40 transition"
+                          >
+                            <span>🤖 Rohvideo an Qwen-VL senden</span>
+                          </button>
+                          {intranetGameHref(selectedGame) && (
+                            <a
+                              href={intranetGameHref(selectedGame)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => handleStaffGamePreviewClick(e, intranetGameHref(selectedGame))}
+                              className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[11px] font-mono font-bold text-amber-200 hover:bg-amber-500/25 no-underline transition"
+                              title="Produktions-Modus (Split-Screen & Takes) direkt auf der Spieleseite öffnen"
+                            >
+                              <span>🎬 Live-Vorschau &amp; Takes ↗</span>
+                            </a>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3991,6 +4631,24 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                           : ''}
                         )
                       </h4>
+                      <button
+                        type="button"
+                        disabled={actionBusy || currentCreatorRows.length === 0}
+                        onClick={handleCopyYouTubeChapters}
+                        title="Sortiert alle Zeilen chronologisch nach Timestamp (inkl. 00:00 Intro) und kopiert den fertigen YouTube-Kapitel-Block samt Guide-Link in die Zwischenablage"
+                        className="inline-flex items-center gap-1.5 rounded bg-emerald-500/20 px-2.5 py-1 text-[11px] font-mono font-bold text-[#00ff66] hover:bg-emerald-500/30 border border-[#00ff66]/50 transition disabled:opacity-50 shadow-sm shadow-[#00ff66]/10"
+                      >
+                        📋 YouTube-Chapters kopieren
+                      </button>
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={handleAddSingleDraftRow}
+                        title="Neue Zeile am Ende des aktuellen Entwurfs einfügen"
+                        className="inline-flex items-center gap-1 rounded bg-zinc-800 px-2.5 py-1 text-[11px] font-mono font-bold text-zinc-200 hover:border-[#00ff66]/40 hover:text-[#00ff66] border border-zinc-700 transition disabled:opacity-50"
+                      >
+                        + Zeile
+                      </button>
                       <button
                         type="button"
                         disabled={actionBusy || currentCreatorRows.length === 0}
@@ -4817,6 +5475,7 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                       <option value="category_group">Category-Gruppe (category_group)</option>
                       <option value="boss_group">Boss-Gruppe (boss_group)</option>
                       <option value="video_chapter">Chapter (video_chapter)</option>
+                      <option value="prod_note">🎬 Take / Rohdatei (prod_note)</option>
                     </select>
 
                     <input
@@ -4899,6 +5558,51 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                       </span>
                     )}
                   </div>
+
+                  {/* Schnell-Filter für 🎬 Take (prod_note), falls Takes gepflegt sind oder ein Filter aktiv ist */}
+                  {(distinctTakeNotes.length > 0 || activeTakeFilter) && (
+                    <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[10px] font-mono">
+                      <span className="text-amber-300 font-bold">🎬 Take-Filter (prod_note):</span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTakeFilter('')}
+                        className={`rounded px-2 py-0.5 border transition ${
+                          !activeTakeFilter
+                            ? 'border-amber-400 bg-amber-500/20 text-amber-200 font-bold'
+                            : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        Alle ({currentCreatorRows.length})
+                      </button>
+                      {distinctTakeNotes.map((t) => {
+                        const isSelectedTake =
+                          activeTakeFilter.trim().toLowerCase() === t.note.toLowerCase();
+                        return (
+                          <button
+                            key={t.note}
+                            type="button"
+                            onClick={() =>
+                              setActiveTakeFilter(isSelectedTake ? '' : t.note)
+                            }
+                            className={`rounded px-2 py-0.5 border transition ${
+                              isSelectedTake
+                                ? 'border-[#00ff66] bg-[#00ff66]/20 text-[#00ff66] font-bold'
+                                : 'border-amber-500/35 bg-zinc-900/90 text-amber-200 hover:border-amber-400'
+                            }`}
+                          >
+                            🎬 {t.note} ({t.count})
+                          </button>
+                        );
+                      })}
+                      <input
+                        type="text"
+                        value={activeTakeFilter}
+                        onChange={(e) => setActiveTakeFilter(e.target.value)}
+                        placeholder="Take filtern…"
+                        className="ml-auto w-32 rounded border border-zinc-700 bg-zinc-950 px-2 py-0.5 text-[10px] text-amber-200 placeholder-zinc-500 focus:border-amber-400 focus:outline-none"
+                      />
+                    </div>
+                  )}
 
                   {/* Multi-Select Schnell-Leiste + Bereinigten Video-Namen aus Chapter übernehmen */}
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800/80 bg-zinc-900/50 px-2.5 py-1.5 text-[10px] font-mono text-zinc-400">
@@ -5050,6 +5754,18 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                             </span>
                           </th>
                           <th
+                            onClick={() => handleToggleSort('prod_note')}
+                            className="py-2 px-1 w-28 cursor-pointer hover:text-white transition"
+                            title="Nach Take / Rohdatei (prod_note) sortieren"
+                          >
+                            <span className="inline-flex items-center gap-1 text-amber-300">
+                              <span>🎬 Take (prod_note)</span>
+                              {sortField === 'prod_note' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
+                          <th
                             onClick={() => handleToggleSort('timestamp')}
                             className="py-2 px-1 w-24 cursor-pointer hover:text-white transition"
                             title="Numerisch nach Zeit (Sekunden) sortieren"
@@ -5183,6 +5899,17 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                                   placeholder="—"
                                   onChange={(e) => handleUpdateRowField(row.id, 'boss_group', e.target.value)}
                                   className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-amber-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                />
+                              </td>
+
+                              {/* prod_note (🎬 Take / Rohdatei) */}
+                              <td className="py-1 px-1">
+                                <input
+                                  type="text"
+                                  value={row.prod_note ?? ''}
+                                  placeholder="z. B. 03_Erde"
+                                  onChange={(e) => handleUpdateRowField(row.id, 'prod_note', e.target.value)}
+                                  className="w-full min-w-[5rem] sm:min-w-[6rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-amber-300 placeholder-zinc-600 hover:border-amber-500/40 focus:border-amber-400 focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
@@ -5479,53 +6206,80 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                   </div>
                 )}
 
-                {/* E. ACTION-BAR (Freigeben vs. Rohmaterial vs. Löschen) */}
+                {/* E. ACTION-BAR (Freigeben vs. Creator-Einreichung vs. Rohmaterial vs. Löschen) */}
                 <div className="sticky bottom-4 z-40 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-800 bg-[#121314]/95 backdrop-blur-md p-3 shadow-xl">
                   <div className="flex flex-wrap items-center gap-2">
-                    {/* [✓ Diesen Creator freigeben] (Grün) */}
-                    <button
-                      type="button"
-                      disabled={actionBusy || currentCreatorRows.length === 0}
-                      onClick={handleOpenApproveModal}
-                      className="flex items-center gap-2 rounded-xl bg-[#00ff66] px-4 py-2.5 text-xs font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50 transition shadow-lg shadow-[#00ff66]/10"
-                    >
-                      <span>✓</span>
-                      <span>
-                        {activeDataSource === 'rohmaterial'
-                          ? 'Multi-Tab Guide jetzt freigeben'
-                          : 'Diesen Creator freigeben'}
-                      </span>
-                    </button>
+                    {isCreatorMode ? (
+                      <>
+                        {/* Creator Action-Bar: 🚀 Guide zur Freigabe einreichen */}
+                        <button
+                          type="button"
+                          disabled={actionBusy || currentCreatorRows.length === 0}
+                          onClick={() => handleSetCreatorWorkflowStatus('READY_FOR_ADMIN')}
+                          className="flex items-center gap-2 rounded-xl bg-[#00ff66] px-4 py-2.5 text-xs font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50 transition shadow-lg shadow-[#00ff66]/15"
+                        >
+                          <span>🚀 Guide zur Freigabe einreichen</span>
+                        </button>
 
-                    {/* [📦 Großes Spiel -> Rohmaterial (Multi-Tab)] (Lila/Blau, Sofort-Aktion ohne Confirm) */}
-                    {activeDataSource === 'staging' && (
-                      <button
-                        type="button"
-                        disabled={actionBusy || currentCreatorRows.length === 0}
-                        onClick={handleMoveToRohmaterial}
-                        title="Verschiebt das Spiel ohne Rückfrage sofort zu Rohmaterial (Multi-Tab) und springt zum nächsten Spiel"
-                        className="flex items-center gap-2 rounded-xl border border-purple-500/50 bg-purple-600/20 px-3.5 py-2.5 text-xs font-bold text-purple-200 hover:bg-purple-600/35 hover:border-purple-400 disabled:opacity-50 transition shadow-lg shadow-purple-500/10"
-                      >
-                        <span>📦</span>
-                        <span>Großes Spiel -&gt; Rohmaterial (Multi-Tab)</span>
-                      </button>
-                    )}
+                        {currentWorkflowStatus !== 'CREATOR_RECORDING' && (
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => handleSetCreatorWorkflowStatus('CREATOR_RECORDING')}
+                            className="flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-xs font-mono font-bold text-amber-200 hover:bg-amber-500/25 disabled:opacity-50 transition"
+                          >
+                            <span>🎥 Zurück auf „Aufnahme läuft“</span>
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {/* Admin Action-Bar: [✓ Diesen Creator freigeben] (Grün) */}
+                        <button
+                          type="button"
+                          disabled={actionBusy || currentCreatorRows.length === 0}
+                          onClick={handleOpenApproveModal}
+                          className="flex items-center gap-2 rounded-xl bg-[#00ff66] px-4 py-2.5 text-xs font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50 transition shadow-lg shadow-[#00ff66]/10"
+                        >
+                          <span>✓</span>
+                          <span>
+                            {activeDataSource === 'rohmaterial'
+                              ? 'Multi-Tab Guide jetzt freigeben'
+                              : 'Diesen Creator freigeben'}
+                          </span>
+                        </button>
 
-                    {/* [✕ Creator verwerfen] (Orange) */}
-                    {creatorTabs.length > 1 && (
-                      <button
-                        type="button"
-                        disabled={actionBusy}
-                        onClick={handleDiscardCreator}
-                        className="flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2.5 text-xs font-bold text-amber-300 hover:bg-amber-500/25 disabled:opacity-50 transition"
-                      >
-                        <span>✕</span>
-                        <span>Creator verwerfen</span>
-                      </button>
+                        {/* [📦 Großes Spiel -> Rohmaterial (Multi-Tab)] (Lila/Blau, Sofort-Aktion ohne Confirm) */}
+                        {activeDataSource === 'staging' && (
+                          <button
+                            type="button"
+                            disabled={actionBusy || currentCreatorRows.length === 0}
+                            onClick={handleMoveToRohmaterial}
+                            title="Verschiebt das Spiel ohne Rückfrage sofort zu Rohmaterial (Multi-Tab) und springt zum nächsten Spiel"
+                            className="flex items-center gap-2 rounded-xl border border-purple-500/50 bg-purple-600/20 px-3.5 py-2.5 text-xs font-bold text-purple-200 hover:bg-purple-600/35 hover:border-purple-400 disabled:opacity-50 transition shadow-lg shadow-purple-500/10"
+                          >
+                            <span>📦</span>
+                            <span>Großes Spiel -&gt; Rohmaterial (Multi-Tab)</span>
+                          </button>
+                        )}
+
+                        {/* [✕ Creator verwerfen] (Orange) */}
+                        {creatorTabs.length > 1 && (
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={handleDiscardCreator}
+                            className="flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2.5 text-xs font-bold text-amber-300 hover:bg-amber-500/25 disabled:opacity-50 transition"
+                          >
+                            <span>✕</span>
+                            <span>Creator verwerfen</span>
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
 
-                  {/* [🗑️ Komplettes Spiel löschen] (Rot) */}
+                  {/* [🗑️ Komplettes Spiel löschen / Eigenes Projekt löschen] (Rot) */}
                   <button
                     type="button"
                     disabled={actionBusy}
@@ -5533,7 +6287,9 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                     className="flex items-center gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition"
                   >
                     <span>🗑️</span>
-                    <span>Komplettes Spiel löschen</span>
+                    <span>
+                      {isCreatorMode ? 'Eigenes Projekt löschen' : 'Komplettes Spiel löschen'}
+                    </span>
                   </button>
                 </div>
               </>
@@ -5577,19 +6333,20 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                 </div>
               </div>
 
-              {/* Button: Alle Guide-Tipps komplett löschen */}
-              {gameTrophies.some((t) => Boolean(getLocalizedGuideTip(t.guide_tip, trophyLang))) && (
-                <button
-                  type="button"
-                  disabled={actionBusy}
-                  onClick={handleClearAllTrophyGuideTips}
-                  title={`Alle Guide-Tipps dieses Spiels in [${trophyLang.toUpperCase()}] komplett löschen`}
-                  className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-[10px] font-mono font-bold text-red-300 hover:bg-red-500/20 disabled:opacity-40 transition"
-                >
-                  <span>🗑️</span>
-                  <span>Alle Guide-Tipps ({trophyLang.toUpperCase()}) komplett löschen</span>
-                </button>
-              )}
+              {/* Button: Alle Guide-Tipps komplett löschen (nur Admin) */}
+              {!isCreatorMode &&
+                gameTrophies.some((t) => Boolean(getLocalizedGuideTip(t.guide_tip, trophyLang))) && (
+                  <button
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={handleClearAllTrophyGuideTips}
+                    title={`Alle Guide-Tipps dieses Spiels in [${trophyLang.toUpperCase()}] komplett löschen`}
+                    className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-red-500/35 bg-red-500/10 px-2.5 py-1 text-[10px] font-mono font-bold text-red-300 hover:bg-red-500/20 disabled:opacity-40 transition"
+                  >
+                    <span>🗑️</span>
+                    <span>Alle Guide-Tipps ({trophyLang.toUpperCase()}) komplett löschen</span>
+                  </button>
+                )}
             </div>
 
             {loadingTrophies ? (
@@ -6041,6 +6798,287 @@ export default function IntranetDrafts({ initialDataSource = 'staging', initialG
                   </span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: + NEUES GUIDE-PROJEKT / DREH-LISTE ANLEGEN ==================== */}
+      {showNewProjectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl border border-zinc-700 bg-[#151719] p-4 sm:p-5 shadow-2xl flex flex-col gap-4 text-zinc-200 my-auto max-h-[92vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3 border-b border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-white uppercase tracking-wider">
+                  🎬 Neues Guide-Projekt / Dreh-Liste anlegen
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5 font-mono">
+                  Creator:{' '}
+                  <strong className="text-[#00ff66]">
+                    {creatorProfile?.channel_name || newProjectCreatorName || 'RaTrophies'}
+                  </strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewProjectModal(false)}
+                className="text-zinc-400 hover:text-white text-base leading-none p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Schritt 1: Spiel nach Spieltitel oder NPWR suchen */}
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-bold text-zinc-300">
+                1. Spiel suchen (Spieltitel oder NPWR-ID)
+              </label>
+              <form onSubmit={handleSearchGamesForNewProject} className="flex gap-2">
+                <input
+                  type="text"
+                  value={newProjectSearchQuery}
+                  onChange={(e) => setNewProjectSearchQuery(e.target.value)}
+                  placeholder="z. B. Elden Ring oder NPWR24123_00…"
+                  autoFocus
+                  className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-white placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={newProjectSearching || !newProjectSearchQuery.trim()}
+                  className="rounded-xl bg-[#00ff66] px-4 py-2 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-40 transition"
+                >
+                  {newProjectSearching ? 'Suche…' : '🔍 Suchen'}
+                </button>
+              </form>
+
+              {newProjectSearchResults.length > 0 && (
+                <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950/80 divide-y divide-zinc-800/60">
+                  {newProjectSearchResults.map((g) => {
+                    const isPicked = newProjectSelectedGame?.id === g.id;
+                    const gTitle = getLocalizedTitle(g.spieltitel);
+                    const gCover = getLocalizedCover(g.cover_url);
+                    const gNpwr = Array.isArray(g.platform_game_id)
+                      ? g.platform_game_id.join(', ')
+                      : String(g.platform_game_id || '—');
+                    return (
+                      <div
+                        key={g.id}
+                        onClick={() => setNewProjectSelectedGame(g)}
+                        className={`flex items-center justify-between gap-3 p-2.5 cursor-pointer transition ${
+                          isPicked
+                            ? 'bg-[#00ff66]/15 border-l-4 border-l-[#00ff66] text-white'
+                            : 'hover:bg-zinc-800/60 text-zinc-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {gCover ? (
+                            <img
+                              src={gCover}
+                              alt={gTitle}
+                              className="h-10 w-8 shrink-0 rounded object-cover bg-zinc-800"
+                            />
+                          ) : (
+                            <div className="h-10 w-8 shrink-0 rounded bg-zinc-800 flex items-center justify-center text-xs">
+                              🎮
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold truncate">{gTitle}</p>
+                            <p className="text-[10px] font-mono text-zinc-400 truncate">
+                              {gNpwr} · {g.hardware || 'PS5/PS4'} · 🏆 {g.anzahl_trophaeen ?? '?'} Trophäen
+                            </p>
+                          </div>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-mono font-bold ${
+                            isPicked
+                              ? 'bg-[#00ff66] text-black'
+                              : 'border border-zinc-700 bg-zinc-900 text-zinc-400'
+                          }`}
+                        >
+                          {isPicked ? '✓ Ausgewählt' : 'Wählen'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Falls Admin ohne festes Creator-Profil: Creator-Name editierbar */}
+            {!isCreatorMode && !creatorProfile?.channel_name && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-bold text-zinc-300">
+                  Creator-Kanalname (creator_name)
+                </label>
+                <input
+                  type="text"
+                  value={newProjectCreatorName}
+                  onChange={(e) => setNewProjectCreatorName(e.target.value)}
+                  placeholder="z. B. RaTrophies"
+                  className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-mono text-white focus:border-[#00ff66] focus:outline-none"
+                />
+              </div>
+            )}
+
+            {/* Schritt 2: Option A vs. Option B */}
+            <div className="flex flex-col gap-2.5 border-t border-zinc-800 pt-3">
+              <label className="text-xs font-bold text-zinc-300">
+                2. Wie soll die initiale Dreh-Liste angelegt werden?
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setNewProjectMode('trophies')}
+                  className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition ${
+                    newProjectMode === 'trophies'
+                      ? 'border-[#00ff66] bg-[#00ff66]/15 text-white shadow-sm shadow-[#00ff66]/15'
+                      : 'border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-700'
+                  }`}
+                >
+                  <span className="text-xs font-bold flex items-center gap-1.5 text-[#00ff66]">
+                    <span>🏆 Option A: Aus Trophäenliste generieren</span>
+                  </span>
+                  <span className="text-[11px] text-zinc-300 leading-snug">
+                    Lädt alle Trophäen des Spiels und legt je Trophäe eine Zeile mit verknüpfter <code className="text-zinc-200">trophy_id</code> und <code className="text-zinc-200">CREATOR_RECORDING</code> an.
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNewProjectMode('custom')}
+                  className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition ${
+                    newProjectMode === 'custom'
+                      ? 'border-[#00ff66] bg-[#00ff66]/15 text-white shadow-sm shadow-[#00ff66]/15'
+                      : 'border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-700'
+                  }`}
+                >
+                  <span className="text-xs font-bold flex items-center gap-1.5 text-cyan-300">
+                    <span>📝 Option B: Leere Checkliste / eigene Zeilen</span>
+                  </span>
+                  <span className="text-[11px] text-zinc-300 leading-snug">
+                    Starte mit einer leeren Checkliste oder füge deine geplante Sammelobjekt-/Kapitel-Liste zeilenweise ein.
+                  </span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-[11px] font-mono text-zinc-400 shrink-0">
+                  Standard Chrono-Gruppe:
+                </span>
+                <input
+                  type="text"
+                  value={newProjectDefaultGroup}
+                  onChange={(e) => setNewProjectDefaultGroup(e.target.value)}
+                  placeholder="Walkthrough"
+                  className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-mono text-white focus:border-[#00ff66] focus:outline-none"
+                />
+              </div>
+
+              {newProjectMode === 'custom' && (
+                <div className="flex flex-col gap-1 mt-1">
+                  <label className="text-[11px] font-mono text-zinc-400">
+                    Eigene Zeilen einfügen (1 Schritt pro Zeile – leer lassen für 1 Start-Zeile):
+                  </label>
+                  <textarea
+                    rows={5}
+                    value={newProjectCustomLines}
+                    onChange={(e) => setNewProjectCustomLines(e.target.value)}
+                    placeholder={'Kapitel 1 – Sammelobjekt 1\nKapitel 1 – Sammelobjekt 2\nBoss 1 – Wächter'}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 p-2.5 text-xs font-mono text-zinc-200 placeholder-zinc-600 focus:border-[#00ff66] focus:outline-none"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-zinc-800 pt-3">
+              <button
+                type="button"
+                onClick={() => setShowNewProjectModal(false)}
+                className="rounded-xl border border-zinc-700 bg-zinc-800 px-3.5 py-2 text-xs text-zinc-300 hover:bg-zinc-700"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                disabled={!newProjectSelectedGame?.id || newProjectCreating}
+                onClick={handleCreateNewGuideProject}
+                className="flex items-center gap-1.5 rounded-xl bg-[#00ff66] px-4 py-2 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-40 transition shadow-lg shadow-[#00ff66]/15"
+              >
+                <span>
+                  {newProjectCreating
+                    ? 'Lege Dreh-Liste an…'
+                    : newProjectSelectedGame
+                      ? `🎬 Dreh-Liste für „${getLocalizedTitle(newProjectSelectedGame.spieltitel)}“ anlegen`
+                      : 'Bitte zuerst ein Spiel auswählen'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: 🤖 ROHVIDEO AN QWEN-VL SENDEN ==================== */}
+      {showQwenModal && selectedGame && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-purple-500/50 bg-[#16151c] p-5 shadow-2xl flex flex-col gap-4 text-zinc-200">
+            <div className="flex items-start justify-between gap-2 border-b border-purple-500/20 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-purple-200 uppercase tracking-wider">
+                  🤖 Rohvideo an Qwen-VL senden
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Spiel:{' '}
+                  <strong className="text-white">
+                    {getLocalizedTitle(selectedGame.spieltitel)}
+                  </strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowQwenModal(false)}
+                className="text-zinc-400 hover:text-white text-base leading-none p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-bold text-zinc-300">
+                YouTube-URL des (ungelisteten) Rohvideos:
+              </label>
+              <input
+                type="url"
+                value={qwenVideoUrlInput}
+                onChange={(e) => setQwenVideoUrlInput(e.target.value)}
+                placeholder="https://youtu.be/... oder https://www.youtube.com/watch?v=..."
+                autoFocus
+                className="w-full rounded-xl border border-purple-500/40 bg-zinc-950 px-3 py-2 text-xs font-mono text-white placeholder-zinc-600 focus:border-purple-400 focus:outline-none"
+              />
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Setzt den Workflow-Status auf <strong className="text-purple-200">QWEN_QUEUE</strong> und hinterlegt die Video-URL in allen Zeilen ohne Link. Qwen-VL erkennt daraufhin automatisch die Trophäen-Aufplopper und trägt die Timestamps ein.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-purple-500/20 pt-3">
+              <button
+                type="button"
+                onClick={() => setShowQwenModal(false)}
+                className="rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                disabled={actionBusy || !qwenVideoUrlInput.trim()}
+                onClick={() =>
+                  handleSetCreatorWorkflowStatus('QWEN_QUEUE', qwenVideoUrlInput.trim())
+                }
+                className="flex items-center gap-1.5 rounded-xl bg-purple-500 px-4 py-2 text-xs font-mono font-bold text-white hover:bg-purple-400 disabled:opacity-40 transition shadow-lg shadow-purple-500/25"
+              >
+                <span>🤖 Jetzt an Qwen-VL senden</span>
+              </button>
             </div>
           </div>
         </div>

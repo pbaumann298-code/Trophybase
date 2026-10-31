@@ -457,8 +457,9 @@ function SplitScreenGuideKacheln({
   hideGroupHeader = false,
   /** Admin: Schritt löschen (item) => void|Promise */
   onDeleteStep = null,
-  /** Admin: Produktions-/Roadmap-Modus */
+  /** Admin / Creator: Produktions-/Roadmap-Modus */
   isAdmin = false,
+  isCreator = false,
   isDraftMode = false,
   onProductionMetaSaved = null,
 }) {
@@ -469,7 +470,10 @@ function SplitScreenGuideKacheln({
   const [expandedLocalisations, setExpandedLocalisations] = useState({});
   const [activeVideos, setActiveVideos] = useState({});
   const [videoSide, setVideoSide] = useState(() => readStoredVideoSide());
-  const [productionMode, setProductionMode] = useState(() => Boolean(isAdmin && isDraftMode));
+  const canEditProduction = Boolean(isAdmin || isCreator);
+  const [productionMode, setProductionMode] = useState(() =>
+    Boolean(canEditProduction && (isDraftMode || isCreator)),
+  );
   const [localProdOverrides, setLocalProdOverrides] = useState({});
   /** 'all' | 'open' | 'recorded' | 'linked' */
   const [prodStatusFilter, setProdStatusFilter] = useState('all');
@@ -527,12 +531,12 @@ function SplitScreenGuideKacheln({
   );
 
   useEffect(() => {
-    if (isAdmin && isDraftMode) {
+    if (canEditProduction && (isDraftMode || isCreator)) {
       setProductionMode(true);
     }
-  }, [isAdmin, isDraftMode]);
+  }, [canEditProduction, isDraftMode, isCreator]);
 
-  const showProdTools = Boolean(isAdmin && productionMode);
+  const showProdTools = Boolean(canEditProduction && productionMode);
 
   const normalizedItemsData = useMemo(
     () =>
@@ -1206,7 +1210,7 @@ function SplitScreenGuideKacheln({
               {listTitle}
             </h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-              {isAdmin && (
+              {canEditProduction && (
                 <button
                   type="button"
                   onClick={() => setProductionMode((prev) => !prev)}
@@ -1276,7 +1280,7 @@ function SplitScreenGuideKacheln({
             }}
           >
             <div>
-              {isAdmin && (
+              {canEditProduction && (
                 <button
                   type="button"
                   onClick={() => setProductionMode((prev) => !prev)}
@@ -1547,6 +1551,7 @@ export function CollectibleKacheln({
   hideGroupHeader = false,
   onDeleteStep = null,
   isAdmin = false,
+  isCreator = false,
   isDraftMode = false,
   onProductionMetaSaved = null,
 }) {
@@ -1585,6 +1590,7 @@ export function CollectibleKacheln({
       hideGroupHeader={hideGroupHeader}
       onDeleteStep={onDeleteStep}
       isAdmin={isAdmin}
+      isCreator={isCreator}
       isDraftMode={isDraftMode}
       onProductionMetaSaved={onProductionMetaSaved}
     />
@@ -1603,6 +1609,7 @@ export function BossKacheln({
   trophyById,
   onDeleteStep = null,
   isAdmin = false,
+  isCreator = false,
   isDraftMode = false,
   onProductionMetaSaved = null,
 }) {
@@ -1667,6 +1674,7 @@ export function BossKacheln({
       reportKeyField="guide_id"
       onDeleteStep={onDeleteStep}
       isAdmin={isAdmin}
+      isCreator={isCreator}
       isDraftMode={isDraftMode}
       onProductionMetaSaved={onProductionMetaSaved}
     />

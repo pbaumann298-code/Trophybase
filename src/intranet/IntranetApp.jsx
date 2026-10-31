@@ -1,6 +1,11 @@
 import { Component, useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
-import { getSessionOrTimeout, isAdminUser, readDraftReturnContext } from '../lib/adminAccess';
+import {
+  fetchMyCreatorProfile,
+  getSessionOrTimeout,
+  isAdminUser,
+  readDraftReturnContext,
+} from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch';
@@ -46,6 +51,7 @@ const TABS = [
 
 function IntranetApp() {
   const [sessionUser, setSessionUser] = useState(null);
+  const [creatorProfile, setCreatorProfile] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
@@ -107,16 +113,29 @@ function IntranetApp() {
 
     async function init() {
       const { data: { session } } = await getSessionOrTimeout(supabase);
+      const user = session?.user ?? null;
+      let profile = null;
+      if (user) {
+        profile = await fetchMyCreatorProfile(supabase);
+      }
       if (!cancelled) {
-        setSessionUser(session?.user ?? null);
+        setSessionUser(user);
+        setCreatorProfile(profile);
         setAuthReady(true);
       }
     }
 
     init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSessionUser(session?.user ?? null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const user = session?.user ?? null;
+      setSessionUser(user);
+      if (user) {
+        const profile = await fetchMyCreatorProfile(supabase);
+        if (!cancelled) setCreatorProfile(profile);
+      } else if (!cancelled) {
+        setCreatorProfile(null);
+      }
     });
 
     return () => {
@@ -130,24 +149,30 @@ function IntranetApp() {
     setLoginError('');
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoginLoading(false);
 
     if (error) {
+      setLoginLoading(false);
       setLoginError(error.message);
       return;
     }
 
-    if (!isAdminUser(data.user)) {
+    const admin = isAdminUser(data.user);
+    const profile = await fetchMyCreatorProfile(supabase);
+    setLoginLoading(false);
+
+    if (!admin && !profile) {
       await supabase.auth.signOut();
-      setLoginError('Kein Admin-Zugang für dieses Konto.');
+      setLoginError('Kein Admin- oder Creator-Zugang für dieses Konto.');
       return;
     }
 
+    setCreatorProfile(profile);
     setSessionUser(data.user);
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    setCreatorProfile(null);
     setSessionUser(null);
   };
 
@@ -159,7 +184,10 @@ function IntranetApp() {
     );
   }
 
-  if (!sessionUser || !isAdminUser(sessionUser)) {
+  const isAdmin = isAdminUser(sessionUser);
+  const isCreatorOnly = Boolean(sessionUser && !isAdmin && creatorProfile);
+
+  if (!sessionUser || (!isAdmin && !creatorProfile)) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
         <AdminLoginForm
@@ -167,7 +195,7 @@ function IntranetApp() {
           loading={loginLoading}
           errorMessage={loginError}
           kicker="Interner Bereich"
-          title="Intranet"
+          title="Intranet & Creator Studio"
           submitLabel="Anmelden"
         />
         <p className="mt-6 text-xs text-zinc-500 text-center max-w-md leading-relaxed">
@@ -193,20 +221,31 @@ function IntranetApp() {
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-[0.15em] text-zinc-600">
-              TrophyBase Intranet
+              {isCreatorOnly ? 'TrophyBase Creator Studio' : 'TrophyBase Intranet'}
             </p>
             <h1 className="text-lg font-bold text-white">
-              Interne Suche <span className="text-[#00ff66]">· Datenbank</span>
+              {isCreatorOnly ? (
+                <>
+                  TrophyBase Creator Studio{' '}
+                  <span className="text-[#00ff66]">· {creatorProfile.channel_name}</span>
+                </>
+              ) : (
+                <>
+                  Interne Suche <span className="text-[#00ff66]">· Datenbank</span>
+                </>
+              )}
             </h1>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono text-zinc-500 hidden sm:inline">{sessionUser.email}</span>
-            <a
-              href="/admin.html"
-              className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-400 hover:text-[#00ff66] hover:border-[#00ff66]/40 no-underline"
-            >
-              Admin
-            </a>
+            {isAdmin && (
+              <a
+                href="/admin.html"
+                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 text-zinc-400 hover:text-[#00ff66] hover:border-[#00ff66]/40 no-underline"
+              >
+                Admin
+              </a>
+            )}
             <button
               type="button"
               onClick={handleLogout}
@@ -217,63 +256,81 @@ function IntranetApp() {
           </div>
         </div>
 
-        <nav className="max-w-7xl mx-auto flex gap-1 mt-4 overflow-x-auto">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider whitespace-nowrap transition ${
-                activeTab === tab.id
-                  ? 'bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/30'
-                  : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
-              }`}
-            >
-              <span aria-hidden>{tab.icon}</span>
-              {tab.label}
-              {tab.id === 'entwuerfe' && draftsCount > 0 ? (
-                <span className="rounded-full bg-[#00ff66]/15 px-1.5 py-0.5 text-[10px] text-[#00ff66] border border-[#00ff66]/30 font-bold">
-                  {draftsCount}
-                </span>
-              ) : null}
-              {tab.id === 'followups' && followups.length > 0 ? (
-                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
-                  {followups.length}
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </nav>
+        {!isCreatorOnly && (
+          <nav className="max-w-7xl mx-auto flex gap-1 mt-4 overflow-x-auto">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider whitespace-nowrap transition ${
+                  activeTab === tab.id
+                    ? 'bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/30'
+                    : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
+                }`}
+              >
+                <span aria-hidden>{tab.icon}</span>
+                {tab.label}
+                {tab.id === 'entwuerfe' && draftsCount > 0 ? (
+                  <span className="rounded-full bg-[#00ff66]/15 px-1.5 py-0.5 text-[10px] text-[#00ff66] border border-[#00ff66]/30 font-bold">
+                    {draftsCount}
+                  </span>
+                ) : null}
+                {tab.id === 'followups' && followups.length > 0 ? (
+                  <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
+                    {followups.length}
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </nav>
+        )}
       </header>
 
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-8">
         <IntranetErrorBoundary>
-          {activeTab === 'games' && (
-            <IntranetGameSearch sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
-          )}
-          {activeTab === 'entwuerfe' && (
-            <IntranetDrafts initialDataSource="staging" initialGameId={draftTargetGameId} />
-          )}
-          {activeTab === 'd_freigabe' && (
-            <IntranetRadarAndServertot
-              mode="d_freigabe"
-              sessionUser={sessionUser}
-              onOpenInDrafts={openInDrafts}
+          {isCreatorOnly ? (
+            <IntranetDrafts
+              initialDataSource="staging"
+              initialGameId={draftTargetGameId}
+              creatorProfile={creatorProfile}
+              isCreatorMode={true}
             />
+          ) : (
+            <>
+              {activeTab === 'games' && (
+                <IntranetGameSearch sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
+              )}
+              {activeTab === 'entwuerfe' && (
+                <IntranetDrafts
+                  initialDataSource="staging"
+                  initialGameId={draftTargetGameId}
+                  creatorProfile={creatorProfile}
+                  isCreatorMode={false}
+                />
+              )}
+              {activeTab === 'd_freigabe' && (
+                <IntranetRadarAndServertot
+                  mode="d_freigabe"
+                  sessionUser={sessionUser}
+                  onOpenInDrafts={openInDrafts}
+                />
+              )}
+              {activeTab === 'servertot_qa' && (
+                <IntranetRadarAndServertot
+                  mode="servertot"
+                  sessionUser={sessionUser}
+                  onOpenInDrafts={openInDrafts}
+                />
+              )}
+              {activeTab === 'roadmap' && <IntranetRoadmap />}
+              {activeTab === 'followups' && (
+                <IntranetFollowups sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
+              )}
+              {activeTab === 'creators' && <IntranetCreatorSearch />}
+              {activeTab === 'rohmaterial' && <IntranetRohmaterial />}
+            </>
           )}
-          {activeTab === 'servertot_qa' && (
-            <IntranetRadarAndServertot
-              mode="servertot"
-              sessionUser={sessionUser}
-              onOpenInDrafts={openInDrafts}
-            />
-          )}
-          {activeTab === 'roadmap' && <IntranetRoadmap />}
-          {activeTab === 'followups' && (
-            <IntranetFollowups sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
-          )}
-          {activeTab === 'creators' && <IntranetCreatorSearch />}
-          {activeTab === 'rohmaterial' && <IntranetRohmaterial />}
         </IntranetErrorBoundary>
       </main>
     </div>

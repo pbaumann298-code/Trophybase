@@ -43,7 +43,7 @@ import {
   loadHiddenTrophyMode,
   saveHiddenTrophyMode,
 } from '../lib/hiddenTrophyPreference';
-import { isAdminUser } from '../lib/adminAccess';
+import { fetchMyCreatorProfile, isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished, isGameDraftMode } from '../lib/guidePublication';
 import {
   clearGameGuideTips,
@@ -161,6 +161,8 @@ function GamePageContent({
   const [rohIndex, setRohIndex] = useState(0);
   const [rohBusy, setRohBusy] = useState(false);
   const [rohReloadToken, setRohReloadToken] = useState(0);
+  const [creatorProfile, setCreatorProfile] = useState(null);
+  const [creatorHasGameAccess, setCreatorHasGameAccess] = useState(false);
   const { notifyVideoCleared } = useGuideVideo();
 
   useEffect(() => {
@@ -503,13 +505,75 @@ function GamePageContent({
   }, [selectedGame, publicationOverride, gameUuid]);
 
   const isAdmin = isAdminUser(sessionUser);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!sessionUser?.id) {
+      setCreatorProfile(null);
+      return undefined;
+    }
+    fetchMyCreatorProfile(supabase).then((profile) => {
+      if (!cancelled) setCreatorProfile(profile);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionUser?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!creatorProfile?.id || !gameUuid) {
+      setCreatorHasGameAccess(false);
+      return undefined;
+    }
+    supabase
+      .rpc('tb_creator_has_game_access', { p_game_id: gameUuid })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        const hasAccess = !error && Boolean(data);
+        setCreatorHasGameAccess(hasAccess);
+        if (hasAccess && guideRows.length === 0 && chapterRows.length === 0 && bossRows.length === 0) {
+          setGuideReloadToken((n) => n + 1);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creatorProfile?.id, gameUuid]);
+
+  const isCreatorForGame = useMemo(() => {
+    if (!creatorProfile?.id) return false;
+    if (creatorHasGameAccess) return true;
+    const cid = String(creatorProfile.id);
+    const uid = sessionUser?.id ? String(sessionUser.id) : '';
+    const matchCreator = (c) =>
+      String(c?.id ?? c?.creator_id ?? '') === cid ||
+      (uid && String(c?.user_id ?? '') === uid);
+    if (contentCreators.some(matchCreator)) return true;
+    const allLoadedRows = [...chapterRows, ...guideRows, ...bossRows];
+    return allLoadedRows.some(
+      (r) =>
+        String(r?.creator_id ?? '') === cid ||
+        (uid && String(r?.creator_user_id ?? r?.user_id ?? '') === uid),
+    );
+  }, [
+    creatorProfile?.id,
+    creatorHasGameAccess,
+    sessionUser?.id,
+    contentCreators,
+    chapterRows,
+    guideRows,
+    bossRows,
+  ]);
+
   const isDraftRoadmap = isGameDraftMode(gameForPublication);
   /** Sichtbarkeit der Guide-Reiter hängt an der gerade gezeigten Sprache. */
   const guidePublished = isGuidePublished(gameForPublication, effectiveGuideLang);
-  /** Admins sehen den Guide als Vorschau (auch bei DRAFT / production_roadmap === 'ACTIVE'), Besucher erst nach der Freigabe. */
+  /** Admins und der zugeordnete Creator sehen den Guide als Vorschau (auch bei DRAFT / staging), Besucher erst nach der Freigabe. */
   const canSeeGuides =
-    (!trophiesOnly || isAdmin) &&
-    (guidePublished || isAdmin || isDraftRoadmap || inRohmaterialPreview);
+    (!trophiesOnly || isAdmin || isCreatorForGame) &&
+    (guidePublished || isAdmin || isCreatorForGame || isDraftRoadmap || inRohmaterialPreview);
   const contentLocales = useMemo(
     () => contentLocalesForGame(gameForPublication, { includeReady: isAdmin }),
     [gameForPublication, isAdmin],
@@ -1078,7 +1142,8 @@ function GamePageContent({
                 emptyVideoMessage={t('walkthroughNoVideo')}
                 embedInAccordion
                 isAdmin={isAdmin && !trophiesOnly}
-                isDraftMode={isDraftRoadmap}
+                isCreator={isCreatorForGame}
+                isDraftMode={isDraftRoadmap || (isCreatorForGame && !guidePublished)}
                 onProductionMetaSaved={handleProductionMetaSaved}
                 onDeleteStep={
                   isAdmin && !trophiesOnly && !inRohmaterialPreview
@@ -1127,7 +1192,8 @@ function GamePageContent({
                 emptyVideoMessage={t('collectiblesNoVideo')}
                 embedInAccordion
                 isAdmin={isAdmin && !trophiesOnly}
-                isDraftMode={isDraftRoadmap}
+                isCreator={isCreatorForGame}
+                isDraftMode={isDraftRoadmap || (isCreatorForGame && !guidePublished)}
                 onProductionMetaSaved={handleProductionMetaSaved}
                 onDeleteStep={
                   isAdmin && !trophiesOnly && !inRohmaterialPreview
@@ -1172,7 +1238,8 @@ function GamePageContent({
                 toggleCompleted={toggleGuideItemCompleted}
                 embedInAccordion
                 isAdmin={isAdmin && !trophiesOnly}
-                isDraftMode={isDraftRoadmap}
+                isCreator={isCreatorForGame}
+                isDraftMode={isDraftRoadmap || (isCreatorForGame && !guidePublished)}
                 onProductionMetaSaved={handleProductionMetaSaved}
                 onDeleteStep={
                   isAdmin && !trophiesOnly && !inRohmaterialPreview
@@ -1539,7 +1606,7 @@ function GamePageContent({
           />
         ) : null}
 
-        {isAdmin && isDraftRoadmap && !trophiesOnly && (
+        {(isAdmin || isCreatorForGame) && (isDraftRoadmap || (isCreatorForGame && !guidePublished)) && (!trophiesOnly || isCreatorForGame) && (
           <p className="text-xs text-amber-300 font-mono mb-4 px-4 py-3 rounded-xl bg-amber-500/15 border border-amber-400/40 flex flex-wrap items-center justify-between gap-2">
             <span>
               🎬 Video-Roadmap (Entwurf) aktiv – Produktions-Modus für Takes &amp; YouTube-Links ist in den Guide-Reitern eingeschaltet.
