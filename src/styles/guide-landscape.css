@@ -66,6 +66,12 @@
   max-height: 400px;
 }
 
+@media (min-width: 1024px) {
+  .guide-split__list {
+    max-height: 520px;
+  }
+}
+
 .guide-split__video {
   flex: 1 1 60%;
   min-width: 300px;

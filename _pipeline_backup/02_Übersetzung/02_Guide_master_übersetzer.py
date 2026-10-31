@@ -133,6 +133,25 @@ STATIC_COLLECTIBLE_TIP = {
     "zh-hant": "收集品。關於確切位置，請參閱我們獨立的 TrophyBase 收集品指南。",
 }
 
+STATIC_SERVERTOT_TIP = {
+    "de": "Wegen Serverabschaltung nicht mehr möglich.",
+    "en": "No longer obtainable due to server shutdown.",
+    "es": "Ya no se puede obtener debido al cierre de los servidores.",
+    "pt": "Não pode mais ser obtido devido ao desligamento dos servidores.",
+    "fr": "Ne peut plus être obtenu en raison de la fermeture des serveurs.",
+    "it": "Non più ottenibile a causa della chiusura dei server.",
+    "nl": "Niet meer verkrijgbaar vanwege het uitschakelen van de servers.",
+    "pl": "Niemożliwe do zdobycia z powodu wyłączenia serwerów.",
+    "ru": "Больше невозможно получить из-за отключения серверов.",
+    "sv": "Går inte längre att få på grund av nedstängda servrar.",
+    "fi": "Ei enää saatavilla palvelinten sulkemisen vuoksi.",
+    "ar": "لم يعد من الممكن الحصول عليها بسبب إغلاق الخوادم.",
+    "ja": "サーバー終了のため、現在は獲得できません。",
+    "ko": "서버 종료로 인해 더 이상 획득할 수 없습니다.",
+    "zh-hans": "由于服务器已关停，目前已无法获得。",
+    "zh-hant": "由於伺服器已關停，目前已無法獲得。",
+}
+
 COUNTER_TOKEN_RE = re.compile(r"(^\d+\.(?=\s)|\b\d+\s*/\s*\d+\b|#\d+|\b\d+\b)")
 
 PRIORITY_ORDER = {
@@ -975,6 +994,16 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                         for lg in missing_t:
                             if STATIC_COLLECTIBLE_TIP.get(lg):
                                 tip_map[lg] = STATIC_COLLECTIBLE_TIP[lg]
+                        ach[tip_col] = tip_map
+                        static_updates.append((tid, tip_map))
+                        continue
+                    if (
+                        low_de.rstrip(".!") == STATIC_SERVERTOT_TIP["de"].lower().rstrip(".!")
+                        or tip_en.lower().rstrip(".!") == STATIC_SERVERTOT_TIP["en"].lower().rstrip(".!")
+                    ):
+                        for lg in missing_t:
+                            if STATIC_SERVERTOT_TIP.get(lg):
+                                tip_map[lg] = STATIC_SERVERTOT_TIP[lg]
                         ach[tip_col] = tip_map
                         static_updates.append((tid, tip_map))
                         continue

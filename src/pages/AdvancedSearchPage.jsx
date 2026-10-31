@@ -61,33 +61,42 @@ function hasAnyFilter(filters) {
 }
 
 function CatalogTile({ href, onClick, src, title, linked = false }) {
-  const className = linked ? 'advanced-search-tile' : 'advanced-search-tile advanced-search-tile--static';
-  const body = (
-    <article className="home-tile" style={{ '--tile-accent': '#00ff66' }}>
-      <div className="home-tile-cover-wrap">
-        <img src={src} className="home-tile-cover" alt="" loading="lazy" />
-        <div className="home-tile-shine" aria-hidden />
-      </div>
-      <div className="home-tile-meta">
-        <p className="home-tile-title">{title}</p>
-      </div>
-    </article>
+  const baseClassName =
+    'group flex items-center gap-3.5 p-2.5 sm:p-3 rounded-2xl bg-[#1a1b1c] border border-zinc-800 hover:border-[#00ff66]/45 hover:bg-[#202224] transition shadow-md no-underline';
+  const content = (
+    <>
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover flex-shrink-0 border border-zinc-700/80"
+      />
+      <span className="flex-1 min-w-0 text-xs sm:text-sm font-bold text-white group-hover:text-[#00ff66] transition leading-snug">
+        {title}
+      </span>
+      <span
+        className="text-zinc-500 group-hover:text-[#00ff66] group-hover:translate-x-0.5 transition flex-shrink-0"
+        aria-hidden
+      >
+        →
+      </span>
+    </>
   );
 
   if (!linked) {
-    return <div className={className}>{body}</div>;
+    return <div className={baseClassName}>{content}</div>;
   }
 
   return (
     <a
       href={href}
-      className={className}
+      className={baseClassName}
       onClick={(event) => {
         event.preventDefault();
         onClick?.();
       }}
     >
-      {body}
+      {content}
     </a>
   );
 }
@@ -262,6 +271,35 @@ function AdvancedSearchPage({
         {t('advancedSearchHint')}
       </p>
 
+      {!hasSearched && (
+        <div
+          className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5 mb-2"
+          aria-label={t('advancedSearch')}
+        >
+          <CatalogTile
+            linked
+            href={quickwinsPath}
+            onClick={onOpenQuickwins}
+            src="/images/quickwins-tile.jpg"
+            title={t('quickwinsTitle')}
+          />
+          <CatalogTile
+            linked
+            href={easyPlatinsPath}
+            onClick={onOpenEasyPlatins}
+            src="/images/easy-platins-tile.jpg"
+            title={t('easyPlatinsTitle')}
+          />
+          <CatalogTile
+            linked
+            href={servertotPath}
+            onClick={onOpenServertot}
+            src="/images/unobtainable-platins-tile.jpg"
+            title={t('servertotTitle')}
+          />
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="advanced-search-form">
         <div className="advanced-search-field">
           <label htmlFor="advanced-title">{t('searchTitle')}</label>
@@ -353,30 +391,6 @@ function AdvancedSearchPage({
           </button>
         </div>
       </form>
-
-      <div className="advanced-search-tiles" aria-label={t('advancedSearch')}>
-        <CatalogTile
-          linked
-          href={quickwinsPath}
-          onClick={onOpenQuickwins}
-          src="/images/quickwins-tile.jpg"
-          title={t('quickwinsTitle')}
-        />
-        <CatalogTile
-          linked
-          href={easyPlatinsPath}
-          onClick={onOpenEasyPlatins}
-          src="/images/easy-platins-tile.jpg"
-          title={t('easyPlatinsTitle')}
-        />
-        <CatalogTile
-          linked
-          href={servertotPath}
-          onClick={onOpenServertot}
-          src="/images/unobtainable-platins-tile.jpg"
-          title={t('servertotTitle')}
-        />
-      </div>
 
       {hasSearched && (
         <SearchResultsPage

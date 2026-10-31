@@ -93,37 +93,71 @@ def fetch_all_supabase_rows(
 
 def get_open_games() -> List[Dict[str, Any]]:
     """
-    Lädt ALLE Spiele (auch bereits PUBLISHED und Servertot mit Offline-Anteil),
-    damit 08.1 alle Creator-Kandidaten sammelt und die Auswahl/Vorabprüfung
-    später sauber im Intranet ('staging_game_guides') stattfindet.
+    Lädt nur Spiele, die NOCH KEINEN Video-Guide / keine Zeilen in `game_guides` haben!
+    - Spiele mit bestehenden Einträgen in `game_guides` (egal ob über game_id oder NPWR) -> RAUS!
+    - Spiele mit `is_guide_locked = true` oder `status.guides = 'HAS_VIDEO'` -> RAUS!
+    - 'Unlesbar' & 'Servertot' -> RAUS!
+    - Bereits PUBLISHED, aber noch 0 Zeilen in `game_guides` (nur Radar/Text) -> BLEIBT DRIN für Video-Aufwertung!
     """
     print(
-        "🔄 Lade gesamten Spielekatalog aus Supabase (inkl. PUBLISHED & Servertot)..."
+        "🔄 Lade Spiele & filtere bereits fertige Guides (`game_guides`) hart raus..."
     )
     all_games = fetch_all_supabase_rows(
         "games",
-        "id, platform_game_id, spieltitel, status, spiel_typ, anzahl_trophaeen, total_online_trophies",
+        "id, platform_game_id, spieltitel, status, spiel_typ, is_guide_locked",
+    )
+    all_guides = fetch_all_supabase_rows(
+        "game_guides", "game_id, platform_game_id", order_col=""
     )
 
-    usable_games = []
+    covered_game_ids = set()
+    covered_npwrs = set()
+
+    for row in all_guides:
+        if row.get("game_id"):
+            covered_game_ids.add(str(row["game_id"]))
+        for npwr in extract_npwr_list(row.get("platform_game_id")):
+            covered_npwrs.add(npwr.upper())
+
+    open_games = []
+    skipped_finished = 0
+
     for g in all_games:
+        gid = str(g.get("id") or "")
         spiel_typ = str(g.get("spiel_typ") or "").lower()
-        if "unlesbar" in spiel_typ:
+
+        # 1. Unlesbar & Servertot sofort raus
+        if "unlesbar" in spiel_typ or "servertot" in spiel_typ:
             continue
 
-        # Servertot nur kappen, wenn das Spiel fast ausschließlich aus Online-Trophäen besteht
-        if "servertot" in spiel_typ:
-            total_t = int(g.get("anzahl_trophaeen") or 0)
-            online_t = int(g.get("total_online_trophies") or 0)
-            if total_t > 0 and online_t >= (total_t - 2):
-                continue
+        # 2. Bereits fertige Guides (Zeilen in game_guides, Guide-Lock oder HAS_VIDEO) hart ausschließen!
+        status_obj = parse_dict_safely(g.get("status"))
+        g_npwrs = extract_npwr_list(g.get("platform_game_id"))
 
-        usable_games.append(g)
+        if (
+            gid in covered_game_ids
+            or any(n.upper() in covered_npwrs for n in g_npwrs)
+            or g.get("is_guide_locked") is True
+            or status_obj.get("guides") in ("HAS_VIDEO", "FERTIG")
+        ):
+            skipped_finished += 1
+            continue
+
+        open_games.append(g)
 
     print(
-        f"📊 {len(all_games)} Spiele gesamt -> {len(usable_games)} für Creator-Matching aktiv."
+        f"📊 {len(all_games)} Spiele gesamt | {skipped_finished} fertige Guides übersprungen -> {len(open_games)} wirklich offene Spiele."
     )
-    return usable_games
+    return open_games
+
+
+def strip_arcade_prefix(cleaned_title: str) -> str:
+    """Entfernt 'aca neogeo', 'neogeo', 'arcade archives' am Anfang für flexibles Matching."""
+    return re.sub(
+        r"^(?:aca\s+neo\s*geo|aca\s+neogeo|arcade\s+archives|neo\s*geo)\s+",
+        "",
+        cleaned_title.strip(),
+    ).strip()
 
 
 # --- HYBRID MATCHER V3 ---
@@ -146,20 +180,50 @@ def clean_game_title(game_title: str) -> str:
 
 def clean_video_core_title(video_title: str) -> str:
     text = video_title.lower()
-    text = re.sub(r"\b(level|chapter|episode|part)\s+([0-9])o\b", r"\1 \g<2>0", text)
     text = re.sub(
-        r"(?i)\s*[-–—|]\s*.*?\b(platinum|trophy|guide|walkthrough|100%|unedited|gameplay|first \d+ minutes|no commentary)\b.*$",
+        r"\b(level|chapter|episode|part|parte|cap[ií]tulo)\s+([0-9])o\b",
+        r"\1 \g<2>0",
+        text,
+    )
+
+    # 1. NEU: Typische Creator-Präfixe AM ANFANG abschneiden (z. B. "Platina #45 - ", "Detonado: ", "Trophy Guide | ")
+    text = re.sub(
+        r"^(?:\s*\[[^\]]+\]\s*)*"
+        r"(?:platina\s*(?:#?\d+)?|platinum\s*(?:#?\d+)?|detonado|guia\s+de\s+trof[eé]us|"
+        r"guia\s+da\s+platina|rumo\s+[aà]\s+platina|trophy\s+guide|walkthrough|let'?s\s+play)"
+        r"\s*[-–—:|#]+\s*",
+        "",
+        text,
+        flags=re.I,
+    )
+
+    # 2. Trenner (- , – , — , |) vor Guide-Begriffen (EN + PT + ES + FR + DE) abschneiden
+    text = re.sub(
+        r"(?i)\s*[-–—|]\s*.*?\b("
+        r"platinum|platina|platin|trophy|trophies|trof[eé]u|trof[eé]us|trofeo|trofeos|troph[eé]e|"
+        r"guide|guia|gu[ií]a|walkthrough|detonado|passo\s+a\s+passo|soluce|komplettl[öo]sung|"
+        r"100%|unedited|gameplay|first\s+\d+\s+minutes|no\s+commentary|sem\s+coment[aá]rios|"
+        r"all\s+collectibles|todos\s+os\s+colecion[aá]veis|colecion[aá]veis"
+        r")\b.*$",
         "",
         text,
     )
+
+    # 3. Cutoff ab typischen Suffix-Wörtern (EN + PT + ES + FR)
     cutoff_pattern = (
         r"\b(bonus\s+chapter|all\s+chapters|stories\s+all\s+chapters|stories\s+chapter|"
-        r"chapter\s+\d+|episode\s+\d+|level\s+\d+|part\s+\d+|case\s+\d+|"
-        r"f2p|full\s+gameplay|full\s+game|full\s+stars|all\s+stars|all\s+hidden|"
+        r"chapter\s+\d+|cap[ií]tulo\s+\d+|chapitre\s+\d+|episode\s+\d+|epis[oó]dio\s+\d+|"
+        r"level\s+\d+|n[ií]vel\s+\d+|part\s+\d+|parte\s+\d+|case\s+\d+|"
+        r"f2p|full\s+gameplay|full\s+game|jogo\s+completo|campanha\s+completa|"
+        r"full\s+stars|all\s+stars|all\s+hidden|todos\s+os\s+trof[eé]us|todos\s+os\s+colecion[aá]veis|"
         r"gameplay\s+walkthrough|platinum\s+trophy|trophy\s+guide|walkthrough\s+guide|"
-        r"walkthrough|collectibles\s+guide|with\s+memories|grind\s+to\s+platinum)\b.*$"
+        r"guia\s+de\s+trof[eé]us|guia\s+da\s+platina|guia\s+de\s+platina|detonado\s+completo|detonado|"
+        r"walkthrough|collectibles\s+guide|with\s+memories|grind\s+to\s+platinum|rumo\s+a\s+platina)\b.*$"
     )
     text = re.sub(cutoff_pattern, " ", text)
+    text = re.sub(
+        r"\b(ps3|ps4|ps5|ps\s*vita|xbox|pc|switch|pt\s*br|portugu[eê]s)\b", " ", text
+    )
     text = re.sub(r"[^a-z0-9\s]", " ", text)
     words = text.split()
     if len(words) >= 2 and words[-1] in ROMAN_MAP:
@@ -182,9 +246,9 @@ def is_hybrid_match(game_title: str, video_title: str) -> bool:
     if not game_title or not video_title:
         return False
 
-    # Sofort-Filter für typischen YouTube-News/Demo-Müll im Videotitel
+    # Sofort-Filter für YouTube-Müll, Streams & F1-Ligarennen ohne Guide-Bezug
     if re.search(
-        r"\b(demo\s+gameplay|trailer|new\s+at\s+ps|ps\s+plus\s+extra|tier\s+list|review)\b",
+        r"\b(demo\s+gameplay|trailer|new\s+at\s+ps|ps\s+plus\s+extra|tier\s+list|review|reaction|unboxing|live\s+stream|corrida|campeonato|etapa)\b",
         video_title,
         re.I,
     ):
@@ -195,36 +259,55 @@ def is_hybrid_match(game_title: str, video_title: str) -> bool:
     if not g_clean or not v_clean:
         return False
 
-    g_words = g_clean.split()
-    v_words = v_clean.split()
+    # Prüfe sowohl den vollen Namen ("aca neogeo metal slug") als auch den Kernnamen ("metal slug"),
+    # falls im Videotitel nur "ACA NeoGeo" / "NeoGeo" am Ende oder leicht anders geschrieben steht!
+    g_variants = [g_clean]
+    g_stripped = strip_arcade_prefix(g_clean)
+    v_stripped = strip_arcade_prefix(v_clean)
 
-    if len(g_words) == 1 or len(g_clean) <= 5:
-        return g_clean == v_clean
+    if g_stripped and g_stripped != g_clean:
+        # Wenn das Spiel ein ACA NEOGEO Titel ist, muss im Video zumindest "aca", "neogeo" oder "arcade" vorkommen
+        if re.search(r"\b(aca|neogeo|neo\s+geo|arcade)\b", video_title, re.I):
+            g_variants.append(g_stripped)
 
-    g_nums = [w for w in g_words if w.isdigit()]
-    v_prefix_words = v_words[: len(g_words) + 1]
-    v_nums_in_prefix = [w for w in v_prefix_words if w.isdigit()]
+    for g_var in g_variants:
+        v_target = (
+            v_stripped if (g_var == g_stripped and g_stripped != g_clean) else v_clean
+        )
+        g_words = g_var.split()
+        v_words = v_target.split()
+        if not g_words or not v_words:
+            continue
 
-    if g_nums == ["1"] and not v_nums_in_prefix and len(g_words) >= 3:
-        g_base = " ".join([w for w in g_words if w != "1"])
-        if v_clean.startswith(g_base + " "):
+        if len(g_words) == 1 or len(g_var) <= 5:
+            if g_var == v_target:
+                return True
+            continue
+
+        g_nums = [w for w in g_words if w.isdigit()]
+        v_prefix_words = v_words[: len(g_words) + 1]
+        v_nums_in_prefix = [w for w in v_prefix_words if w.isdigit()]
+
+        if g_nums == ["1"] and not v_nums_in_prefix and len(g_words) >= 3:
+            g_base = " ".join([w for w in g_words if w != "1"])
+            if v_target.startswith(g_base + " "):
+                return True
+        elif not g_nums and v_nums_in_prefix == ["1"] and len(g_words) >= 2:
+            if v_target.startswith(g_var + " 1"):
+                return True
+
+        if g_nums != v_nums_in_prefix:
+            g_stem = _stem_tokens([w for w in g_words if not w.isdigit()])
+            v_stem = _stem_tokens([w for w in v_words if not w.isdigit()])
+            if len(g_stem) >= 3 and g_stem == v_stem:
+                return True
+            continue
+
+        if g_var == v_target or _stem_tokens(g_words) == _stem_tokens(v_words):
             return True
-    elif not g_nums and v_nums_in_prefix == ["1"] and len(g_words) >= 2:
-        if v_clean.startswith(g_clean + " 1"):
+
+        if v_target.startswith(g_var + " "):
             return True
-
-    if g_nums != v_nums_in_prefix:
-        g_stem = _stem_tokens([w for w in g_words if not w.isdigit()])
-        v_stem = _stem_tokens([w for w in v_words if not w.isdigit()])
-        if len(g_stem) >= 3 and g_stem == v_stem:
-            return True
-        return False
-
-    if g_clean == v_clean or _stem_tokens(g_words) == _stem_tokens(v_words):
-        return True
-
-    if v_clean.startswith(g_clean + " "):
-        return True
 
     return False
 
@@ -276,25 +359,76 @@ def extract_clean_video_url(entry: dict) -> str:
 
 
 def resolve_input_sources(input_urls: List[str], ydl) -> List[Dict[str, str]]:
+    """
+    Kombiniert bei Kanälen (@handle):
+    1. /videos (alle regulären Video-Uploads wie in Run 1!)
+    2. Alle Playlists des Kanals unter /playlists (umgeht das 100-Video-Limit von YouTube!)
+    3. Die UU-Master-Playlist als Zusatz.
+    """
     sources = []
+    seen_urls = set()
+
+    def add_src(u: str, in_u: str):
+        if u and u not in seen_urls:
+            seen_urls.add(u)
+            sources.append({"url": u, "input_url": in_u})
+
     for raw in input_urls:
         url = raw.strip()
         if "@" in url or "/channel/" in url or "/c/" in url:
-            base = url.rstrip("/")
-            target = base if base.endswith("/videos") else f"{base}/videos"
-            sources.append({"url": target, "input_url": base})
+            base = re.sub(
+                r"/(videos|streams|playlists|shorts|featured)$", "", url.rstrip("/")
+            )
+
+            # 1. IMMER den regulären /videos Tab scannen (da lagen deine ACA NEOGEO Treffer aus Run 1!)
+            add_src(f"{base}/videos", base)
+
+            # 2. Alle Playlists des Kanals auflösen (holt auch ältere Videos jenseits des 100er-Limits!)
+            try:
+                print(f"📂 Prüfe Kanal-Playlists: {base}/playlists")
+                pl_info = ydl.extract_info(f"{base}/playlists", download=False)
+                for pl in (pl_info or {}).get("entries") or []:
+                    if not pl:
+                        continue
+                    pl_id = pl.get("id") or pl.get("url") or ""
+                    if pl_id:
+                        pl_url = (
+                            pl_id
+                            if str(pl_id).startswith("http")
+                            else f"https://www.youtube.com/playlist?list={pl_id}"
+                        )
+                        add_src(pl_url, base)
+            except Exception:
+                pass
+
+            # 3. Zusätzlich die UU-Master-Playlist für die neuesten 100 Kanal-Einträge
+            try:
+                ch_info = ydl.extract_info(
+                    f"{base}/videos", download=False, process=False
+                )
+                ch_id = (
+                    (ch_info or {}).get("channel_id") or (ch_info or {}).get("id") or ""
+                )
+                if str(ch_id).startswith("UC"):
+                    uu_url = f"https://www.youtube.com/playlist?list=UU{str(ch_id)[2:]}"
+                    add_src(uu_url, base)
+            except Exception:
+                pass
         else:
             if not url.startswith("http"):
                 url = f"https://www.youtube.com/playlist?list={url}"
-            sources.append({"url": url, "input_url": url})
+            add_src(url, url)
+
     return sources
 
 
 def prepare_games_index(
     open_games: List[Dict[str, Any]],
 ) -> Dict[str, List[Dict[str, Any]]]:
-    """Berechnet alle 15.749 Spieltitel EINMAL vor und gruppiert sie nach Startwort."""
-    print("⚡ Baue Schnellsuch-Index für offene Spiele auf...")
+    """Berechnet alle Spieltitel vor und indexiert ACA NEOGEO / Arcade Archives auch unter dem echten Spielwort!"""
+    print(
+        "⚡ Baue Schnellsuch-Index für Spiele auf (inkl. ACA NEOGEO / Arcade-Index)..."
+    )
     by_first_word: Dict[str, List[Dict[str, Any]]] = {}
 
     for game in open_games:
@@ -319,15 +453,24 @@ def prepare_games_index(
 
         keys = set()
         for c in (c_en, c_de):
-            words = [w for w in c.split() if not w.isdigit()]
-            if words:
-                keys.add(words[0])
-                # Falls Titel mit Artikel beginnt ("The Walking Dead"), auch unter 2. Wort indexieren
-                if (
-                    words[0] in {"the", "a", "an", "der", "die", "das"}
-                    and len(words) > 1
-                ):
-                    keys.add(words[1])
+            if not c:
+                continue
+            variants = [c]
+            stripped = strip_arcade_prefix(c)
+            if stripped and stripped != c:
+                variants.append(stripped)
+                keys.add("neogeo")
+                keys.add("aca")
+
+            for var in variants:
+                words = [w for w in var.split() if not w.isdigit()]
+                if words:
+                    keys.add(words[0])
+                    if (
+                        words[0] in {"the", "a", "an", "der", "die", "das"}
+                        and len(words) > 1
+                    ):
+                        keys.add(words[1])
 
         for k in keys:
             by_first_word.setdefault(k, []).append(entry)
@@ -391,10 +534,17 @@ def run_stage1_discovery():
                 # 2. Nur die ~5-30 passenden Kandidaten aus dem Index holen statt 15.749 Spiele!
                 candidates = list(games_index.get(v_words[0], []))
                 if (
-                    v_words[0] in {"the", "a", "an", "der", "die", "das"}
+                    v_words[0]
+                    in {"the", "a", "an", "der", "die", "das", "aca", "neogeo", "neo"}
                     and len(v_words) > 1
                 ):
                     candidates.extend(games_index.get(v_words[1], []))
+                if (
+                    len(v_words) > 2
+                    and v_words[0] == "aca"
+                    and v_words[1] in {"neogeo", "neo"}
+                ):
+                    candidates.extend(games_index.get(v_words[2], []))
 
                 seen_gids = set()
                 for cand in candidates:

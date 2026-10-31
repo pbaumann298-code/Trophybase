@@ -1,7 +1,19 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+08.3_Excel_Upload_nach_Subabase.py (Komplettversion inkl. Smart-Router & Auto-Spracherkennung)
+- Liest die geprüfte 'QA_Video_Discovery.xlsx' (aus 08.1 oder 08.2).
+- Zieht Timestamps via yt-dlp und speichert vor dem Upload ein lokales Crash-Backup.
+- Erkennt automatisch die Quellsprache des Creators (pt, es, fr, de, ru, ja, ko, zh-hans, ar, en).
+- Routet automatisch zwischen 'staging_game_guides' (kleine Guides) und
+  'game_guides_rohmaterial' (Multi-Tab für Evergreen/Premium/S/A/große Playlists).
+"""
+
 import os
-import sys
 import re
-from typing import Any, List, Dict, Tuple
+import sys
+import time
+from typing import Any, Dict, List, Tuple
 import yt_dlp
 import pandas as pd
 from dotenv import load_dotenv
@@ -9,7 +21,7 @@ from supabase import create_client, Client
 
 load_dotenv()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
@@ -22,6 +34,90 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_EXCEL_FILE = os.path.join(_BASE_DIR, "QA_Video_Discovery.xlsx")
 FINAL_EXCEL_BACKUP = os.path.join(_BASE_DIR, "QA_Final_Staging_Rows.xlsx")
+
+
+def clean_str(val: Any) -> str:
+    if pd.isna(val) or val is None:
+        return ""
+    s = str(val).strip()
+    return "" if s.lower() in ("nan", "none") else s
+
+
+def detect_text_locale(sample_text: str) -> str:
+    """
+    Erkennt automatisch die Sprache der extrahierten Kapitel-/Item-Namen
+    (z. B. Brasilianisch/Portugiesisch 'pt', Spanisch 'es', Französisch 'fr', Deutsch 'de').
+    """
+    t = str(sample_text or "").lower()
+    if not t:
+        return "en"
+
+    # 1. Eindeutige nicht-lateinische Schriftsysteme
+    if re.search(r"[а-яё]", t):
+        return "ru"
+    if re.search(r"[ぁ-んァ-ン]", t):
+        return "ja"
+    if re.search(r"[가-힣]", t):
+        return "ko"
+    if re.search(r"[\u4e00-\u9fff]", t):
+        return "zh-hans"
+    if re.search(r"[\u0600-\u06ff]", t):
+        return "ar"
+
+    # 2. Portugiesisch / Brasilianisch
+    if re.search(
+        r"(ã|õ|ção|ções|\btroféu|\btrofeus|\bcolecionáveis|\bcolecionaveis|\bcapítulo|\binício|\bchefe\b|\bmissão)",
+        t,
+    ):
+        return "pt"
+
+    # 3. Spanisch
+    if re.search(r"(ñ|¿|¡|\btrofeo|\bcoleccionables|\bjefe\b|\bmisión|\bcapítulo)", t):
+        return "es"
+
+    # 4. Französisch
+    if re.search(
+        r"(\btrophée|\bchapitre|\btous les\b|\btoutes les\b|\bdébut\b|\bsoluce\b)", t
+    ):
+        return "fr"
+
+    # 5. Deutsch
+    if re.search(
+        r"(ä|ö|ü|ß|\bsammelobjekte|\bkapitel\b|\btrophäe|\bhauptspiel\b|\blösung\b)", t
+    ):
+        return "de"
+
+    return "en"
+
+
+def should_route_to_multitab(
+    explicit_queue: str,
+    spiel_typ: str,
+    guide_typ: str,
+    video_count: int,
+    row_count: int,
+) -> bool:
+    """Entscheidet, ob das Paket nach Multi-Tab (game_guides_rohmaterial) oder Staging gehört."""
+    eq = explicit_queue.upper()
+    if eq == "MULTI_TAB":
+        return True
+    if eq == "STAGING" and video_count < 3 and row_count <= 45:
+        return False
+
+    st_low = spiel_typ.lower()
+    g_typ = guide_typ.upper()
+
+    if "quickwin" in st_low or (
+        "easy_platin" in st_low
+        and "evergreen" not in st_low
+        and "premium" not in st_low
+    ):
+        return False
+    if "evergreen" in st_low or "premium" in st_low or g_typ in ("S", "A"):
+        return True
+    if video_count >= 3 or row_count > 45:
+        return True
+    return False
 
 
 def classify_and_sort_key(video_title: str) -> Tuple[int, int, int, str]:
@@ -135,7 +231,6 @@ def fetch_video_timestamps(video_url: str, ydl_full) -> List[Dict[str, Any]]:
                     and result[0]["label"] == "Start"
                     and fixed_label != "Start"
                 ):
-                    # Falls ein echtes Kapitel durch Reparatur auf 00:00 fällt, überschreibe den Platzhalter "Start"
                     result[0]["label"] = fixed_label[:120]
 
             if len(result) >= 2:
@@ -172,8 +267,6 @@ def fetch_video_timestamps(video_url: str, ydl_full) -> List[Dict[str, Any]]:
 
         if len(parsed_ts) >= 2:
             parsed_ts.sort(key=lambda x: x["seconds"])
-            # Falls der Creator keinen 00:00 Timestamp gesetzt hat (z.B. erster Timestamp erst bei 06:38),
-            # fügen wir automatisch "Start" bei 00:00 ein, damit das Intro/Setup nicht verloren geht!
             if parsed_ts[0]["seconds"] > 0:
                 parsed_ts.insert(
                     0,
@@ -192,61 +285,162 @@ def fetch_video_timestamps(video_url: str, ydl_full) -> List[Dict[str, Any]]:
 
 
 def push_rows_to_supabase(rows: List[Dict[str, Any]]):
-    """Entfernt In-Batch-Duplikate, korrigiert guide_id lückenlos und lädt hoch."""
-    deduped_map: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
-
+    """
+    Entfernt In-Batch-Duplikate, erkennt automatisch die Creator-Sprache (z. B. 'pt', 'es', 'fr', 'de')
+    und routet jedes Spiel-Paket entweder nach 'staging_game_guides' oder 'game_guides_rohmaterial'.
+    """
+    grouped_rows: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for r in rows:
         row_copy = dict(r)
-        row_copy.pop("creator_input_url", None)
         for k, v in row_copy.items():
             if pd.isna(v):
                 row_copy[k] = None
-
-        # Exakter Schlüssel passend zum Unique-Index in Supabase
-        key = (
+        g_key = (
             str(row_copy.get("game_id") or ""),
             str(row_copy.get("creator_name") or ""),
-            str(row_copy.get("video_url") or ""),
-            str(row_copy.get("timestamp") or ""),
         )
-        # Behält bei doppelter Sekunde im selben Video den ersten Eintrag
-        if key not in deduped_map:
-            deduped_map[key] = row_copy
+        if g_key[0]:
+            grouped_rows.setdefault(g_key, []).append(row_copy)
 
-    clean_rows = list(deduped_map.values())
+    staging_count = 0
+    multitab_count = 0
 
-    # guide_id pro (game_id, creator_name) lückenlos neu durchnummerieren (falls ein Duplikat entfernt wurde)
-    counters: Dict[Tuple[str, str], int] = {}
-    for r in clean_rows:
-        g_key = (str(r["game_id"]), str(r["creator_name"]))
-        counters[g_key] = counters.get(g_key, 0) + 1
-        r["guide_id"] = counters[g_key]
+    for (gid, cname), bundle_rows in grouped_rows.items():
+        # 1. Deduplizierung pro (game_id, creator_name, video_url, timestamp)
+        deduped_map: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
+        unique_videos = set()
+        for r in bundle_rows:
+            base_v = str(r.get("video_url") or "").split("&t=")[0]
+            if base_v:
+                unique_videos.add(base_v)
+            d_key = (
+                gid,
+                cname,
+                str(r.get("video_url") or ""),
+                str(r.get("timestamp") or ""),
+            )
+            if d_key not in deduped_map:
+                deduped_map[d_key] = r
 
-    removed = len(rows) - len(clean_rows)
-    if removed > 0:
-        print(
-            f"🧹 {removed} doppelte Timestamp-Zeile(n) innerhalb des Batches entfernt."
+        clean_rows = list(deduped_map.values())
+        for idx_r, r in enumerate(clean_rows, start=1):
+            r["guide_id"] = idx_r
+
+        first_row = clean_rows[0]
+        explicit_queue = clean_str(first_row.get("_target_queue"))
+        excel_pub = clean_str(first_row.get("_publisher"))
+        creator_id = clean_str(first_row.get("_creator_id")) or None
+
+        # 2. Spiel-Metadaten (spiel_typ, guide_typ, publisher, status) aus DB prüfen
+        g_res = (
+            supabase.table("games")
+            .select("spiel_typ, guide_typ, publisher, status")
+            .eq("id", gid)
+            .limit(1)
+            .execute()
         )
+        g_db = (g_res.data or [{}])[0]
+        spiel_typ = clean_str(first_row.get("_spiel_typ")) or str(
+            g_db.get("spiel_typ") or ""
+        )
+        guide_typ = clean_str(first_row.get("_guide_typ")) or str(
+            g_db.get("guide_typ") or ""
+        )
+
+        if excel_pub and not g_db.get("publisher"):
+            try:
+                supabase.table("games").update({"publisher": excel_pub}).eq(
+                    "id", gid
+                ).execute()
+            except Exception:
+                pass
+
+        # 3. Quellsprache anhand der Kapitel-/Item-Namen automatisch erkennen
+        sample_str = " ".join(
+            f"{r.get('item_name') or ''} {r.get('video_chapter') or ''}"
+            for r in clean_rows[:20]
+        )
+        src_lang = detect_text_locale(sample_str)
+
+        # 4. Routing-Entscheidung: Multi-Tab vs. Staging
+        use_multitab = should_route_to_multitab(
+            explicit_queue, spiel_typ, guide_typ, len(unique_videos), len(clean_rows)
+        )
+
+        if use_multitab:
+            safe_creator = re.sub(r"[^a-zA-Z0-9_-]", "_", cname)[:25]
+            batch_key = f"qa_{str(gid)[:8]}_{safe_creator}_{int(time.time())}"
+            roh_rows = []
+            for r in clean_rows:
+                roh_rows.append(
+                    {
+                        "batch_key": batch_key,
+                        "batch_status": "MATCHED",
+                        "game_id": gid,
+                        "platform_game_id": r["platform_game_id"],
+                        "creator_id": creator_id,
+                        "creator_name": cname,
+                        "playlist_url": r.get("creator_input_url"),
+                        "guide_id": str(r["guide_id"]),
+                        "sheet_type": [1],
+                        "item_name": {src_lang: r["item_name"]},
+                        "chronological_group": {src_lang: r["chronological_group"]},
+                        "video_chapter": {src_lang: r["video_chapter"]},
+                        "original_locale": src_lang,
+                        "timestamp": r["timestamp"],
+                        "video_url": r["video_url"],
+                        "trophy_id": None,
+                        "is_trophy_relevant": "Nein",
+                    }
+                )
+
+            for i in range(0, len(roh_rows), 500):
+                supabase.table("game_guides_rohmaterial").insert(
+                    roh_rows[i : i + 500]
+                ).execute()
+
+            status_obj = (
+                dict(g_db.get("status") or {})
+                if isinstance(g_db.get("status"), dict)
+                else {}
+            )
+            status_obj["rohmaterial"] = "PENDING_MULTI_TAB"
+            supabase.table("games").update({"status": status_obj}).eq(
+                "id", gid
+            ).execute()
+            multitab_count += 1
+            print(
+                f"   📦 [MULTI-TAB | Sprache: {src_lang.upper()}] {cname} ({gid[:8]}…): {len(roh_rows)} Zeilen -> game_guides_rohmaterial"
+            )
+        else:
+            staging_payload = []
+            for r in clean_rows:
+                row_clean = {k: v for k, v in r.items() if not k.startswith("_")}
+                if creator_id:
+                    row_clean["creator_id"] = creator_id
+                staging_payload.append(row_clean)
+
+            for i in range(0, len(staging_payload), 500):
+                supabase.table("staging_game_guides").upsert(
+                    staging_payload[i : i + 500],
+                    on_conflict="game_id,creator_name,video_url,timestamp",
+                ).execute()
+            staging_count += 1
+            print(
+                f"   📝 [STAGING | Sprache: {src_lang.upper()}] {cname} ({gid[:8]}…): {len(staging_payload)} Zeilen -> staging_game_guides"
+            )
+
+    # Erst NACH erfolgreichem Upload das lokale Backup aufräumen!
+    if os.path.exists(FINAL_EXCEL_BACKUP):
+        os.remove(FINAL_EXCEL_BACKUP)
 
     print(
-        f"🚀 Lade {len(clean_rows)} Zeilen nach Supabase (`staging_game_guides`) hoch..."
+        f"\n🏁 FERTIG! {staging_count} Paket(e) in Staging-Entwürfe, {multitab_count} Paket(e) in Multi-Tab (Rohmaterial) geladen."
     )
-
-    batch_size = 500
-    for i in range(0, len(clean_rows), batch_size):
-        batch = clean_rows[i : i + batch_size]
-        supabase.table("staging_game_guides").upsert(
-            batch, on_conflict="game_id,creator_name,video_url,timestamp"
-        ).execute()
-
-
-if os.path.exists(FINAL_EXCEL_BACKUP):
-    os.remove(FINAL_EXCEL_BACKUP)
-    print("🏁 FERTIG! Daten liegen bereit in deiner 'Entwürfe'-Ansicht.")
 
 
 def run_stage2_enrich_and_upload():
-    # Falls das Backup aus dem abgebrochenen Lauf schon existiert -> Direkt hochladen ohne neuen YouTube-Crawl!
+    # Falls das Backup aus einem abgebrochenen Lauf existiert -> Direkt hochladen ohne neuen YouTube-Crawl!
     if os.path.exists(FINAL_EXCEL_BACKUP):
         print(
             f"⚡ Bestehendes Backup '{os.path.basename(FINAL_EXCEL_BACKUP)}' gefunden! Überspringe YouTube-Abfrage..."
@@ -271,27 +465,36 @@ def run_stage2_enrich_and_upload():
     # Gruppieren nach (game_id, creator_name)
     grouped: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for _, row in df.iterrows():
-        gid = str(row["game_id"]).strip()
-        cname = str(row["creator_name"]).strip()
+        gid = clean_str(row.get("game_id"))
+        cname = clean_str(row.get("creator_name")) or "Unbekannt"
+        if not gid:
+            continue
         key = (gid, cname)
         if key not in grouped:
             grouped[key] = {
                 "game_id": gid,
-                "npwr_id": str(row["npwr_id"]).strip(),
-                "game_title": str(row["game_title"]).strip(),
+                "npwr_id": clean_str(row.get("npwr_id")) or gid,
+                "game_title": clean_str(row.get("game_title")) or "Unbekannt",
                 "creator_name": cname,
+                "creator_id": clean_str(row.get("creator_id")) or None,
+                "creator_input_url": clean_str(row.get("creator_input_url")) or None,
+                "target_queue": clean_str(row.get("target_queue")),
+                "spiel_typ": clean_str(row.get("spiel_typ")),
+                "guide_typ": clean_str(row.get("guide_typ")),
+                "publisher": clean_str(row.get("publisher")),
                 "videos": [],
             }
-        grouped[key]["videos"].append(
-            {
-                "video_title": str(row["video_title"]).strip(),
-                "video_url": str(row["video_url"]).split("&t=")[0].strip(),
-            }
-        )
+        v_url = clean_str(row.get("video_url")).split("&t=")[0].strip()
+        if v_url:
+            grouped[key]["videos"].append(
+                {
+                    "video_title": clean_str(row.get("video_title")) or "Video",
+                    "video_url": v_url,
+                }
+            )
 
     staging_rows = []
 
-    # Optimierte yt-dlp Optionen (nutzt Node.js, unterdrückt JS-Warnung & überspringt Video-Format-Checks)
     ydl_opts = {
         "skip_download": True,
         "quiet": True,
@@ -336,6 +539,8 @@ def run_stage2_enrich_and_upload():
                                 "game_id": bundle["game_id"],
                                 "platform_game_id": bundle["npwr_id"],
                                 "creator_name": cname,
+                                "creator_input_url": bundle.get("creator_input_url")
+                                or base_url,
                                 "guide_id": guide_id_counter,
                                 "chronological_group": group_name,
                                 "video_chapter": v["video_title"],
@@ -344,6 +549,11 @@ def run_stage2_enrich_and_upload():
                                 "video_url": f"{base_url}&t={ts['seconds']}s",
                                 "trophy_id": None,
                                 "is_trophy_relevant": "Nein",
+                                "_target_queue": bundle.get("target_queue"),
+                                "_spiel_typ": bundle.get("spiel_typ"),
+                                "_guide_typ": bundle.get("guide_typ"),
+                                "_publisher": bundle.get("publisher"),
+                                "_creator_id": bundle.get("creator_id"),
                             }
                         )
                         guide_id_counter += 1
@@ -354,6 +564,8 @@ def run_stage2_enrich_and_upload():
                             "game_id": bundle["game_id"],
                             "platform_game_id": bundle["npwr_id"],
                             "creator_name": cname,
+                            "creator_input_url": bundle.get("creator_input_url")
+                            or base_url,
                             "guide_id": guide_id_counter,
                             "chronological_group": "Walkthrough",
                             "video_chapter": v["video_title"],
@@ -362,6 +574,11 @@ def run_stage2_enrich_and_upload():
                             "video_url": f"{base_url}&t=0s",
                             "trophy_id": None,
                             "is_trophy_relevant": "Nein",
+                            "_target_queue": bundle.get("target_queue"),
+                            "_spiel_typ": bundle.get("spiel_typ"),
+                            "_guide_typ": bundle.get("guide_typ"),
+                            "_publisher": bundle.get("publisher"),
+                            "_creator_id": bundle.get("creator_id"),
                         }
                     )
                     guide_id_counter += 1
@@ -372,7 +589,7 @@ def run_stage2_enrich_and_upload():
         f"\n💾 Finale Zeilen als Backup gespeichert: {os.path.basename(FINAL_EXCEL_BACKUP)} ({len(staging_rows)} Zeilen)"
     )
 
-    # 2. Ab nach Supabase in staging_game_guides
+    # 2. Ab nach Supabase (Smart-Router: Staging vs. Multi-Tab)
     push_rows_to_supabase(staging_rows)
 
 

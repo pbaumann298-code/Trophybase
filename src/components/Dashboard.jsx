@@ -19,7 +19,7 @@ import GameTile from './GameTile';
 export const HOME_WATCHLIST_MIN = 3;
 
 const TILE_CLASS =
-  'home-carousel-tile flex-shrink-0 snap-start w-[9.5rem] sm:w-44 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-none';
+  'home-carousel-tile flex-shrink-0 snap-start w-[9.5rem] sm:w-44 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-[11.5rem]';
 
 /**
  * Kompakte Watchlist-Leiste auf der Startseite (nur ab HOME_WATCHLIST_MIN Einträgen).

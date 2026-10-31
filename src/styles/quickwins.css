@@ -105,11 +105,9 @@
 }
 
 .catalog-tile-shell--carousel {
-  flex-shrink: 0;
-}
-
-.catalog-tile-shell--carousel .catalog-tile {
-  width: auto;
+  width: 10.5rem;
+  max-width: 11.25rem;
+  flex: 0 0 auto;
 }
 
 .catalog-detail--below-row {
@@ -409,10 +407,13 @@ p.quickwin-card-title:hover {
   align-items: flex-start;
 }
 
-.quickwin-card-cover-wrap {
+.quickwin-card-cover-wrap,
+.catalog-detail .quickwin-card-cover-wrap {
   position: relative;
-  width: 6rem;
-  height: 8rem;
+  width: 6.5rem;
+  max-width: 6.5rem;
+  height: 8.75rem;
+  max-height: 8.75rem;
   flex-shrink: 0;
 }
 

@@ -1,4 +1,3 @@
-from operator import eq
 import os
 import sys
 import re
@@ -134,7 +133,6 @@ Antworte NUR mit JSON: {{"guide_typ": "D"}}"""
 def main():
     total_processed = 0
     batch_size = 100
-    eq("status->>trophies", "PROCESSED")
 
     print(
         "🚀 Starte automatische Hybrid-Klassifizierung (Regel-Engine + LLM-Fallback)...\n"
@@ -144,6 +142,7 @@ def main():
         res = (
             supabase.table("games")
             .select("id, spieltitel, spiel_typ")
+            .eq("status->>trophies", "PROCESSED")
             .is_("guide_typ", "null")
             .or_("spiel_typ.is.null,spiel_typ.neq.Unlesbar")
             .limit(batch_size)

@@ -268,52 +268,6 @@
   box-sizing: border-box;
 }
 
-.advanced-search-tiles {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-  margin: 0 0 1.5rem;
-}
-
-.advanced-search-tile {
-  display: block;
-  min-width: 0;
-  text-decoration: none;
-  color: inherit;
-}
-
-/* Cover sind 2:3 (PS-Case). 3:4 der normalen Spielkacheln schneidet oben/unten ab. */
-.advanced-search-tile .home-tile-cover-wrap {
-  aspect-ratio: 2 / 3;
-}
-
-.advanced-search-tile .home-tile-cover {
-  object-fit: contain;
-  object-position: center top;
-}
-
-.advanced-search-tile--static {
-  cursor: default;
-}
-
-.advanced-search-tile--static .home-tile {
-  cursor: default;
-}
-
-.advanced-search-tile--static .home-tile:hover {
-  transform: none;
-  border-color: #27272a;
-  box-shadow: none;
-}
-
-.advanced-search-tile--static .home-tile:hover .home-tile-cover {
-  transform: none;
-}
-
-.advanced-search-tile--static .home-tile:hover .home-tile-shine {
-  opacity: 0;
-}
-
 .advanced-search-form {
   display: grid;
   grid-template-columns: 1fr;

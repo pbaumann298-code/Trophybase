@@ -69,6 +69,10 @@ create index if not exists games_status_guide_sv_pub_idx
   on public.games ((status ->> 'guide_sv'))
   where (status ->> 'guide_sv') = 'PUBLISHED';
 
+create index if not exists games_status_guide_ar_pub_idx
+  on public.games ((status ->> 'guide_ar'))
+  where (status ->> 'guide_ar') = 'PUBLISHED';
+
 -- Schnellcheck nach dem Anlegen:
 -- explain analyze
 -- select slug from public.games

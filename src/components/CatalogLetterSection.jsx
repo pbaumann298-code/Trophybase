@@ -8,8 +8,8 @@ import GameTile, { GameCoverOverlays } from './GameTile';
 export const CATALOG_ROW_PREVIEW = 10;
 const EXPANDED_CHUNK_SIZE = 60;
 
-const TILE_CLASS =
-  'home-carousel-tile flex-shrink-0 snap-start w-[9.5rem] sm:w-44 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-none';
+const TILE_SHELL_CLASS =
+  'catalog-tile-shell catalog-tile-shell--carousel flex-shrink-0 snap-start w-[9.25rem] sm:w-[10.5rem] lg:w-[11.25rem] max-w-[11.25rem]';
 
 /**
  * Ein Buchstaben-Block: horizontale Reihe (max. ~10), bei mehr Titeln „Alle anzeigen“
@@ -95,11 +95,11 @@ function CatalogLetterSection({
     const gameId = getGameUuid(game);
     const isOpen = Boolean(gameId) && openGameId === gameId;
     return (
-      <div key={gameId || `${letter}-${index}`} className="catalog-tile-shell catalog-tile-shell--carousel">
+      <div key={gameId || `${letter}-${index}`} className={TILE_SHELL_CLASS}>
         <GameTile
           game={game}
           as="button"
-          className={`catalog-tile ${TILE_CLASS}`}
+          className="catalog-tile w-full"
           accent={tileAccent}
           isAdmin={isAdmin}
           onRequestLogin={onRequestLogin}
