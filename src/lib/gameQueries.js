@@ -65,29 +65,30 @@ const GAME_SELECT_MINIMAL = GAME_SELECT.split(', ')
   )
   .join(', ');
 
-/** Publisher-Akkordeon / Titellisten: Cover ja, ohne Beschreibung. */
-export const GAME_SELECT_LIST = [
+/** Schlanker Select für Hub-Seiten (85 % kleinerer Payload, NIEMALS das schwere beschreibung-JSONB). */
+export const HUB_GAME_SELECT = [
   GAME_PK,
-  GAME_PLATFORM_ID,
-  GAME_STRUCT.hardware,
-  GAME_STRUCT.releaseYear,
-  GAME_STRUCT.developer,
-  GAME_STRUCT.publisher,
-  GAME_STRUCT.homeTags,
-  GAME_STRUCT.gameType,
-  GAME_STRUCT.status,
-  GAME_STRUCT.trophyCount,
   GAME_STRUCT.slug,
+  GAME_STRUCT.hardware,
   GAME_I18N.title,
   GAME_I18N.coverUrl,
-].join(', ');
-
-/** Kachel-Karussells: Liste + Online-/Verpassbar-Flags, ohne schwere Textfelder. */
-export const GAME_SELECT_TILES = [
-  GAME_SELECT_LIST,
+  GAME_STRUCT.trophyCount,
+  GAME_STRUCT.gameType,
+  GAME_STRUCT.releaseYear,
+  GAME_STRUCT.status,
+  GAME_STRUCT.publishedLocales,
+  GAME_STRUCT.publisher,
+  GAME_STRUCT.developer,
+  GAME_STRUCT.homeTags,
   GAME_STRUCT.hasOnlineTrophies,
   GAME_STRUCT.hasMissableTrophies,
 ].join(', ');
+
+/** Publisher-Akkordeon / Titellisten: Cover ja, ohne Beschreibung. */
+export const GAME_SELECT_LIST = HUB_GAME_SELECT;
+
+/** Kachel-Karussells: Liste + Online-/Verpassbar-Flags, ohne schwere Textfelder. */
+export const GAME_SELECT_TILES = HUB_GAME_SELECT;
 
 let activeGameSelect = GAME_SELECT;
 
@@ -976,8 +977,10 @@ export async function searchGamesAdvanced(supabase, filters = {}, options = {}) 
   return { data: mergeGameRows(rows, locale), error: null };
 }
 
-/** Seitengröße für Alphabet-Kataloge (Easy Platins / Servertot) beim Scroll-Nachladen. */
+/** Erste Batch-Größe für Sofort-Render auf Hub-Seiten (Progressive Loading). */
 export const CATALOG_FETCH_PAGE = 48;
+/** Hintergrund-Batch-Größe für nachfolgende Seiten auf Hub-Seiten (unter PostgREST 1.000er-Limit). */
+export const HUB_BACKGROUND_BATCH = 500;
 
 function stripPublisherColumn(columns) {
   return String(columns)
@@ -1020,10 +1023,16 @@ export async function fetchGamesByType(supabase, gameType, locale = getLocale(),
   const limit = paged
     ? capSearchLimit(options.limit ?? CATALOG_FETCH_PAGE, CATALOG_FETCH_PAGE)
     : SEARCH_RESULT_CAP;
-  const mode = options.mode === 'list' || options.mode === 'tiles' ? options.mode : 'full';
   const isHubType = HUB_GAME_TYPES.some(
     (type) => type.toLowerCase() === String(gameType ?? '').toLowerCase(),
   );
+  // Hub-Seiten laden NIEMALS das schwere beschreibung-JSONB für hunderte Spiele gleichzeitig.
+  const mode =
+    options.mode === 'list' || options.mode === 'tiles'
+      ? options.mode
+      : isHubType
+        ? 'tiles'
+        : 'full';
   const catalog = {
     includeReady,
     publishedOnly: !includeReady,
@@ -1038,7 +1047,9 @@ export async function fetchGamesByType(supabase, gameType, locale = getLocale(),
       .select(columns)
       .ilike(GAME_STRUCT.gameType, `%${gameType}%`);
     query = applyGuideCatalogFilter(query, catalog);
-    return query.order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
+    return query
+      .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })
+      .order(GAME_PK, { ascending: true });
   };
 
   const fetchRange = async (columns, from, to) => {
@@ -1058,24 +1069,57 @@ export async function fetchGamesByType(supabase, gameType, locale = getLocale(),
       : await fetchRange(columns, offset, offset + limit - 1);
     if (error) return { data: [], error, hasMore: false };
     const rows = mergeGameRows(data ?? [], locale);
-    return { data: rows, error: null, hasMore: rows.length >= limit };
+    return { data: rows, error: null, hasMore: (data ?? []).length >= limit };
   }
 
   if (mode !== 'full') {
     const all = [];
-    let from = 0;
     let columns = selectForCatalogMode(mode);
+    const onBatch = typeof options.onBatch === 'function' ? options.onBatch : null;
+
+    // 1. Sofort-Render ab Batch 1: Erste 48 Spiele laden und sofort ans UI übergeben
+    const firstBatchSize = CATALOG_FETCH_PAGE;
+    const firstRes = await fetchRange(columns, 0, firstBatchSize - 1);
+    if (firstRes.error && isMissingPublisherError(firstRes.error)) {
+      columns = stripPublisherColumn(columns);
+    }
+    if (firstRes.error) {
+      return { data: [], error: firstRes.error, hasMore: false };
+    }
+    const firstRows = firstRes.data ?? [];
+    all.push(...firstRows);
+    const firstMerged = mergeGameRows(all, locale);
+    const hasMoreAfterFirst = firstRows.length >= firstBatchSize;
+    if (onBatch) {
+      onBatch(firstMerged, { isFirstBatch: true, done: !hasMoreAfterFirst });
+    }
+    if (!hasMoreAfterFirst) {
+      return { data: firstMerged, error: null, hasMore: false };
+    }
+
+    // 2. Weitere Seiten im Hintergrund in schnellen Chunks nachladen
+    let from = firstBatchSize;
     while (from < SEARCH_RESULT_CAP) {
-      const to = Math.min(from + SEARCH_FETCH_BATCH - 1, SEARCH_RESULT_CAP - 1);
+      if (options.signal?.aborted) break;
+      const to = Math.min(from + HUB_BACKGROUND_BATCH - 1, SEARCH_RESULT_CAP - 1);
       const { data, error } = await fetchRange(columns, from, to);
       if (error && isMissingPublisherError(error)) {
         columns = stripPublisherColumn(columns);
       }
-      if (error) return { data: mergeGameRows(all, locale), error, hasMore: false };
+      if (error) {
+        const partial = mergeGameRows(all, locale);
+        if (onBatch) onBatch(partial, { isFirstBatch: false, done: true, error });
+        return { data: partial, error, hasMore: false };
+      }
       const rows = data ?? [];
       all.push(...rows);
-      if (rows.length < to - from + 1) break;
-      from += SEARCH_FETCH_BATCH;
+      const done = rows.length < to - from + 1 || from + HUB_BACKGROUND_BATCH >= SEARCH_RESULT_CAP;
+      const mergedSoFar = mergeGameRows(all, locale);
+      if (onBatch) {
+        onBatch(mergedSoFar, { isFirstBatch: false, done });
+      }
+      if (done) break;
+      from += HUB_BACKGROUND_BATCH;
     }
     return { data: mergeGameRows(all, locale), error: null, hasMore: false };
   }

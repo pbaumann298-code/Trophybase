@@ -52,7 +52,8 @@ const TABS = [
 function IntranetApp() {
   const [sessionUser, setSessionUser] = useState(null);
   const [creatorProfile, setCreatorProfile] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const authReady = !authLoading;
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState(() => {
@@ -81,7 +82,10 @@ function IntranetApp() {
     }
     return 'games';
   });
-  const { entries: followups } = useAdminFollowups(sessionUser?.id);
+  const isAdmin = isAdminUser(sessionUser);
+  const { entries: followups } = useAdminFollowups(
+    !authLoading && isAdmin ? sessionUser?.id : null,
+  );
   const [draftsCount, setDraftsCount] = useState(0);
   // „🚀 Entwürfe + Follow“ oder Rückkehr über „⬅️ Zurück zum Entwurf“: Spiel vorauswählen.
   const [draftTargetGameId, setDraftTargetGameId] = useState(() => {
@@ -95,46 +99,80 @@ function IntranetApp() {
   };
 
   useEffect(() => {
+    if (authLoading || !sessionUser || !isAdmin) return undefined;
     let cancelled = false;
     async function loadDraftsCount() {
-      const { data, error } = await supabase.from('staging_game_guides').select('game_id');
-      if (cancelled || error || !data) return;
-      const uniqueGames = new Set(data.map((r) => r.game_id).filter(Boolean));
-      setDraftsCount(uniqueGames.size);
+      try {
+        const { data, error } = await supabase
+          .from('staging_game_guides')
+          .select('game_id')
+          .range(0, 999);
+        if (cancelled || error || !data) return;
+        const uniqueGames = new Set(data.map((r) => r.game_id).filter(Boolean));
+        setDraftsCount(uniqueGames.size);
+      } catch (err) {
+        console.error('Entwürfe-Zähler Fehler:', err);
+      }
     }
     loadDraftsCount();
     return () => {
       cancelled = true;
     };
-  }, [activeTab]);
+  }, [activeTab, authLoading, sessionUser, isAdmin]);
 
   useEffect(() => {
     let cancelled = false;
+    let initialResolved = false;
 
     async function init() {
-      const { data: { session } } = await getSessionOrTimeout(supabase);
-      const user = session?.user ?? null;
-      let profile = null;
-      if (user) {
-        profile = await fetchMyCreatorProfile(supabase);
-      }
-      if (!cancelled) {
-        setSessionUser(user);
-        setCreatorProfile(profile);
-        setAuthReady(true);
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('Intranet getSession Fehler:', error.message);
+        }
+        const user = data?.session?.user ?? null;
+        let profile = null;
+        if (user) {
+          profile = await fetchMyCreatorProfile(supabase);
+        }
+        if (!cancelled) {
+          setSessionUser(user);
+          setCreatorProfile(profile);
+        }
+      } catch (err) {
+        console.error('Intranet Auth-Init Fehler:', err);
+      } finally {
+        initialResolved = true;
+        if (!cancelled) {
+          setAuthLoading(false);
+        }
       }
     }
 
     init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Während supabase.auth.getSession() noch lädt (authLoading === true),
+      // niemals den User-State löschen oder zum Login weiterleiten!
+      if (!initialResolved && event === 'INITIAL_SESSION') {
+        return;
+      }
+
+      if (event === 'SIGNED_OUT') {
+        if (!cancelled) {
+          setSessionUser(null);
+          setCreatorProfile(null);
+        }
+        return;
+      }
+
       const user = session?.user ?? null;
-      setSessionUser(user);
       if (user) {
         const profile = await fetchMyCreatorProfile(supabase);
-        if (!cancelled) setCreatorProfile(profile);
-      } else if (!cancelled) {
-        setCreatorProfile(null);
+        if (!cancelled) {
+          setCreatorProfile(profile);
+          setSessionUser(user);
+        }
       }
     });
 
@@ -184,7 +222,6 @@ function IntranetApp() {
     );
   }
 
-  const isAdmin = isAdminUser(sessionUser);
   const isCreatorOnly = Boolean(sessionUser && !isAdmin && creatorProfile);
 
   if (!sessionUser || (!isAdmin && !creatorProfile)) {

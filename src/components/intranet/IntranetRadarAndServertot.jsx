@@ -388,7 +388,6 @@ async function fetchSickbayCovers() {
     const { data, error } = await supabase
       .from(TABLES.sickbayCovers)
       .select(SICKBAY_COVER_COLUMNS)
-      .order(GAME_PK, { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) return { rows: [], error };
     rows.push(...(data ?? []));
@@ -890,60 +889,85 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
   // Anklickbares Cover-Modal für alle 3 Tabs
   const [editingCoverGame, setEditingCoverGame] = useState(null);
 
-  const applyQueueResult = useCallback(
-    (result, withPublished) => {
-      setLoading(false);
-      if (result.error) {
-        setError(result.error.message || 'Queue konnte nicht geladen werden.');
-        setGames([]);
-        return;
-      }
-      setGames(result.rows.filter((game) => matchesMode(mode, game, { includePublished: withPublished })));
-      setTruncated(result.truncated);
-    },
-    [mode],
-  );
-
   const loadSickbayExtras = useCallback(async () => {
     if (!isSickbayMode) return;
     setCoversLoading(true);
     setReportsLoading(true);
-    const [coversRes, reportsRes] = await Promise.all([
-      fetchSickbayCovers(),
-      fetchCommunityReports(supabase),
-    ]);
-    setCoversLoading(false);
-    setReportsLoading(false);
-    if (coversRes.error) {
-      setError((prev) => prev || coversRes.error.message || 'Cover-Fehler konnten nicht geladen werden.');
-    } else {
-      setCoverRows(coversRes.rows);
-    }
-    if (reportsRes.error) {
-      setError((prev) => prev || reportsRes.error.message || 'Fehlermeldungen konnten nicht geladen werden.');
-    } else {
-      setReportRows(reportsRes.reports);
+    try {
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr) throw sessionErr;
+      if (!sessionData?.session) {
+        throw new Error('Keine aktive Admin-Sitzung gefunden. Bitte neu anmelden.');
+      }
+
+      const [coversRes, reportsRes] = await Promise.all([
+        fetchSickbayCovers(),
+        fetchCommunityReports(supabase),
+      ]);
+      if (coversRes.error) {
+        console.error('Krankenstation Cover-Fehler:', coversRes.error);
+        setError((prev) => prev || coversRes.error.message || 'Cover-Fehler konnten nicht geladen werden.');
+      } else {
+        setCoverRows(coversRes.rows);
+      }
+      if (reportsRes.error) {
+        console.error('Krankenstation Fehlermeldungen:', reportsRes.error);
+        setError((prev) => prev || reportsRes.error.message || 'Fehlermeldungen konnten nicht geladen werden.');
+      } else {
+        setReportRows(reportsRes.reports);
+      }
+    } catch (err) {
+      console.error('Krankenstation Extras Fehler:', err);
+      setError((prev) => prev || err?.message || 'Krankenstation-Daten konnten nicht geladen werden.');
+    } finally {
+      setCoversLoading(false);
+      setReportsLoading(false);
     }
   }, [isSickbayMode]);
 
-  // Initial-Load; der Host rendert pro Tab eine eigene Instanz, `mode` wechselt nicht zur Laufzeit.
+  const loadQueueSafe = useCallback(
+    async (withPublished, token) => {
+      setLoading(true);
+      setError('');
+      try {
+        const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+        if (sessionErr) throw sessionErr;
+        if (!sessionData?.session) {
+          throw new Error('Keine aktive Admin-Sitzung gefunden. Bitte neu anmelden.');
+        }
+
+        const result = await fetchQueue(mode, { includePublished: withPublished });
+        if (token !== reloadToken.current) return;
+        if (result.error) throw result.error;
+        setGames(result.rows.filter((game) => matchesMode(mode, game, { includePublished: withPublished })));
+        setTruncated(result.truncated);
+      } catch (err) {
+        console.error('Krankenstation/Radar Queue Fehler:', err);
+        if (token === reloadToken.current) {
+          setError(err?.message || 'Queue konnte nicht geladen werden.');
+          setGames([]);
+        }
+      } finally {
+        if (token === reloadToken.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [mode],
+  );
+
+  // Initial-Load; startet erst nach abgeschlossener Session-Prüfung.
   useEffect(() => {
     const token = ++reloadToken.current;
-    fetchQueue(mode, { includePublished: false }).then((result) => {
-      if (token === reloadToken.current) applyQueueResult(result, false);
-    });
+    loadQueueSafe(false, token);
     if (isSickbayMode) {
       loadSickbayExtras();
     }
-  }, [mode, isSickbayMode, applyQueueResult, loadSickbayExtras]);
+  }, [mode, isSickbayMode, loadQueueSafe, loadSickbayExtras]);
 
   const reload = (withPublished = includePublished) => {
     const token = ++reloadToken.current;
-    setLoading(true);
-    setError('');
-    fetchQueue(mode, { includePublished: withPublished }).then((result) => {
-      if (token === reloadToken.current) applyQueueResult(result, withPublished);
-    });
+    loadQueueSafe(withPublished, token);
     if (isSickbayMode) {
       loadSickbayExtras();
     }
@@ -995,26 +1019,38 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
   useEffect(() => {
     if (!activeId) return undefined;
     let cancelled = false;
-    fetchAchievements(activeId).then(({ rows, error: loadError }) => {
-      if (cancelled) return;
-      if (loadError) {
-        setError(loadError.message || 'Trophäen konnten nicht geladen werden.');
-        setAchievementsState({ gameId: activeId, rows: [] });
-        return;
-      }
-      setAchievementsState({ gameId: activeId, rows });
-    });
-    if (!detailsLoaded) {
-      fetchGameDetails(activeId).then(({ details, error: loadError }) => {
+
+    (async () => {
+      try {
+        const { rows, error: loadError } = await fetchAchievements(activeId);
         if (cancelled) return;
-        if (loadError) {
-          setError(loadError.message || 'Spieldetails konnten nicht geladen werden.');
-          return;
+        if (loadError) throw loadError;
+        setAchievementsState({ gameId: activeId, rows });
+      } catch (err) {
+        console.error('Krankenstation Trophäen Fehler:', err);
+        if (!cancelled) {
+          setError(err?.message || 'Trophäen konnten nicht geladen werden.');
+          setAchievementsState({ gameId: activeId, rows: [] });
         }
-        if (details) {
-          setGames((prev) => prev.map((game) => (game[GAME_PK] === activeId ? { ...game, ...details } : game)));
+      }
+    })();
+
+    if (!detailsLoaded) {
+      (async () => {
+        try {
+          const { details, error: loadError } = await fetchGameDetails(activeId);
+          if (cancelled) return;
+          if (loadError) throw loadError;
+          if (details) {
+            setGames((prev) => prev.map((game) => (game[GAME_PK] === activeId ? { ...game, ...details } : game)));
+          }
+        } catch (err) {
+          console.error('Krankenstation Spieldetails Fehler:', err);
+          if (!cancelled) {
+            setError(err?.message || 'Spieldetails konnten nicht geladen werden.');
+          }
         }
-      });
+      })();
     }
     return () => {
       cancelled = true;

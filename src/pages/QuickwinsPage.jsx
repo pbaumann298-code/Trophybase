@@ -80,6 +80,8 @@ function gameMatchesTag(game, tagSlug) {
   return tagList.some((t) => String(t).toLowerCase() === tagSlug.toLowerCase());
 }
 
+const DOM_CHUNK_SIZE = 60;
+
 function QuickwinsPage({
   openGame,
   onRequestLogin,
@@ -119,16 +121,16 @@ function QuickwinsPage({
   const [selectedTag, setSelectedTag] = useState('');
   const [games, setGames] = useState([]);
   const [publisherDefs, setPublisherDefs] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const loading = initialLoading;
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(DOM_CHUNK_SIZE);
   const [openPublishers, setOpenPublishers] = useState(() => new Set());
   const [openGameId, setOpenGameId] = useState(null);
   const [activeLetter, setActiveLetter] = useState('');
   const loadMoreRef = useRef(null);
-  const fetchOffsetRef = useRef(0);
-  const loadingMoreRef = useRef(false);
 
   useEffect(() => {
     const previous = document.title;
@@ -162,107 +164,65 @@ function QuickwinsPage({
     return () => window.removeEventListener('popstate', alignPath);
   }, [localizedCatalog, globalLocale, applied.title, applied.publisher, applied.sort, alphabetCatalog]);
 
-  const mergeUniqueGames = useCallback((prev, next) => {
-    if (!next?.length) return prev;
-    const seen = new Set(prev.map((game) => getGameUuid(game)).filter(Boolean));
-    const added = [];
-    for (const game of next) {
-      const id = getGameUuid(game);
-      if (id && seen.has(id)) continue;
-      if (id) seen.add(id);
-      added.push(game);
-    }
-    return added.length ? [...prev, ...added] : prev;
-  }, []);
-
-  const catalogTitleFilter = alphabetCatalog ? String(applied.title || '').trim() : '';
-  /** Alphabet: Scroll-Nachladen. Quickwins: leichte Listen-Seiten im Hintergrund. */
-  const catalogPaged = alphabetCatalog && !catalogTitleFilter;
-  const listPaged = !alphabetCatalog;
   const fetchMode = alphabetCatalog ? 'tiles' : 'list';
-  const progressiveFetch = catalogPaged || listPaged;
 
   useEffect(() => {
+    setVisibleCount(DOM_CHUNK_SIZE);
+  }, [applied.title, applied.publisher, applied.sort, selectedTag, gameType, globalLocale]);
+
+  useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
-    setLoading(true);
+    setInitialLoading(true);
+    setLoadingMore(false);
     setLoadError(false);
     setHasMore(false);
-    fetchOffsetRef.current = 0;
-    loadingMoreRef.current = false;
 
     fetchGamesByType(supabase, gameType, globalLocale, {
       includeReady,
       mode: fetchMode,
-      ...(progressiveFetch ? { limit: CATALOG_FETCH_PAGE, offset: 0 } : {}),
-    }).then(({ data, error, hasMore: more }) => {
-      if (cancelled) return;
-      if (error) {
-        console.error(titleKey, error.message);
-        setLoadError(true);
-        setGames([]);
-        setHasMore(false);
-      } else {
-        const rows = data || [];
+      signal: controller.signal,
+      onBatch: (batchRows, meta) => {
+        if (cancelled) return;
+        const rows = batchRows || [];
         setGames(rows);
-        fetchOffsetRef.current = rows.length;
-        setHasMore(Boolean(progressiveFetch && more));
-      }
-      setLoading(false);
-    });
+        if (meta.isFirstBatch) {
+          setInitialLoading(false);
+        }
+        setLoadingMore(!meta.done);
+        setHasMore(!meta.done);
+      },
+    })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error(titleKey, error.message);
+          if (games.length === 0) {
+            setLoadError(true);
+          }
+        } else if (data) {
+          setGames(data);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error(titleKey, err);
+        setLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setInitialLoading(false);
+          setLoadingMore(false);
+          setHasMore(false);
+        }
+      });
+
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [globalLocale, includeReady, gameType, titleKey, progressiveFetch, fetchMode]);
-
-  const loadMoreCatalog = useCallback(async () => {
-    if (!progressiveFetch || loadingMoreRef.current || !hasMore) return;
-    loadingMoreRef.current = true;
-    setLoadingMore(true);
-    const offset = fetchOffsetRef.current;
-    try {
-      const { data, error, hasMore: more } = await fetchGamesByType(
-        supabase,
-        gameType,
-        globalLocale,
-        {
-          includeReady,
-          mode: fetchMode,
-          limit: CATALOG_FETCH_PAGE,
-          offset,
-        },
-      );
-      if (error) {
-        console.error(titleKey, error.message);
-        setHasMore(false);
-        return;
-      }
-      const rows = data || [];
-      setGames((prev) => mergeUniqueGames(prev, rows));
-      fetchOffsetRef.current = offset + rows.length;
-      setHasMore(Boolean(more) && rows.length > 0);
-    } finally {
-      loadingMoreRef.current = false;
-      setLoadingMore(false);
-    }
-  }, [
-    progressiveFetch,
-    hasMore,
-    gameType,
-    globalLocale,
-    includeReady,
-    titleKey,
-    fetchMode,
-    mergeUniqueGames,
-  ]);
-
-  /** Quickwins: restliche Publisher-Seiten still nachladen, sobald die erste da ist. */
-  useEffect(() => {
-    if (!listPaged || !hasMore || loading || loadingMore) return undefined;
-    const timer = window.setTimeout(() => {
-      loadMoreCatalog();
-    }, 50);
-    return () => window.clearTimeout(timer);
-  }, [listPaged, hasMore, loading, loadingMore, loadMoreCatalog]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalLocale, includeReady, gameType, titleKey, fetchMode]);
 
   useEffect(() => {
     if (alphabetCatalog) return undefined;
@@ -385,21 +345,29 @@ function QuickwinsPage({
     [alphabetCatalog, filteredGames, globalLocale],
   );
 
-  useEffect(() => {
-    if (!catalogPaged || !hasMore) return undefined;
-    const node = loadMoreRef.current;
-    if (!node) return undefined;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          loadMoreCatalog();
-        }
-      },
-      { rootMargin: '320px 0px' },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [catalogPaged, hasMore, loadMoreCatalog, alphabetGroups.length]);
+  // Client-Chunking: initial maximal 60 Karten im DOM rendern, beim Scrollen +60 nachladen
+  const { visibleAlphabetGroups, hasMoreAlphabetDom } = useMemo(() => {
+    if (!alphabetCatalog) {
+      return { visibleAlphabetGroups: [], hasMoreAlphabetDom: false };
+    }
+    let budget = visibleCount;
+    const slicedGroups = [];
+    let totalCards = 0;
+    for (const group of alphabetGroups) {
+      totalCards += group.games.length;
+      if (budget <= 0) continue;
+      const slicedGames = group.games.slice(0, budget);
+      slicedGroups.push({
+        ...group,
+        games: slicedGames,
+      });
+      budget -= slicedGames.length;
+    }
+    return {
+      visibleAlphabetGroups: slicedGroups,
+      hasMoreAlphabetDom: totalCards > visibleCount,
+    };
+  }, [alphabetCatalog, alphabetGroups, visibleCount]);
 
   const letterHasGames = useMemo(() => {
     const set = new Set(alphabetGroups.map((group) => group.key));
@@ -413,6 +381,29 @@ function QuickwinsPage({
       games: sortQuickwins(group.games, applied.sort, globalLocale),
     }));
   }, [alphabetCatalog, filteredGames, globalLocale, t, canon, applied.sort]);
+
+  const visibleGrouped = useMemo(
+    () => (alphabetCatalog ? [] : grouped.slice(0, visibleCount)),
+    [alphabetCatalog, grouped, visibleCount],
+  );
+  const hasMoreGroupedDom = !alphabetCatalog && grouped.length > visibleCount;
+  const hasMoreDomChunks = alphabetCatalog ? hasMoreAlphabetDom : hasMoreGroupedDom;
+
+  useEffect(() => {
+    if (!hasMoreDomChunks) return undefined;
+    const node = loadMoreRef.current;
+    if (!node) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((prev) => prev + DOM_CHUNK_SIZE);
+        }
+      },
+      { rootMargin: '360px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMoreDomChunks, visibleAlphabetGroups.length, visibleGrouped.length]);
 
   const commit = (next, { replace = false } = {}) => {
     setOpenPublishers(new Set());
@@ -493,6 +484,19 @@ function QuickwinsPage({
   const jumpToLetter = (letter) => {
     if (!letterHasGames.has(letter)) return;
     setActiveLetter(letter);
+    let neededCount = 0;
+    for (const group of alphabetGroups) {
+      neededCount += group.games.length;
+      if (group.key === letter) break;
+    }
+    if (neededCount > visibleCount) {
+      setVisibleCount(Math.ceil(neededCount / DOM_CHUNK_SIZE) * DOM_CHUNK_SIZE);
+      window.requestAnimationFrame(() => {
+        const node = document.getElementById(`catalog-letter-${letter}`);
+        if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      return;
+    }
     const node = document.getElementById(`catalog-letter-${letter}`);
     if (!node) return;
     node.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -558,7 +562,7 @@ function QuickwinsPage({
         <p className="quickwin-card-note">{t('searchNoResults')}</p>
       ) : (
         <div className="catalog-list">
-          {alphabetGroups.map((group) => (
+          {visibleAlphabetGroups.map((group) => (
             <CatalogLetterSection
               key={group.key}
               letter={group.key}
@@ -575,13 +579,9 @@ function QuickwinsPage({
               serverNoticeText={pageCopy?.notice || ''}
             />
           ))}
-          {hasMore ? (
-            <div ref={loadMoreRef} className="catalog-load-more" aria-hidden={!loadingMore}>
-              {loadingMore ? (
-                <p className="quickwin-card-note">{t('searchLoading')}</p>
-              ) : (
-                <span className="catalog-load-more-spacer" />
-              )}
+          {hasMoreAlphabetDom ? (
+            <div ref={loadMoreRef} className="catalog-load-more">
+              <span className="catalog-load-more-spacer" />
             </div>
           ) : null}
         </div>
@@ -589,7 +589,7 @@ function QuickwinsPage({
     </>
   );
 
-  const pageBlocks = grouped.map((block) => {
+  const pageBlocks = visibleGrouped.map((block) => {
     const isOpen = openPublishers.has(block.key);
     const gameIds = new Set(block.games.map((game) => getGameUuid(game)).filter(Boolean));
     return (
@@ -616,7 +616,7 @@ function QuickwinsPage({
         </button>
         {isOpen && (
           <div className="guide-localisation__body quickwin-titles">
-            {block.games.map((game) => {
+            {block.games.slice(0, visibleCount).map((game) => {
               const gameId = getGameUuid(game);
               const titleOpen = Boolean(gameId) && openGameId === gameId;
               return (
@@ -775,6 +775,23 @@ function QuickwinsPage({
         </div>
       </form>
 
+      {!loading && games.length > 0 && (
+        <div
+          className="mb-4 flex items-center justify-between rounded-xl border border-zinc-800 bg-[#161718] px-3.5 py-2 text-xs font-mono text-zinc-300"
+          role="status"
+          aria-live="polite"
+        >
+          <span>
+            {loadingMore || hasMore
+              ? `⚡ ${games.length} Spiele geladen (lade weitere...)`
+              : `✅ Alle ${games.length} Spiele geladen`}
+          </span>
+          {filteredGames.length !== games.length ? (
+            <span className="text-zinc-500">{filteredGames.length} gefiltert</span>
+          ) : null}
+        </div>
+      )}
+
       {alphabetCatalog ? (
         renderAlphabetCatalog()
       ) : loading && games.length === 0 ? (
@@ -788,8 +805,10 @@ function QuickwinsPage({
       ) : (
         <div className="quickwins-list">
           {pageBlocks}
-          {hasMore || loadingMore ? (
-            <p className="quickwin-card-note catalog-load-more">{t('searchLoading')}</p>
+          {hasMoreGroupedDom ? (
+            <div ref={loadMoreRef} className="catalog-load-more">
+              <span className="catalog-load-more-spacer" />
+            </div>
           ) : null}
         </div>
       )}

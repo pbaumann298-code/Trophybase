@@ -676,7 +676,6 @@ export async function pullGameBackToDrafts(supabase, gameId, lang = 'de') {
     return {
       [GAME_FK]: id,
       [GUIDE_STRUCT.platformGameId]: row[GUIDE_STRUCT.platformGameId] || fallbackPlatformId,
-      [GUIDE_I18N.localisation]: flat(row[GUIDE_I18N.localisation]) || null,
       [GUIDE_STRUCT.creatorId]: row[GUIDE_STRUCT.creatorId] || null,
       creator_name: creator?.channel_name || PULL_BACK_CREATOR_FALLBACK,
       creator_input_url: creator?.youtube_url || row[GUIDE_STRUCT.videoUrl] || null,
@@ -701,7 +700,6 @@ export async function pullGameBackToDrafts(supabase, gameId, lang = 'de') {
     stagingRows.push({
       [GAME_FK]: id,
       [GUIDE_STRUCT.platformGameId]: fallbackPlatformId,
-      [GUIDE_I18N.localisation]: null,
       [GUIDE_STRUCT.creatorId]: null,
       creator_name: 'Redaktion',
       creator_input_url: null,

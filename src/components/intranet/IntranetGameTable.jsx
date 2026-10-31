@@ -391,7 +391,7 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts }) 
                     );
                   })}
                   <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
-                    {embedCount(game.game_achievements) ?? '—'}
+                    {game.anzahl_trophaeen ?? embedCount(game.game_achievements) ?? '—'}
                   </td>
                   <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
                     {embedCount(game.game_guides) ?? '—'}

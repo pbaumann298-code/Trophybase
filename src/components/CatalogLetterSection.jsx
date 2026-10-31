@@ -6,6 +6,7 @@ import QuickwinGameCard from './QuickwinGameCard';
 import GameTile, { GameCoverOverlays } from './GameTile';
 
 export const CATALOG_ROW_PREVIEW = 10;
+const EXPANDED_CHUNK_SIZE = 60;
 
 const TILE_CLASS =
   'home-carousel-tile flex-shrink-0 snap-start w-[9.5rem] sm:w-44 lg:w-[calc((100%-3rem)/5)] max-w-[12rem] lg:max-w-none';
@@ -31,12 +32,16 @@ function CatalogLetterSection({
 }) {
   const { t, globalLocale } = useLocale();
   const trackRef = useRef(null);
+  const expandedMoreRef = useRef(null);
   const [expanded, setExpanded] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(EXPANDED_CHUNK_SIZE);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
   const hasOverflow = games.length > CATALOG_ROW_PREVIEW;
   const previewGames = hasOverflow && !expanded ? games.slice(0, CATALOG_ROW_PREVIEW) : games;
+  const expandedGames = expanded ? games.slice(0, visibleCount) : [];
+  const hasMoreExpanded = expanded && games.length > visibleCount;
 
   const updateScrollHints = useCallback(() => {
     const el = trackRef.current;
@@ -57,7 +62,24 @@ function CatalogLetterSection({
 
   useEffect(() => {
     setExpanded(false);
+    setVisibleCount(EXPANDED_CHUNK_SIZE);
   }, [letter]);
+
+  useEffect(() => {
+    if (!hasMoreExpanded) return undefined;
+    const node = expandedMoreRef.current;
+    if (!node) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((prev) => prev + EXPANDED_CHUNK_SIZE);
+        }
+      },
+      { rootMargin: '320px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMoreExpanded, expandedGames.length]);
 
   const scrollByTiles = (direction) => {
     const el = trackRef.current;
@@ -199,7 +221,14 @@ function CatalogLetterSection({
       </header>
 
       {expanded ? (
-        <div className="catalog-expanded-list">{games.map(renderListRow)}</div>
+        <div className="catalog-expanded-list">
+          {expandedGames.map(renderListRow)}
+          {hasMoreExpanded ? (
+            <div ref={expandedMoreRef} className="catalog-load-more">
+              <span className="catalog-load-more-spacer" />
+            </div>
+          ) : null}
+        </div>
       ) : (
         <>
           <div className="home-carousel-wrap">

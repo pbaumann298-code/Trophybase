@@ -21,7 +21,7 @@ import { useVisibility } from './VisibilityContext';
 
 const ProgressSyncContext = createContext(null);
 
-export function ProgressSyncProvider({ sessionUser, children }) {
+export function ProgressSyncProvider({ sessionUser, authLoading = false, children }) {
   const userId = sessionUser?.id ?? null;
   const { listHiddenGameUuids, replaceHiddenGameUuids } = useVisibility();
   const [prompt, setPrompt] = useState(null);
@@ -40,6 +40,7 @@ export function ProgressSyncProvider({ sessionUser, children }) {
   }, []);
 
   useEffect(() => {
+    if (authLoading) return undefined;
     if (!userId) {
       disableCloudPush();
       setGameHiddenCloudUser(null);
@@ -136,7 +137,7 @@ export function ProgressSyncProvider({ sessionUser, children }) {
     return () => {
       cancelled = true;
     };
-  }, [userId, enableCloudPush, disableCloudPush, listHiddenGameUuids, replaceHiddenGameUuids]);
+  }, [userId, authLoading, enableCloudPush, disableCloudPush, listHiddenGameUuids, replaceHiddenGameUuids]);
 
   const acceptBrowser = useCallback(async () => {
     if (!userId || !prompt) return;

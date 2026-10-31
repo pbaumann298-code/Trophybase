@@ -36,14 +36,23 @@ function IntranetRohmaterial() {
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
-    const { data, error: loadError } = await fetchAllRohmaterialOverview(supabase);
-    setLoading(false);
-    if (loadError) {
-      setError(loadError.message || 'Rohmaterial konnte nicht geladen werden.');
+    try {
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr) throw sessionErr;
+      if (!sessionData?.session) {
+        throw new Error('Keine aktive Sitzung gefunden.');
+      }
+
+      const { data, error: loadError } = await fetchAllRohmaterialOverview(supabase);
+      if (loadError) throw loadError;
+      setRows(data ?? []);
+    } catch (err) {
+      console.error('Rohmaterial Load Fehler:', err);
+      setError(err?.message || 'Rohmaterial konnte nicht geladen werden.');
       setRows([]);
-      return;
+    } finally {
+      setLoading(false);
     }
-    setRows(data ?? []);
   }, []);
 
   useEffect(() => {

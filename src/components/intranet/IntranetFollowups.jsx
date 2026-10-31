@@ -27,16 +27,29 @@ function IntranetFollowups({ sessionUser, onOpenInDrafts }) {
       }
 
       setLoading(true);
-      const { data, error } = await fetchIntranetGamesByIds(supabase, ids);
-      if (cancelled) return;
-      if (error) {
-        setErrorMessage(error.message || 'Wiedervorlage konnte nicht geladen werden.');
-        setGames([]);
-      } else {
-        setErrorMessage('');
+      setErrorMessage('');
+      try {
+        const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+        if (sessionErr) throw sessionErr;
+        if (!sessionData?.session) {
+          throw new Error('Keine aktive Sitzung gefunden.');
+        }
+
+        const { data, error } = await fetchIntranetGamesByIds(supabase, ids);
+        if (cancelled) return;
+        if (error) throw error;
         setGames(data);
+      } catch (err) {
+        console.error('Wiedervorlage Load Fehler:', err);
+        if (!cancelled) {
+          setErrorMessage(err?.message || 'Wiedervorlage konnte nicht geladen werden.');
+          setGames([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
     }
 
     load();

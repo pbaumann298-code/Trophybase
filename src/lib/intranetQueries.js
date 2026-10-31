@@ -29,13 +29,14 @@ export const INTRANET_GAME_SELECT = [
   GAME_STRUCT.developer,
   GAME_STRUCT.publisher,
   GAME_STRUCT.gameType,
+  GAME_STRUCT.trophyCount,
   GAME_STRUCT.homeTags,
   GAME_STRUCT.status,
   GAME_I18N.title,
   GAME_STRUCT.slug,
 ].join(', ');
 
-const INTRANET_GAME_SELECT_WITH_COUNTS = `${INTRANET_GAME_SELECT}, game_achievements(count), game_guides(count)`;
+const INTRANET_GAME_SELECT_WITH_COUNTS = `${INTRANET_GAME_SELECT}, game_guides(count)`;
 
 function quoteFilterValue(pattern) {
   return `"${String(pattern ?? '').replace(/["\\]/g, '')}"`;
@@ -142,15 +143,6 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
   let { data, error, count } = await run(INTRANET_GAME_SELECT_WITH_COUNTS);
   if (error) {
     ({ data, error, count } = await run(INTRANET_GAME_SELECT));
-  }
-  if (error) {
-    const withoutPublisher = INTRANET_GAME_SELECT.split(', ')
-      .filter((column) => column !== GAME_STRUCT.publisher)
-      .join(', ');
-    ({ data, error, count } = await run(`${withoutPublisher}, game_achievements(count), game_guides(count)`));
-    if (error) {
-      ({ data, error, count } = await run(withoutPublisher));
-    }
   }
 
   if (error) return { data: [], count: 0, error };

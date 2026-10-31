@@ -847,6 +847,12 @@ export default function IntranetDrafts({
   const fetchRohmaterialSummary = useCallback(async () => {
     setLoadingRohmaterial(true);
     try {
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr) throw sessionErr;
+      if (!sessionData?.session) {
+        throw new Error('Keine aktive Sitzung gefunden. Bitte neu anmelden.');
+      }
+
       let rohRows = [];
       let rFrom = 0;
       const PAGE_SIZE = 1000;
@@ -859,8 +865,7 @@ export default function IntranetDrafts({
           .range(rFrom, rFrom + PAGE_SIZE - 1);
 
         if (rErr) {
-          console.warn('Fehler beim Laden von game_guides_rohmaterial:', rErr.message);
-          break;
+          throw new Error(`Fehler beim Laden von game_guides_rohmaterial: ${rErr.message}`);
         }
         const list = (chunk ?? []).map((r) => ({
           ...r,
@@ -873,10 +878,14 @@ export default function IntranetDrafts({
 
       setRohmaterialRows(rohRows);
 
-      const { data: pendingGames } = await supabase
+      const { data: pendingGames, error: pendingErr } = await supabase
         .from(TABLES.games)
         .select(GAMES_QUEUE_SELECT_COLS)
         .eq('status->>rohmaterial', 'PENDING_MULTI_TAB');
+
+      if (pendingErr) {
+        throw new Error(`Fehler beim Laden der Rohmaterial-Spiele: ${pendingErr.message}`);
+      }
 
       const gameIdsFromRoh = [...new Set(rohRows.map((r) => r.game_id).filter(Boolean))];
       const existingMap = new Map((pendingGames ?? []).map((g) => [g.id, g]));
@@ -885,10 +894,13 @@ export default function IntranetDrafts({
       if (missingIds.length > 0) {
         for (let i = 0; i < missingIds.length; i += 100) {
           const slice = missingIds.slice(i, i + 100);
-          const { data: extraGames } = await supabase
+          const { data: extraGames, error: extraErr } = await supabase
             .from(TABLES.games)
             .select(GAMES_QUEUE_SELECT_COLS)
             .in('id', slice);
+          if (extraErr) {
+            throw new Error(`Fehler beim Nachladen der Rohmaterial-Spiele: ${extraErr.message}`);
+          }
           for (const g of extraGames ?? []) {
             existingMap.set(g.id, g);
           }
@@ -944,7 +956,8 @@ export default function IntranetDrafts({
       summaryList.sort((a, b) => getGameRandomWeight(a.gameId) - getGameRandomWeight(b.gameId));
       setRohmaterialGames(summaryList);
     } catch (err) {
-      console.warn('Rohmaterial-Übersicht konnte nicht geladen werden:', err);
+      console.error('Rohmaterial-Übersicht konnte nicht geladen werden:', err);
+      setError((prev) => prev || err?.message || 'Rohmaterial-Übersicht konnte nicht geladen werden.');
     } finally {
       setLoadingRohmaterial(false);
     }
@@ -955,6 +968,12 @@ export default function IntranetDrafts({
     setLoading(true);
     setError('');
     try {
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr) throw sessionErr;
+      if (!sessionData?.session) {
+        throw new Error('Keine aktive Sitzung gefunden. Bitte neu anmelden.');
+      }
+
       let allRows = [];
       let from = 0;
       const PAGE_SIZE = 1000;
@@ -967,10 +986,7 @@ export default function IntranetDrafts({
           .range(from, from + PAGE_SIZE - 1);
 
         if (readError) {
-          setError(`Fehler beim Laden von staging_game_guides: ${readError.message}`);
-          setStagingRows([]);
-          setLoading(false);
-          return;
+          throw new Error(`Fehler beim Laden von staging_game_guides: ${readError.message}`);
         }
 
         const chunk = rows ?? [];
@@ -1013,7 +1029,7 @@ export default function IntranetDrafts({
           .in('id', initialIds);
 
         if (initialErr) {
-          console.error('Fehler beim Laden der Spiele-Details:', initialErr.message);
+          throw new Error(`Fehler beim Laden der Spiele-Details: ${initialErr.message}`);
         }
 
         const initialMap = new Map((initialGames ?? []).map((g) => [g.id, g]));
@@ -1049,11 +1065,13 @@ export default function IntranetDrafts({
         setGamesMap(new Map());
       }
     } catch (err) {
-      setError(err.message || 'Unerwarteter Fehler beim Laden der Queue.');
+      console.error('Entwürfe-Queue Fehler:', err);
+      setStagingRows([]);
+      setError(err?.message || 'Unerwarteter Fehler beim Laden der Queue.');
     } finally {
       setLoading(false);
     }
-  }, [getGameRandomWeight]);
+  }, [getGameRandomWeight, isCreatorMode, creatorProfile]);
 
   useEffect(() => {
     fetchQueue();
@@ -1710,41 +1728,53 @@ export default function IntranetDrafts({
     let cancelled = false;
     async function loadTrophies() {
       setLoadingTrophies(true);
+      try {
+        let loaded = [];
+        if (!isCreatorMode) {
+          const { data, error: trophyErr } = await supabase
+            .from(TABLES.achievements)
+            .select('*')
+            .eq(GAME_FK, selectedGameId)
+            .order('platform_achievement_id', { ascending: true });
 
-      let loaded = [];
-      if (!isCreatorMode) {
-        const { data, error: trophyErr } = await supabase
-          .from(TABLES.achievements)
-          .select('*')
-          .eq(GAME_FK, selectedGameId)
-          .order('platform_achievement_id', { ascending: true });
-
-        if (!trophyErr && Array.isArray(data) && data.length > 0) {
-          loaded = data;
+          if (!trophyErr && Array.isArray(data) && data.length > 0) {
+            loaded = data;
+          }
         }
-      }
 
-      if (loaded.length === 0) {
-        const { data: rpcData, error: rpcErr } = await supabase.rpc(
-          'tb_fetch_achievements_for_auth',
-          { p_game_id: selectedGameId }
-        );
-        if (rpcErr) {
-          console.error('Fehler beim Laden der Trophäen via RPC:', rpcErr.message);
-        } else if (Array.isArray(rpcData)) {
-          loaded = [...rpcData].sort((a, b) =>
-            String(a.platform_achievement_id ?? '').localeCompare(
-              String(b.platform_achievement_id ?? ''),
-              'de',
-              { numeric: true }
-            )
+        if (loaded.length === 0) {
+          const { data: rpcData, error: rpcErr } = await supabase.rpc(
+            'tb_fetch_achievements_for_auth',
+            { p_game_id: selectedGameId }
           );
+          if (rpcErr) {
+            throw new Error(`Fehler beim Laden der Trophäen via RPC: ${rpcErr.message}`);
+          }
+          if (Array.isArray(rpcData)) {
+            loaded = [...rpcData].sort((a, b) =>
+              String(a.platform_achievement_id ?? '').localeCompare(
+                String(b.platform_achievement_id ?? ''),
+                'de',
+                { numeric: true }
+              )
+            );
+          }
+        }
+
+        if (!cancelled) {
+          setGameTrophies(loaded);
+        }
+      } catch (err) {
+        console.error('Fehler beim Laden der Trophäen:', err);
+        if (!cancelled) {
+          setError((prev) => prev || err?.message || 'Trophäen konnten nicht geladen werden.');
+          setGameTrophies([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingTrophies(false);
         }
       }
-
-      if (cancelled) return;
-      setLoadingTrophies(false);
-      setGameTrophies(loaded);
     }
 
     loadTrophies();

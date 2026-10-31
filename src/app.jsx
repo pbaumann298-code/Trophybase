@@ -166,8 +166,9 @@ function App() {
   // Öffentliche Website: keine Baustelle. Admin loggt sich über /admin oder /intranet ein.
   const isMaintenanceMode = false;
 
-  // 🔐 Einzigartiger State für den User
+  // 🔐 Einzigartiger State für den User + Auth-Hydration-Status
   const [sessionUser, setSessionUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState(() => parseSimpleSearchParams().q);
   const [excludeQuickwins, setExcludeQuickwins] = useState(() => parseExcludeQuickwins());
@@ -202,28 +203,38 @@ function App() {
   // Session + OAuth-Redirect nach linkIdentity (Schritt 4: maintenance_bypass setzen)
   useEffect(() => {
     let cancelled = false;
+    let initialResolved = false;
 
     async function initAuth() {
-      const redirectResult = await handleSocialLinkRedirect(supabase);
-      if (cancelled) return;
+      try {
+        const redirectResult = await handleSocialLinkRedirect(supabase);
+        if (cancelled) return;
 
-      if (redirectResult.handled && redirectResult.ok) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!cancelled && session?.user) {
-          setSessionUser(session.user);
-          const path = window.location.pathname;
-          setCurrentView(resolveAppViewForSession(session.user, path));
+        if (redirectResult.handled && redirectResult.ok) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!cancelled && session?.user) {
+            setSessionUser(session.user);
+            const path = window.location.pathname;
+            setCurrentView(resolveAppViewForSession(session.user, path));
+          }
+          return;
         }
-        return;
-      }
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!cancelled) {
-        setSessionUser(session?.user ?? null);
-        const path = window.location.pathname;
-        const onBetaRoute = path === '/beta' || path.startsWith('/beta/');
-        if (session?.user && isMaintenanceMode && !onBetaRoute) {
-          setCurrentView(resolveAppViewForSession(session.user, path));
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!cancelled) {
+          setSessionUser(session?.user ?? null);
+          const path = window.location.pathname;
+          const onBetaRoute = path === '/beta' || path.startsWith('/beta/');
+          if (session?.user && isMaintenanceMode && !onBetaRoute) {
+            setCurrentView(resolveAppViewForSession(session.user, path));
+          }
+        }
+      } catch (err) {
+        console.error('Auth-Initialisierung fehlgeschlagen:', err);
+      } finally {
+        initialResolved = true;
+        if (!cancelled) {
+          setAuthLoading(false);
         }
       }
     }
@@ -232,7 +243,20 @@ function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setSessionUser(session?.user ?? null);
+        // Während supabase.auth.getSession() noch lädt (authLoading === true),
+        // niemals den User-State löschen oder Redirects auslösen!
+        if (!initialResolved && event === 'INITIAL_SESSION' && !session?.user) {
+          return;
+        }
+
+        if (event === 'SIGNED_OUT') {
+          if (!cancelled) setSessionUser(null);
+          return;
+        }
+
+        if (session?.user && !cancelled) {
+          setSessionUser(session.user);
+        }
 
         if (
           isMaintenanceMode &&
@@ -564,8 +588,9 @@ function App() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
     if (!sessionUser) setIncludeTrophiesOnly(false);
-  }, [sessionUser]);
+  }, [authLoading, sessionUser]);
 
   useEffect(() => {
     const {
@@ -961,6 +986,13 @@ function App() {
   };
 
   if (isQaAdminView) {
+    if (authLoading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-[#121314] text-zinc-500 text-sm font-mono">
+          Sitzung wird geprüft…
+        </div>
+      );
+    }
     return (
       <QaAdminPage
         sessionUser={sessionUser}
@@ -982,7 +1014,7 @@ function App() {
   return (
     <ErrorReportProvider sessionUser={sessionUser}>
     <WatchlistProvider sessionUser={sessionUser}>
-    <ProgressSyncProvider sessionUser={sessionUser}>
+    <ProgressSyncProvider sessionUser={sessionUser} authLoading={authLoading}>
     <PlatinumStatusProvider sessionUser={sessionUser}>
     <div className="min-h-screen w-full max-w-full min-w-0 overflow-x-hidden flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
       
@@ -1049,12 +1081,18 @@ function App() {
             )}
 
             {currentView === 'profile' && (
-              <ProfilePage
-                sessionUser={sessionUser}
-                setCurrentView={setCurrentView}
-                onRequestLogin={() => setCurrentView('login')}
-                openGame={openGuide}
-              />
+              authLoading ? (
+                <div className="max-w-4xl mx-auto px-4 py-16 text-center text-sm font-mono text-zinc-500 animate-pulse">
+                  Sitzung wird geladen…
+                </div>
+              ) : (
+                <ProfilePage
+                  sessionUser={sessionUser}
+                  setCurrentView={setCurrentView}
+                  onRequestLogin={() => setCurrentView('login')}
+                  openGame={openGuide}
+                />
+              )
             )}
 
             {currentView === 'search-results' && (

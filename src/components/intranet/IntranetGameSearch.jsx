@@ -96,18 +96,16 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
       count,
     });
 
-    const { data, count: total, error } = await searchIntranetGames(supabase, nextFilters);
-    if (error) {
-      setErrorMessage(error.message || 'Suche fehlgeschlagen.');
-      setResults([]);
-      setCount(0);
-      persist({
-        filters: nextFilters,
-        hasSearched: true,
-        results: [],
-        count: 0,
-      });
-    } else {
+    try {
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr) throw sessionErr;
+      if (!sessionData?.session) {
+        throw new Error('Keine aktive Admin-Sitzung gefunden. Bitte neu anmelden.');
+      }
+
+      const { data, count: total, error } = await searchIntranetGames(supabase, nextFilters);
+      if (error) throw error;
+
       setResults(data);
       setCount(total);
       persist({
@@ -116,8 +114,20 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
         results: data,
         count: total,
       });
+    } catch (err) {
+      console.error('IntranetGameSearch Fehler:', err);
+      setErrorMessage(err?.message || 'Suche fehlgeschlagen.');
+      setResults([]);
+      setCount(0);
+      persist({
+        filters: nextFilters,
+        hasSearched: true,
+        results: [],
+        count: 0,
+      });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -125,19 +135,20 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
     let cancelled = false;
 
     (async () => {
-      // Trefferliste aus Storage sofort sichtbar; im Hintergrund aktualisieren
-      setLoading(results.length === 0);
+      setLoading(true);
       setErrorMessage('');
-      const nextFilters = mergeSavedFilters(filters);
-      const { data, count: total, error } = await searchIntranetGames(supabase, nextFilters);
-      if (cancelled) return;
-      if (error) {
-        if (results.length === 0) {
-          setErrorMessage(error.message || 'Suche fehlgeschlagen.');
-          setResults([]);
-          setCount(0);
+      try {
+        const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+        if (sessionErr) throw sessionErr;
+        if (!sessionData?.session) {
+          throw new Error('Keine aktive Admin-Sitzung gefunden. Bitte neu anmelden.');
         }
-      } else {
+
+        const nextFilters = mergeSavedFilters(filters);
+        const { data, count: total, error } = await searchIntranetGames(supabase, nextFilters);
+        if (cancelled) return;
+        if (error) throw error;
+
         setResults(data);
         setCount(total);
         persist({
@@ -146,8 +157,16 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
           results: data,
           count: total,
         });
+      } catch (err) {
+        console.error('IntranetGameSearch Initial-Load Fehler:', err);
+        if (!cancelled) {
+          setErrorMessage(err?.message || 'Suche fehlgeschlagen.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
     })();
 
     return () => {

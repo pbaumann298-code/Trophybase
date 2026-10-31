@@ -32,7 +32,8 @@ const TAB_IDS = new Set(TABS.map((tab) => tab.id));
 
 function AdminApp() {
   const [sessionUser, setSessionUser] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const authReady = !authLoading;
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState(() => {
@@ -54,19 +55,40 @@ function AdminApp() {
 
   useEffect(() => {
     let cancelled = false;
+    let initialResolved = false;
 
     async function init() {
-      const { data: { session } } = await getSessionOrTimeout(supabase);
-      if (!cancelled) {
-        setSessionUser(session?.user ?? null);
-        setAuthReady(true);
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('Admin getSession Fehler:', error.message);
+        }
+        if (!cancelled) {
+          setSessionUser(data?.session?.user ?? null);
+        }
+      } catch (err) {
+        console.error('Admin Auth-Init Fehler:', err);
+      } finally {
+        initialResolved = true;
+        if (!cancelled) {
+          setAuthLoading(false);
+        }
       }
     }
 
     init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSessionUser(session?.user ?? null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!initialResolved && event === 'INITIAL_SESSION') {
+        return;
+      }
+      if (event === 'SIGNED_OUT') {
+        if (!cancelled) setSessionUser(null);
+        return;
+      }
+      if (session?.user && !cancelled) {
+        setSessionUser(session.user);
+      }
     });
 
     return () => {
