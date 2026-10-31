@@ -96,6 +96,12 @@ export const QUICKWINS_PAGE = {
     lead: 'Översikt över spel för snabba platinor och korta speltider.',
     notice: '',
   },
+  ar: {
+    slug: 'quickwins',
+    title: 'Quickwins',
+    lead: 'نظرة عامة على الألعاب للحصول على كؤوس البلاتينيوم السريعة وفترات اللعب القصيرة.',
+    notice: '',
+  },
 };
 
 const SLUGS = new Set(Object.values(QUICKWINS_PAGE).map((entry) => entry.slug));

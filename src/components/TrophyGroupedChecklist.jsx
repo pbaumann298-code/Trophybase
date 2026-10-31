@@ -6,9 +6,12 @@ import TrophyTypeIcon from './TrophyTypeIcon';
 import YouTubeEmbed from './YouTubeEmbed';
 import { useGuideVideo } from '../context/GuideVideoContext';
 import { useLocale } from '../context/LocaleContext';
+import { isUuid } from '../lib/gameModel';
+import { enqueueTrophyVideoForTimestampScrape } from '../lib/intranetGameEdits';
 import { reportableDataAttrs } from '../lib/reportableAttrs';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
 import { getTrophyAiTranslation, getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
+import { supabase } from '../pages/supabaseClient';
 import { getYouTubeEmbedUrl } from '../utils/videoUrl';
 
 function TrashIcon() {
@@ -278,6 +281,157 @@ function TrophyVideoEditor({ trophy, onSave }) {
   );
 }
 
+function TrophyTimestampScrapeQueueBox({ trophy, gameId }) {
+  const { t } = useLocale();
+  const trophyKey = getTrophyIdKey(trophy);
+  const defaultGroupName = String(trophy?.trophy_name ?? '').trim();
+  const [open, setOpen] = useState(false);
+  const [urlDraft, setUrlDraft] = useState('');
+  const [groupNameDraft, setGroupNameDraft] = useState(defaultGroupName);
+  const [targetGroupCol, setTargetGroupCol] = useState('category_group');
+  const [busy, setBusy] = useState(false);
+  const [hint, setHint] = useState('');
+  const [isError, setIsError] = useState(false);
+
+  useEffect(() => {
+    setGroupNameDraft(defaultGroupName);
+  }, [defaultGroupName]);
+
+  const handleEnqueue = async () => {
+    if (busy || !urlDraft.trim()) return;
+    setBusy(true);
+    setHint('');
+    setIsError(false);
+
+    const resolvedGameId = String(
+      trophy?.game_id ?? (isUuid(gameId) ? gameId : ''),
+    ).trim();
+    const resolvedPlatformGameId = String(
+      trophy?.platform_game_id ?? (!isUuid(gameId) ? gameId : ''),
+    ).trim();
+
+    const { error } = await enqueueTrophyVideoForTimestampScrape(supabase, {
+      gameId: resolvedGameId,
+      platformGameId: resolvedPlatformGameId,
+      trophyId: trophyKey,
+      trophyName: defaultGroupName,
+      videoUrl: urlDraft,
+      targetGroupCol,
+      customGroupName: groupNameDraft,
+    });
+
+    setBusy(false);
+    if (error) {
+      setIsError(true);
+      setHint(error.message || 'Konnte nicht in die Queue gelegt werden.');
+      return;
+    }
+
+    setIsError(false);
+    setUrlDraft('');
+    setHint(`✓ In Queue gelegt (trophy_id #${trophyKey})`);
+  };
+
+  if (!open) {
+    return (
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+        >
+          📥 Timestamps als Guide-Schritte ziehen
+        </button>
+        {hint ? (
+          <span
+            className={`mt-1 block text-[10px] ${
+              isError ? 'text-red-400' : 'text-[#00ff66]'
+            }`}
+          >
+            {hint}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-2">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-[12rem] flex-1">
+          <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+            YouTube-Video / Playlist-URL
+          </span>
+          <input
+            type="url"
+            value={urlDraft}
+            disabled={busy}
+            placeholder="https://www.youtube.com/watch?v=… oder Playlist-URL"
+            onChange={(event) => setUrlDraft(event.target.value)}
+            className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66]/40 focus:outline-hidden"
+          />
+        </label>
+        <label className="min-w-[10rem] flex-1">
+          <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+            Gruppenname (optional)
+          </span>
+          <input
+            type="text"
+            value={groupNameDraft}
+            disabled={busy}
+            placeholder={defaultGroupName || 'Gruppenname…'}
+            onChange={(event) => setGroupNameDraft(event.target.value)}
+            className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66]/40 focus:outline-hidden"
+          />
+        </label>
+        <label className="w-56 shrink-0">
+          <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+            Ziel-Reiter
+          </span>
+          <select
+            value={targetGroupCol}
+            disabled={busy}
+            onChange={(event) => setTargetGroupCol(event.target.value)}
+            className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 focus:border-[#00ff66]/40 focus:outline-hidden"
+          >
+            <option value="category_group">Sammelobjekte (category_group)</option>
+            <option value="chronological_group">Walkthrough (chronological_group)</option>
+            <option value="boss_group">Bosse (boss_group)</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          disabled={busy || !urlDraft.trim()}
+          onClick={handleEnqueue}
+          className="rounded-md border border-[#00ff66]/30 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66] hover:border-[#00ff66]/50 disabled:opacity-30"
+        >
+          {busy ? '…' : 'In Scraper-Queue legen'}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setUrlDraft('');
+            setOpen(false);
+          }}
+          className="rounded-md border border-zinc-700 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+        >
+          {t('trophyVideoCancel')}
+        </button>
+      </div>
+      {hint ? (
+        <span
+          className={`mt-1 block text-[10px] ${
+            isError ? 'text-red-400' : 'text-[#00ff66]'
+          }`}
+        >
+          {hint}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function TrophyKindMenu({ trophy, onChange }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -543,10 +697,13 @@ function TrophyRow({
             />
           ) : null}
           {onTrophyVideo ? (
-            <TrophyVideoEditor
-              trophy={trophy}
-              onSave={(video) => onTrophyVideo(getTrophyIdKey(trophy), video)}
-            />
+            <>
+              <TrophyVideoEditor
+                trophy={trophy}
+                onSave={(video) => onTrophyVideo(getTrophyIdKey(trophy), video)}
+              />
+              <TrophyTimestampScrapeQueueBox trophy={trophy} gameId={gameId} />
+            </>
           ) : null}
         </>
       ) : null}

@@ -3,7 +3,7 @@
  * (neuere Trophy-Container; Guides werden per tb_auto_release_locales auch
  * für pl freigegeben). da / no bleiben bewusst draußen.
  *
- * @typedef {'ja'|'en'|'fr'|'es'|'de'|'it'|'nl'|'pt'|'pl'|'ru'|'ko'|'zh-hant'|'zh-hans'|'fi'|'sv'} SupportedLocale
+ * @typedef {'ja'|'en'|'fr'|'es'|'de'|'it'|'nl'|'pt'|'pl'|'ru'|'ko'|'zh-hant'|'zh-hans'|'fi'|'sv'|'ar'} SupportedLocale
  */
 
 export const SUPPORTED_LOCALES = [
@@ -22,6 +22,7 @@ export const SUPPORTED_LOCALES = [
   'zh-hans',
   'fi',
   'sv',
+  'ar',
 ];
 
 /** Redaktionelle Hauptsprache – solange nur DE veröffentlicht ist. */
@@ -104,6 +105,19 @@ const REGION_TO_LOCALE = {
   SG: 'zh-hans',
   FI: 'fi',
   SE: 'sv',
+  SA: 'ar',
+  AE: 'ar',
+  EG: 'ar',
+  MA: 'ar',
+  DZ: 'ar',
+  IQ: 'ar',
+  JO: 'ar',
+  KW: 'ar',
+  LB: 'ar',
+  OM: 'ar',
+  QA: 'ar',
+  BH: 'ar',
+  TN: 'ar',
 };
 
 /**

@@ -96,6 +96,12 @@ export const SERVERTOT_PAGE = {
     lead: 'Spel vars platinatrofé inte längre går att få eftersom servrarna har stängts.',
     notice: 'Eftersom servrarna har stängts går platinat inte längre att få genom vanligt spel.',
   },
+  ar: {
+    slug: 'unobtainable-platins',
+    title: 'بلاتينيوم مستحيل',
+    lead: 'ألعاب لم يعد من الممكن الحصول على كأس البلاتينيوم فيها بسبب إغلاق الخوادم.',
+    notice: 'بسبب إغلاق الخوادم، لم يعد من الممكن الحصول على البلاتينيوم من خلال اللعب العادي.',
+  },
 };
 
 /** Alte Singular-Slugs bleiben gültig, damit bestehende Links nicht brechen. */

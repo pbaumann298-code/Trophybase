@@ -45,6 +45,7 @@ function GameSeoInfobox({
     'zh-hans': '和',
     fi: 'ja',
     sv: 'och',
+    ar: 'و',
   };
   const andWord = AND_WORD[globalLocale] ?? 'and';
   const nameLabel =

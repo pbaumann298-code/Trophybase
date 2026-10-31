@@ -15,7 +15,18 @@ dist-ssr
 # Zugangsdaten: nur .env.example gehoert ins Repository
 .env
 .env.*
+*.env*
 !.env.example
+*credentials*.json
+Gemini API*.txt
+
+# Excel- & Python-Pipeline-Artefakte niemals committen
+*.xlsx
+*.xls
+*.pyc
+__pycache__/
+.venv/
+venv/
 
 # Editor directories and files
 .vscode/*

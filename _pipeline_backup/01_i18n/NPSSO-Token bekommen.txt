@@ -1,0 +1,5 @@
+Der aktuelle Ablauf, um einen neuen NPSSO-Token für das PlayStation Network (bzw. die PlayStation-APIs) zu generieren, ist simpel und erfolgt direkt über den Browser:   Login: Öffne einen Browser (idealerweise im Inkognito-Modus, um Session-Konflikte zu vermeiden) und logge dich regulär auf playstation.com in den Ziel-Account ein.   
+
+Token abrufen: Rufe in demselben Browser-Tab folgende Sony-interne API-Endpoint-URL auf:   [https://ca.account.sony.com/api/v1/ssocookie](https://ca.account.sony.com/api/v1/ssocookie)Extrahieren: 
+
+Die Seite liefert als Response ein unformatiertes JSON-Objekt zurück.Beispiel:    {"npsso": "dein_64_stelliger_token_hier"}Kopieren: Kopiere exakt den 64-stelligen String (ohne die Anführungszeichen).

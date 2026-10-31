@@ -270,6 +270,78 @@ export async function saveTrophyVideo(supabase, gameId, achievementId, video) {
   return { error: error ?? null, video: normalized };
 }
 
+const VALID_SCRAPE_GROUP_COLS = new Set([
+  'category_group',
+  'chronological_group',
+  'boss_group',
+]);
+
+/**
+ * Legt eine YouTube-Video- oder Playlist-URL für eine Trophäe in
+ * public.trophy_video_scrape_queue (status: 'PENDING'), damit der Scraper
+ * daraus Guide-Schritte mit Timestamps extrahiert, ohne das Einzel-Video
+ * der Trophäe (game_achievements.video_url) zu verändern.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{
+ *   gameId: string,
+ *   platformGameId?: string|null,
+ *   trophyId: string|number,
+ *   trophyName?: string|null,
+ *   videoUrl: string,
+ *   targetGroupCol?: 'category_group'|'chronological_group'|'boss_group',
+ *   customGroupName?: string|null,
+ * }} params
+ */
+export async function enqueueTrophyVideoForTimestampScrape(
+  supabase,
+  {
+    gameId,
+    platformGameId,
+    trophyId,
+    trophyName,
+    videoUrl,
+    targetGroupCol = 'category_group',
+    customGroupName = '',
+  } = {},
+) {
+  const game = String(gameId ?? '').trim();
+  const trophy = String(trophyId ?? '').trim();
+  const url = String(videoUrl ?? '').trim();
+
+  if (!game) return { data: null, error: new Error('Kein Spiel ausgewählt.') };
+  if (!trophy) return { data: null, error: new Error('Trophäen-ID fehlt.') };
+  if (!url) {
+    return {
+      data: null,
+      error: new Error('Bitte eine YouTube-Video- oder Playlist-URL eingeben.'),
+    };
+  }
+
+  const groupCol = VALID_SCRAPE_GROUP_COLS.has(targetGroupCol)
+    ? targetGroupCol
+    : 'category_group';
+
+  const row = {
+    game_id: game,
+    platform_game_id: String(platformGameId ?? '').trim() || null,
+    trophy_id: trophy,
+    trophy_name: String(trophyName ?? '').trim() || null,
+    video_url: url,
+    target_group_col: groupCol,
+    custom_group_name: String(customGroupName ?? '').trim() || null,
+    status: 'PENDING',
+  };
+
+  const { data, error } = await supabase
+    .from('trophy_video_scrape_queue')
+    .insert(row)
+    .select()
+    .maybeSingle();
+
+  return { data: data ?? null, error: error ?? null };
+}
+
 /**
  * Schreibt den kurzen Guide-Tipp einer Trophäe in der aktuellen Sprache.
  * Leerer Text löscht nur guide_tip in dieser Sprache – Guide-Tip-lang bleibt.

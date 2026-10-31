@@ -29,6 +29,7 @@ const OG_LOCALES = {
   'zh-hans': 'zh_CN',
   fi: 'fi_FI',
   sv: 'sv_SE',
+  ar: 'ar_AE',
 };
 
 export function clipMetaText(value, max = 180) {

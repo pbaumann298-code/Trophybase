@@ -21,6 +21,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '魂系 / 類魂',
     fi: 'Souls / Soulslike',
     sv: 'Souls / Soulslike',
+    ar: 'سولز / شبيهة سولز',
   },
   open_world: {
     de: 'Open World',
@@ -38,6 +39,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '開放世界',
     fi: 'Avoin maailma',
     sv: 'Öppen värld',
+    ar: 'عالم مفتوح',
   },
   family: {
     de: 'Familienspaß & Easy Platin',
@@ -55,6 +57,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '闔家歡與輕鬆白金',
     fi: 'Perhepelit & helppo platina',
     sv: 'Familjespel & enkla platinas',
+    ar: 'ألعاب عائلية وبلاتينيوم سهل',
   },
   indie: {
     de: 'Indie',
@@ -72,6 +75,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '獨立遊戲',
     fi: 'Indie',
     sv: 'Indie',
+    ar: 'ألعاب مستقلة (Indie)',
   },
   racing: {
     de: 'Rennspiel',
@@ -89,6 +93,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '競速',
     fi: 'Ajopelit',
     sv: 'Racing',
+    ar: 'سباقات',
   },
   fps: {
     de: 'Ego-Shooter (FPS)',
@@ -106,6 +111,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '第一人稱射擊 (FPS)',
     fi: 'Ensimmäisen persoonan räiskintä (FPS)',
     sv: 'Förstapersonsskjutare (FPS)',
+    ar: 'تصويب منظور الشخص الأول (FPS)',
   },
   tps: {
     de: 'Third-Person-Shooter',
@@ -123,6 +129,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '第三人稱射擊',
     fi: 'Kolmannen persoonan räiskintä',
     sv: 'Tredjepersonsskjutare',
+    ar: 'تصويب منظور الشخص الثالث (TPS)',
   },
   loot_shooter: {
     de: 'Loot-Shooter',
@@ -140,6 +147,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '刷寶射擊',
     fi: 'Loot Shooter',
     sv: 'Loot Shooter',
+    ar: 'تصويب وجمع غنائم (Loot Shooter)',
   },
   tactics: {
     de: 'Strategie & Taktik',
@@ -157,6 +165,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '策略與戰術',
     fi: 'Strategia & Taktiikka',
     sv: 'Strategi & Taktik',
+    ar: 'استراتيجية وتكتيك',
   },
   coop_mp: {
     de: 'Koop & Multiplayer',
@@ -174,6 +183,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '合作與多人連線',
     fi: 'Yhteistyö & Moninpeli',
     sv: 'Co-op & Multiplayer',
+    ar: 'تعاوني وجماعي (Co-op & Multiplayer)',
   },
   roguelike: {
     de: 'Roguelike / Roguelite',
@@ -191,6 +201,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '肉鴿 (Roguelike)',
     fi: 'Roguelike / Roguelite',
     sv: 'Roguelike / Roguelite',
+    ar: 'روغلايك / روغلايت',
   },
   rpg: {
     de: 'Rollenspiel (RPG)',
@@ -208,6 +219,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '角色扮演 (RPG)',
     fi: 'Roolipeli (RPG)',
     sv: 'Rollspel (RPG)',
+    ar: 'تقمص أدوار (RPG)',
   },
   action_adventure: {
     de: 'Action-Adventure',
@@ -225,6 +237,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '動作冒險',
     fi: 'Toimintaseikkailu',
     sv: 'Actionäventyr',
+    ar: 'أكشن ومغامرات',
   },
   survival_horror: {
     de: 'Horror & Survival',
@@ -242,6 +255,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '恐怖與生存',
     fi: 'Kauhu & Selviytyminen',
     sv: 'Skräck & Överlevnad',
+    ar: 'رعب وبقاء',
   },
   platformer: {
     de: 'Jump ’n’ Run / Platformer',
@@ -259,6 +273,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '平台跳躍',
     fi: 'Tasohyppely',
     sv: 'Plattformsspel',
+    ar: 'منصات (Platformer)',
   },
   fighting: {
     de: 'Beat ’em up / Kampfspiel',
@@ -276,6 +291,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '格鬥',
     fi: 'Tappelupelit',
     sv: 'Fightingspel',
+    ar: 'قتال',
   },
   sports: {
     de: 'Sport',
@@ -293,6 +309,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '體育',
     fi: 'Urheilu',
     sv: 'Sport',
+    ar: 'رياضة',
   },
   simulation: {
     de: 'Simulation',
@@ -310,6 +327,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '模擬',
     fi: 'Simulaatio',
     sv: 'Simulering',
+    ar: 'محاكاة',
   },
   hidden_object: {
     de: 'Wimmelbild',
@@ -327,6 +345,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '尋物解謎',
     fi: 'Piilo-objekti',
     sv: 'Dolda föremål',
+    ar: 'بحث عن الأشياء المخفية',
   },
   visual_novel: {
     de: 'Visual Novel',
@@ -344,6 +363,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '視覺小說',
     fi: 'Visual Novel',
     sv: 'Visuell roman',
+    ar: 'رواية مرئية (Visual Novel)',
   },
   fmv: {
     de: 'FMV / Interaktiver Film',
@@ -361,6 +381,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': 'FMV / 互動電影',
     fi: 'FMV / Interaktiivinen elokuva',
     sv: 'FMV / Interaktiv film',
+    ar: 'فيلم تفاعلي (FMV)',
   },
   point_and_click: {
     de: 'Point & Click',
@@ -378,6 +399,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '點擊解謎 (Point & Click)',
     fi: 'Point & Click',
     sv: 'Peka och klicka',
+    ar: 'أشر وانقر (Point & Click)',
   },
   mystery_crime: {
     de: 'Mystery, Crime & Detektiv',
@@ -395,6 +417,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '懸疑、犯罪與偵探',
     fi: 'Mysteeri, rikos & salapoliisi',
     sv: 'Mysterium, brott & detektiv',
+    ar: 'غموض وجريمة وتحقيق',
   },
   scifi_cyberpunk: {
     de: 'Sci-Fi & Cyberpunk',
@@ -412,6 +435,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '科幻與賽博龐克',
     fi: 'Sci-Fi & Cyberpunk',
     sv: 'Sci-Fi & Cyberpunk',
+    ar: 'خيال علمي وسايبربانك',
   },
   otome_romance: {
     de: 'Otome & Romance',
@@ -429,6 +453,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '乙女與戀愛',
     fi: 'Otome & Romantiikka',
     sv: 'Otome & Romantik',
+    ar: 'أوتومي ورومانسية',
   },
   psych_horror: {
     de: 'Psychologischer Horror',
@@ -446,6 +471,7 @@ export const HOME_TAG_TRANSLATIONS = {
     'zh-hant': '心理恐怖',
     fi: 'Psykologinen kauhu',
     sv: 'Psykologisk skräck',
+    ar: 'رعب نفسي',
   },
 };
 

@@ -96,6 +96,12 @@ export const EASY_PLATINS_PAGE = {
     lead: 'Korta guider för snabba platinor – visual novels, hidden object och liknande.',
     notice: '',
   },
+  ar: {
+    slug: 'easy-platins',
+    title: 'بلاتينيوم سهل',
+    lead: 'أدلة قصيرة للحصول على البلاتينيوم بسرعة – الروايات المرئية، ألعاب الأشياء المخفية والعناوين القصيرة المماثلة.',
+    notice: '',
+  },
 };
 
 const SLUGS = new Set(Object.values(EASY_PLATINS_PAGE).map((entry) => entry.slug));
