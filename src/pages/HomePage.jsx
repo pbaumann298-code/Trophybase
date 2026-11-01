@@ -12,6 +12,7 @@ import { HOME_LAYOUT_MODE, useUserPreferences } from '../lib/userPreferences';
 import { isAdminUser } from '../lib/adminAccess';
 import { useLocale } from '../context/LocaleContext';
 import { useVisibility } from '../context/VisibilityContext';
+import { usePlatinumStatus } from '../context/PlatinumStatusContext';
 import SearchSkipQuickwins from '../components/SearchSkipQuickwins';
 import SearchIncludeTrophiesOnly from '../components/SearchIncludeTrophiesOnly';
 import GameTile from '../components/GameTile';
@@ -76,6 +77,8 @@ function HomePosterGrid({ games, openGame, loading, onRequestLogin, isAdmin }) {
 function HomeGamesTable({ games, openGame, loading }) {
   const { globalLocale, t } = useLocale();
   const { getEntryState, gameKey } = useVisibility();
+  const { isPlatinum } = usePlatinumStatus();
+  const { hidePlatinumedGames } = useUserPreferences();
 
   if (loading) {
     return <p className="home-category-empty">{t('homeTableLoading')}</p>;
@@ -84,6 +87,7 @@ function HomeGamesTable({ games, openGame, loading }) {
   const rows = games.filter((game) => {
     const id = getGameUuid(game);
     if (!id) return true;
+    if (hidePlatinumedGames && isPlatinum(id)) return false;
     return getEntryState(gameKey(id), { completed: false }).visible;
   });
 
@@ -343,9 +347,6 @@ function HomePage({
             >
               {t('advancedSearch')}
             </a>
-            <button type="button" className="home-architect-btn" onClick={openCustomize}>
-              {t('customizeTrophyBase')}
-            </button>
           </div>
         </div>
       </header>

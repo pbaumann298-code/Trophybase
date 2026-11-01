@@ -1,12 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabaseClient';
-import Inbox from '../components/Inbox';
 import WatchlistProgressBar from '../components/WatchlistProgressBar';
 import { gameGuidePath, navigateToGame, navigateToHome } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
+import { SUPPORTED_LOCALES } from '../lib/locale';
+import { localeOptions } from '../lib/uiStrings';
+import {
+  sanitizePreferredLocales,
+  useUserPreferences,
+} from '../lib/userPreferences';
 import { saveCompletedGuideItems } from '../lib/guideProgressStorage';
 import { saveUnlockedTrophies } from '../lib/trophyProgressStorage';
 import { PROGRESS_SYNCED_EVENT } from '../lib/localUserProgress';
+import { fetchAchievementsForGame } from '../lib/achievementQueries';
+import {
+  normalizeTrophyType,
+  TROPHY_TYPE,
+  trophyTypeIcon,
+  trophyTypeLabel,
+} from '../lib/trophyTypes';
 import {
   getProfileStatusLabel,
   PROFILE_STATUS,
@@ -18,9 +30,12 @@ import {
   fetchUserCockpitBundle,
   getUserAreaErrorHint,
   resetUserGuideChecklist,
+  saveUserPreferredLocales,
   updateWatchlistEntryStatus,
   upsertUserGameRating,
 } from '../lib/userAreaQueries';
+
+const ALL_LANGUAGE_OPTIONS = localeOptions(SUPPORTED_LOCALES);
 
 function StatusBadge({ status }) {
   const styles = {
@@ -81,31 +96,57 @@ function StatCard({ icon, label, value, sublabel, accent = false }) {
   );
 }
 
-const LIBRARY_TABS = [
-  { id: 'ALL', label: 'Alle' },
-  { id: 'PLAYING', label: '🔥 In Arbeit (PLAYING)' },
-  { id: 'COMPLETED', label: '🏆 Platin / 100% (COMPLETED)' },
-  { id: 'BACKLOG', label: '📌 Merkliste (BACKLOG)' },
-];
-
-function TrophyBreakdownPills({ earnedTrophies, isPlatinum }) {
+function TrophyBreakdownPills({
+  earnedTrophies,
+  isPlatinum,
+  interactivePlatinum = false,
+  platinumOpen = false,
+  onTogglePlatinumList,
+}) {
   const p = Number(earnedTrophies?.platinum ?? (isPlatinum ? 1 : 0));
   const g = Number(earnedTrophies?.gold ?? 0);
   const s = Number(earnedTrophies?.silver ?? 0);
   const b = Number(earnedTrophies?.bronze ?? 0);
+  const platinumSrc = trophyTypeIcon(TROPHY_TYPE.PLATINUM);
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border ${
-          p > 0
-            ? 'bg-sky-500/15 text-sky-300 border-sky-500/40 font-bold'
-            : 'bg-zinc-900/70 text-zinc-500 border-zinc-800'
-        }`}
-        title="Platin-Trophäen"
-      >
-        🏆 {p}
-      </span>
+      {interactivePlatinum ? (
+        <button
+          type="button"
+          onClick={onTogglePlatinumList}
+          aria-expanded={platinumOpen}
+          title="Klicken, um die komplette Trophäenliste dieses Spiels ein-/auszuklappen"
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-bold transition cursor-pointer ${
+            platinumOpen
+              ? 'bg-[#00ff66] text-zinc-950 border-[#00ff66] shadow-md shadow-[#00ff66]/20'
+              : p > 0
+                ? 'bg-sky-500/15 text-sky-200 border-sky-400/50 hover:border-[#00ff66] hover:text-[#00ff66]'
+                : 'bg-zinc-900/90 text-zinc-300 border-zinc-700 hover:border-[#00ff66]/50 hover:text-white'
+          }`}
+        >
+          {platinumSrc ? (
+            <img src={platinumSrc} alt="" className="w-4 h-4 object-contain" />
+          ) : (
+            <span>🏆</span>
+          )}
+          <span>{p > 0 ? `Platin (${p})` : 'Trophäen'}</span>
+          <span className="text-[10px] opacity-80">
+            {platinumOpen ? '▴ Liste schließen' : '▾ Alle Trophäen'}
+          </span>
+        </button>
+      ) : (
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border ${
+            p > 0
+              ? 'bg-sky-500/15 text-sky-300 border-sky-500/40 font-bold'
+              : 'bg-zinc-900/70 text-zinc-500 border-zinc-800'
+          }`}
+          title="Platin-Trophäen"
+        >
+          🏆 {p}
+        </span>
+      )}
       <span
         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border bg-amber-500/10 text-amber-300 border-amber-500/25"
         title="Gold-Trophäen"
@@ -128,6 +169,137 @@ function TrophyBreakdownPills({ earnedTrophies, isPlatinum }) {
   );
 }
 
+function GameTrophyListDrawer({ game, gameId, locale }) {
+  const [trophies, setTrophies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      const { data, error: fetchErr } = await fetchAchievementsForGame(
+        supabase,
+        game || gameId,
+        locale,
+        null,
+        { textFallback: true },
+      );
+      if (cancelled) return;
+      if (fetchErr) {
+        setError(fetchErr.message || 'Trophäen konnten nicht geladen werden.');
+        setTrophies([]);
+      } else {
+        setTrophies(data ?? []);
+      }
+      setLoading(false);
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [game, gameId, locale]);
+
+  if (loading) {
+    return (
+      <div className="mt-3 rounded-xl border border-zinc-800 bg-[#0d0e0f] p-4 text-center text-xs font-mono text-zinc-400 animate-pulse">
+        Lade komplette Trophäenliste aus game_achievements…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs font-mono text-red-300">
+        Fehler beim Laden der Trophäenliste: {error}
+      </div>
+    );
+  }
+
+  if (trophies.length === 0) {
+    return (
+      <div className="mt-3 rounded-xl border border-zinc-800 bg-[#0d0e0f] p-4 text-center text-xs font-mono text-zinc-500">
+        Für dieses Spiel sind aktuell keine Trophäen-Einträge in game_achievements hinterlegt.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-[#00ff66]/30 bg-[#0d0e0f] p-3 sm:p-4">
+      <div className="flex items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-zinc-800">
+        <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#00ff66]">
+          🏆 Komplette Trophäenliste ({trophies.length})
+        </span>
+        <span className="text-[11px] font-mono text-zinc-500">
+          Quelle: game_achievements
+        </span>
+      </div>
+
+      <div className="max-h-96 overflow-y-auto pr-1 space-y-2">
+        {trophies.map((trophy, idx) => {
+          const normType = normalizeTrophyType(trophy.trophy_type);
+          const fallbackIcon = trophyTypeIcon(normType || TROPHY_TYPE.BRONZE);
+          const typeLabel = trophyTypeLabel(normType);
+
+          return (
+            <div
+              key={trophy.trophy_id || trophy.id || idx}
+              className="flex items-start gap-3 rounded-lg border border-zinc-800/90 bg-[#141618] p-2.5"
+            >
+              <img
+                src={trophy.icon_url || fallbackIcon}
+                alt={typeLabel}
+                loading="lazy"
+                onError={(e) => {
+                  if (fallbackIcon && e.currentTarget.src !== fallbackIcon) {
+                    e.currentTarget.src = fallbackIcon;
+                  }
+                }}
+                className="w-10 h-10 rounded-md object-cover bg-zinc-900 border border-zinc-800 flex-shrink-0"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {fallbackIcon ? (
+                    <img
+                      src={fallbackIcon}
+                      alt={typeLabel}
+                      title={typeLabel}
+                      className="w-4 h-4 object-contain flex-shrink-0"
+                    />
+                  ) : null}
+                  <span className="text-xs font-bold text-white">
+                    {trophy.trophy_name || `Trophäe #${idx + 1}`}
+                  </span>
+                  {trophy.global_seltenheit ? (
+                    <span className="ml-auto text-[10px] font-mono text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded">
+                      {trophy.global_seltenheit}
+                    </span>
+                  ) : null}
+                </div>
+                {trophy.trophy_desc ? (
+                  <p className="text-xs text-zinc-400 mt-0.5 leading-snug">
+                    {trophy.trophy_desc}
+                  </p>
+                ) : null}
+                {trophy.guide_tip ? (
+                  <p className="text-[11px] text-[#00ff66]/90 bg-[#00ff66]/5 border border-[#00ff66]/20 rounded px-2 py-1 mt-1.5 leading-snug">
+                    💡 {trophy.guide_tip}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Platin-Spielzeit & Schwierigkeit bewerten:
+ * Exklusiv bei Spielen in "3. Fertige Spiele" mit Platin-Status!
+ */
 function InlineGameRatingControl({ item, userId, onSaved }) {
   const existing = item.rating;
   const defaultHours =
@@ -157,6 +329,10 @@ function InlineGameRatingControl({ item, userId, onSaved }) {
       item.rating?.difficulty != null ? String(item.rating.difficulty) : '',
     );
   }, [item.rating?.completionHours, item.rating?.difficulty, item.playtimeHours]);
+
+  if (!item.isPlatinum || item.bucket !== 'COMPLETED') {
+    return null;
+  }
 
   const handleSaveRating = async (e) => {
     e.preventDefault();
@@ -200,18 +376,14 @@ function InlineGameRatingControl({ item, userId, onSaved }) {
   };
 
   return (
-    <div
-      className={`mt-3 pt-3 border-t ${
-        item.isPlatinum ? 'border-[#00ff66]/20' : 'border-zinc-800/80'
-      }`}
-    >
+    <div className="mt-3 pt-3 border-t border-[#00ff66]/20">
       <form
         onSubmit={handleSaveRating}
         className="flex flex-wrap items-center justify-between gap-2"
       >
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
-            {item.isPlatinum ? '🏆 Platin-Datenpunkt:' : '📊 Community-Rating:'}
+          <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-300">
+            🏆 Platin-Spielzeit & Schwierigkeit bewerten:
           </span>
           {existing ? (
             <span className="text-[10px] font-mono text-[#00ff66] bg-[#00ff66]/10 border border-[#00ff66]/30 px-1.5 py-0.5 rounded-sm">
@@ -275,7 +447,7 @@ function InlineGameRatingControl({ item, userId, onSaved }) {
                 : 'bg-[#00ff66]/15 hover:bg-[#00ff66]/25 text-[#00ff66] border-[#00ff66]/40'
             }`}
           >
-            {saving ? '…' : savedFlash ? '✓ Gespendet!' : existing ? 'Aktualisieren' : 'Spenden'}
+            {saving ? '…' : savedFlash ? '✓ Gesendet!' : existing ? 'Aktualisieren' : 'Senden'}
           </button>
         </div>
       </form>
@@ -285,12 +457,16 @@ function InlineGameRatingControl({ item, userId, onSaved }) {
 }
 
 function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) {
-  const { globalLocale } = useLocale();
+  const { globalLocale, setGlobalLocale } = useLocale();
+  const {
+    preferredLocales,
+    setPreferredLocales,
+    togglePreferredLocale,
+  } = useUserPreferences();
 
   const [profile, setProfile] = useState(null);
   const [watchlistItems, setWatchlistItems] = useState([]);
   const [guideChecklists, setGuideChecklists] = useState([]);
-  const [unreadInboxCount, setUnreadInboxCount] = useState(0);
   const [areaErrors, setAreaErrors] = useState({});
   const [loading, setLoading] = useState(true);
 
@@ -303,10 +479,15 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  // Filter-Tab für Bibliothek
-  const [libraryFilter, setLibraryFilter] = useState('ALL');
+  // Sprachen-Speicherstatus
+  const [savingLangs, setSavingLangs] = useState(false);
+  const [langSavedFlash, setLangSavedFlash] = useState(false);
+
+  // Bibliothek-Suche & geöffnete Trophäenlisten in Stufe 3
   const [searchTerm, setSearchTerm] = useState('');
   const [resettingGameId, setResettingGameId] = useState(null);
+  const [expandedTrophyGameIds, setExpandedTrophyGameIds] = useState({});
+  const [coopHintOpen, setCoopHintOpen] = useState(false);
 
   useEffect(() => {
     const prev = document.title;
@@ -321,7 +502,6 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
       setProfile(null);
       setWatchlistItems([]);
       setGuideChecklists([]);
-      setUnreadInboxCount(0);
       setAreaErrors({});
       setLoading(false);
       return;
@@ -347,12 +527,18 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
       setEditingPsn(true);
     }
 
+    const remotePreferred =
+      bundle.profile?.preferred_locales ??
+      sessionUser?.user_metadata?.preferred_locales;
+    if (Array.isArray(remotePreferred) && remotePreferred.length > 0) {
+      setPreferredLocales(sanitizePreferredLocales(remotePreferred));
+    }
+
     setWatchlistItems(bundle.watchlistItems);
     setGuideChecklists(bundle.guideChecklists);
-    setUnreadInboxCount(bundle.unreadInboxCount);
     setAreaErrors(bundle.errors);
     setLoading(false);
-  }, [sessionUser?.id, globalLocale]);
+  }, [sessionUser?.id, sessionUser?.user_metadata?.preferred_locales, globalLocale, setPreferredLocales]);
 
   useEffect(() => {
     loadCockpit();
@@ -388,26 +574,29 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
     };
   }, [watchlistItems, profile?.psn_total_platinums]);
 
-  const tabCounts = useMemo(() => {
-    const counts = { ALL: watchlistItems.length, PLAYING: 0, COMPLETED: 0, BACKLOG: 0 };
-    for (const item of watchlistItems) {
-      if (counts[item.bucket] != null) counts[item.bucket] += 1;
-    }
-    return counts;
-  }, [watchlistItems]);
-
-  const filteredWatchlist = useMemo(() => {
+  const filteredBySearch = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
+    if (!q) return watchlistItems;
     return watchlistItems.filter((item) => {
-      if (libraryFilter !== 'ALL' && item.bucket !== libraryFilter) return false;
-      if (q) {
-        const matchTitle = String(item.title ?? '').toLowerCase().includes(q);
-        const matchTitleId = String(item.titleId ?? '').toLowerCase().includes(q);
-        return matchTitle || matchTitleId;
-      }
-      return true;
+      const matchTitle = String(item.title ?? '').toLowerCase().includes(q);
+      const matchTitleId = String(item.titleId ?? '').toLowerCase().includes(q);
+      return matchTitle || matchTitleId;
     });
-  }, [watchlistItems, libraryFilter, searchTerm]);
+  }, [watchlistItems, searchTerm]);
+
+  // 3 feste Stufen der Bibliothek: 1. Watchlist -> 2. Angefangen -> 3. Fertige Spiele
+  const stage1Watchlist = useMemo(
+    () => filteredBySearch.filter((item) => item.bucket === 'BACKLOG'),
+    [filteredBySearch],
+  );
+  const stage2Playing = useMemo(
+    () => filteredBySearch.filter((item) => item.bucket === 'PLAYING'),
+    [filteredBySearch],
+  );
+  const stage3Completed = useMemo(
+    () => filteredBySearch.filter((item) => item.bucket === 'COMPLETED'),
+    [filteredBySearch],
+  );
 
   if (!sessionUser) {
     return (
@@ -433,6 +622,25 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
 
   const verificationStatus = profile?.verification_status ?? PROFILE_STATUS.none;
   const isVerified = verificationStatus === PROFILE_STATUS.verified;
+
+  const handlePrimaryLanguageChange = async (nextLocale) => {
+    setGlobalLocale(nextLocale, { unlock: true });
+    if (!preferredLocales.includes(nextLocale)) {
+      const nextList = [...preferredLocales, nextLocale];
+      setSavingLangs(true);
+      await saveUserPreferredLocales(supabase, sessionUser.id, nextList);
+      setSavingLangs(false);
+    }
+  };
+
+  const handleTogglePreferredLocale = async (code) => {
+    const nextList = togglePreferredLocale(code);
+    setSavingLangs(true);
+    await saveUserPreferredLocales(supabase, sessionUser.id, nextList);
+    setSavingLangs(false);
+    setLangSavedFlash(true);
+    window.setTimeout(() => setLangSavedFlash(false), 1800);
+  };
 
   const handleRegisterPsn = async (e) => {
     e.preventDefault();
@@ -534,12 +742,13 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
     );
   };
 
-  const handleStatusChange = async (item, nextBucket) => {
+  // Stufe 1 -> Stufe 2: Spiel starten
+  const handleStartGame = async (item) => {
     const { error: statusErr } = await updateWatchlistEntryStatus(
       supabase,
       sessionUser.id,
       item.gameId,
-      nextBucket,
+      'PLAYING',
     );
     if (statusErr) {
       setError(`Status-Update fehlgeschlagen: ${statusErr.message}`);
@@ -547,9 +756,113 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
     }
     setWatchlistItems((prev) =>
       prev.map((w) =>
-        w.gameId === item.gameId ? { ...w, status: nextBucket, bucket: nextBucket } : w,
+        w.gameId === item.gameId
+          ? {
+              ...w,
+              status: 'PLAYING',
+              bucket: 'PLAYING',
+              completedWithoutPlatinum: false,
+            }
+          : w,
       ),
     );
+  };
+
+  // Stufe 2 -> Stufe 3 (Option A): Platin erreicht
+  const handleCompleteWithPlatinum = async (item) => {
+    const { error: statusErr } = await updateWatchlistEntryStatus(
+      supabase,
+      sessionUser.id,
+      item.gameId,
+      'COMPLETED',
+      { markPlatinum: true, progressPercent: 100 },
+    );
+    if (statusErr) {
+      setError(`Status-Update fehlgeschlagen: ${statusErr.message}`);
+      return;
+    }
+    setWatchlistItems((prev) =>
+      prev.map((w) =>
+        w.gameId === item.gameId
+          ? {
+              ...w,
+              status: 'COMPLETED',
+              bucket: 'COMPLETED',
+              isPlatinum: true,
+              completedWithoutPlatinum: false,
+              progressPercent: 100,
+              earnedTrophies: {
+                ...(w.earnedTrophies || { gold: 0, silver: 0, bronze: 0 }),
+                platinum: Math.max(1, Number(w.earnedTrophies?.platinum ?? 0)),
+              },
+            }
+          : w,
+      ),
+    );
+  };
+
+  // Stufe 2 -> Stufe 3 (Option B): Ohne Platin fertig
+  const handleCompleteWithoutPlatinum = async (item) => {
+    const { error: statusErr } = await updateWatchlistEntryStatus(
+      supabase,
+      sessionUser.id,
+      item.gameId,
+      'completed_no_platinum',
+      { markPlatinum: false },
+    );
+    if (statusErr) {
+      setError(`Status-Update fehlgeschlagen: ${statusErr.message}`);
+      return;
+    }
+    setWatchlistItems((prev) =>
+      prev.map((w) =>
+        w.gameId === item.gameId
+          ? {
+              ...w,
+              status: 'completed_no_platinum',
+              bucket: 'COMPLETED',
+              isPlatinum: false,
+              completedWithoutPlatinum: true,
+            }
+          : w,
+      ),
+    );
+  };
+
+  // Zurück auf Watchlist (Stufe 1)
+  const handleMoveToWatchlist = async (item) => {
+    const { error: statusErr } = await updateWatchlistEntryStatus(
+      supabase,
+      sessionUser.id,
+      item.gameId,
+      'BACKLOG',
+      { markPlatinum: false, progressPercent: 0 },
+    );
+    if (statusErr) {
+      setError(`Status-Update fehlgeschlagen: ${statusErr.message}`);
+      return;
+    }
+    setWatchlistItems((prev) =>
+      prev.map((w) =>
+        w.gameId === item.gameId
+          ? {
+              ...w,
+              status: 'BACKLOG',
+              bucket: 'BACKLOG',
+              isPlatinum: false,
+              completedWithoutPlatinum: false,
+              progressPercent: 0,
+            }
+          : w,
+      ),
+    );
+  };
+
+  const toggleExpandedTrophies = (gameId) => {
+    setExpandedTrophyGameIds((prev) => ({
+      ...prev,
+      [gameId]: !prev[gameId],
+    }));
   };
 
   const handleResetChecklist = async (checklistItem) => {
@@ -572,7 +885,6 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
       return;
     }
 
-    // Auch den lokalen Browser-Cache für dieses Spiel leeren, damit er nicht sofort wieder hochgesynct wird
     saveCompletedGuideItems(checklistItem.gameId, {});
     saveUnlockedTrophies(checklistItem.gameId, {});
     try {
@@ -830,7 +1142,7 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
             icon="📚"
             label="Spiele in Bibliothek"
             value={loading ? '…' : cockpitStats.libraryCount}
-            sublabel={`${tabCounts.PLAYING} aktiv · ${tabCounts.COMPLETED} fertig`}
+            sublabel={`${stage1Watchlist.length} Watchlist · ${stage2Playing.length} aktiv · ${stage3Completed.length} fertig`}
           />
           <StatCard
             icon="📈"
@@ -842,16 +1154,107 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
       </section>
 
       {/* ===================================================================
-          BEREICH B: Meine Spiele-Bibliothek & Platin-Zeiten (user_watchlist + games)
+          BEREICH A2: Sprachauswahl (Primäre Websitesprache + Multi-Select Guide/Koop-Sprachen)
       =================================================================== */}
-      <section className="bg-[#1a1b1c] border border-zinc-800 rounded-2xl p-5 sm:p-7 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+      <section className="bg-[#1a1b1c] border border-zinc-800 rounded-2xl p-5 sm:p-7 shadow-xl space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-extrabold text-white tracking-tight">
-              🎮 Meine Spiele-Bibliothek & Platin-Zeiten
+              🌐 Spracheinstellungen (Website, Guides & Koop-Verabredungen)
             </h2>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Deine synchronisierten PSN-Spiele, Fortschritte und 1-Klick-Community-Ratings
+              Wähle deine primäre Websitesprache sowie alle Sprachen, die du für Guides und spätere Online-Trophäen-Verabredungen beherrschst.
+            </p>
+          </div>
+          {savingLangs ? (
+            <span className="text-[11px] font-mono text-zinc-400">Speichere…</span>
+          ) : langSavedFlash ? (
+            <span className="text-[11px] font-mono text-[#00ff66] bg-[#00ff66]/10 border border-[#00ff66]/30 px-2.5 py-1 rounded-md">
+              ✓ Sprachen im Profil gespeichert
+            </span>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
+          {/* 1. Primäre Websitesprache (Single-Select Dropdown) */}
+          <div className="rounded-xl border border-zinc-800 bg-[#121314] p-4">
+            <label
+              htmlFor="profile-primary-locale"
+              className="block text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 mb-2"
+            >
+              1. Primäre Websitesprache
+            </label>
+            <select
+              id="profile-primary-locale"
+              value={globalLocale}
+              onChange={(e) => handlePrimaryLanguageChange(e.target.value)}
+              className="w-full rounded-xl border border-zinc-700 bg-[#1a1b1c] px-3 py-2.5 text-xs font-bold text-white focus:border-[#00ff66] focus:outline-hidden cursor-pointer"
+            >
+              {ALL_LANGUAGE_OPTIONS.map((opt) => (
+                <option key={opt.code} value={opt.code}>
+                  {opt.flag} {opt.label} ({opt.code.toUpperCase()})
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-[11px] text-zinc-500 leading-snug">
+              Steuert die Hauptsprache der Benutzeroberfläche und die Standard-Sprache beim Öffnen von Guides.
+            </p>
+          </div>
+
+          {/* 2. Meine Sprachen (Mehrfachauswahl / Multi-Select Chips aus den 16 unterstützten Sprachen) */}
+          <div className="md:col-span-2 rounded-xl border border-zinc-800 bg-[#121314] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+              <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400">
+                2. Meine Sprachen (Mehrfachauswahl · Guides & Koop-Sprachen)
+              </span>
+              <span className="text-[11px] font-mono text-[#00ff66]">
+                Aktiv: {preferredLocales.map((c) => c.toUpperCase()).join(', ')}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {ALL_LANGUAGE_OPTIONS.map((opt) => {
+                const selected = preferredLocales.includes(opt.code);
+                return (
+                  <button
+                    key={opt.code}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => handleTogglePreferredLocale(opt.code)}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-mono transition cursor-pointer ${
+                      selected
+                        ? 'border-[#00ff66]/60 bg-[#00ff66]/15 text-[#00ff66] font-bold shadow-xs'
+                        : 'border-zinc-800 bg-[#1a1b1c] text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+                    }`}
+                  >
+                    <span aria-hidden>{opt.flag}</span>
+                    <span>{opt.label}</span>
+                    <span className="text-[10px] opacity-75">({opt.code.toUpperCase()})</span>
+                    {selected ? <span aria-hidden>✓</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-2.5 text-[11px] text-zinc-500 leading-snug">
+              Wird in deinem Profil (<code className="text-zinc-400">preferred_locales</code>) gespeichert und für mehrsprachige Guides sowie spätere Online-Trophäen-Verabredungen genutzt.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ===================================================================
+          BEREICH B: Meine Spiele-Bibliothek in 3 festen Stufen
+          (1. Watchlist -> 2. Angefangene Spiele -> 3. Fertige Spiele)
+      =================================================================== */}
+      <section className="bg-[#1a1b1c] border border-zinc-800 rounded-2xl p-5 sm:p-7 shadow-xl space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+          <div>
+            <h2 className="text-lg font-extrabold text-white tracking-tight">
+              🎮 Meine Spiele-Bibliothek (3-Stufen-Pipeline)
+            </h2>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              1. Watchlist → 2. Angefangene Spiele → 3. Fertige Spiele (inkl. PSN-Sync, kompletter Trophäenliste & Platin-Bewertung)
             </p>
           </div>
 
@@ -866,35 +1269,6 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
           </div>
         </div>
 
-        {/* Filter-Tabs */}
-        <div className="flex flex-wrap items-center gap-2 pb-4 mb-5 border-b border-zinc-800">
-          {LIBRARY_TABS.map((tab) => {
-            const active = libraryFilter === tab.id;
-            const count = tabCounts[tab.id] ?? 0;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setLibraryFilter(tab.id)}
-                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-mono font-bold border transition cursor-pointer ${
-                  active
-                    ? 'bg-[#00ff66]/15 text-[#00ff66] border-[#00ff66]/40 shadow-xs'
-                    : 'bg-[#121314] text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-zinc-200'
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span
-                  className={`px-1.5 py-0.5 rounded-md text-[10px] ${
-                    active ? 'bg-[#00ff66]/20 text-[#00ff66]' : 'bg-zinc-800 text-zinc-400'
-                  }`}
-                >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
         {loading ? (
           <div className="py-12 text-center text-sm font-mono text-zinc-500 animate-pulse">
             Lade Spiele-Bibliothek…
@@ -903,128 +1277,417 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
           <div className="p-4 rounded-xl bg-red-500/10 border border-red-900/40 text-xs text-red-300 font-mono">
             Fehler beim Laden der Bibliothek: {areaErrors.watchlist.message}
           </div>
-        ) : filteredWatchlist.length === 0 ? (
-          <div className="py-10 px-4 text-center rounded-xl border border-dashed border-zinc-800 bg-[#121314]/60">
-            <p className="text-sm text-zinc-400 font-medium">
-              {watchlistItems.length === 0
-                ? 'Noch keine Spiele in deiner Bibliothek vorhanden.'
-                : 'Keine Spiele in diesem Filter-Tab gefunden.'}
-            </p>
-            <p className="text-xs text-zinc-500 mt-1">
-              Markiere Spiele mit dem ☆ in einem Guide oder starte den PSN-Sync über deine PSN-ID.
-            </p>
-          </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3.5">
-            {filteredWatchlist.map((item) => {
-              const guideHref = item.game
-                ? gameGuidePath(item.game, globalLocale)
-                : `/guide/${item.gameId}`;
+          <div className="space-y-8">
+            {/* -------------------------------------------------------------
+                STUFE 1 (OBEN): 1. Watchlist
+                Keine Platin-Spielzeit/Schwierigkeit-Bewertung erlaubt!
+            ------------------------------------------------------------- */}
+            <div className="rounded-2xl border border-zinc-800/90 bg-[#141618] p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-zinc-800 text-zinc-300 font-mono text-xs">
+                      1
+                    </span>
+                    <span>📌 Watchlist</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Vorgemerkte Spiele – starte ein Spiel per Klick, sobald du loslegst.
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 font-mono text-xs text-zinc-300">
+                  {stage1Watchlist.length} {stage1Watchlist.length === 1 ? 'Spiel' : 'Spiele'}
+                </span>
+              </div>
 
-              return (
-                <div
-                  key={item.watchlistId || item.gameId}
-                  className={`rounded-xl border p-4 bg-[#121314] transition ${
-                    item.isPlatinum
-                      ? 'border-[#00ff66]/35 shadow-sm shadow-[#00ff66]/5'
-                      : 'border-zinc-800 hover:border-zinc-700'
-                  }`}
-                >
-                  <div className="flex flex-col sm:flex-row items-start gap-4">
-                    {/* Cover + Klick zum Guide */}
-                    <a
-                      href={guideHref}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleOpenGameGuide(item);
-                      }}
-                      className="w-16 h-20 sm:w-20 sm:h-24 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 flex-shrink-0 block group relative"
-                    >
-                      {item.cover ? (
-                        <img
-                          src={item.cover}
-                          alt={item.title}
-                          className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xl">
-                          🎮
+              {stage1Watchlist.length === 0 ? (
+                <div className="py-6 px-4 text-center rounded-xl border border-dashed border-zinc-800 bg-[#121314]/60">
+                  <p className="text-xs text-zinc-400">
+                    Keine Spiele auf der Watchlist. Markiere Spiele im Katalog oder Guide mit dem ☆ Stern.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3">
+                  {stage1Watchlist.map((item) => {
+                    const guideHref = item.game
+                      ? gameGuidePath(item.game, globalLocale)
+                      : `/guide/${item.gameId}`;
+
+                    return (
+                      <div
+                        key={item.watchlistId || item.gameId}
+                        className="rounded-xl border border-zinc-800 hover:border-zinc-700 p-3.5 bg-[#121314] transition"
+                      >
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5">
+                          <div className="flex items-center gap-3.5 min-w-0">
+                            <a
+                              href={guideHref}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleOpenGameGuide(item);
+                              }}
+                              className="w-14 h-18 sm:w-16 sm:h-20 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 flex-shrink-0 block group"
+                            >
+                              {item.cover ? (
+                                <img
+                                  src={item.cover}
+                                  alt={item.title}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-lg">
+                                  🎮
+                                </div>
+                              )}
+                            </a>
+
+                            <div className="min-w-0">
+                              <a
+                                href={guideHref}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  handleOpenGameGuide(item);
+                                }}
+                                className="text-sm sm:text-base font-bold text-white hover:text-[#00ff66] transition no-underline block truncate"
+                              >
+                                {item.title}
+                              </a>
+                              <div className="flex flex-wrap items-center gap-2 mt-1">
+                                {item.titleId ? (
+                                  <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-sm bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                    {item.titleId}
+                                  </span>
+                                ) : null}
+                                {item.guideCompletionTime ? (
+                                  <span className="text-[11px] font-mono text-zinc-400">
+                                    ⏱️ Guide-Richtwert: {item.guideCompletionTime}h
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 self-end sm:self-center">
+                            <button
+                              type="button"
+                              onClick={() => handleStartGame(item)}
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-[#00ff66] hover:bg-[#00e65c] text-zinc-950 font-mono text-xs font-bold px-3.5 py-2 transition cursor-pointer shadow-sm"
+                            >
+                              ▶️ Spiel starten
+                            </button>
+                          </div>
                         </div>
-                      )}
-                    </a>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-                    {/* Haupt-Infos */}
-                    <div className="flex-1 min-w-0 w-full">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0">
+            {/* -------------------------------------------------------------
+                STUFE 2 (MITTE): 2. Angefangene Spiele
+                Zwei Abschluss-Wege: "🏆 Platin erreicht" oder "✅ Ohne Platin fertig"
+            ------------------------------------------------------------- */}
+            <div className="rounded-2xl border border-amber-500/25 bg-[#141618] p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono text-xs">
+                      2
+                    </span>
+                    <span>🔥 Angefangene Spiele</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Spiele, die du aktuell spielst – schließe sie mit Platin oder ohne Platin ab.
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 font-mono text-xs text-amber-300">
+                  {stage2Playing.length} aktiv
+                </span>
+              </div>
+
+              {stage2Playing.length === 0 ? (
+                <div className="py-6 px-4 text-center rounded-xl border border-dashed border-zinc-800 bg-[#121314]/60">
+                  <p className="text-xs text-zinc-400">
+                    Aktuell keine angefangenen Spiele. Starte oben ein Spiel aus deiner Watchlist!
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3.5">
+                  {stage2Playing.map((item) => {
+                    const guideHref = item.game
+                      ? gameGuidePath(item.game, globalLocale)
+                      : `/guide/${item.gameId}`;
+
+                    return (
+                      <div
+                        key={item.watchlistId || item.gameId}
+                        className="rounded-xl border border-zinc-800 hover:border-zinc-700 p-4 bg-[#121314] transition"
+                      >
+                        <div className="flex flex-col sm:flex-row items-start gap-4">
                           <a
                             href={guideHref}
                             onClick={(e) => {
                               e.preventDefault();
                               handleOpenGameGuide(item);
                             }}
-                            className="text-base font-bold text-white hover:text-[#00ff66] transition no-underline block truncate"
+                            className="w-16 h-20 sm:w-20 sm:h-24 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 flex-shrink-0 block group"
                           >
-                            {item.title}
+                            {item.cover ? (
+                              <img
+                                src={item.cover}
+                                alt={item.title}
+                                className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-xl">
+                                🎮
+                              </div>
+                            )}
                           </a>
 
-                          {/* Badges: CUSA/PPSA title_id, PSN-Spielzeit, Status */}
-                          <div className="flex flex-wrap items-center gap-2 mt-1">
-                            {item.titleId ? (
-                              <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-sm bg-zinc-800 text-zinc-300 border border-zinc-700">
-                                {item.titleId}
-                              </span>
+                          <div className="flex-1 min-w-0 w-full">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <a
+                                  href={guideHref}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    handleOpenGameGuide(item);
+                                  }}
+                                  className="text-base font-bold text-white hover:text-[#00ff66] transition no-underline block truncate"
+                                >
+                                  {item.title}
+                                </a>
+
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  {item.titleId ? (
+                                    <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-sm bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                      {item.titleId}
+                                    </span>
+                                  ) : null}
+                                  <span className="text-[11px] font-mono text-zinc-400 bg-zinc-900/90 border border-zinc-800 px-2 py-0.5 rounded-sm">
+                                    ⏱️ PSN: <strong className="text-zinc-200">{item.playtimeHours} h</strong>
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCompleteWithPlatinum(item)}
+                                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#00ff66] hover:bg-[#00e65c] text-zinc-950 font-mono text-xs font-bold px-3 py-1.5 transition cursor-pointer shadow-xs"
+                                >
+                                  🏆 Platin erreicht
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCompleteWithoutPlatinum(item)}
+                                  className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 font-mono text-xs font-semibold px-3 py-1.5 transition cursor-pointer"
+                                >
+                                  ✅ Ohne Platin fertig
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleMoveToWatchlist(item)}
+                                  title="Zurück auf die Watchlist schieben"
+                                  className="rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 font-mono text-[11px] px-2.5 py-1.5 transition cursor-pointer"
+                                >
+                                  ↩️ Watchlist
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="flex-1 max-w-md">
+                                <WatchlistProgressBar percent={item.progressPercent} />
+                              </div>
+                              <TrophyBreakdownPills
+                                earnedTrophies={item.earnedTrophies}
+                                isPlatinum={item.isPlatinum}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* -------------------------------------------------------------
+                STUFE 3 (UNTEN): 3. Fertige Spiele (Platin & Abgeschlossen, inkl. Sync)
+                - Klick auf Platin-Trophäe öffnet komplette Trophäenliste aus game_achievements
+                - Platin-Spielzeit & Schwierigkeit bewerten ("Senden") NUR bei Platin!
+            ------------------------------------------------------------- */}
+            <div className="rounded-2xl border border-[#00ff66]/30 bg-[#141618] p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-[#00ff66]/20 text-[#00ff66] border border-[#00ff66]/40 font-mono text-xs">
+                      3
+                    </span>
+                    <span>🏆 Fertige Spiele (Platin & Abgeschlossen, inkl. Sync)</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Klicke bei einem Spiel auf die Platin-Trophäe, um die komplette Trophäenliste aus <code className="text-zinc-300">game_achievements</code> aufzuklappen.
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg bg-[#00ff66]/15 border border-[#00ff66]/35 font-mono text-xs text-[#00ff66] font-bold">
+                  {stage3Completed.length} abgeschlossen
+                </span>
+              </div>
+
+              {stage3Completed.length === 0 ? (
+                <div className="py-6 px-4 text-center rounded-xl border border-dashed border-zinc-800 bg-[#121314]/60">
+                  <p className="text-xs text-zinc-400">
+                    Noch keine abgeschlossenen oder platinierten Spiele vorhanden.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3.5">
+                  {stage3Completed.map((item) => {
+                    const guideHref = item.game
+                      ? gameGuidePath(item.game, globalLocale)
+                      : `/guide/${item.gameId}`;
+                    const trophyListOpen = Boolean(expandedTrophyGameIds[item.gameId]);
+
+                    return (
+                      <div
+                        key={item.watchlistId || item.gameId}
+                        className={`rounded-xl border p-4 bg-[#121314] transition ${
+                          item.isPlatinum
+                            ? 'border-[#00ff66]/35 shadow-sm shadow-[#00ff66]/5'
+                            : 'border-zinc-800'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row items-start gap-4">
+                          <a
+                            href={guideHref}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleOpenGameGuide(item);
+                            }}
+                            className="w-16 h-20 sm:w-20 sm:h-24 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 flex-shrink-0 block group relative"
+                          >
+                            {item.cover ? (
+                              <img
+                                src={item.cover}
+                                alt={item.title}
+                                className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-xl">
+                                🎮
+                              </div>
+                            )}
+                          </a>
+
+                          <div className="flex-1 min-w-0 w-full">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <a
+                                    href={guideHref}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      handleOpenGameGuide(item);
+                                    }}
+                                    className="text-base font-bold text-white hover:text-[#00ff66] transition no-underline truncate"
+                                  >
+                                    {item.title}
+                                  </a>
+                                  {item.isPlatinum ? (
+                                    <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-sm bg-[#00ff66]/15 text-[#00ff66] border border-[#00ff66]/35">
+                                      🏆 Platin
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-sm bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                      ✅ Ohne Platin fertig
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  {item.titleId ? (
+                                    <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-sm bg-zinc-800 text-zinc-300 border border-zinc-700">
+                                      {item.titleId}
+                                    </span>
+                                  ) : null}
+
+                                  <span className="text-[11px] font-mono text-zinc-400 bg-zinc-900/90 border border-zinc-800 px-2 py-0.5 rounded-sm">
+                                    ⏱️ PSN: <strong className="text-zinc-200">{item.playtimeHours} h</strong>
+                                  </span>
+
+                                  {item.guideCompletionTime ? (
+                                    <span className="text-[11px] font-mono text-zinc-500">
+                                      Guide-Richtwert: {item.guideCompletionTime}h
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {!item.isPlatinum ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCompleteWithPlatinum(item)}
+                                    className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 hover:bg-[#00ff66]/20 text-[#00ff66] font-mono text-[11px] font-bold px-2.5 py-1 transition cursor-pointer"
+                                  >
+                                    🏆 Doch Platin erreicht
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartGame(item)}
+                                  className="rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 font-mono text-[11px] px-2.5 py-1 transition cursor-pointer"
+                                >
+                                  ↩️ In „Angefangen“
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Fortschrittsbalken + Interaktive Platin-Trophäe (öffnet komplette Liste) */}
+                            <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="flex-1 max-w-md">
+                                <WatchlistProgressBar percent={item.progressPercent} />
+                              </div>
+                              <TrophyBreakdownPills
+                                earnedTrophies={item.earnedTrophies}
+                                isPlatinum={item.isPlatinum}
+                                interactivePlatinum
+                                platinumOpen={trophyListOpen}
+                                onTogglePlatinumList={() => toggleExpandedTrophies(item.gameId)}
+                              />
+                            </div>
+
+                            {/* Aufklappende komplette Trophäenliste aus game_achievements */}
+                            {trophyListOpen ? (
+                              <GameTrophyListDrawer
+                                game={item.game}
+                                gameId={item.gameId}
+                                locale={globalLocale}
+                              />
                             ) : null}
 
-                            <span className="text-[11px] font-mono text-zinc-400 bg-zinc-900/90 border border-zinc-800 px-2 py-0.5 rounded-sm">
-                              ⏱️ PSN: <strong className="text-zinc-200">{item.playtimeHours} h</strong>
-                            </span>
-
-                            {item.guideCompletionTime ? (
-                              <span className="text-[11px] font-mono text-zinc-500">
-                                Guide-Richtwert: {item.guideCompletionTime}
-                              </span>
+                            {/* Platin-Spielzeit & Schwierigkeit bewerten ("Senden") – NUR bei Platin! */}
+                            {item.isPlatinum ? (
+                              <InlineGameRatingControl
+                                item={item}
+                                userId={sessionUser.id}
+                                onSaved={handleRatingSaved}
+                              />
                             ) : null}
                           </div>
                         </div>
-
-                        {/* Status-Umschalter */}
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={item.bucket}
-                            onChange={(e) => handleStatusChange(item, e.target.value)}
-                            aria-label="Bibliothek-Status"
-                            className="text-[11px] font-mono font-bold bg-[#1a1b1c] text-zinc-300 border border-zinc-700 rounded-lg px-2.5 py-1 focus:outline-hidden cursor-pointer"
-                          >
-                            <option value="PLAYING">🔥 PLAYING</option>
-                            <option value="COMPLETED">🏆 COMPLETED</option>
-                            <option value="BACKLOG">📌 BACKLOG</option>
-                          </select>
-                        </div>
                       </div>
-
-                      {/* Fortschrittsbalken + Trophäen-Aufschlüsselung */}
-                      <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex-1 max-w-md">
-                          <WatchlistProgressBar percent={item.progressPercent} />
-                        </div>
-                        <TrophyBreakdownPills
-                          earnedTrophies={item.earnedTrophies}
-                          isPlatinum={item.isPlatinum}
-                        />
-                      </div>
-
-                      {/* 1-Klick-Rating (Community-Datenpunkt spenden) */}
-                      <InlineGameRatingControl
-                        item={item}
-                        userId={sessionUser.id}
-                        onSaved={handleRatingSaved}
-                      />
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              )}
+            </div>
           </div>
         )}
       </section>
@@ -1148,17 +1811,47 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
         )}
       </section>
 
-      {/* Postfach (kompakt am Ende) */}
+      {/* ===================================================================
+          BEREICH D: Platzhalter für strukturierte Online-Trophäen-Verabredungen (statt Inbox)
+      =================================================================== */}
       <section className="bg-[#1a1b1c] border border-zinc-800 rounded-2xl p-5 sm:p-7 shadow-xl">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-white">📬 System-Postfach</h2>
-          {unreadInboxCount > 0 ? (
-            <span className="text-[10px] font-mono font-bold bg-[#00ff66]/15 text-[#00ff66] border border-[#00ff66]/30 px-2 py-0.5 rounded-sm">
-              {unreadInboxCount} ungelesen
-            </span>
-          ) : null}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-extrabold text-white">
+                🤝 Online-Trophäen-Verabredungen (Koop-Matchmaking)
+              </h2>
+              <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-sm bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/30">
+                Demnächst
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+              Strukturierte Koop-Gesuche für Online-Trophäen auf Basis deiner oben gewählten Sprachen (
+              <strong className="text-zinc-200">
+                {preferredLocales.map((c) => c.toUpperCase()).join(', ')}
+              </strong>
+              ) – sicher und ohne freien 1:1-Textchat (DSA-konform).
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCoopHintOpen((prev) => !prev)}
+            className="shrink-0 rounded-xl border border-[#00ff66]/40 bg-[#00ff66]/10 hover:bg-[#00ff66]/20 px-4 py-2 text-xs font-mono font-bold text-[#00ff66] transition cursor-pointer"
+          >
+            {coopHintOpen ? 'Hinweis ausblenden ▴' : 'Koop-Verabredung vormerken ▾'}
+          </button>
         </div>
-        <Inbox sessionUser={sessionUser} setCurrentView={setCurrentView} embedded />
+
+        {coopHintOpen ? (
+          <div className="mt-4 rounded-xl border border-zinc-800 bg-[#121314] p-4 text-xs text-zinc-300 space-y-1.5">
+            <p className="font-semibold text-white">
+              So funktionieren die kommenden Online-Trophäen-Verabredungen:
+            </p>
+            <p className="text-zinc-400">
+              Du wählst ein Spiel, die gewünschten Online-Trophäen, ein Zeitfenster und deine Koop-Sprachen ({preferredLocales.map((c) => c.toUpperCase()).join(', ')}). Andere verifizierte PSN-Spieler können sich direkt per 1-Klick für die Session eintragen – ganz ohne unmoderierten Freitext-Chat.
+            </p>
+          </div>
+        ) : null}
       </section>
     </div>
   );

@@ -11,6 +11,7 @@ import { enqueueTrophyVideoForTimestampScrape } from '../lib/intranetGameEdits';
 import { reportableDataAttrs } from '../lib/reportableAttrs';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
 import { getTrophyAiTranslation, getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
+import { COMPLETED_TROPHY_STYLE, useUserPreferences } from '../lib/userPreferences';
 import { supabase } from '../pages/supabaseClient';
 import { getYouTubeEmbedUrl } from '../utils/videoUrl';
 
@@ -516,6 +517,7 @@ function TrophyRow({
   onlinePickMode = false,
   onlinePicked = false,
   onOnlinePickToggle = null,
+  completedTrophyStyle = COMPLETED_TROPHY_STYLE.DIM,
 }) {
   const { t } = useLocale();
   const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
@@ -539,12 +541,16 @@ function TrophyRow({
     return () => notifyVideoCleared();
   }, [videoOpen, notifyVideoStarted, notifyVideoCleared]);
 
+  const isDimmed = isUnlocked && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM;
+
   const rowTone = onlinePickMode
     ? onlinePicked
       ? 'bg-sky-500/10 border-sky-500/40 ring-1 ring-sky-500/30'
       : 'bg-[#121314] border-zinc-800 hover:border-sky-500/40 cursor-pointer'
     : isUnlocked
-      ? 'bg-[#121314]/40 border-zinc-800/40 opacity-60'
+      ? isDimmed
+        ? 'bg-[#121314]/40 border-zinc-800/40 opacity-45'
+        : 'bg-[#121314] border-zinc-800 hover:border-zinc-700'
       : 'bg-[#121314] border-zinc-800 hover:border-zinc-700';
 
   return (
@@ -615,7 +621,7 @@ function TrophyRow({
                 reportKey={trophyKey}
                 field="name"
                 className={`text-sm font-bold ${
-                  isUnlocked ? 'text-zinc-500 line-through' : 'text-zinc-200'
+                  isDimmed ? 'text-zinc-500 line-through' : 'text-zinc-200'
                 }`}
               >
                 {trophy.trophy_name}
@@ -652,7 +658,7 @@ function TrophyRow({
                   reportKey={trophyKey}
                   field="description"
                   className={`text-xs leading-relaxed ${
-                    isUnlocked ? 'text-zinc-600' : 'text-zinc-400'
+                    isDimmed ? 'text-zinc-600' : 'text-zinc-400'
                   }`}
                 >
                   {trophyDesc}
@@ -667,7 +673,7 @@ function TrophyRow({
                   field="ai_translation"
                   className={`text-xs leading-relaxed italic ${
                     trophyDesc ? 'mt-1' : ''
-                  } ${isUnlocked ? 'text-zinc-600' : 'text-zinc-500'}`}
+                  } ${isDimmed ? 'text-zinc-600' : 'text-zinc-500'}`}
                 >
                   {trophyTranslation}
                 </Reportable>
@@ -788,11 +794,14 @@ function TrophyList({
   onOnlinePickToggle = null,
 }) {
   const { t } = useLocale();
+  const { completedTrophyStyle } = useUserPreferences();
   const earnedSet = earnedTrophyIds ?? new Set();
+  const effectiveHideCompleted =
+    hideCompleted || completedTrophyStyle === COMPLETED_TROPHY_STYLE.HIDE;
   const visible = trophies.filter((trophy) => {
     const key = getTrophyIdKey(trophy);
     const done = earnedSet.has(key) || unlockedTrophies[key];
-    return !hideCompleted || !done;
+    return !effectiveHideCompleted || !done;
   });
 
   if (visible.length === 0) {
@@ -825,6 +834,7 @@ function TrophyList({
             onlinePickMode={onlinePickMode}
             onlinePicked={Boolean(onlinePickIds?.has?.(key))}
             onOnlinePickToggle={onOnlinePickToggle}
+            completedTrophyStyle={completedTrophyStyle}
           />
         );
       })}

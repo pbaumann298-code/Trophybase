@@ -2,15 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 02_Guide_Uebersetzer_Master.py
-Konsolidierte 4-Stufen-Übersetzungs-Pipeline (Ersetzt EN_ES_PT, Restliche Sprachen & _en):
-- Wellen-Steuerung:
-    * wave1 = ["de", "en", "es", "pt"] (Basis & Amerikas)
-    * wave2 = ["fr", "it", "nl", "pl", "ru", "sv", "fi", "ar"] (Resteuropa + Arabisch)
-    * wave3 = ["ja", "ko", "zh-hans", "zh-hant"] (Projekt Asia)
-- NEU: Übersetzt auch 'boss_group' (Tab 3 im 3-Spalten-Gruppenprinzip)!
-- NEU: Übersetzt Standard-Story- & Sammelobjekt-Tipps deterministisch in 0ms (0 Token!).
-- NEU: Gebündelte DB-Updates & Auto-Chunking (max. 4 Sprachen pro Gemini-Call gegen JSON-Abbrüche).
-- Respektiert Regel 0 (tb_source_lang_for_game & Drip-Feed READY vs. PUBLISHED).
+Konsolidierte 4-Stufen-Übersetzungs-Pipeline (Inkl. 72h-Fast-Lane für neue Tages-Guides & Locale-Key-Normalisierung)
 """
 
 import os
@@ -19,6 +11,7 @@ import sys
 import json
 import time
 import requests
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -31,14 +24,29 @@ WAVES = {
     "wave1": ["de", "en", "es", "pt"],
     "wave2": ["fr", "it", "nl", "pl", "ru", "sv", "fi", "ar"],
     "wave3": ["ja", "ko", "zh-hans", "zh-hant"],
+    "all": [
+        "de",
+        "en",
+        "es",
+        "pt",
+        "fr",
+        "it",
+        "nl",
+        "pl",
+        "ru",
+        "sv",
+        "fi",
+        "ar",
+        "ja",
+        "ko",
+        "zh-hans",
+        "zh-hant",
+    ],
 }
 
-ACTIVE_WAVE = os.getenv(
-    "TRANSLATION_WAVE", "wave2"
-)  # Standardmäßig jetzt auf Welle 2 (Resteuropa + AR)
+ACTIVE_WAVE = os.getenv("TRANSLATION_WAVE", "wave2")
 AUTO_PUBLISH = True
 
-# Offizielle Website-Locales aus shared/countryLocaleMap.js (für tb_check_and_publish_locale)
 WEBSITE_SUPPORTED_LOCALES = {
     "ar",
     "ja",
@@ -58,22 +66,19 @@ WEBSITE_SUPPORTED_LOCALES = {
     "sv",
 }
 
-# Diese Spieltypen landen bei Fertigstellung auf 'READY' (Drip-Feed per pg_cron).
-# easy_platin & Servertot gehen sofort auf 'PUBLISHED'.
 DRIP_FEED_TYPES = {"Evergreen", "Premium", "Standard"}
 
 # Kosten-Wächter
-MAX_BUDGET_EUR = float(os.getenv("MAX_BUDGET_EUR", 25.00))
+MAX_BUDGET_EUR = float(os.getenv("MAX_BUDGET_EUR", 125.00))
 COST_PER_1M_INPUT_EUR = 0.15
 COST_PER_1M_OUTPUT_EUR = 0.60
 SPENT_EUR = 0.0
 
-# Maximale Anzahl Zielsprachen pro einzelnem Gemini-Call (verhindert abgeschnittene JSONs!)
 MAX_LANGS_PER_API_CALL = 4
 CATEGORY_BATCH_SIZE = 80
 STEM_BATCH_SIZE = 90
 TIP_BATCH_SIZE = 25
-PAUSE_BETWEEN_CALLS_SEC = 1.2
+PAUSE_BETWEEN_CALLS_SEC = 1.0
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 GEMINI_API_KEY = (
@@ -94,7 +99,6 @@ if not GEMINI_API_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Deterministische Sofort-Übersetzung für die Standard-Systemtexte aus 06.1 (0 Cent, 0 Latenz!)
 STATIC_STORY_TIP = {
     "de": "Automatisch im Spielverlauf erhaltbar.",
     "en": "Unlocked automatically through story progression.",
@@ -155,8 +159,8 @@ STATIC_SERVERTOT_TIP = {
 COUNTER_TOKEN_RE = re.compile(r"(^\d+\.(?=\s)|\b\d+\s*/\s*\d+\b|#\d+|\b\d+\b)")
 
 PRIORITY_ORDER = {
-    "Evergreen": 1,
-    "Premium": 2,
+    "Premium": 1,  # Premium & Evergreen zuerst!
+    "Evergreen": 2,
     "Standard": 3,
     "easy_platin": 4,
     "Servertot": 5,
@@ -165,6 +169,52 @@ PRIORITY_ORDER = {
 
 class QuotaExhaustedError(Exception):
     """Wird ausgelöst, wenn die Gemini API dauerhaft HTTP 429/503 liefert oder das Budget erreicht ist."""
+
+
+def normalize_lang_key(raw_key: str) -> str:
+    """Verhindert Endlosschleifen durch Gemini-Varianten wie 'zh-Hans', 'zh_hant' oder 'pt-BR'."""
+    k = str(raw_key or "").strip().lower().replace("_", "-")
+    if k in ("pt-br", "pt-pt"):
+        return "pt"
+    if k in ("zh-cn", "zh-sg", "zh-hans"):
+        return "zh-hans"
+    if k in ("zh-tw", "zh-hk", "zh-hant"):
+        return "zh-hant"
+    return k
+
+
+def normalize_lang_dict(d: dict) -> dict:
+    if not isinstance(d, dict):
+        return {}
+    return {normalize_lang_key(k): v for k, v in d.items()}
+
+
+def is_locale_done_in_status(status_map: dict, lg: str) -> bool:
+    """Prüft sowohl 'guide_zh-hans' als auch 'guide_zh_hans'."""
+    if not isinstance(status_map, dict):
+        return False
+    norm = normalize_lang_key(lg)
+    underscored = norm.replace("-", "_")
+    return status_map.get(f"guide_{norm}") in ("PUBLISHED", "READY") or status_map.get(
+        f"guide_{underscored}"
+    ) in ("PUBLISHED", "READY")
+
+
+def is_fast_lane_new_release(status_map: dict, hours: int = 72) -> tuple[bool, float]:
+    """Erkennt deine ~18 täglichen Neuerscheinungen anhand des SQL-Triggers 'de_published_at'."""
+    if not isinstance(status_map, dict):
+        return False, 0.0
+    raw_ts = status_map.get("de_published_at")
+    if not raw_ts:
+        return False, 0.0
+    try:
+        dt = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        return (dt >= cutoff), dt.timestamp()
+    except Exception:
+        return False, 0.0
 
 
 def execute_with_retry(request_builder, retries: int = 4):
@@ -211,7 +261,6 @@ def unmask_counters(masked_translation: str, tokens: list[str]) -> str:
 
 
 def detect_source_lang(status_map: dict) -> str | None:
-    """Regel 0: Sprachagnostische Quellsprache (de -> en -> es -> pt -> jede weitere PUBLISHED)."""
     if not isinstance(status_map, dict):
         return None
     for preferred in ("de", "en", "es", "pt"):
@@ -227,6 +276,9 @@ def primary_game_type(raw_spiel_typ: str) -> str:
     parts = [p.strip() for p in str(raw_spiel_typ or "").split(",") if p.strip()]
     if "Servertot" in parts:
         return "Servertot"
+    for p in parts:
+        if p in ("Premium", "Evergreen", "Standard", "easy_platin"):
+            return p
     return parts[0] if parts else "Standard"
 
 
@@ -251,32 +303,39 @@ def fetch_published_games_queue(target_langs: list[str]) -> list[dict]:
     queue = []
     for g in all_games:
         raw_type = str(g.get("spiel_typ") or "").strip()
-        if raw_type == "Quickwin" or "Unlesbar" in raw_type:
+        low_type = raw_type.lower()
+        # Filtert auch Kombi-Strings wie 'Standard, Quickwin' oder 'Evergreen, Unlesbar' sauber heraus
+        if "quickwin" in low_type or "unlesbar" in low_type:
             continue
         status = g.get("status") if isinstance(g.get("status"), dict) else {}
         src_lang = detect_source_lang(status)
         if not src_lang:
             continue
 
-        # Prüfen, ob mindestens eine Zielsprache aus dieser Welle noch nicht PUBLISHED / READY ist
         check_langs = [lg for lg in target_langs if lg != src_lang]
-        needs_work = any(
-            status.get(f"guide_{lg}") not in ("PUBLISHED", "READY")
-            for lg in check_langs
-        )
+        needs_work = any(not is_locale_done_in_status(status, lg) for lg in check_langs)
         if needs_work:
             queue.append(g)
 
-    queue.sort(
-        key=lambda x: (
-            PRIORITY_ORDER.get(primary_game_type(x.get("spiel_typ")), 99),
-            str(
-                (x.get("spieltitel") or {}).get("de")
-                or (x.get("spieltitel") or {}).get("en")
-                or ""
-            ),
+    def _sort_key(x: dict):
+        st = x.get("status") if isinstance(x.get("status"), dict) else {}
+        g_type = primary_game_type(x.get("spiel_typ"))
+        is_fresh, pub_ts = is_fast_lane_new_release(st, hours=72)
+        # 1. Echte Guides (Premium/Evergreen/Standard), die in den letzten 72h neu veröffentlicht wurden -> ÜBERHOLSPUR!
+        fast_lane_rank = 0 if (is_fresh and g_type in DRIP_FEED_TYPES) else 1
+        title_str = str(
+            (x.get("spieltitel") or {}).get("de")
+            or (x.get("spieltitel") or {}).get("en")
+            or ""
         )
-    )
+        return (
+            fast_lane_rank,
+            -pub_ts if fast_lane_rank == 0 else 0,
+            PRIORITY_ORDER.get(g_type, 99),
+            title_str,
+        )
+
+    queue.sort(key=_sort_key)
     return queue
 
 
@@ -371,18 +430,19 @@ def apply_translations_and_save(
             loc_map.get(source_lang) or loc_map.get("de") or loc_map.get("en") or ""
         ).strip()
         if loc_src and loc_src in loc_translations:
-            for lg, val in (loc_translations[loc_src] or {}).items():
+            for raw_lg, val in (loc_translations[loc_src] or {}).items():
+                lg = normalize_lang_key(raw_lg)
                 if val and not str(loc_map.get(lg) or "").strip():
                     loc_map[lg] = str(val).strip()
                     changed = True
 
-        # Alle 3 Gruppen-Spalten (Walkthrough, Sammelobjekte, Bosse) aktualisieren
         for col_map in (chrono_map, cat_map, boss_map):
             c_src = str(
                 col_map.get(source_lang) or col_map.get("de") or col_map.get("en") or ""
             ).strip()
             if c_src and c_src in group_translations:
-                for lg, val in (group_translations[c_src] or {}).items():
+                for raw_lg, val in (group_translations[c_src] or {}).items():
+                    lg = normalize_lang_key(raw_lg)
                     if val and not str(col_map.get(lg) or "").strip():
                         col_map[lg] = str(val).strip()
                         changed = True
@@ -393,7 +453,8 @@ def apply_translations_and_save(
         if item_src:
             stem, tokens = mask_counters(item_src)
             if stem in stem_translations:
-                for lg, val in (stem_translations[stem] or {}).items():
+                for raw_lg, val in (stem_translations[stem] or {}).items():
+                    lg = normalize_lang_key(raw_lg)
                     if val and not str(item_map.get(lg) or "").strip():
                         item_map[lg] = unmask_counters(val, tokens)
                         changed = True
@@ -522,12 +583,12 @@ def set_game_guide_status(game_id: str, lang: str, target_status: str):
     status_map = (
         dict(row.get("status") or {}) if isinstance(row.get("status"), dict) else {}
     )
-    current_val = status_map.get(f"guide_{lang}")
+    norm_lg = normalize_lang_key(lang)
+    current_val = status_map.get(f"guide_{norm_lg}")
     if current_val == "PUBLISHED" and target_status == "READY":
         return
 
-    status_map[f"guide_{lang}"] = target_status
-    # Trigger games_sync_publishing_columns aktualisiert publishing_status & published_locales automatisch
+    status_map[f"guide_{norm_lg}"] = target_status
     execute_with_retry(
         supabase.table("games").update({"status": status_map}).eq("id", game_id)
     )
@@ -553,16 +614,18 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
     active_targets = [
         lg
         for lg in wave_targets
-        if lg != source_lang
-        and status_map.get(f"guide_{lg}") not in ("PUBLISHED", "READY")
+        if lg != source_lang and not is_locale_done_in_status(status_map, lg)
     ]
     if not active_targets:
         return True
 
+    is_fresh, _ = is_fast_lane_new_release(status_map, hours=72)
+    lane_badge = "⚡ FAST-LANE (NEU)" if (is_fresh and use_drip_feed) else "📦 BACKLOG"
+
     print(f"\n=================================================================")
     print(
-        f"🎮 [{g_type}] {game_title} (Quelle: {source_lang.upper()} -> Ziel: {active_targets} | "
-        f"Modus: {'READY (Drip-Feed)' if use_drip_feed else 'SOFORT PUBLISHED'})"
+        f"🎮 [{lane_badge} | {g_type}] {game_title} ({source_lang.upper()} -> {active_targets} | "
+        f"Ziel: {'READY (Drip-Feed)' if use_drip_feed else 'SOFORT PUBLISHED'})"
     )
     print(f"=================================================================")
 
@@ -572,7 +635,6 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
     achievements = ach_res.data or []
     ach_by_id = {str(a.get("platform_achievement_id")).strip(): a for a in achievements}
 
-    # Stufe 1: SQL-Sync (Trophäennamen -> item_name, tb_glossary, zh-Fallback)
     try:
         s1 = execute_with_retry(
             supabase.rpc("tb_apply_stage1_sql_for_game", {"p_game_id": game_id})
@@ -592,9 +654,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
     stem_translations: dict[str, dict] = {}
 
     try:
-        # =====================================================================
-        # STUFE 2: SPALTEN (localisation, chronological_group, category_group, boss_group)
-        # =====================================================================
+        # STUFE 2: SPALTEN
         unique_locs: dict[str, set] = {}
         unique_groups: dict[str, dict] = {}
 
@@ -649,11 +709,10 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                 f"and guide chapter/category/boss headers (`categories`) for '{game_title}' from '{source_lang}'.\n"
                 "CRITICAL RULES:\n"
                 "1. Input has `locations` and `categories` as JSON objects with numeric string keys ('0', '1', ...).\n"
-                "2. Use 100% official in-game localization terms of '{game_title}' (for 'pt' use pt-BR; for 'zh-hans' use Simplified Chinese; for 'zh-hant' use Traditional Chinese).\n"
+                "2. Use 100% official in-game localization terms of '{game_title}' (use exact target_langs keys like 'pt', 'zh-hans', 'zh-hant').\n"
                 "3. Return strictly JSON with keys `locations` and `categories`, mapping each numeric key ('0', '1', ...) to `{lang: translated_string}`."
             )
 
-            # In Sprach-Scheiben (max. 4 Sprachen pro Call) abarbeiten, damit JSON nie abbricht
             for lang_slice in chunk_langs(active_targets):
                 loc_items = [
                     (k, sorted(v & set(lang_slice)))
@@ -674,7 +733,9 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                         for idx, (orig_k, _) in enumerate(chunk):
                             t_map = out_locs.get(str(idx)) or out_locs.get(orig_k)
                             if isinstance(t_map, dict):
-                                loc_translations.setdefault(orig_k, {}).update(t_map)
+                                loc_translations.setdefault(orig_k, {}).update(
+                                    normalize_lang_dict(t_map)
+                                )
 
                 grp_items = [
                     (k, info, sorted(info["missing"] & set(lang_slice)))
@@ -715,7 +776,9 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                         for idx, (orig_k, _, _) in enumerate(chunk):
                             t_map = out_grps.get(str(idx)) or out_grps.get(orig_k)
                             if isinstance(t_map, dict):
-                                group_translations.setdefault(orig_k, {}).update(t_map)
+                                group_translations.setdefault(orig_k, {}).update(
+                                    normalize_lang_dict(t_map)
+                                )
 
             apply_translations_and_save(
                 guide_rows,
@@ -726,9 +789,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                 stem_translations,
             )
 
-        # =====================================================================
-        # STUFE 3A: ZEILEN (item_name) MIT ZÄHLER-MASKIERUNG ("{0}")
-        # =====================================================================
+        # STUFE 3A: ZEILEN (item_name)
         unique_stems: dict[str, dict] = {}
         for row in guide_rows:
             item_map = (
@@ -828,7 +889,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                         "1. Input is a JSON object with numeric string keys ('0', '1', ...).\n"
                         "2. Use the 100% official in-game localization of '{game_title}'.\n"
                         "3. Keep placeholders like `{0}` or `{1}` in their exact position. Do NOT add extra brackets.\n"
-                        "4. Return strictly a JSON object with the EXACT same keys ('0', '1', ...), where each value is `{lang: translated_string}`."
+                        "4. Return strictly a JSON object with the EXACT same keys ('0', '1', ...), where each value is `{lang: translated_string}` using the exact requested language codes."
                     )
                     chunk_res = call_gemini_json(sys_prompt_items, payload_items)
                     if isinstance(chunk_res, dict):
@@ -842,7 +903,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                                 ):
                                     trans_map = trans_map["translations"]
                                 stem_translations.setdefault(original_stem, {}).update(
-                                    trans_map
+                                    normalize_lang_dict(trans_map)
                                 )
 
                     saved_now = apply_translations_and_save(
@@ -857,9 +918,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                         f"      ✅ Paket {b_idx}/{total_batches} gesichert ({saved_now} Zeilen | Budget: {SPENT_EUR:.4f} €)."
                     )
 
-        # =====================================================================
-        # STUFE 3B: SPIEL-BESCHREIBUNG, STATUS-ERKLÄRUNG, GUIDE_TIP & LANG
-        # =====================================================================
+        # STUFE 3B: SPIEL-BESCHREIBUNG, STATUS-ERKLÄRUNG, GUIDE_TIP & LANG (JETZT MIT CHUNKING!)
         fresh_g = execute_with_retry(
             supabase.table("games")
             .select("beschreibung, status_explanation_localized")
@@ -898,51 +957,55 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
             print(
                 f"📖 Übersetze Beschreibung ({len(missing_desc_langs)} Spr.) & Kurz-Status ({len(missing_exp_langs)} Spr.)..."
             )
-            meta_res = call_gemini_json(
-                f"Translate the editorial trophy guide description (`beschreibung`) and short status summary (`status_explanation`) "
-                f"for '{game_title}' 1:1 into `target_langs`. Return strictly JSON with keys `beschreibung` and `status_explanation`.",
-                {
-                    "beschreibung": {
-                        "de": desc_de,
-                        "en": desc_en,
-                        "target_langs": missing_desc_langs,
+            for lang_slice in chunk_langs(active_targets):
+                slice_desc = [lg for lg in missing_desc_langs if lg in lang_slice]
+                slice_exp = [lg for lg in missing_exp_langs if lg in lang_slice]
+                if not slice_desc and not slice_exp:
+                    continue
+                meta_res = call_gemini_json(
+                    f"Translate the editorial trophy guide description (`beschreibung`) and short status summary (`status_explanation`) "
+                    f"for '{game_title}' 1:1 into `target_langs`. Return strictly JSON with keys `beschreibung` and `status_explanation`.",
+                    {
+                        "beschreibung": {
+                            "de": desc_de,
+                            "en": desc_en,
+                            "target_langs": slice_desc,
+                        },
+                        "status_explanation": {
+                            "de": exp_de,
+                            "en": exp_en,
+                            "target_langs": slice_exp,
+                        },
                     },
-                    "status_explanation": {
-                        "de": exp_de,
-                        "en": exp_en,
-                        "target_langs": missing_exp_langs,
-                    },
-                },
-            )
-            if isinstance(meta_res, dict):
-                for lg, val in (meta_res.get("beschreibung") or {}).items():
-                    norm_lg = "pt" if lg.lower() in ("pt-br", "pt_br") else lg
-                    if (
-                        norm_lg in active_targets
-                        and val
-                        and not str(desc_map.get(norm_lg) or "").strip()
-                    ):
-                        desc_map[norm_lg] = str(val).strip()
-
-                for lg, val in (meta_res.get("status_explanation") or {}).items():
-                    norm_lg = "pt" if lg.lower() in ("pt-br", "pt_br") else lg
-                    if (
-                        norm_lg in active_targets
-                        and val
-                        and not str(exp_map.get(norm_lg) or "").strip()
-                    ):
-                        exp_map[norm_lg] = str(val).strip()
-
-                execute_with_retry(
-                    supabase.table("games")
-                    .update(
-                        {
-                            "beschreibung": desc_map,
-                            "status_explanation_localized": exp_map,
-                        }
-                    )
-                    .eq("id", game_id)
                 )
+                if isinstance(meta_res, dict):
+                    for raw_lg, val in (meta_res.get("beschreibung") or {}).items():
+                        norm_lg = normalize_lang_key(raw_lg)
+                        if (
+                            norm_lg in active_targets
+                            and val
+                            and not str(desc_map.get(norm_lg) or "").strip()
+                        ):
+                            desc_map[norm_lg] = str(val).strip()
+
+                    for raw_lg, val in (
+                        meta_res.get("status_explanation") or {}
+                    ).items():
+                        norm_lg = normalize_lang_key(raw_lg)
+                        if (
+                            norm_lg in active_targets
+                            and val
+                            and not str(exp_map.get(norm_lg) or "").strip()
+                        ):
+                            exp_map[norm_lg] = str(val).strip()
+
+            execute_with_retry(
+                supabase.table("games")
+                .update(
+                    {"beschreibung": desc_map, "status_explanation_localized": exp_map}
+                )
+                .eq("id", game_id)
+            )
 
         # Kurz-Tipps (guide_tip) & Lang-Tipps ("Guide-Tip-lang")
         for tip_col, label in (
@@ -974,7 +1037,6 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                 if not missing_t:
                     continue
 
-                # 1. Deterministischer Check für Standard-Systemtexte (0 Token!)
                 if tip_col == "guide_tip":
                     low_de = tip_de.lower()
                     if (
@@ -997,9 +1059,12 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                         ach[tip_col] = tip_map
                         static_updates.append((tid, tip_map))
                         continue
-                    if (
-                        low_de.rstrip(".!") == STATIC_SERVERTOT_TIP["de"].lower().rstrip(".!")
-                        or tip_en.lower().rstrip(".!") == STATIC_SERVERTOT_TIP["en"].lower().rstrip(".!")
+                    if low_de.rstrip(".!") == STATIC_SERVERTOT_TIP["de"].lower().rstrip(
+                        ".!"
+                    ) or tip_en.lower().rstrip(".!") == STATIC_SERVERTOT_TIP[
+                        "en"
+                    ].lower().rstrip(
+                        ".!"
                     ):
                         for lg in missing_t:
                             if STATIC_SERVERTOT_TIP.get(lg):
@@ -1074,9 +1139,11 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                                     if isinstance(ach.get(tip_col), dict)
                                     else {}
                                 )
-                                for lg, val in translations.items():
+                                for raw_lg, val in translations.items():
+                                    lg = normalize_lang_key(raw_lg)
                                     if (
-                                        val
+                                        lg in active_targets
+                                        and val
                                         and not str(current_map.get(lg) or "").strip()
                                     ):
                                         current_map[lg] = str(val).strip()
@@ -1094,9 +1161,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
         )
         return False
 
-    # =========================================================================
-    # STUFE 4: VOLLSTÄNDIGKEITS-PRÜFUNG & STATUS-VERGABE (READY vs. PUBLISHED)
-    # =========================================================================
+    # STUFE 4: VOLLSTÄNDIGKEITS-PRÜFUNG & STATUS-VERGABE
     rpc_auto_publish = AUTO_PUBLISH and (not use_drip_feed)
     print(
         f"🏁 Stufe 4 (Prüfung | Ziel-Status: {'READY' if use_drip_feed else 'PUBLISHED'} | Budget: {SPENT_EUR:.4f} €):"
@@ -1141,11 +1206,6 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
 
 
 if __name__ == "__main__":
-    # Aufruf-Optionen:
-    # 1) python 02_Guide_Uebersetzer_Master.py             -> Nutzt ACTIVE_WAVE ('wave2')
-    # 2) python 02_Guide_Uebersetzer_Master.py wave1       -> Startet Welle 1 (de, en, es, pt)
-    # 3) python 02_Guide_Uebersetzer_Master.py wave3       -> Startet Welle 3 (Projekt Asia)
-    # 4) python 02_Guide_Uebersetzer_Master.py <GAME_UUID> -> Übersetzt 1 Spiel in ACTIVE_WAVE
     arg = sys.argv[1].strip() if len(sys.argv) > 1 else ""
     if arg in WAVES:
         target_langs = WAVES[arg]

@@ -41,6 +41,7 @@ import { parseReportImageUrls } from '../../lib/errorReport';
 import { LocaleProvider } from '../../context/LocaleContext';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import AdminHardwareSelect from '../AdminHardwareSelect';
+import AdminCoverInspector from '../AdminCoverInspector';
 import GameRadarCard from '../GameRadarCard';
 import TrophyArtwork from '../TrophyArtwork';
 import TrophyTypeIcon from '../TrophyTypeIcon';
@@ -2034,10 +2035,10 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                   <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="flex min-w-0 items-start gap-3.5">
-                        <SickbayCoverThumb
+                        <AdminCoverInspector
                           game={activeGame}
-                          onOpenEdit={(target) => setEditingCoverGame(target)}
                           size="lg"
+                          onUpdated={(partial) => patchGame(activeGame[GAME_PK], partial)}
                         />
                         <div className="min-w-0">
                           <h3 className="text-base font-black text-zinc-100">

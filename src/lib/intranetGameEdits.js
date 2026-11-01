@@ -897,7 +897,7 @@ export async function fixGameCover(supabase, gameId, rawUrl, existingCoverUrl = 
  */
 export async function markGameCoverValid(supabase, gameId) {
   const id = String(gameId ?? '').trim();
-  if (!id) return { error: new Error('Kein Spiel ausgewählt.') };
+  if (!id) return { coverStatus: null, error: new Error('Kein Spiel ausgewählt.') };
 
   const { error } = await supabase
     .from(TABLES.games)
@@ -907,7 +907,7 @@ export async function markGameCoverValid(supabase, gameId) {
     })
     .eq(GAME_PK, id);
 
-  return { error: error ?? null };
+  return { coverStatus: error ? null : 'valid', error: error ?? null };
 }
 
 /**
@@ -920,10 +920,12 @@ export async function markGameCoverValid(supabase, gameId) {
 export async function setIntranetIgdbCover(supabase, gameId, imageUrl) {
   const id = String(gameId ?? '').trim();
   const coverUrl = normalizeCoverInputUrl(imageUrl);
-  if (!id) return { coverUrl: null, status: null, error: new Error('Kein Spiel ausgewählt.') };
+  if (!id) return { coverUrl: null, coverMap: null, coverStatus: null, status: null, error: new Error('Kein Spiel ausgewählt.') };
   if (!coverUrl) {
     return {
       coverUrl: null,
+      coverMap: null,
+      coverStatus: null,
       status: null,
       error: new Error('Bitte einen gültigen Bildlink (z. B. von images.igdb.com) einfügen.'),
     };
@@ -935,7 +937,7 @@ export async function setIntranetIgdbCover(supabase, gameId, imageUrl) {
     .eq(GAME_PK, id)
     .maybeSingle();
 
-  if (readError) return { coverUrl: null, status: null, error: readError };
+  if (readError) return { coverUrl: null, coverMap: null, coverStatus: null, status: null, error: readError };
 
   const statusMap = { ...parseStatusMap(current?.[GAME_STRUCT.status]) };
   statusMap.igdb = 'COMPLETED';
@@ -959,9 +961,11 @@ export async function setIntranetIgdbCover(supabase, gameId, imageUrl) {
     .select(GAME_STRUCT.status)
     .maybeSingle();
 
-  if (error) return { coverUrl: null, status: null, error };
+  if (error) return { coverUrl: null, coverMap: null, coverStatus: null, status: null, error };
   return {
     coverUrl,
+    coverMap: cover,
+    coverStatus: 'valid',
     status: parseStatusMap(data?.[GAME_STRUCT.status] ?? statusMap),
     error: null,
   };
@@ -975,7 +979,7 @@ export async function setIntranetIgdbCover(supabase, gameId, imageUrl) {
  */
 export async function clearIntranetCover(supabase, gameId) {
   const id = String(gameId ?? '').trim();
-  if (!id) return { status: null, error: new Error('Kein Spiel ausgewählt.') };
+  if (!id) return { status: null, coverStatus: null, error: new Error('Kein Spiel ausgewählt.') };
 
   const { data: current, error: readError } = await supabase
     .from(TABLES.games)
@@ -983,7 +987,7 @@ export async function clearIntranetCover(supabase, gameId) {
     .eq(GAME_PK, id)
     .maybeSingle();
 
-  if (readError) return { status: null, error: readError };
+  if (readError) return { status: null, coverStatus: null, error: readError };
 
   const statusMap = { ...parseStatusMap(current?.[GAME_STRUCT.status]) };
   delete statusMap.igdb;
@@ -993,13 +997,19 @@ export async function clearIntranetCover(supabase, gameId) {
     .update({
       [GAME_I18N.coverUrl]: {},
       [GAME_STRUCT.status]: statusMap,
+      [GAME_STRUCT.coverStatus]: null,
+      [GAME_STRUCT.coverNotes]: null,
     })
     .eq(GAME_PK, id)
     .select(GAME_STRUCT.status)
     .maybeSingle();
 
-  if (error) return { status: null, error };
-  return { status: parseStatusMap(data?.[GAME_STRUCT.status] ?? statusMap), error: null };
+  if (error) return { status: null, coverStatus: null, error };
+  return {
+    status: parseStatusMap(data?.[GAME_STRUCT.status] ?? statusMap),
+    coverStatus: null,
+    error: null,
+  };
 }
 
 function parsePlaytimeHours(value) {

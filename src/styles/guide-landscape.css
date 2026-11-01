@@ -84,22 +84,12 @@
 
 /* Standard: Items links (40%), Video rechts (60%) */
 .guide-split--expanded.guide-split--video-right .guide-split__list {
-  order: 1;
   border-right: 1px solid #27272a;
   border-left: none;
 }
 
-.guide-split--expanded.guide-split--video-right .guide-split__video {
-  order: 2;
-}
-
 /* Umgekehrt: Video links (60%), Items rechts (40%) */
-.guide-split--expanded.guide-split--video-left .guide-split__video {
-  order: 1;
-}
-
 .guide-split--expanded.guide-split--video-left .guide-split__list {
-  order: 2;
   border-left: 1px solid #27272a;
   border-right: none;
 }

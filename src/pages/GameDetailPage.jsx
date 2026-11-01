@@ -33,7 +33,7 @@ import {
   buildByTypeGuideData,
   buildChronologicalGuideData,
 } from '../lib/guideData';
-import { incrementGameViews } from '../lib/gameQueries';
+import { incrementGameViews, updateGameLocalizedFields } from '../lib/gameQueries';
 import { loadRelatedGuides } from '../lib/relatedGames';
 import { fetchGameGuideBundle, resolveGameId, resolveGuideLanguage } from '../lib/guideQueries';
 import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
@@ -43,12 +43,14 @@ import {
   loadHiddenTrophyMode,
   saveHiddenTrophyMode,
 } from '../lib/hiddenTrophyPreference';
+import { VIDEO_TIMESTAMP_LAYOUT, useUserPreferences } from '../lib/userPreferences';
 import { fetchMyCreatorProfile, isAdminUser } from '../lib/adminAccess';
 import { isGuidePublished, isGameDraftMode, hasPublishedGuide } from '../lib/guidePublication';
 import {
   clearGameGuideTips,
   clearIntranetCover,
   deleteSingleGuideStep,
+  markGameCoverValid,
   saveTrophyGuideTip,
   saveTrophyGuideTipLong,
   saveTrophyVideo,
@@ -137,6 +139,7 @@ function GamePageContent({
   // hängt mit dran, damit der Wert beim Spielwechsel nicht fälschlich greift.
   const [publicationOverride, setPublicationOverride] = useState(null);
   const [coverOverride, setCoverOverride] = useState(null);
+  const [coverStatusOverride, setCoverStatusOverride] = useState(undefined);
   const [coverBusy, setCoverBusy] = useState(false);
   const [coverError, setCoverError] = useState('');
   const [igdbPrompt, setIgdbPrompt] = useState(false);
@@ -153,6 +156,16 @@ function GamePageContent({
     () => selectedGame?.radar_profile ?? null,
   );
   const [descriptionOverrides, setDescriptionOverrides] = useState({});
+  const [detailsExpanded, setDetailsExpanded] = useState(true);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState('');
+  const [savingDescription, setSavingDescription] = useState(false);
+  const [descriptionError, setDescriptionError] = useState('');
+  const { videoTimestampLayout } = useUserPreferences();
+  const videoLayoutFlexClass =
+    videoTimestampLayout === VIDEO_TIMESTAMP_LAYOUT.VIDEO_LEFT
+      ? 'lg:flex-row-reverse'
+      : 'lg:flex-row';
   const [quickGuideOpen, setQuickGuideOpen] = useState(false);
   const [guideReloadToken, setGuideReloadToken] = useState(0);
   const [rohBatches, setRohBatches] = useState([]);
@@ -193,6 +206,7 @@ function GamePageContent({
     hadLanguageOverrideRef.current = false;
     setGuideLanguageOverride(null);
     setCoverOverride(null);
+    setCoverStatusOverride(undefined);
     setCoverError('');
     setIgdbPrompt(false);
     setIgdbLink('');
@@ -724,6 +738,30 @@ function GamePageContent({
 
   const gameTitle = getGameTitle(selectedGame, globalLocale);
   const gameCover = coverOverride === null ? getGameCover(selectedGame, globalLocale) : coverOverride;
+  const effectiveCoverStatus =
+    coverStatusOverride !== undefined
+      ? coverStatusOverride
+      : (selectedGame?.cover_status ?? null);
+
+  useEffect(() => {
+    if (!isAdmin || !gameUuid || selectedGame?.cover_status !== undefined || coverStatusOverride !== undefined) {
+      return undefined;
+    }
+    let cancelled = false;
+    supabase
+      .from('games')
+      .select('cover_status')
+      .eq('id', gameUuid)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled && data) {
+          setCoverStatusOverride(data.cover_status ?? null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, gameUuid, selectedGame?.cover_status, coverStatusOverride]);
 
   const rememberCoverStatus = (status) => {
     setPublicationOverride((prev) => ({
@@ -749,7 +787,9 @@ function GamePageContent({
       return;
     }
     setCoverOverride('');
+    setCoverStatusOverride(null);
     rememberCoverStatus(status);
+    onPatchGame?.({ cover_url: {}, cover_status: null });
   };
 
   const handleSaveIgdbLink = async (event) => {
@@ -758,16 +798,35 @@ function GamePageContent({
 
     setCoverBusy(true);
     setCoverError('');
-    const { coverUrl, status, error } = await setIntranetIgdbCover(supabase, gameUuid, igdbLink);
+    const { coverUrl, coverMap, status, error } = await setIntranetIgdbCover(supabase, gameUuid, igdbLink);
     setCoverBusy(false);
     if (error) {
       setCoverError(error.message || 'IGDB-Link konnte nicht gespeichert werden.');
       return;
     }
     setCoverOverride(coverUrl);
+    setCoverStatusOverride('valid');
     setIgdbPrompt(false);
     setIgdbLink('');
     rememberCoverStatus(status);
+    onPatchGame?.({
+      ...(coverMap ? { cover_url: coverMap } : {}),
+      cover_status: 'valid',
+    });
+  };
+
+  const handleVerifyCover = async () => {
+    if (!gameUuid || coverBusy) return;
+    setCoverBusy(true);
+    setCoverError('');
+    const { error } = await markGameCoverValid(supabase, gameUuid);
+    setCoverBusy(false);
+    if (error) {
+      setCoverError(error.message || 'Cover-Status konnte nicht verifiziert werden.');
+      return;
+    }
+    setCoverStatusOverride('valid');
+    onPatchGame?.({ cover_status: 'valid', cover_notes: null });
   };
   const gameDescription = Object.prototype.hasOwnProperty.call(
     descriptionOverrides,
@@ -775,6 +834,40 @@ function GamePageContent({
   )
     ? descriptionOverrides[effectiveGuideLang]
     : getGameDescription(selectedGame, effectiveGuideLang);
+  const trimmedDescription = typeof gameDescription === 'string' ? gameDescription.trim() : '';
+  const descriptionParagraphs = trimmedDescription
+    ? trimmedDescription.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
+    : [];
+
+  useEffect(() => {
+    setEditingDescription(false);
+    setDescriptionError('');
+  }, [gameUuid, effectiveGuideLang]);
+
+  const handleStartEditDescription = () => {
+    setDescriptionDraft(typeof gameDescription === 'string' ? gameDescription : '');
+    setDescriptionError('');
+    setEditingDescription(true);
+  };
+
+  const handleSaveDescription = async () => {
+    if (!gameUuid || !effectiveGuideLang || savingDescription) return;
+    setSavingDescription(true);
+    setDescriptionError('');
+    const { error: saveErr } = await updateGameLocalizedFields(
+      supabase,
+      gameUuid,
+      effectiveGuideLang,
+      { description: descriptionDraft },
+    );
+    setSavingDescription(false);
+    if (saveErr) {
+      setDescriptionError(saveErr.message || 'Beschreibung konnte nicht gespeichert werden.');
+      return;
+    }
+    setDescriptionOverrides((prev) => ({ ...prev, [effectiveGuideLang]: descriptionDraft }));
+    setEditingDescription(false);
+  };
 
   const handleDeleteGuideStep = useCallback(
     async (item) => {
@@ -1151,6 +1244,7 @@ function GamePageContent({
                 isCreator={isCreatorForGame}
                 isDraftMode={isDraftRoadmap || (isCreatorForGame && !guidePublished)}
                 onProductionMetaSaved={handleProductionMetaSaved}
+                videoLayoutFlexClass={videoLayoutFlexClass}
                 onDeleteStep={
                   isAdmin && !trophiesOnly && !inRohmaterialPreview
                     ? handleDeleteGuideStep
@@ -1201,6 +1295,7 @@ function GamePageContent({
                 isCreator={isCreatorForGame}
                 isDraftMode={isDraftRoadmap || (isCreatorForGame && !guidePublished)}
                 onProductionMetaSaved={handleProductionMetaSaved}
+                videoLayoutFlexClass={videoLayoutFlexClass}
                 onDeleteStep={
                   isAdmin && !trophiesOnly && !inRohmaterialPreview
                     ? handleDeleteGuideStep
@@ -1247,6 +1342,7 @@ function GamePageContent({
                 isCreator={isCreatorForGame}
                 isDraftMode={isDraftRoadmap || (isCreatorForGame && !guidePublished)}
                 onProductionMetaSaved={handleProductionMetaSaved}
+                videoLayoutFlexClass={videoLayoutFlexClass}
                 onDeleteStep={
                   isAdmin && !trophiesOnly && !inRohmaterialPreview
                     ? handleDeleteGuideStep
@@ -1289,76 +1385,337 @@ function GamePageContent({
         {backLabel || (fromSearch ? t('backToSearch') : t('backDashboard'))}
       </button>
 
-      <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 flex flex-col md:flex-row flex-wrap md:flex-nowrap gap-8 items-start mb-8 shadow-xl">
-        <div className="relative w-full md:w-64 aspect-[3/4] rounded-xl overflow-hidden shadow-2xl border border-zinc-800 bg-[#121314] flex-shrink-0">
-          {gameCover ? (
-            <img
-              src={gameCover}
-              onClick={
-                isAdmin
-                  ? () => {
-                      setCoverError('');
-                      setIgdbPrompt(true);
-                    }
-                  : undefined
-              }
-              title={isAdmin ? 'Klicken, um Cover-Link zu ändern' : undefined}
-              className={`w-full h-full object-cover ${isAdmin ? 'cursor-pointer transition hover:opacity-90' : ''}`}
-              alt="Game Cover"
-            />
-          ) : isAdmin ? (
+      <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 mb-8 shadow-xl">
+        {!detailsExpanded ? (
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <h2 className="text-xl md:text-2xl font-extrabold text-white tracking-tight break-words m-0 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span>{gameTitle}</span>
+              {isAdmin ? (
+                <AdminGameTypeSelect
+                  gameId={gameUuid}
+                  gameType={String(gameForPublication?.[GAME_STRUCT.gameType] ?? '').trim()}
+                  onSaved={(gameType) =>
+                    setPublicationOverride((prev) => ({
+                      uuid: gameUuid,
+                      status: prev?.uuid === gameUuid ? prev.status : undefined,
+                      slug: prev?.uuid === gameUuid ? prev.slug : null,
+                      gameType,
+                      homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
+                    }))
+                  }
+                />
+              ) : null}
+            </h2>
             <button
               type="button"
-              onClick={() => {
-                setCoverError('');
-                setIgdbPrompt(true);
-              }}
-              className="flex h-full w-full cursor-pointer items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-wider text-zinc-400 transition hover:bg-zinc-900/80 hover:text-[#00ff66]"
+              onClick={() => setDetailsExpanded(true)}
+              aria-expanded={false}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700/80 bg-[#121314] px-3 py-1.5 font-mono text-xs font-semibold text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66] transition cursor-pointer"
             >
-              Kein Cover – Klicken
+              Details ausklappen ▾
             </button>
-          ) : (
-            <div className="flex h-full w-full items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-wider text-zinc-600">
-              kein Cover
-            </div>
-          )}
-          <PlatinumUnlockedBadge active={platinumDone} />
-          <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none">
-            <GuideOnlineBadge game={gameForPublication} visible={isAdmin} size="md" />
           </div>
-          {isAdmin ? (
-            <div className="absolute top-2.5 right-2.5 z-10 flex flex-col items-end gap-1">
-              {gameCover ? (
-                <button
-                  type="button"
-                  onClick={handleClearCover}
-                  disabled={coverBusy}
-                  title="Cover löschen und status.igdb entfernen"
-                  className="rounded-lg border border-red-500/40 bg-black/75 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-red-300 hover:bg-red-500/20 disabled:opacity-50"
-                >
-                  {coverBusy ? '…' : 'Löschen'}
-                </button>
-              ) : null}
+        ) : (
+          <>
+            <div className="flex flex-col md:flex-row flex-wrap md:flex-nowrap gap-8 items-start">
+              <div className="w-full md:w-64 flex-shrink-0 flex flex-col gap-2">
+                <div className="relative w-full aspect-[3/4] rounded-xl overflow-hidden shadow-2xl border border-zinc-800 bg-[#121314]">
+                  {gameCover ? (
+                    <img
+                      src={gameCover}
+                      onClick={
+                        isAdmin
+                          ? () => {
+                              setCoverError('');
+                              setIgdbPrompt(true);
+                            }
+                          : undefined
+                      }
+                      title={isAdmin ? 'Klicken, um Cover-Link zu ändern' : undefined}
+                      className={`w-full h-full object-cover ${isAdmin ? 'cursor-pointer transition hover:opacity-90' : ''}`}
+                      alt="Game Cover"
+                    />
+                  ) : isAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCoverError('');
+                        setIgdbPrompt(true);
+                      }}
+                      className="flex h-full w-full cursor-pointer items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-wider text-zinc-400 transition hover:bg-zinc-900/80 hover:text-[#00ff66]"
+                    >
+                      Kein Cover – Klicken
+                    </button>
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-wider text-zinc-600">
+                      kein Cover
+                    </div>
+                  )}
+                  <PlatinumUnlockedBadge active={platinumDone} />
+                  <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none">
+                    <GuideOnlineBadge game={gameForPublication} visible={isAdmin} size="md" />
+                  </div>
+                  {isAdmin ? (
+                    <div className="absolute top-2.5 right-2.5 z-10 flex flex-col items-end gap-1">
+                      <button
+                        type="button"
+                        onClick={handleClearCover}
+                        disabled={coverBusy || !gameCover}
+                        title="Falsches Cover löschen und status.igdb entfernen"
+                        className="rounded-lg border border-red-500/40 bg-black/80 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-red-300 hover:bg-red-500/20 disabled:opacity-40 cursor-pointer"
+                      >
+                        {coverBusy ? '…' : 'Cover löschen'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCoverError('');
+                          setIgdbPrompt(true);
+                        }}
+                        disabled={coverBusy}
+                        title="Neuen IGDB-Bildlink als Cover hinterlegen"
+                        className="rounded-lg border border-[#00ff66]/40 bg-black/80 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-[#00ff66] hover:bg-[#00ff66]/15 disabled:opacity-50 cursor-pointer"
+                      >
+                        IGDB Link
+                      </button>
+                    </div>
+                  ) : null}
+                  {coverError && !igdbPrompt ? (
+                    <p className="absolute inset-x-2 bottom-2 z-10 rounded-lg bg-black/80 px-2 py-1 text-[10px] font-mono text-red-300">
+                      {coverError}
+                    </p>
+                  ) : null}
+                </div>
+
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    onClick={handleVerifyCover}
+                    disabled={coverBusy}
+                    title="Klick darauf verifiziert das Cover (setzt cover_status = 'valid')"
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-center font-mono text-[11px] font-bold transition cursor-pointer disabled:opacity-50 ${
+                      effectiveCoverStatus === 'valid'
+                        ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                        : effectiveCoverStatus === 'invalid'
+                          ? 'border-red-500/40 bg-red-500/15 text-red-300 hover:bg-red-500/25'
+                          : 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-[#00ff66]/50 hover:bg-[#00ff66]/15 hover:text-[#00ff66]'
+                    }`}
+                  >
+                    {effectiveCoverStatus === 'valid'
+                      ? '✓ cover_status: valid'
+                      : `cover_status: ${effectiveCoverStatus || 'ungeprüft'} (Klick = Verifizieren)`}
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="flex-grow w-full min-w-0 flex flex-col justify-between h-full">
+                <div>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-0 mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <span>{gameTitle}</span>
+                        {isAdmin ? (
+                          <AdminGameTypeSelect
+                            gameId={gameUuid}
+                            gameType={String(gameForPublication?.[GAME_STRUCT.gameType] ?? '').trim()}
+                            onSaved={(gameType) =>
+                              setPublicationOverride((prev) => ({
+                                uuid: gameUuid,
+                                status: prev?.uuid === gameUuid ? prev.status : undefined,
+                                slug: prev?.uuid === gameUuid ? prev.slug : null,
+                                gameType,
+                                homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
+                              }))
+                            }
+                          />
+                        ) : null}
+                      </h2>
+                    </div>
+                    <div className="flex flex-col items-stretch sm:items-end gap-2 sm:flex-shrink-0">
+                      <WatchlistButton gameId={watchlistGameId} variant="detail" />
+                      <ShareButton title={gameTitle} />
+                      {featureHints.watchlist && onOpenHelp ? (
+                        <p className="max-w-[16rem] text-right text-[10px] leading-snug text-zinc-500">
+                          {t('hintWatchlist')}{' '}
+                          <button
+                            type="button"
+                            className="border-none bg-transparent p-0 text-[#00ff66] underline cursor-pointer"
+                            onClick={() => {
+                              markHintSeen('watchlist');
+                              onOpenHelp('watchlist');
+                            }}
+                          >
+                            {t('hintMore')}
+                          </button>
+                          {' · '}
+                          <button
+                            type="button"
+                            className="border-none bg-transparent p-0 font-mono uppercase text-zinc-400 cursor-pointer"
+                            onClick={() => markHintSeen('watchlist')}
+                          >
+                            {t('hintOk')}
+                          </button>
+                        </p>
+                      ) : null}
+                      <GuidePublishButton
+                        user={sessionUser}
+                        game={gameForPublication}
+                        gameUuid={gameUuid}
+                        guideLang={effectiveGuideLang}
+                        onGameTypeChange={(gameType) =>
+                          setPublicationOverride((prev) => ({
+                            uuid: gameUuid,
+                            status: prev?.uuid === gameUuid ? prev.status : undefined,
+                            slug: prev?.uuid === gameUuid ? prev.slug : null,
+                            gameType,
+                            homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
+                          }))
+                        }
+                        onPublishedChange={(status, extra) =>
+                          setPublicationOverride((prev) => ({
+                            uuid: gameUuid,
+                            status,
+                            slug: extra?.slug ?? null,
+                            gameType: extra?.gameType || (prev?.uuid === gameUuid ? prev.gameType : null),
+                            homeTags: Array.isArray(extra?.homeTags)
+                              ? extra.homeTags
+                              : (prev?.uuid === gameUuid ? prev.homeTags : undefined),
+                          }))
+                        }
+                      />
+                      <AdminFollowupButton user={sessionUser} gameId={gameUuid} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 gap-x-4 sm:gap-x-8 w-full max-w-xl min-w-0 text-sm border-t border-zinc-800/60 pt-3">
+                    <div className="flex justify-between border-b border-zinc-800/40 pb-2 sm:col-span-2">
+                      <span className="text-zinc-500 font-mono text-xs uppercase">{t('searchConsole')}</span>
+                      {isAdmin ? (
+                        <AdminHardwareSelect
+                          gameId={gameUuid}
+                          hardware={selectedGame[GAME_FIELDS.console]}
+                          onSaved={(hardware, urlChanged) => {
+                            const nextGame = { ...selectedGame, [GAME_STRUCT.hardware]: hardware };
+                            onGameChange?.({ [GAME_STRUCT.hardware]: hardware });
+                            if (!urlChanged) return;
+                            const nextPath = gameGuidePath(nextGame, globalLocale);
+                            if (!nextPath || nextPath === '/') return;
+                            writeAppPath(withGuideTabParam(nextPath, activeTab), { replace: true });
+                          }}
+                        />
+                      ) : (
+                        <span className="text-sky-300 font-semibold text-right">
+                          {selectedGame[GAME_FIELDS.console] || '—'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex justify-between border-b border-zinc-800/40 pb-2">
+                      <span className="text-zinc-500 font-mono text-xs uppercase">{t('releaseYear')}</span>
+                      <span className="text-zinc-200 font-medium">
+                        {selectedGame[GAME_FIELDS.year] || '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2 sm:col-span-1">
+                      <span className="text-zinc-500 font-mono text-xs uppercase">{t('searchGenre')}</span>
+                      <span className="text-zinc-200 font-medium">
+                        {selectedGame[GAME_FIELDS.genre] || '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
+                      <span className="text-zinc-500 font-mono text-xs uppercase">{t('studioLabel')}</span>
+                      <span className="text-zinc-200 font-medium">
+                        {studioCredits.studio || '—'}
+                      </span>
+                    </div>
+                    {studioCredits.publisher ? (
+                      <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
+                        <span className="text-zinc-500 font-mono text-xs uppercase">{t('publisherLabel')}</span>
+                        <span className="text-zinc-200 font-medium">
+                          {studioCredits.publisher}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {(descriptionParagraphs.length > 0 || (isAdmin && !trophiesOnly)) ? (
+                    <div className="mt-4 border-t border-zinc-800/60 pt-4">
+                      {isAdmin && !trophiesOnly && !editingDescription ? (
+                        <div className="mb-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={handleStartEditDescription}
+                            className="rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
+                          >
+                            {trimmedDescription ? 'Beschreibung bearbeiten' : '+ Beschreibung hinzufügen'}
+                          </button>
+                        </div>
+                      ) : null}
+
+                      {editingDescription ? (
+                        <div className="space-y-3">
+                          <textarea
+                            value={descriptionDraft}
+                            onChange={(e) => setDescriptionDraft(e.target.value)}
+                            rows={6}
+                            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm leading-relaxed text-zinc-200"
+                            placeholder="Spielbeschreibung…"
+                          />
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingDescription(false)}
+                              disabled={savingDescription}
+                              className="rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider text-zinc-400"
+                            >
+                              Abbrechen
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSaveDescription}
+                              disabled={savingDescription}
+                              className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-[#00ff66]"
+                            >
+                              {savingDescription ? '…' : 'Speichern'}
+                            </button>
+                          </div>
+                          {descriptionError ? (
+                            <p className="text-xs text-red-400">{descriptionError}</p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <>
+                          {descriptionParagraphs.length > 0 ? (
+                            <div className="space-y-2.5 text-sm leading-relaxed text-zinc-300">
+                              {descriptionParagraphs.map((paragraph, index) => (
+                                <p key={index}>{paragraph}</p>
+                              ))}
+                            </div>
+                          ) : isAdmin && !trophiesOnly ? (
+                            <p className="text-sm italic text-zinc-500">
+                              Noch keine Beschreibung für diese Sprache.
+                            </p>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end border-t border-zinc-800/60 pt-3">
               <button
                 type="button"
-                onClick={() => {
-                  setCoverError('');
-                  setIgdbPrompt(true);
-                }}
-                disabled={coverBusy}
-                title="Neuen IGDB-Bildlink als Cover setzen"
-                className="rounded-lg border border-[#00ff66]/40 bg-black/75 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-[#00ff66] hover:bg-[#00ff66]/15 disabled:opacity-50"
+                onClick={() => setDetailsExpanded(false)}
+                aria-expanded={true}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-[#121314] px-3 py-1.5 font-mono text-xs font-semibold text-zinc-400 hover:border-zinc-700 hover:text-zinc-200 transition cursor-pointer"
               >
-                IGDB-Link
+                Details einklappen ▴
               </button>
             </div>
-          ) : null}
-          {coverError && !igdbPrompt ? (
-            <p className="absolute inset-x-2 bottom-2 z-10 rounded-lg bg-black/80 px-2 py-1 text-[10px] font-mono text-red-300">
-              {coverError}
-            </p>
-          ) : null}
-        </div>
+          </>
+        )}
+
         {igdbPrompt ? (
           <div
             className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4"
@@ -1411,140 +1768,6 @@ function GamePageContent({
             </form>
           </div>
         ) : null}
-
-        <div className="flex-grow w-full min-w-0 flex flex-col justify-between h-full pt-2">
-          <div>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <span className="inline-flex items-center rounded-md border border-[#00ff66]/20 bg-[#00ff66]/10 px-2.5 py-1 font-mono text-sm font-bold uppercase tracking-wider text-[#00ff66]">
-                  {t('platinGuide')}
-                </span>
-                <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-2 mb-6 flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <span>{gameTitle}</span>
-                  {isAdmin ? (
-                    <AdminGameTypeSelect
-                      gameId={gameUuid}
-                      gameType={String(gameForPublication?.[GAME_STRUCT.gameType] ?? '').trim()}
-                      onSaved={(gameType) =>
-                        setPublicationOverride((prev) => ({
-                          uuid: gameUuid,
-                          status: prev?.uuid === gameUuid ? prev.status : undefined,
-                          slug: prev?.uuid === gameUuid ? prev.slug : null,
-                          gameType,
-                          homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
-                        }))
-                      }
-                    />
-                  ) : null}
-                </h2>
-              </div>
-              <div className="flex flex-col items-stretch sm:items-end gap-2 sm:flex-shrink-0 sm:mt-1">
-                <WatchlistButton gameId={watchlistGameId} variant="detail" />
-                <ShareButton title={gameTitle} />
-                {featureHints.watchlist && onOpenHelp ? (
-                  <p className="max-w-[16rem] text-right text-[10px] leading-snug text-zinc-500">
-                    {t('hintWatchlist')}{' '}
-                    <button
-                      type="button"
-                      className="border-none bg-transparent p-0 text-[#00ff66] underline cursor-pointer"
-                      onClick={() => {
-                        markHintSeen('watchlist');
-                        onOpenHelp('watchlist');
-                      }}
-                    >
-                      {t('hintMore')}
-                    </button>
-                    {' · '}
-                    <button
-                      type="button"
-                      className="border-none bg-transparent p-0 font-mono uppercase text-zinc-400 cursor-pointer"
-                      onClick={() => markHintSeen('watchlist')}
-                    >
-                      {t('hintOk')}
-                    </button>
-                  </p>
-                ) : null}
-                <GuidePublishButton
-                  user={sessionUser}
-                  game={gameForPublication}
-                  gameUuid={gameUuid}
-                  guideLang={effectiveGuideLang}
-                  onGameTypeChange={(gameType) =>
-                    setPublicationOverride((prev) => ({
-                      uuid: gameUuid,
-                      status: prev?.uuid === gameUuid ? prev.status : undefined,
-                      slug: prev?.uuid === gameUuid ? prev.slug : null,
-                      gameType,
-                      homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
-                    }))
-                  }
-                  onPublishedChange={(status, extra) =>
-                    setPublicationOverride((prev) => ({
-                      uuid: gameUuid,
-                      status,
-                      slug: extra?.slug ?? null,
-                      gameType: extra?.gameType || (prev?.uuid === gameUuid ? prev.gameType : null),
-                      homeTags: Array.isArray(extra?.homeTags)
-                        ? extra.homeTags
-                        : (prev?.uuid === gameUuid ? prev.homeTags : undefined),
-                    }))
-                  }
-                />
-                <AdminFollowupButton user={sessionUser} gameId={gameUuid} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-4 sm:gap-x-8 w-full max-w-xl min-w-0 text-sm border-t border-zinc-800/60 pt-4">
-              <div className="flex justify-between border-b border-zinc-800/40 pb-2 sm:col-span-2">
-                <span className="text-zinc-500 font-mono text-xs uppercase">{t('searchConsole')}</span>
-                {isAdmin ? (
-                  <AdminHardwareSelect
-                    gameId={gameUuid}
-                    hardware={selectedGame[GAME_FIELDS.console]}
-                    onSaved={(hardware, urlChanged) => {
-                      const nextGame = { ...selectedGame, [GAME_STRUCT.hardware]: hardware };
-                      onGameChange?.({ [GAME_STRUCT.hardware]: hardware });
-                      if (!urlChanged) return;
-                      const nextPath = gameGuidePath(nextGame, globalLocale);
-                      if (!nextPath || nextPath === '/') return;
-                      writeAppPath(withGuideTabParam(nextPath, activeTab), { replace: true });
-                    }}
-                  />
-                ) : (
-                  <span className="text-sky-300 font-semibold text-right">
-                    {selectedGame[GAME_FIELDS.console] || '—'}
-                  </span>
-                )}
-              </div>
-              <div className="flex justify-between border-b border-zinc-800/40 pb-2">
-                <span className="text-zinc-500 font-mono text-xs uppercase">{t('releaseYear')}</span>
-                <span className="text-zinc-200 font-medium">
-                  {selectedGame[GAME_FIELDS.year] || '—'}
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2 sm:col-span-1">
-                <span className="text-zinc-500 font-mono text-xs uppercase">{t('searchGenre')}</span>
-                <span className="text-zinc-200 font-medium">
-                  {selectedGame[GAME_FIELDS.genre] || '—'}
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
-                <span className="text-zinc-500 font-mono text-xs uppercase">{t('studioLabel')}</span>
-                <span className="text-zinc-200 font-medium">
-                  {studioCredits.studio || '—'}
-                </span>
-              </div>
-              {studioCredits.publisher ? (
-                <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
-                  <span className="text-zinc-500 font-mono text-xs uppercase">{t('publisherLabel')}</span>
-                  <span className="text-zinc-200 font-medium">
-                    {studioCredits.publisher}
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
       </div>
 
       <AdminGameOverview
@@ -1573,6 +1796,7 @@ function GamePageContent({
         isAdmin={isAdmin && !trophiesOnly}
         gameUuid={gameUuid}
         locale={effectiveGuideLang}
+        showDescription={false}
         onDescriptionSaved={(next) =>
           setDescriptionOverrides((prev) => ({ ...prev, [effectiveGuideLang]: next }))
         }

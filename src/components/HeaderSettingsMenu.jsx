@@ -4,6 +4,12 @@ import { useLocale } from '../context/LocaleContext';
 import { localeOptions } from '../lib/uiStrings';
 import { SUPPORTED_LOCALES } from '../lib/locale';
 import { DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
+import {
+  COMPLETED_TROPHY_STYLE,
+  HOME_LAYOUT_MODE,
+  VIDEO_TIMESTAMP_LAYOUT,
+  useUserPreferences,
+} from '../lib/userPreferences';
 
 function GearIcon({ className }) {
   return (
@@ -35,11 +41,26 @@ function HeaderSettingsMenu({
 }) {
   const { t, globalLocale, setGlobalLocale, availableLocales } = useLocale();
   const { displayMode, setDisplayMode, modes } = useVisibility();
+  const {
+    homeLayoutMode,
+    videoTimestampLayout,
+    hidePlatinumedGames,
+    completedTrophyStyle,
+    hideSwipeHandles,
+    setHomeLayoutMode,
+    setVideoTimestampLayout,
+    setHidePlatinumedGames,
+    setCompletedTrophyStyle,
+    setHideSwipeHandles,
+  } = useUserPreferences();
   const [open, setOpen] = useState(false);
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
+  const [customizeMenuOpen, setCustomizeMenuOpen] = useState(false);
+  const [customizeSubSection, setCustomizeSubSection] = useState('view');
   const rootRef = useRef(null);
   const menuId = useId();
   const isDim = displayMode === modes.DIM;
+  const showSwipeHandles = !hideSwipeHandles;
 
   const languageCodes = isAdmin
     ? SUPPORTED_LOCALES
@@ -128,7 +149,7 @@ function HeaderSettingsMenu({
           id={menuId}
           role="menu"
           aria-label={t('settingsMenu')}
-          className="header-settings__menu absolute right-0 top-[calc(100%+0.4rem)] z-[80] max-h-[min(70vh,28rem)] min-w-[13.5rem] overflow-y-auto rounded-xl border border-zinc-800 bg-[#121314] py-1.5 shadow-xl shadow-black/40"
+          className="header-settings__menu absolute right-0 top-[calc(100%+0.4rem)] z-[80] max-h-[min(80vh,34rem)] min-w-[18.5rem] sm:min-w-[20.5rem] max-w-[92vw] overflow-y-auto rounded-xl border border-zinc-800 bg-[#121314] py-1.5 shadow-xl shadow-black/40"
         >
           {languageOptions.length >= 2 ? (
             <>
@@ -232,19 +253,243 @@ function HeaderSettingsMenu({
 
           <div className="my-1.5 border-t border-zinc-800" role="separator" />
 
-          {typeof onCustomizeHome === 'function' ? (
+          {/* TrophyBase individualisieren (aufklappbares Untermenü) */}
+          <div className="px-1.5">
             <button
               type="button"
-              role="menuitem"
-              className="flex w-full px-3 py-2 text-left text-xs font-semibold text-[#00ff66] hover:bg-zinc-800/80"
-              onClick={() => {
-                setOpen(false);
-                onCustomizeHome();
-              }}
+              aria-expanded={customizeMenuOpen}
+              onClick={() => setCustomizeMenuOpen((prev) => !prev)}
+              className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold transition cursor-pointer ${
+                customizeMenuOpen
+                  ? 'bg-[#00ff66]/12 text-[#00ff66]'
+                  : 'text-[#00ff66] hover:bg-zinc-800/80'
+              }`}
             >
-              {t('customizeTrophyBase')}
+              <span>TrophyBase individualisieren</span>
+              <span aria-hidden className="font-mono text-[10px]">
+                {customizeMenuOpen ? '▴' : '▾'}
+              </span>
             </button>
-          ) : null}
+
+            {customizeMenuOpen ? (
+              <div className="mt-1 mb-1.5 rounded-lg border border-zinc-800/90 bg-[#0d0e0f] p-2 space-y-2.5">
+                <div className="grid grid-cols-2 gap-1 rounded-lg bg-zinc-900/90 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setCustomizeSubSection('view')}
+                    className={`rounded-md px-2 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                      customizeSubSection === 'view'
+                        ? 'bg-[#00ff66] text-black'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    Startseiten-Ansicht
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomizeSubSection('features')}
+                    className={`rounded-md px-2 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                      customizeSubSection === 'features'
+                        ? 'bg-[#00ff66] text-black'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    Funktionen
+                  </button>
+                </div>
+
+                {customizeSubSection === 'view' ? (
+                  <div className="space-y-1">
+                    <p className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      Startseiten-Layout (Einzelauswahl)
+                    </p>
+                    {[
+                      {
+                        id: HOME_LAYOUT_MODE.RAILS,
+                        label: 'Standard (Netflix-Reihen)',
+                        hint: 'Kategorie-Schienen mit Covern',
+                      },
+                      {
+                        id: HOME_LAYOUT_MODE.TABLE,
+                        label: 'Kompakt (Daten-Tabelle)',
+                        hint: 'Schlanke Liste ohne große Bilderwand',
+                      },
+                      {
+                        id: HOME_LAYOUT_MODE.GRID,
+                        label: 'Poster-Wand (Raster)',
+                        hint: 'Dichtes Cover-Raster aller Kategorien',
+                      },
+                      {
+                        id: HOME_LAYOUT_MODE.MINIMAL,
+                        label: 'Purist (Minimal)',
+                        hint: 'Nur Suche & Watchlist',
+                      },
+                    ].map((opt) => {
+                      const active = homeLayoutMode === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={active}
+                          onClick={() => setHomeLayoutMode(opt.id)}
+                          className={`flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs transition cursor-pointer ${
+                            active
+                              ? 'bg-[#00ff66]/10 text-[#00ff66]'
+                              : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-white'
+                          }`}
+                        >
+                          <span className="mt-0.5 w-3 flex-shrink-0 font-mono" aria-hidden>
+                            {active ? '●' : '○'}
+                          </span>
+                          <span>
+                            <span className="block font-semibold">{opt.label}</span>
+                            <span className="block text-[10px] text-zinc-500">{opt.hint}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+
+                    {typeof onCustomizeHome === 'function' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpen(false);
+                          onCustomizeHome();
+                        }}
+                        className="mt-1.5 flex w-full items-center justify-between rounded-md border border-zinc-800 bg-zinc-900/70 px-2.5 py-1.5 text-left text-[11px] font-semibold text-zinc-300 hover:border-[#00ff66]/40 hover:text-white cursor-pointer"
+                      >
+                        <span>Kategorien & Reihenfolge anpassen …</span>
+                        <span aria-hidden>→</span>
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* 1. Video & Timestamps Anordnung */}
+                    <div className="space-y-1">
+                      <p className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400">
+                        1. Video & Timestamps Anordnung
+                      </p>
+                      {[
+                        {
+                          id: VIDEO_TIMESTAMP_LAYOUT.VIDEO_LEFT,
+                          label: 'Video links & Timestamps rechts',
+                        },
+                        {
+                          id: VIDEO_TIMESTAMP_LAYOUT.TIMESTAMPS_LEFT,
+                          label: 'Timestamps links & Video rechts',
+                        },
+                      ].map((opt) => {
+                        const active = videoTimestampLayout === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={active}
+                            onClick={() => setVideoTimestampLayout(opt.id)}
+                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition cursor-pointer ${
+                              active
+                                ? 'bg-[#00ff66]/10 text-[#00ff66] font-semibold'
+                                : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-white'
+                            }`}
+                          >
+                            <span className="w-3 flex-shrink-0 font-mono" aria-hidden>
+                              {active ? '●' : '○'}
+                            </span>
+                            <span>{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* 2. Platinierte Spiele ausblenden */}
+                    <div className="flex items-center justify-between gap-2 border-t border-zinc-800/80 pt-2 px-1">
+                      <span className="text-xs text-zinc-200 leading-snug">
+                        Platinierte Spiele auf Startseite/Katalog ausblenden
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={hidePlatinumedGames}
+                        onClick={() => setHidePlatinumedGames(!hidePlatinumedGames)}
+                        className={`shrink-0 rounded-md border px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                          hidePlatinumedGames
+                            ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
+                            : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        {hidePlatinumedGames ? 'An' : 'Aus'}
+                      </button>
+                    </div>
+
+                    {/* 3. Darstellung abgehakter Trophäen im Guide */}
+                    <div className="space-y-1 border-t border-zinc-800/80 pt-2">
+                      <p className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400">
+                        Darstellung abgehakter Trophäen im Guide
+                      </p>
+                      {[
+                        {
+                          id: COMPLETED_TROPHY_STYLE.CHECK,
+                          label: 'Nur abhaken',
+                        },
+                        {
+                          id: COMPLETED_TROPHY_STYLE.DIM,
+                          label: 'Ausgrauen',
+                        },
+                        {
+                          id: COMPLETED_TROPHY_STYLE.HIDE,
+                          label: 'Komplett ausblenden',
+                        },
+                      ].map((opt) => {
+                        const active = completedTrophyStyle === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={active}
+                            onClick={() => setCompletedTrophyStyle(opt.id)}
+                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition cursor-pointer ${
+                              active
+                                ? 'bg-[#00ff66]/10 text-[#00ff66] font-semibold'
+                                : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-white'
+                            }`}
+                          >
+                            <span className="w-3 flex-shrink-0 font-mono" aria-hidden>
+                              {active ? '●' : '○'}
+                            </span>
+                            <span>{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* 4. Swipe-Buttons am rechten Rand anzeigen */}
+                    <div className="flex items-center justify-between gap-2 border-t border-zinc-800/80 pt-2 px-1">
+                      <span className="text-xs text-zinc-200 leading-snug">
+                        Swipe-Buttons am Rand anzeigen
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={showSwipeHandles}
+                        onClick={() => setHideSwipeHandles(showSwipeHandles)}
+                        className={`shrink-0 rounded-md border px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                          showSwipeHandles
+                            ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
+                            : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        {showSwipeHandles ? 'An' : 'Aus'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
 
           {sessionUser || isAdmin ? (
             <a

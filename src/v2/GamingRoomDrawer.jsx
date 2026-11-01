@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isLabModeActive } from '../lib/adminAccess';
+import { HIDE_SWIPE_HANDLES_KEY, useUserPreferences } from '../lib/userPreferences';
 
 const HUB_FILTERS = {
   platinliste_v1: {
@@ -241,6 +242,7 @@ export default function GamingRoomDrawer({
   onRequestLogin,
 }) {
   const labActive = isLabModeActive(sessionUser);
+  const { hideSwipeHandles, setHideSwipeHandles } = useUserPreferences();
   const [open, setOpen] = useState(false);
   const [hubFilter, setHubFilter] = useState(null);
   const [hoveredId, setHoveredId] = useState(null);
@@ -516,6 +518,27 @@ export default function GamingRoomDrawer({
   if (!labActive) return null;
 
   const activeHub = hubFilter ? HUB_FILTERS[hubFilter] : null;
+  const swipeHandlesHidden =
+    hideSwipeHandles ||
+    (typeof window !== 'undefined' &&
+      window.localStorage?.getItem(HIDE_SWIPE_HANDLES_KEY) === '1');
+
+  const dismissSwipeHandles = (event) => {
+    event.stopPropagation();
+    try {
+      window.localStorage?.setItem(HIDE_SWIPE_HANDLES_KEY, '1');
+    } catch {
+      // ignore storage errors
+    }
+    setHideSwipeHandles(true);
+  };
+
+  const handleGroupClass =
+    'inline-flex items-center overflow-hidden rounded-l-xl md:rounded-l-2xl border border-r-0 border-[#00ff66]/50 bg-[#101412]/95 text-[#00ff66] shadow-xl shadow-black/50 backdrop-blur-md';
+  const handleMainBtnClass =
+    'px-2 py-1.5 sm:px-2.5 sm:py-2 md:px-3.5 md:py-3 lg:px-4 lg:py-3.5 font-mono text-[10px] sm:text-[11px] md:text-xs lg:text-sm font-bold tracking-wide text-[#00ff66] hover:bg-[#00ff66] hover:text-black transition cursor-pointer';
+  const handleDismissBtnClass =
+    'border-l border-[#00ff66]/25 px-1.5 py-1.5 sm:px-2 sm:py-2 md:px-2.5 md:py-3 lg:py-3.5 font-mono text-[10px] sm:text-xs md:text-sm font-bold text-zinc-400 hover:bg-red-500/20 hover:text-red-300 transition cursor-pointer';
 
   return (
     <>
@@ -526,8 +549,8 @@ export default function GamingRoomDrawer({
         }
       `}</style>
 
-      {/* STARTSEITE: Links -> Userbereich (Swipe nach rechts), Rechts -> Gaming Room (Swipe nach links), beide 10% über Bildschirmende */}
-      {isHomeView && !open ? (
+      {/* STARTSEITE: Beide Swipe-Handles am rechten Bildschirmrand untereinander gruppiert */}
+      {isHomeView && !open && !swipeHandlesHidden ? (
         <>
           <div
             aria-hidden="false"
@@ -537,16 +560,8 @@ export default function GamingRoomDrawer({
             onPointerCancel={() => {
               leftEdgePointerRef.current = null;
             }}
-            className="fixed left-0 top-16 bottom-0 z-[54] w-5 sm:w-7 touch-pan-y select-none"
-          >
-            <button
-              type="button"
-              onClick={openUserArea}
-              className="fixed left-0 bottom-[10%] z-[55] rounded-r-2xl border border-l-0 border-[#00ff66]/50 bg-[#101412]/95 px-2.5 py-3 font-mono text-[11px] font-bold tracking-wide text-[#00ff66] shadow-xl shadow-black/50 backdrop-blur-md hover:bg-[#00ff66] hover:text-black cursor-pointer"
-            >
-              Swipe → 🏆 Userbereich
-            </button>
-          </div>
+            className="fixed left-0 top-16 bottom-0 z-[54] w-4 sm:w-6 touch-pan-y select-none"
+          />
 
           <div
             aria-hidden="false"
@@ -556,21 +571,53 @@ export default function GamingRoomDrawer({
             onPointerCancel={() => {
               rightEdgePointerRef.current = null;
             }}
-            className="fixed right-0 top-16 bottom-0 z-[54] w-5 sm:w-7 touch-pan-y select-none"
-          >
-            <button
-              type="button"
-              onClick={openRoom}
-              className="fixed right-0 bottom-[10%] z-[55] rounded-l-2xl border border-r-0 border-[#00ff66]/50 bg-[#101412]/95 px-2.5 py-3 font-mono text-[11px] font-bold tracking-wide text-[#00ff66] shadow-xl shadow-black/50 backdrop-blur-md hover:bg-[#00ff66] hover:text-black cursor-pointer"
-            >
-              🕹️ Gaming Room ← Swipe
-            </button>
+            className="fixed right-0 top-16 bottom-0 z-[54] w-4 sm:w-6 touch-pan-y select-none"
+          />
+
+          <div className="fixed right-0 bottom-[10%] z-[55] flex flex-col items-end gap-2">
+            <div className={handleGroupClass}>
+              <button
+                type="button"
+                onClick={openUserArea}
+                className={handleMainBtnClass}
+              >
+                🏆 Userbereich ← Swipe
+              </button>
+              <button
+                type="button"
+                onClick={dismissSwipeHandles}
+                aria-label="Swipe-Buttons ausblenden"
+                title="Swipe-Buttons am Rand ausblenden"
+                className={handleDismissBtnClass}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={handleGroupClass}>
+              <button
+                type="button"
+                onClick={openRoom}
+                className={handleMainBtnClass}
+              >
+                🕹️ Gaming Room ← Swipe
+              </button>
+              <button
+                type="button"
+                onClick={dismissSwipeHandles}
+                aria-label="Swipe-Buttons ausblenden"
+                title="Swipe-Buttons am Rand ausblenden"
+                className={handleDismissBtnClass}
+              >
+                ×
+              </button>
+            </div>
           </div>
         </>
       ) : null}
 
       {/* USERBEREICH: Zurück zur Startseite per Swipe nach links */}
-      {isProfileView && !open ? (
+      {isProfileView && !open && !swipeHandlesHidden ? (
         <div
           aria-hidden="false"
           onPointerDown={handleRightEdgePointerDown}
@@ -579,15 +626,26 @@ export default function GamingRoomDrawer({
           onPointerCancel={() => {
             rightEdgePointerRef.current = null;
           }}
-          className="fixed right-0 top-16 bottom-0 z-[54] w-5 sm:w-7 touch-pan-y select-none"
+          className="fixed right-0 top-16 bottom-0 z-[54] w-4 sm:w-6 touch-pan-y select-none"
         >
-          <button
-            type="button"
-            onClick={goBackToHome}
-            className="fixed right-0 bottom-[10%] z-[55] rounded-l-2xl border border-r-0 border-[#00ff66]/50 bg-[#101412]/95 px-2.5 py-3 font-mono text-[11px] font-bold tracking-wide text-[#00ff66] shadow-xl shadow-black/50 backdrop-blur-md hover:bg-[#00ff66] hover:text-black cursor-pointer"
-          >
-            🏠 Startseite ← Swipe
-          </button>
+          <div className={`fixed right-0 bottom-[10%] z-[55] ${handleGroupClass}`}>
+            <button
+              type="button"
+              onClick={goBackToHome}
+              className={handleMainBtnClass}
+            >
+              🏠 Startseite ← Swipe
+            </button>
+            <button
+              type="button"
+              onClick={dismissSwipeHandles}
+              aria-label="Swipe-Buttons ausblenden"
+              title="Swipe-Buttons am Rand ausblenden"
+              className={handleDismissBtnClass}
+            >
+              ×
+            </button>
+          </div>
         </div>
       ) : null}
 

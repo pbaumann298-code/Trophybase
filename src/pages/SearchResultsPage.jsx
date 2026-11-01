@@ -8,6 +8,7 @@ import { gameGuidePath } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
 import { useVisibility } from '../context/VisibilityContext';
 import { GameCoverOverlays } from '../components/GameTile';
+import AdminCoverInspector from '../components/AdminCoverInspector';
 import '../styles/home.css';
 
 const FADE_MS = 280;
@@ -26,7 +27,9 @@ function SearchResultRow({
   const [dismissed, setDismissed] = useState(false);
   const [draftBusy, setDraftBusy] = useState(false);
   const [draftError, setDraftError] = useState('');
-  const gameUuid = getGameUuid(game);
+  const [localGamePatch, setLocalGamePatch] = useState(null);
+  const effectiveGame = localGamePatch ? { ...game, ...localGamePatch } : game;
+  const gameUuid = getGameUuid(effectiveGame);
   const entry = gameUuid
     ? getEntryState(gameKey(gameUuid), { completed: false })
     : { visible: true, dimmed: false };
@@ -34,19 +37,19 @@ function SearchResultRow({
   if (dismissed && !exiting) return null;
   if (!entry.visible && !exiting) return null;
 
-  const title = getGameTitle(game, globalLocale);
-  const cover = getGameCover(game, globalLocale);
-  const href = gameGuidePath(game, globalLocale);
-  const credits = publicStudioCredits(game);
-  const watchlistId = gameUuid || getRouteSlug(game);
-  const isDraftRoadmap = Boolean(isAdmin && isGameDraftMode(game));
+  const title = getGameTitle(effectiveGame, globalLocale);
+  const cover = getGameCover(effectiveGame, globalLocale);
+  const href = gameGuidePath(effectiveGame, globalLocale);
+  const credits = publicStudioCredits(effectiveGame);
+  const watchlistId = gameUuid || getRouteSlug(effectiveGame);
+  const isDraftRoadmap = Boolean(isAdmin && isGameDraftMode(effectiveGame));
 
   const handleRowClick = (e) => {
     e.preventDefault();
     if (isDraftRoadmap) {
-      openGame(game, { preferGuideTab: true });
+      openGame(effectiveGame, { preferGuideTab: true });
     } else {
-      openGame(game);
+      openGame(effectiveGame);
     }
   };
 
@@ -56,7 +59,7 @@ function SearchResultRow({
     if (!onToggleDraftMode || draftBusy) return;
     setDraftBusy(true);
     setDraftError('');
-    const res = await onToggleDraftMode(game);
+    const res = await onToggleDraftMode(effectiveGame);
     setDraftBusy(false);
     if (res?.error) {
       setDraftError(res.error.message || 'Fehler beim Umschalten');
@@ -77,26 +80,35 @@ function SearchResultRow({
       } ${entry.dimmed && !exiting ? 'opacity-40' : ''}`}
       style={{ transitionDuration: `${FADE_MS}ms` }}
     >
-      <div className="relative group w-24 h-32 flex-shrink-0 rounded-lg overflow-hidden shadow-lg border border-zinc-800">
-        {cover ? (
-          <img src={cover} className="w-full h-full object-cover" alt="" />
-        ) : (
-          <div className="w-full h-full bg-[#121314]" aria-hidden />
-        )}
-        <GameCoverOverlays
-          gameId={gameUuid}
-          game={game}
-          isAdmin={isAdmin}
-          size="sm"
-          onRequestLogin={onRequestLogin}
-          onHideStart={() => {
-            setExiting(true);
-            window.setTimeout(() => {
-              setExiting(false);
-              setDismissed(true);
-            }, FADE_MS);
-          }}
-        />
+      <div className="flex flex-col gap-1.5 flex-shrink-0 w-28">
+        <div className="relative group w-28 h-36 rounded-lg overflow-hidden shadow-lg border border-zinc-800">
+          {cover ? (
+            <img src={cover} className="w-full h-full object-cover" alt="" />
+          ) : (
+            <div className="w-full h-full bg-[#121314]" aria-hidden />
+          )}
+          <GameCoverOverlays
+            gameId={gameUuid}
+            game={effectiveGame}
+            isAdmin={isAdmin}
+            size="sm"
+            onRequestLogin={onRequestLogin}
+            onHideStart={() => {
+              setExiting(true);
+              window.setTimeout(() => {
+                setExiting(false);
+                setDismissed(true);
+              }, FADE_MS);
+            }}
+          />
+        </div>
+        {isAdmin && gameUuid ? (
+          <AdminCoverInspector
+            game={effectiveGame}
+            hideThumb
+            onUpdated={(patch) => setLocalGamePatch((prev) => ({ ...(prev || {}), ...patch }))}
+          />
+        ) : null}
       </div>
 
       <div className="flex-1 min-w-0 flex flex-col h-full justify-between pt-1">

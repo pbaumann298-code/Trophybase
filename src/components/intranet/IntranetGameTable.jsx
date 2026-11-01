@@ -4,6 +4,7 @@ import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { getPlatformGameIds } from '../../lib/gameModel';
 import { GAME_FK, GAME_TYPE, TABLES } from '../../lib/gameSchema';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
+import AdminCoverInspector from '../AdminCoverInspector';
 import { formatIntranetTitles, intranetGameHref } from '../../lib/intranetQueries';
 import {
   embedCount,
@@ -307,6 +308,7 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts }) 
         <table className="min-w-full text-left text-xs">
           <thead className="bg-[#121314] text-[10px] font-mono uppercase tracking-wider text-zinc-500">
             <tr>
+              <th className="px-3 py-2.5 font-medium">cover / cover_status</th>
               <th className="px-3 py-2.5 font-medium">spieltitel</th>
               <th className="px-3 py-2.5 font-medium">ecosystem</th>
               <th className="px-3 py-2.5 font-medium">hardware</th>
@@ -335,6 +337,13 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts }) 
               const statusEntries = listPipelineStatusEntries(game.status);
               return (
                 <tr key={game.id} className="border-t border-zinc-800/80 odd:bg-[#1a1b1c] even:bg-[#161718] align-top">
+                  <td className="px-3 py-2">
+                    <AdminCoverInspector
+                      game={game}
+                      size="sm"
+                      onUpdated={(partial) => patch(game.id, partial)}
+                    />
+                  </td>
                   <td className="px-3 py-2 text-zinc-200 max-w-[18rem]">{formatIntranetTitles(game.spieltitel)}</td>
                   <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.ecosystem || '—'}</td>
                   <td className="px-3 py-2 text-sky-300 whitespace-nowrap">{game.hardware || '—'}</td>

@@ -5,10 +5,12 @@ import { isGameDraftMode } from '../lib/guidePublication';
 import { useLocale } from '../context/LocaleContext';
 import { useVisibility } from '../context/VisibilityContext';
 import { usePlatinumStatus } from '../context/PlatinumStatusContext';
+import { useUserPreferences } from '../lib/userPreferences';
 import { pushGameHiddenToCloud } from '../lib/gameHiddenCloudBridge';
 import { trophyTypeIcon, TROPHY_TYPE } from '../lib/trophyTypes';
 import WatchlistButton from './WatchlistButton';
 import GuideOnlineBadge from './GuideOnlineBadge';
+import AdminCoverInspector from './AdminCoverInspector';
 
 const FADE_MS = 280;
 
@@ -142,10 +144,14 @@ function GameTile({
 }) {
   const { globalLocale } = useLocale();
   const { getEntryState, gameKey } = useVisibility();
+  const { isPlatinum } = usePlatinumStatus();
+  const { hidePlatinumedGames } = useUserPreferences();
   const gameId = getGameUuid(game);
-  const title = getGameTitle(game, globalLocale);
-  const cover = getGameCover(game, globalLocale);
-  const consoleLabel = game?.[GAME_FIELDS.console] ?? '';
+  const [localGamePatch, setLocalGamePatch] = useState(null);
+  const effectiveGame = localGamePatch ? { ...game, ...localGamePatch } : game;
+  const title = getGameTitle(effectiveGame, globalLocale);
+  const cover = getGameCover(effectiveGame, globalLocale);
+  const consoleLabel = effectiveGame?.[GAME_FIELDS.console] ?? '';
   const visKey = gameKey(gameId || '');
   const entry = gameId ? getEntryState(visKey, { completed: false }) : { visible: true, dimmed: false };
   const [exiting, setExiting] = useState(false);
@@ -153,6 +159,7 @@ function GameTile({
 
   if (dismissed && !exiting) return null;
   if (!entry.visible && !exiting) return null;
+  if (hidePlatinumedGames && gameId && isPlatinum(gameId)) return null;
 
   const handleHideStart = () => {
     setExiting(true);
@@ -181,7 +188,7 @@ function GameTile({
         {showOverlays ? (
           <GameCoverOverlays
             gameId={gameId}
-            game={game}
+            game={effectiveGame}
             isAdmin={isAdmin}
             onRequestLogin={onRequestLogin}
             onHideStart={handleHideStart}
@@ -190,10 +197,19 @@ function GameTile({
         <div className="home-tile-shine" aria-hidden />
       </div>
       <div className="home-tile-meta">
+        {isAdmin && gameId ? (
+          <div className="mb-1.5 w-full">
+            <AdminCoverInspector
+              game={effectiveGame}
+              hideThumb
+              onUpdated={(patch) => setLocalGamePatch((prev) => ({ ...(prev || {}), ...patch }))}
+            />
+          </div>
+        ) : null}
         <p className="home-tile-title" title={title}>
           {title}
         </p>
-        {isAdmin && isGameDraftMode(game) ? (
+        {isAdmin && isGameDraftMode(effectiveGame) ? (
           <span
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-400/50"
             title="Video-Roadmap (Entwurf)"

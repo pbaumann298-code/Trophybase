@@ -23,9 +23,10 @@ function GameSeoInfobox({
   gameUuid = '',
   locale = '',
   onDescriptionSaved,
+  showDescription = true,
 }) {
   const { globalLocale, t } = useLocale();
-  const text = typeof description === 'string' ? description.trim() : '';
+  const text = showDescription && typeof description === 'string' ? description.trim() : '';
   const list = (Array.isArray(creators) ? creators : [creator]).filter(Boolean);
   const names = [...new Set(list.map((item) => String(item.channelName ?? '').trim()).filter(Boolean))];
   const withYoutube = list.filter((item) => String(item.youtubeUrl ?? '').trim());
@@ -66,7 +67,7 @@ function GameSeoInfobox({
     setError('');
   }, [gameUuid, locale]);
 
-  if (!text && !credit && withYoutube.length === 0 && !isAdmin) return null;
+  if (!text && !credit && withYoutube.length === 0 && !(showDescription && isAdmin)) return null;
 
   const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
 
@@ -97,89 +98,83 @@ function GameSeoInfobox({
 
   return (
     <section
-      className="relative mb-8 overflow-hidden rounded-2xl border border-zinc-800/80 bg-gradient-to-br from-[#1a1b1c] via-[#161718] to-[#121314] p-6 md:p-8 shadow-xl"
-      aria-label="Spielbeschreibung"
+      className="mb-8 rounded-2xl border border-white/10 bg-zinc-900/60 p-5 md:p-6 shadow-none"
+      aria-label={showDescription ? 'Spielbeschreibung' : 'Content Creator'}
     >
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.07]"
-        style={{
-          backgroundImage:
-            'repeating-linear-gradient(-45deg, transparent, transparent 8px, #00ff66 8px, #00ff66 9px)',
-        }}
-      />
-      <div className="pointer-events-none absolute -left-24 -top-24 h-48 w-48 rounded-full bg-[#00ff66]/5 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-16 -right-16 h-40 w-40 rounded-full bg-emerald-500/5 blur-3xl" />
-
-      <div className="relative border-l-2 border-[#00ff66]/40 pl-5 md:pl-6">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-sm border border-[#00ff66]/20 bg-[#00ff66]/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66]">
-            <span aria-hidden="true">◆</span> Guide-Info
-          </span>
-          {title && (
-            <h3 className="text-sm font-bold tracking-tight text-zinc-200 md:text-base">
-              {title}
-            </h3>
-          )}
-          {isAdmin && !editing ? (
-            <button
-              type="button"
-              onClick={startEdit}
-              className="ml-auto rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
-            >
-              {text ? 'Beschreibung bearbeiten' : '+ Beschreibung hinzufügen'}
-            </button>
-          ) : null}
-        </div>
-
-        {editing ? (
-          <div className="space-y-3">
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={8}
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm leading-relaxed text-zinc-200"
-              placeholder="Spielbeschreibung…"
-            />
-            <div className="flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                disabled={saving}
-                className="rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider text-zinc-400"
-              >
-                Abbrechen
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
-                className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-[#00ff66]"
-              >
-                {saving ? '…' : 'Speichern'}
-              </button>
-            </div>
-            {error ? <p className="text-xs text-red-400">{error}</p> : null}
-          </div>
-        ) : (
+      <div>
+        {showDescription ? (
           <>
-            {paragraphs.length > 0 && (
-              <div className="space-y-3 text-sm leading-relaxed text-zinc-300 md:text-[15px]">
-                {paragraphs.map((paragraph, index) => (
-                  <p key={index}>{paragraph}</p>
-                ))}
-              </div>
-            )}
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-sm border border-[#00ff66]/20 bg-[#00ff66]/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66]">
+                <span aria-hidden="true">◆</span> Guide-Info
+              </span>
+              {title && (
+                <h3 className="text-sm font-bold tracking-tight text-zinc-200 md:text-base">
+                  {title}
+                </h3>
+              )}
+              {isAdmin && !editing ? (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="ml-auto rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
+                >
+                  {text ? 'Beschreibung bearbeiten' : '+ Beschreibung hinzufügen'}
+                </button>
+              ) : null}
+            </div>
 
-            {!text && isAdmin ? (
-              <p className="text-sm italic text-zinc-500">Noch keine Beschreibung für diese Sprache.</p>
-            ) : null}
+            {editing ? (
+              <div className="space-y-3">
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  rows={8}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm leading-relaxed text-zinc-200"
+                  placeholder="Spielbeschreibung…"
+                />
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditing(false)}
+                    disabled={saving}
+                    className="rounded-lg border border-zinc-700 px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider text-zinc-400"
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-[#00ff66]"
+                  >
+                    {saving ? '…' : 'Speichern'}
+                  </button>
+                </div>
+                {error ? <p className="text-xs text-red-400">{error}</p> : null}
+              </div>
+            ) : (
+              <>
+                {paragraphs.length > 0 && (
+                  <div className="space-y-3 text-sm leading-relaxed text-zinc-300 md:text-[15px]">
+                    {paragraphs.map((paragraph, index) => (
+                      <p key={index}>{paragraph}</p>
+                    ))}
+                  </div>
+                )}
+
+                {!text && isAdmin ? (
+                  <p className="text-sm italic text-zinc-500">Noch keine Beschreibung für diese Sprache.</p>
+                ) : null}
+              </>
+            )}
           </>
-        )}
+        ) : null}
 
         {(credit || withYoutube.length > 0) && !editing && (
-          <div className={paragraphs.length > 0 || (!text && isAdmin) ? 'mt-5 pt-5 border-t border-zinc-800/80' : ''}>
+          <div className={showDescription && (paragraphs.length > 0 || (!text && isAdmin)) ? 'mt-5 pt-5 border-t border-white/10' : ''}>
             {credit ? (
-              <p className="text-sm leading-relaxed text-white">{credit}</p>
+              <p className="text-sm leading-relaxed text-zinc-200">{credit}</p>
             ) : null}
             {withYoutube.length > 0 ? (
               <div className={`flex flex-wrap gap-2 ${credit ? 'mt-4' : ''}`}>

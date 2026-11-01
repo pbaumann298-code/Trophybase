@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { TABLES, GAME_FK, GAME_PK, GAME_STRUCT, GAME_TYPE, parseGameTypes, resolveSheetTypes } from '../../lib/gameSchema';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
+import AdminCoverInspector from '../AdminCoverInspector';
 import { getYouTubeEmbedUrl, parseTimecodeToSeconds, buildVideoUrlWithTimestamp } from '../../utils/videoUrl';
 import {
   GUIDE_PUBLICATION,
@@ -31,7 +32,7 @@ import { localeOptions } from '../../lib/uiStrings';
 const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
 const MAX_VISIBLE_QUEUE_GAMES = 10;
 const GAMES_QUEUE_SELECT_COLS =
-  'id, platform_game_id, slug, status, publishing_status, published_locales, fortschritt, is_guide_locked, guide_typ, spieltitel, cover_url, publisher, entwickler, spiel_typ, anzahl_trophaeen';
+  'id, platform_game_id, slug, status, publishing_status, published_locales, fortschritt, is_guide_locked, guide_typ, spieltitel, cover_url, cover_status, publisher, entwickler, spiel_typ, anzahl_trophaeen';
 
 function isGameAlreadyPublishedOrLocked(game) {
   if (!game) return false;
@@ -4760,7 +4761,20 @@ export default function IntranetDrafts({
                   {/* Header Top: Cover + Game Details + Video Player */}
                   <div className="flex flex-wrap sm:flex-nowrap gap-4 items-start justify-between">
                     <div className="flex items-start gap-3 min-w-0 flex-1">
-                      {getLocalizedCover(selectedGame.cover_url) ? (
+                      {!isCreatorMode ? (
+                        <AdminCoverInspector
+                          game={selectedGame}
+                          size="md"
+                          onUpdated={(patch) => {
+                            setGamesMap((prev) => {
+                              const next = new Map(prev);
+                              const current = next.get(selectedGame.id);
+                              if (current) next.set(selectedGame.id, { ...current, ...patch });
+                              return next;
+                            });
+                          }}
+                        />
+                      ) : getLocalizedCover(selectedGame.cover_url) ? (
                         <img
                           src={getLocalizedCover(selectedGame.cover_url)}
                           alt="Cover"

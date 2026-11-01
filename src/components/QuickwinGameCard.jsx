@@ -22,11 +22,14 @@ import { fetchGameGuideBundle } from '../lib/guideQueries';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
   clearGameGuideTips,
+  clearIntranetCover,
+  markGameCoverValid,
   saveTrophyGuideTip,
   saveTrophyGuideTipLong,
   saveTrophyVideo,
   setAchievementFlags,
   setAchievementsOnline,
+  setIntranetIgdbCover,
 } from '../lib/intranetGameEdits';
 import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
 import {
@@ -128,6 +131,67 @@ function QuickwinGameCard({
   const [onlinePickMode, setOnlinePickMode] = useState(false);
   const [onlinePickIds, setOnlinePickIds] = useState(() => new Set());
   const [onlinePickBusy, setOnlinePickBusy] = useState(false);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverError, setCoverError] = useState('');
+  const [igdbPrompt, setIgdbPrompt] = useState(false);
+  const [igdbLink, setIgdbLink] = useState('');
+
+  const handleClearCover = async () => {
+    if (!gameUuid || coverBusy) return;
+    if (!window.confirm('Cover wirklich löschen? Der IGDB-Status wird dabei mit entfernt.')) return;
+    setCoverBusy(true);
+    setCoverError('');
+    const { status, error } = await clearIntranetCover(supabase, gameUuid);
+    setCoverBusy(false);
+    if (error) {
+      setCoverError(error.message || 'Cover konnte nicht gelöscht werden.');
+      return;
+    }
+    setDetailGame((prev) => ({
+      ...prev,
+      cover_url: {},
+      cover_status: null,
+      ...(status ? { status } : {}),
+    }));
+  };
+
+  const handleSaveIgdbLink = async (event) => {
+    event.preventDefault();
+    if (!gameUuid || coverBusy) return;
+    setCoverBusy(true);
+    setCoverError('');
+    const { coverUrl, coverMap, status, error } = await setIntranetIgdbCover(
+      supabase,
+      gameUuid,
+      igdbLink,
+    );
+    setCoverBusy(false);
+    if (error) {
+      setCoverError(error.message || 'IGDB-Link konnte nicht gespeichert werden.');
+      return;
+    }
+    setIgdbPrompt(false);
+    setIgdbLink('');
+    setDetailGame((prev) => ({
+      ...prev,
+      cover_url: coverMap || { ...(prev?.cover_url || {}), de: coverUrl, en: coverUrl },
+      cover_status: 'valid',
+      ...(status ? { status } : {}),
+    }));
+  };
+
+  const handleVerifyCover = async () => {
+    if (!gameUuid || coverBusy) return;
+    setCoverBusy(true);
+    setCoverError('');
+    const { error } = await markGameCoverValid(supabase, gameUuid);
+    setCoverBusy(false);
+    if (error) {
+      setCoverError(error.message || 'Cover-Status konnte nicht verifiziert werden.');
+      return;
+    }
+    setDetailGame((prev) => ({ ...prev, cover_status: 'valid', cover_notes: null }));
+  };
 
   useEffect(() => {
     setDetailGame(game);
@@ -375,16 +439,91 @@ function QuickwinGameCard({
     <div className="quickwin-detail">
       <article className="quickwin-card">
         <div className="quickwin-card-main">
-          <div className="quickwin-card-cover-wrap relative">
-            {cover ? (
-              <img src={cover} className="quickwin-card-cover" alt="" />
-            ) : (
-              <div className="quickwin-card-cover quickwin-card-cover--empty" aria-hidden />
-            )}
-            <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
-              <GuideOnlineBadge game={detailGame} visible={isAdmin} size="sm" />
+          <div className="flex flex-col gap-1.5 flex-shrink-0">
+            <div className="quickwin-card-cover-wrap relative">
+              {cover ? (
+                <img
+                  src={cover}
+                  onClick={
+                    isAdmin
+                      ? () => {
+                          setCoverError('');
+                          setIgdbPrompt(true);
+                        }
+                      : undefined
+                  }
+                  title={isAdmin ? 'Klicken, um Cover-Link zu ändern' : undefined}
+                  className={`quickwin-card-cover ${isAdmin ? 'cursor-pointer transition hover:opacity-90' : ''}`}
+                  alt=""
+                />
+              ) : (
+                <div
+                  onClick={
+                    isAdmin
+                      ? () => {
+                          setCoverError('');
+                          setIgdbPrompt(true);
+                        }
+                      : undefined
+                  }
+                  className={`quickwin-card-cover quickwin-card-cover--empty ${isAdmin ? 'cursor-pointer' : ''}`}
+                  aria-hidden
+                />
+              )}
+              <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
+                <GuideOnlineBadge game={detailGame} visible={isAdmin} size="sm" />
+              </div>
+              <PlatinumUnlockedBadge active={platinumDone} size="sm" />
+              {isAdmin ? (
+                <div className="absolute top-1.5 right-1.5 z-10 flex flex-col items-end gap-1">
+                  <button
+                    type="button"
+                    onClick={handleClearCover}
+                    disabled={coverBusy || !cover}
+                    title="Falsches Cover löschen und status.igdb entfernen"
+                    className="rounded border border-red-500/40 bg-black/80 px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-red-300 hover:bg-red-500/20 disabled:opacity-40 cursor-pointer"
+                  >
+                    {coverBusy ? '…' : 'Cover löschen'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCoverError('');
+                      setIgdbPrompt(true);
+                    }}
+                    disabled={coverBusy}
+                    title="Neuen IGDB-Bildlink als Cover hinterlegen"
+                    className="rounded border border-[#00ff66]/40 bg-black/80 px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-[#00ff66] hover:bg-[#00ff66]/15 disabled:opacity-50 cursor-pointer"
+                  >
+                    IGDB Link
+                  </button>
+                </div>
+              ) : null}
             </div>
-            <PlatinumUnlockedBadge active={platinumDone} size="sm" />
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={handleVerifyCover}
+                disabled={coverBusy}
+                title="Klick darauf verifiziert das Cover (setzt cover_status = 'valid')"
+                className={`rounded-md border px-2 py-1 text-center font-mono text-[10px] font-bold transition cursor-pointer disabled:opacity-50 ${
+                  detailGame?.cover_status === 'valid'
+                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                    : detailGame?.cover_status === 'invalid'
+                      ? 'border-red-500/40 bg-red-500/15 text-red-300 hover:bg-red-500/25'
+                      : 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-[#00ff66]/50 hover:bg-[#00ff66]/15 hover:text-[#00ff66]'
+                }`}
+              >
+                {detailGame?.cover_status === 'valid'
+                  ? '✓ cover_status: valid'
+                  : `cover_status: ${detailGame?.cover_status || 'ungeprüft'}`}
+              </button>
+            ) : null}
+            {coverError && !igdbPrompt ? (
+              <p className="max-w-[9rem] rounded bg-black/80 px-1.5 py-1 text-[9px] font-mono text-red-300">
+                {coverError}
+              </p>
+            ) : null}
           </div>
           <div className="quickwin-card-body">
             <div className="quickwin-card-title-row">
@@ -633,6 +772,57 @@ function QuickwinGameCard({
           )}
         </>
       )}
+
+      {isAdmin && igdbPrompt ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => {
+            if (!coverBusy) setIgdbPrompt(false);
+          }}
+        >
+          <form
+            onSubmit={handleSaveIgdbLink}
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-md rounded-2xl border border-zinc-700 bg-[#1a1b1c] p-5 shadow-2xl"
+          >
+            <h2 className="text-sm font-bold text-white">Neuer IGDB-Link</h2>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+              Bildlink von images.igdb.com einfügen. Der ersetzt das Cover und hält den IGDB-Status auf erledigt.
+            </p>
+            <input
+              type="text"
+              inputMode="url"
+              value={igdbLink}
+              onChange={(event) => setIgdbLink(event.target.value)}
+              placeholder="https://images.igdb.com/igdb/image/upload/…"
+              autoFocus
+              className="mt-3 w-full rounded-xl border border-zinc-700 bg-[#121314] px-3 py-2 text-sm text-zinc-200 focus:border-[#00ff66]/40 focus:outline-hidden"
+            />
+            {coverError ? (
+              <p className="mt-2 font-mono text-[11px] text-red-300">{coverError}</p>
+            ) : null}
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                disabled={coverBusy}
+                onClick={() => setIgdbPrompt(false)}
+                className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300 cursor-pointer"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="submit"
+                disabled={coverBusy || !igdbLink.trim()}
+                className="rounded-xl bg-[#00ff66] px-3.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#121314] disabled:opacity-50 cursor-pointer"
+              >
+                {coverBusy ? 'Speichere…' : 'Cover speichern'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }

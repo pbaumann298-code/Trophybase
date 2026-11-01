@@ -33,6 +33,8 @@ export const INTRANET_GAME_SELECT = [
   GAME_STRUCT.homeTags,
   GAME_STRUCT.status,
   GAME_I18N.title,
+  GAME_I18N.coverUrl,
+  GAME_STRUCT.coverStatus,
   GAME_STRUCT.slug,
 ].join(', ');
 

@@ -349,7 +349,20 @@ export function navigateToQuickwins(params = {}, { replace = false, path = QUICK
 }
 
 export function navigateToGame(gameOrRef, { replace = false, locale = getLocale() } = {}) {
-  writeAppPath(gameGuidePath(gameOrRef, locale), { replace });
+  const basePath = gameGuidePath(gameOrRef, locale);
+  if (typeof window === 'undefined') {
+    writeAppPath(basePath, { replace });
+    return;
+  }
+  const sourceParams = new URLSearchParams(window.location.search);
+  const preserved = new URLSearchParams();
+  for (const key of ['preview', 'rohmaterial', 'lab']) {
+    if (sourceParams.has(key)) {
+      preserved.set(key, sourceParams.get(key));
+    }
+  }
+  const qs = preserved.toString();
+  writeAppPath(qs ? `${basePath}?${qs}` : basePath, { replace });
 }
 
 /** Interne Reiter-IDs der Guide-Ansicht in fester Reihenfolge. */
@@ -385,9 +398,21 @@ export function parseGuideTabParam(search) {
 
 /** Hängt ?tab=… an einen Guide-Pfad; der Default-Reiter bleibt parameterfrei. */
 export function withGuideTabParam(path, tabId) {
-  const [pathname] = String(path ?? '').split('?');
-  if (!tabId || tabId === DEFAULT_GUIDE_TAB || !GUIDE_TAB_SLUGS[tabId]) return pathname;
-  return `${pathname}?tab=${guideTabSlug(tabId)}`;
+  const [pathname, existingQuery = ''] = String(path ?? '').split('?');
+  const currentSearch =
+    existingQuery || (typeof window !== 'undefined' ? window.location.search : '');
+  const sourceParams = new URLSearchParams(currentSearch);
+  const preserved = new URLSearchParams();
+  for (const key of ['preview', 'rohmaterial', 'lab']) {
+    if (sourceParams.has(key)) {
+      preserved.set(key, sourceParams.get(key));
+    }
+  }
+  if (tabId && tabId !== DEFAULT_GUIDE_TAB && GUIDE_TAB_SLUGS[tabId]) {
+    preserved.set('tab', guideTabSlug(tabId));
+  }
+  const qs = preserved.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
 }
 
 /**

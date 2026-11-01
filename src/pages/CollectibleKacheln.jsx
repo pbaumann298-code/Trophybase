@@ -8,29 +8,20 @@ import {
   resolveProductionVideoAndNote,
 } from '../utils/videoUrl';
 import YouTubeEmbed, { YouTubeThumb, YoutubePlayIcon } from '../components/YouTubeEmbed';
-import { useVisibility } from '../context/VisibilityContext';
 import { useGuideVideo } from '../context/GuideVideoContext';
 import { guideProgressKey } from '../lib/guideProgressStorage';
 import { buildGuideGroupTree } from '../lib/guideData';
+import {
+  COMPLETED_TROPHY_STYLE,
+  VIDEO_TIMESTAMP_LAYOUT,
+  useUserPreferences,
+} from '../lib/userPreferences';
 import Reportable from '../components/Reportable';
 import TrophyArtwork from '../components/TrophyArtwork';
 
 function cleanGuideRowId(item) {
   const raw = String(item?.guide_id || item?.id || '').trim();
   return raw.replace(/^(?:walkthrough|collectible|boss|guide-s\d+)-/, '');
-}
-
-const VIDEO_SIDE_STORAGE_KEY = 'tb_guide_video_side';
-const VIDEO_SIDE_CHANGE_EVENT = 'tb-video-side-change';
-
-function readStoredVideoSide() {
-  if (typeof window === 'undefined' || !window.localStorage) return 'right';
-  try {
-    const val = window.localStorage.getItem(VIDEO_SIDE_STORAGE_KEY);
-    return val === 'left' ? 'left' : 'right';
-  } catch {
-    return 'right';
-  }
 }
 
 function ProductionInlineRowEditor({
@@ -462,14 +453,23 @@ function SplitScreenGuideKacheln({
   isCreator = false,
   isDraftMode = false,
   onProductionMetaSaved = null,
+  videoLayoutFlexClass = '',
 }) {
   const { t } = useLocale();
-  const { toggleHidden, setHidden, isHidden, getEntryState, itemKey } = useVisibility();
+  const {
+    videoTimestampLayout,
+    setVideoTimestampLayout,
+    completedTrophyStyle,
+  } = useUserPreferences();
   const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
   const [expandedGroups, setExpandedGroups] = useState({});
   const [expandedLocalisations, setExpandedLocalisations] = useState({});
   const [activeVideos, setActiveVideos] = useState({});
-  const [videoSide, setVideoSide] = useState(() => readStoredVideoSide());
+  const videoSide = videoTimestampLayout === VIDEO_TIMESTAMP_LAYOUT.VIDEO_LEFT ? 'left' : 'right';
+  const resolvedVideoFlexClass =
+    videoLayoutFlexClass || (videoSide === 'left' ? 'lg:flex-row-reverse' : 'lg:flex-row');
+  const effectiveHideCompleted =
+    hideCompleted || completedTrophyStyle === COMPLETED_TROPHY_STYLE.HIDE;
   const canEditProduction = Boolean(isAdmin || isCreator);
   const [productionMode, setProductionMode] = useState(() =>
     Boolean(canEditProduction && (isDraftMode || isCreator)),
@@ -479,31 +479,13 @@ function SplitScreenGuideKacheln({
   const [prodStatusFilter, setProdStatusFilter] = useState('all');
   const [prodTakeQuery, setProdTakeQuery] = useState('');
 
-  useEffect(() => {
-    const handleSideChange = (event) => {
-      const next = event?.detail === 'left' ? 'left' : 'right';
-      setVideoSide(next);
-    };
-    window.addEventListener(VIDEO_SIDE_CHANGE_EVENT, handleSideChange);
-    return () => {
-      window.removeEventListener(VIDEO_SIDE_CHANGE_EVENT, handleSideChange);
-    };
-  }, []);
-
   const toggleVideoSide = useCallback(() => {
-    setVideoSide((prev) => {
-      const next = prev === 'right' ? 'left' : 'right';
-      try {
-        window.localStorage?.setItem(VIDEO_SIDE_STORAGE_KEY, next);
-      } catch {
-        // ignore storage errors
-      }
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent(VIDEO_SIDE_CHANGE_EVENT, { detail: next }));
-      }
-      return next;
-    });
-  }, []);
+    const nextLayout =
+      videoTimestampLayout === VIDEO_TIMESTAMP_LAYOUT.VIDEO_LEFT
+        ? VIDEO_TIMESTAMP_LAYOUT.TIMESTAMPS_LEFT
+        : VIDEO_TIMESTAMP_LAYOUT.VIDEO_LEFT;
+    setVideoTimestampLayout(nextLayout);
+  }, [videoTimestampLayout, setVideoTimestampLayout]);
 
   const renderVideoSideToggleButton = () => (
     <button
@@ -642,8 +624,7 @@ function SplitScreenGuideKacheln({
   };
 
   const isItemShown = (item) => {
-    if (hideCompleted && isItemCompleted(item)) return false;
-    if (!getEntryState(itemKey(guideProgressKey(item))).visible) return false;
+    if (effectiveHideCompleted && isItemCompleted(item)) return false;
     if (!isProdItemMatch(item)) return false;
     return true;
   };
@@ -701,10 +682,8 @@ function SplitScreenGuideKacheln({
     const groupTotalCount = items.length;
     const groupDoneCount = items.filter((item) => isItemCompleted(item)).length;
     const isGroupAllCompleted = groupTotalCount > 0 && groupDoneCount === groupTotalCount;
-    const isAllGroupHidden =
-      allGroupKeys.length > 0 && allGroupKeys.every((key) => isHidden(itemKey(key)));
 
-    if (hideCompleted && isGroupAllCompleted) return null;
+    if (effectiveHideCompleted && isGroupAllCompleted) return null;
 
     const visibleTableItems = items.filter(isItemShown);
     if (items.length === 0) return null;
@@ -767,7 +746,7 @@ function SplitScreenGuideKacheln({
               letterSpacing: '0.05em',
               cursor: 'pointer',
               textAlign: 'left',
-              opacity: isGroupAllCompleted ? 0.65 : 1,
+              opacity: isGroupAllCompleted && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM ? 0.65 : 1,
             }}
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
@@ -790,26 +769,6 @@ function SplitScreenGuideKacheln({
                   aria-label={isGroupAllCompleted ? 'Gruppe als offen markieren' : 'Gruppe als erledigt markieren'}
                 />
               )}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const nextHidden = !isAllGroupHidden;
-                  allGroupKeys.forEach((key) => setHidden(itemKey(key), nextHidden));
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: isAllGroupHidden ? '#71717a' : '#00ff66',
-                  fontSize: '14px',
-                  flexShrink: 0,
-                }}
-                aria-label={isAllGroupHidden ? 'Gruppe einblenden' : 'Gruppe ausblenden'}
-                title={isAllGroupHidden ? 'Einblenden' : 'Ausblenden'}
-              >
-                {isAllGroupHidden ? '👁️‍🗨️' : '👁️'}
-              </button>
               {groupHeaderIcon}
               <span style={{ textDecoration: isGroupAllCompleted ? 'line-through' : 'none' }}>
                 {group.name}
@@ -835,7 +794,7 @@ function SplitScreenGuideKacheln({
 
         {isExpanded && (
           <div
-            className={`guide-split guide-split--expanded ${
+            className={`guide-split guide-split--expanded flex flex-col ${resolvedVideoFlexClass} ${
               videoSide === 'left' ? 'guide-split--video-left' : 'guide-split--video-right'
             }`}
           >
@@ -857,22 +816,19 @@ function SplitScreenGuideKacheln({
                 <tbody>
                   {visibleTableItems.map((item) => {
                     const progressKey = guideProgressKey(item);
-                    const visKey = itemKey(progressKey);
-                    const { dimmed } = getEntryState(visKey);
                     const isCompleted = isItemCompleted(item);
                     const displayName = getDisplayName(item);
                     const reportKey = String(item.guide_sequence ?? item.sort_order ?? '');
-                    const userHidden = isHidden(visKey);
                     const isActive = activeVideo?.itemId === item.id;
                     const hasVideo = isPublicVideoUrl(item.video_url);
-                    const rowDimmed = dimmed || isCompleted;
+                    const rowDimmed =
+                      isCompleted && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM;
 
                     return (
                       <tr
                         key={item.id}
-                        className="guide-split__row"
+                        className={`guide-split__row ${rowDimmed ? 'opacity-45' : ''}`}
                         style={{
-                          opacity: rowDimmed ? 0.6 : 1,
                           backgroundColor: isActive ? 'rgba(0, 255, 102, 0.06)' : 'transparent',
                         }}
                       >
@@ -903,25 +859,6 @@ function SplitScreenGuideKacheln({
                                 }
                               />
                             )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleHidden(visKey);
-                              }}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: userHidden ? '#71717a' : '#00ff66',
-                                fontSize: '14px',
-                                flexShrink: 0,
-                              }}
-                              aria-label={userHidden ? 'Eintrag einblenden' : 'Eintrag ausblenden'}
-                              title={userHidden ? 'Einblenden' : 'Ausblenden'}
-                            >
-                              {userHidden ? '👁️‍🗨️' : '👁️'}
-                            </button>
                             <button
                               type="button"
                               onClick={() => selectItemVideo(group.key, item)}
@@ -1069,10 +1006,8 @@ function SplitScreenGuideKacheln({
     const sectionTotalCount = allSectionItems.length;
     const sectionDoneCount = allSectionItems.filter((item) => isItemCompleted(item)).length;
     const isSectionAllCompleted = sectionTotalCount > 0 && sectionDoneCount === sectionTotalCount;
-    const isAllSectionHidden =
-      allSectionKeys.length > 0 && allSectionKeys.every((key) => isHidden(itemKey(key)));
 
-    if (hideCompleted && isSectionAllCompleted) return null;
+    if (effectiveHideCompleted && isSectionAllCompleted) return null;
     if (sectionTotalCount === 0) return null;
 
     if (hideGroupHeader || !section.localisation) {
@@ -1099,7 +1034,12 @@ function SplitScreenGuideKacheln({
             }
           }}
           aria-expanded={isExpanded}
-          style={{ opacity: isSectionAllCompleted ? 0.65 : 1 }}
+          style={{
+            opacity:
+              isSectionAllCompleted && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM
+                ? 0.65
+                : 1,
+          }}
         >
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', minWidth: 0, flexWrap: 'wrap' }}>
             {typeof toggleCompleted === 'function' && (
@@ -1121,26 +1061,6 @@ function SplitScreenGuideKacheln({
                 aria-label={isSectionAllCompleted ? 'Gebiet als offen markieren' : 'Gebiet als erledigt markieren'}
               />
             )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                const nextHidden = !isAllSectionHidden;
-                allSectionKeys.forEach((key) => setHidden(itemKey(key), nextHidden));
-              }}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: isAllSectionHidden ? '#71717a' : '#00ff66',
-                fontSize: '14px',
-                flexShrink: 0,
-              }}
-              aria-label={isAllSectionHidden ? 'Gebiet einblenden' : 'Gebiet ausblenden'}
-              title={isAllSectionHidden ? 'Einblenden' : 'Ausblenden'}
-            >
-              {isAllSectionHidden ? '👁️‍🗨️' : '👁️'}
-            </button>
             <span>
               {localisationHeaderIcon}{' '}
               <span style={{ textDecoration: isSectionAllCompleted ? 'line-through' : 'none' }}>
@@ -1554,6 +1474,7 @@ export function CollectibleKacheln({
   isCreator = false,
   isDraftMode = false,
   onProductionMetaSaved = null,
+  videoLayoutFlexClass = '',
 }) {
   const { t } = useLocale();
   const {
@@ -1593,6 +1514,7 @@ export function CollectibleKacheln({
       isCreator={isCreator}
       isDraftMode={isDraftMode}
       onProductionMetaSaved={onProductionMetaSaved}
+      videoLayoutFlexClass={videoLayoutFlexClass}
     />
   );
 }
@@ -1612,6 +1534,7 @@ export function BossKacheln({
   isCreator = false,
   isDraftMode = false,
   onProductionMetaSaved = null,
+  videoLayoutFlexClass = '',
 }) {
   const { t } = useLocale();
   const trophyExtras = useTrophyRowExtras(trophyById);
@@ -1677,6 +1600,7 @@ export function BossKacheln({
       isCreator={isCreator}
       isDraftMode={isDraftMode}
       onProductionMetaSaved={onProductionMetaSaved}
+      videoLayoutFlexClass={videoLayoutFlexClass}
     />
   );
 }

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { useLocale } from '../context/LocaleContext';
+import { usePlatinumStatus } from '../context/PlatinumStatusContext';
+import { useUserPreferences } from '../lib/userPreferences';
 import QuickwinGameCard from './QuickwinGameCard';
 import GameTile, { GameCoverOverlays } from './GameTile';
 
@@ -31,6 +33,8 @@ function CatalogLetterSection({
   tileAccent = '#00ff66',
 }) {
   const { t, globalLocale } = useLocale();
+  const { isPlatinum } = usePlatinumStatus();
+  const { hidePlatinumedGames } = useUserPreferences();
   const trackRef = useRef(null);
   const expandedMoreRef = useRef(null);
   const [expanded, setExpanded] = useState(false);
@@ -38,10 +42,17 @@ function CatalogLetterSection({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
-  const hasOverflow = games.length > CATALOG_ROW_PREVIEW;
-  const previewGames = hasOverflow && !expanded ? games.slice(0, CATALOG_ROW_PREVIEW) : games;
-  const expandedGames = expanded ? games.slice(0, visibleCount) : [];
-  const hasMoreExpanded = expanded && games.length > visibleCount;
+  const filteredGames = hidePlatinumedGames
+    ? games.filter((game) => {
+        const id = getGameUuid(game);
+        return !(id && isPlatinum(id));
+      })
+    : games;
+
+  const hasOverflow = filteredGames.length > CATALOG_ROW_PREVIEW;
+  const previewGames = hasOverflow && !expanded ? filteredGames.slice(0, CATALOG_ROW_PREVIEW) : filteredGames;
+  const expandedGames = expanded ? filteredGames.slice(0, visibleCount) : [];
+  const hasMoreExpanded = expanded && filteredGames.length > visibleCount;
 
   const updateScrollHints = useCallback(() => {
     const el = trackRef.current;

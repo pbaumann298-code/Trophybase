@@ -3,6 +3,9 @@ import { fetchProfile } from './profileQueries';
 import { fetchGamesByIds } from './gameQueries';
 import { getGameTitle, getGameCover, mergeGameRecord } from './gameModel';
 import { getLocale } from './locale';
+import { saveLocalPlatinumFlag } from './localUserProgress';
+import { scanLocalPlatinumGameIds } from './platinumGames';
+import { setPreferredLocales, sanitizePreferredLocales } from './userPreferences';
 
 function isMissingTableError(error) {
   if (!error) return false;
@@ -25,13 +28,20 @@ export function normalizeWatchlistBucket(row) {
   const progress = Number(row.progress_percent ?? 0);
   const isPlatinum = Boolean(row.is_platinum) || Number(row.earned_trophies?.platinum ?? 0) > 0;
 
-  if (raw === 'COMPLETED' || raw === 'DONE' || isPlatinum || progress >= 100) {
+  if (
+    raw === 'COMPLETED' ||
+    raw === 'COMPLETED_NO_PLATINUM' ||
+    raw === 'COMPLETED_PLATINUM' ||
+    raw === 'DONE' ||
+    isPlatinum ||
+    progress >= 100
+  ) {
     return 'COMPLETED';
   }
-  if (raw === 'PLAYING' || raw === 'IN_PROGRESS' || (raw === 'ACTIVE' && progress > 0)) {
+  if (raw === 'PLAYING' || raw === 'IN_PROGRESS' || raw === 'STARTED' || (raw === 'ACTIVE' && progress > 0)) {
     return 'PLAYING';
   }
-  if (raw === 'BACKLOG' || raw === 'WATCHLIST' || raw === 'PLANNED') {
+  if (raw === 'BACKLOG' || raw === 'WATCHLIST' || raw === 'PLANNED' || raw === 'ACTIVE') {
     return 'BACKLOG';
   }
   if (progress > 0) return 'PLAYING';
@@ -44,7 +54,6 @@ export function normalizeWatchlistBucket(row) {
  * - public.user_watchlist inkl. Join auf public.games
  * - public.user_game_ratings
  * - public.user_guide_progress
- * - public.user_inbox (ungelesene Nachrichten)
  */
 export async function fetchUserCockpitBundle(supabase, userId, locale = getLocale()) {
   if (!userId) {
@@ -61,7 +70,7 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
   const gamesJoinSelect =
     'id, platform_game_id, hardware, slug, slugs, spieltitel, cover_url, anzahl_trophaeen, spielzeit_komplettierer, schwierigkeit_highscore, status, publishing_status, published_locales';
 
-  const [profileRes, watchlistJoinRes, ratingsRes, progressRes, inboxRes] = await Promise.all([
+  const [profileRes, watchlistJoinRes, ratingsRes, progressRes] = await Promise.all([
     fetchProfile(supabase, userId),
     supabase
       .from(TABLES.watchlist)
@@ -77,11 +86,6 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
       .select('*')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false }),
-    supabase
-      .from(TABLES.inbox)
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('is_read', false),
   ]);
 
   const errors = {};
@@ -109,14 +113,20 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
   if (progressRes.error && !isMissingTableError(progressRes.error)) {
     errors.guideProgress = progressRes.error;
   }
-  if (inboxRes.error && !isMissingTableError(inboxRes.error)) {
-    errors.inbox = inboxRes.error;
-  }
 
-  // Sammle alle Game-IDs, bei denen noch das verknüpfte Game-Objekt fehlt (z. B. aus user_guide_progress oder Fallback)
-  const rawProgressRows = (progressRes.data ?? []).filter(
+  const allProgressRows = progressRes.data ?? [];
+  const rawProgressRows = allProgressRows.filter(
     (row) => Array.isArray(row.completed_steps) && row.completed_steps.length > 0,
   );
+  const platinumProgressIds = new Set(
+    allProgressRows
+      .filter((row) => Boolean(row?.is_platinum))
+      .map((row) => String(row[GAME_FK] ?? '').trim())
+      .filter(Boolean),
+  );
+  for (const localPlatId of scanLocalPlatinumGameIds()) {
+    platinumProgressIds.add(localPlatId);
+  }
 
   const gamesById = new Map();
   for (const row of rawWatchlistRows) {
@@ -131,8 +141,11 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
     const gid = String(row[GAME_FK] ?? '').trim();
     if (gid && !gamesById.has(gid)) missingGameIds.add(gid);
   }
-  for (const row of rawProgressRows) {
+  for (const row of allProgressRows) {
     const gid = String(row[GAME_FK] ?? '').trim();
+    if (gid && !gamesById.has(gid)) missingGameIds.add(gid);
+  }
+  for (const gid of platinumProgressIds) {
     if (gid && !gamesById.has(gid)) missingGameIds.add(gid);
   }
 
@@ -164,8 +177,10 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
     }
   }
 
+  const seenWatchlistGameIds = new Set();
   const watchlistItems = rawWatchlistRows.map((row) => {
     const gameId = String(row[GAME_FK] ?? '').trim();
+    if (gameId) seenWatchlistGameIds.add(gameId);
     const joinedRaw = Array.isArray(row.games) ? row.games[0] : row.games;
     const game = gamesById.get(gameId) || (joinedRaw ? mergeGameRecord(joinedRaw, locale) : null);
     const earned =
@@ -178,8 +193,14 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
           }
         : { platinum: 0, gold: 0, silver: 0, bronze: 0 };
 
-    const isPlatinum = Boolean(row.is_platinum) || earned.platinum > 0;
-    const progressPercent = Math.max(0, Math.min(100, Number(row.progress_percent ?? 0)));
+    const rawStatus = String(row.status ?? '').trim().toLowerCase();
+    const completedWithoutPlatinum = rawStatus === 'completed_no_platinum';
+    const isPlatinum =
+      !completedWithoutPlatinum &&
+      (Boolean(row.is_platinum) || earned.platinum > 0 || platinumProgressIds.has(gameId));
+    const progressPercent = isPlatinum
+      ? 100
+      : Math.max(0, Math.min(100, Number(row.progress_percent ?? 0)));
     const playtimeHours = Math.max(0, Number(row.playtime_hours ?? 0));
     const bucket = normalizeWatchlistBucket({
       ...row,
@@ -193,11 +214,12 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
       gameId,
       status: String(row.status ?? 'BACKLOG'),
       bucket,
+      completedWithoutPlatinum,
       progressPercent,
       isPlatinum,
       playtimeHours,
       titleId: row.title_id ? String(row.title_id).trim() : null,
-      earnedTrophies: earned,
+      earnedTrophies: isPlatinum && earned.platinum === 0 ? { ...earned, platinum: 1 } : earned,
       lastPlayedAt: row.last_played_at ?? row.updated_at ?? null,
       game,
       title: getGameTitle(game, locale) || gameId || 'Unbekanntes Spiel',
@@ -207,6 +229,34 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
       rating: ratingsByGame[gameId] ?? null,
     };
   });
+
+  // Synchronisierte Platin-Spiele aus user_guide_progress / lokalem Speicher ergänzen, falls noch nicht in user_watchlist
+  for (const platGameId of platinumProgressIds) {
+    if (!platGameId || seenWatchlistGameIds.has(platGameId)) continue;
+    const game = gamesById.get(platGameId) ?? null;
+    if (!game) continue;
+    seenWatchlistGameIds.add(platGameId);
+    const progRow = allProgressRows.find((r) => String(r[GAME_FK] ?? '').trim() === platGameId);
+    watchlistItems.push({
+      watchlistId: `sync:${userId}:${platGameId}`,
+      gameId: platGameId,
+      status: 'COMPLETED',
+      bucket: 'COMPLETED',
+      completedWithoutPlatinum: false,
+      progressPercent: 100,
+      isPlatinum: true,
+      playtimeHours: 0,
+      titleId: null,
+      earnedTrophies: { platinum: 1, gold: 0, silver: 0, bronze: 0 },
+      lastPlayedAt: progRow?.updated_at ?? null,
+      game,
+      title: getGameTitle(game, locale) || platGameId || 'Unbekanntes Spiel',
+      cover: getGameCover(game, locale) || null,
+      totalTrophies: game?.anzahl_trophaeen ?? null,
+      guideCompletionTime: game?.spielzeit_komplettierer ?? null,
+      rating: ratingsByGame[platGameId] ?? null,
+    });
+  }
 
   const guideChecklists = rawProgressRows.map((row) => {
     const gameId = String(row[GAME_FK] ?? '').trim();
@@ -231,7 +281,7 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
     watchlistItems,
     ratingsByGame,
     guideChecklists,
-    unreadInboxCount: inboxRes.count ?? 0,
+    unreadInboxCount: 0,
     errors,
   };
 }
@@ -313,19 +363,119 @@ export async function upsertUserGameRating(
 }
 
 /**
- * Aktualisiert den Watchlist-Status (z. B. PLAYING, COMPLETED, BACKLOG) eines Spiels.
+ * Aktualisiert den Watchlist-Status (z. B. PLAYING, COMPLETED, completed_no_platinum, BACKLOG) eines Spiels.
  */
-export async function updateWatchlistEntryStatus(supabase, userId, gameId, nextStatus) {
+export async function updateWatchlistEntryStatus(
+  supabase,
+  userId,
+  gameId,
+  nextStatus,
+  { markPlatinum = null, progressPercent = null } = {},
+) {
   if (!userId || !gameId) {
     return { error: new Error('Anmeldung und Spiel-ID erforderlich.') };
   }
   const now = new Date().toISOString();
-  const { error } = await supabase
+  const payload = {
+    user_id: userId,
+    [GAME_FK]: gameId,
+    status: nextStatus,
+    last_played_at: now,
+    updated_at: now,
+  };
+  if (progressPercent != null) {
+    payload[WATCHLIST.progress] = Math.max(0, Math.min(100, Number(progressPercent)));
+  } else if (markPlatinum === true) {
+    payload[WATCHLIST.progress] = 100;
+  }
+
+  let { error } = await supabase
     .from(TABLES.watchlist)
-    .update({ status: nextStatus, updated_at: now })
-    .eq('user_id', userId)
-    .eq(GAME_FK, gameId);
+    .upsert(payload, { onConflict: WATCHLIST.onConflict });
+
+  if (error) {
+    const upd = await supabase
+      .from(TABLES.watchlist)
+      .update({
+        status: nextStatus,
+        ...(payload[WATCHLIST.progress] != null ? { [WATCHLIST.progress]: payload[WATCHLIST.progress] } : {}),
+        updated_at: now,
+      })
+      .eq('user_id', userId)
+      .eq(GAME_FK, gameId);
+    error = upd.error;
+  }
+
+  if (markPlatinum === true) {
+    saveLocalPlatinumFlag(gameId, true);
+    const { data: existingProg } = await supabase
+      .from(TABLES.guideProgress)
+      .select('completed_steps')
+      .eq('user_id', userId)
+      .eq(GAME_FK, gameId)
+      .maybeSingle();
+    await supabase.from(TABLES.guideProgress).upsert(
+      {
+        user_id: userId,
+        [GAME_FK]: gameId,
+        completed_steps: Array.isArray(existingProg?.completed_steps)
+          ? existingProg.completed_steps
+          : [],
+        is_platinum: true,
+        updated_at: now,
+      },
+      { onConflict: 'user_id,game_id' },
+    );
+  } else if (markPlatinum === false) {
+    saveLocalPlatinumFlag(gameId, false);
+    const { data: existingProg } = await supabase
+      .from(TABLES.guideProgress)
+      .select('completed_steps, is_platinum')
+      .eq('user_id', userId)
+      .eq(GAME_FK, gameId)
+      .maybeSingle();
+    if (existingProg?.is_platinum) {
+      await supabase
+        .from(TABLES.guideProgress)
+        .update({ is_platinum: false, updated_at: now })
+        .eq('user_id', userId)
+        .eq(GAME_FK, gameId);
+    }
+  }
+
   return { error };
+}
+
+/**
+ * Speichert die Mehrfachauswahl der User-Sprachen (für Guides & spätere Online-Trophäen-Verabredungen)
+ * in localStorage (`preferred_locales`) sowie in Supabase User-Metadata / Profil.
+ */
+export async function saveUserPreferredLocales(supabase, userId, locales) {
+  const sanitized = sanitizePreferredLocales(locales);
+  setPreferredLocales(sanitized);
+
+  if (!supabase || !userId) {
+    return { locales: sanitized, error: null };
+  }
+
+  try {
+    await supabase.auth.updateUser({
+      data: { preferred_locales: sanitized },
+    });
+  } catch {
+    /* ignore auth metadata error */
+  }
+
+  try {
+    await supabase
+      .from(TABLES.profiles)
+      .update({ preferred_locales: sanitized, updated_at: new Date().toISOString() })
+      .eq('id', userId);
+  } catch {
+    /* Spalte preferred_locales ist auf profiles optional */
+  }
+
+  return { locales: sanitized, error: null };
 }
 
 /**

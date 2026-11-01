@@ -108,8 +108,29 @@ export function isStaffOrPreviewContext() {
   if (p.includes('/admin') || p.includes('/intranet')) {
     return true;
   }
-  const params = new URLSearchParams(window.location.search);
-  return params.get('preview') === '1' || params.get('rohmaterial') === '1';
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (
+      params.get('preview') === '0' ||
+      params.get('lab') === '0' ||
+      params.get('guest') === '1'
+    ) {
+      return false;
+    }
+    if (
+      params.get('preview') === '1' ||
+      params.get('rohmaterial') === '1' ||
+      params.get('lab') === '1'
+    ) {
+      return true;
+    }
+    if (sessionStorage.getItem(ADMIN_RETURN_STORAGE_KEY) === '1') {
+      return true;
+    }
+    return sessionStorage.getItem(LAB_MODE_STORAGE_KEY) !== '0';
+  } catch {
+    return true;
+  }
 }
 
 export function hasAdminReturnFlag() {
