@@ -1053,10 +1053,12 @@ function App() {
         }}
       />
 
-      {isLabModeActive(sessionUser) && currentView === 'home' ? (
+      {isLabModeActive(sessionUser) && (currentView === 'home' || currentView === 'profile') ? (
         <Suspense fallback={null}>
           <GamingRoomDrawer
             sessionUser={sessionUser}
+            currentView={currentView}
+            onGoHome={goHome}
             onOpenCockpit={openProfile}
             onOpenPlatformTrophies={openPlatformTrophies}
             onRequestLogin={() => setCurrentView('login')}
