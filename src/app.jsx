@@ -38,12 +38,10 @@ import {
   navigateToWatchlist,
   navigateToProfile,
   navigateToPlatformTrophies,
-  QUICKWINS_PATH,
   SERVERTOT_PATH,
   EASY_PLATINS_PATH,
   WATCHLIST_PATH,
   PROFILE_PATH,
-  PLATFORM_TROPHIES_PATH,
   parseSimpleSearchParams,
   parseExcludeQuickwins,
   parseIncludeTrophiesOnly,
@@ -53,7 +51,7 @@ import {
   DEFAULT_GUIDE_TAB,
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
-import { GAME_STRUCT, GAME_TYPE, TABLES } from './lib/gameSchema';
+import { GAME_TYPE, TABLES } from './lib/gameSchema';
 import { isGuidePublished, isGameDraftMode } from './lib/guidePublication';
 import {
   parseServertotPath,
@@ -181,6 +179,11 @@ function App() {
   const [guideReturnView, setGuideReturnView] = useState(null);
   const [guideLoadError, setGuideLoadError] = useState(null);
   const lastSearchQueryRef = useRef('');
+  const trophyLoadRef = useRef(0);
+  const startTrophyLoad = () => {
+    trophyLoadRef.current += 1;
+    return trophyLoadRef.current;
+  };
   const [dbOk, setDbOk] = useState(null);
 
   const [customizeOpen, setCustomizeOpen] = useState(false);
@@ -398,14 +401,16 @@ function App() {
   }, [globalLocale]);
 
   useEffect(() => {
-    loadGameFromUrl();
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) loadGameFromUrl();
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [loadGameFromUrl]);
 
-  const trophyLoadRef = useRef(0);
-  const startTrophyLoad = useCallback(() => {
-    trophyLoadRef.current += 1;
-    return trophyLoadRef.current;
-  }, []);
   const handleActiveTrophies = useCallback((trophies, earnedIds, loadId) => {
     if (loadId !== trophyLoadRef.current) return;
     setActiveTrophies(trophies ?? []);
@@ -597,23 +602,26 @@ function App() {
   };
 
   useEffect(() => {
-    if (authLoading) return;
-    if (!sessionUser) setIncludeTrophiesOnly(false);
+    if (authLoading || sessionUser) return undefined;
+    const timer = window.setTimeout(() => setIncludeTrophiesOnly(false), 0);
+    return () => window.clearTimeout(timer);
   }, [authLoading, sessionUser]);
 
   useEffect(() => {
-    const {
-      q,
-      page,
-      excludeQuickwins: exclude,
-      includeTrophiesOnly: trophiesOnly,
-    } = parseSimpleSearchParams();
-    if (getViewFromPath(window.location.pathname, window.location.search) !== 'search-results') {
-      return undefined;
-    }
-    if (!q) return undefined;
-    runSearch(q, { updateUrl: false, page, exclude, trophiesOnly });
-    return undefined;
+    const timer = window.setTimeout(() => {
+      const {
+        q,
+        page,
+        excludeQuickwins: exclude,
+        includeTrophiesOnly: trophiesOnly,
+      } = parseSimpleSearchParams();
+      if (getViewFromPath(window.location.pathname, window.location.search) !== 'search-results') {
+        return;
+      }
+      if (!q) return;
+      runSearch(q, { updateUrl: false, page, exclude, trophiesOnly });
+    }, 0);
+    return () => window.clearTimeout(timer);
     // Deep-Link / F5: Suche nur beim ersten Öffnen anstoßen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

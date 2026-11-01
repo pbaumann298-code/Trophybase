@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import HeaderSettingsMenu from './HeaderSettingsMenu';
 import { hasAdminReturnFlag, isAdminUser, readDraftReturnContext } from '../lib/adminAccess';
 import { navigateToHome, PROFILE_PATH, WATCHLIST_PATH } from '../lib/routeUtils';
@@ -12,15 +12,10 @@ function Header({
   onOpenPlatformTrophies,
   onCustomizeHome,
 }) {
-  const [showAdminReturn, setShowAdminReturn] = useState(false);
-  const [draftReturnCtx, setDraftReturnCtx] = useState(null);
+  const [showAdminReturn] = useState(() => hasAdminReturnFlag());
+  const [draftReturnCtx] = useState(() => readDraftReturnContext());
   const isAdmin = isAdminUser(sessionUser);
   const isLoggedIn = Boolean(sessionUser) || isAdmin || showAdminReturn || Boolean(draftReturnCtx);
-
-  useEffect(() => {
-    setShowAdminReturn(hasAdminReturnFlag());
-    setDraftReturnCtx(readDraftReturnContext());
-  }, []);
 
   const handleHomeClick = (event) => {
     event.preventDefault();

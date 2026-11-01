@@ -131,6 +131,290 @@ function isWholeWordContained(haystackNorm, needleNorm) {
   return pattern.test(haystackNorm);
 }
 
+function DraftInlineInput({
+  value = '',
+  onCommit,
+  className = '',
+  onKeyDown,
+  ...rest
+}) {
+  const [localValue, setLocalValue] = useState(value ?? '');
+  const [focused, setFocused] = useState(false);
+  const externalValue = value ?? '';
+
+  if (!focused && localValue !== externalValue) {
+    setLocalValue(externalValue);
+  }
+
+  return (
+    <input
+      {...rest}
+      value={localValue}
+      className={className}
+      onClick={(event) => event.stopPropagation()}
+      onFocus={() => setFocused(true)}
+      onChange={(event) => setLocalValue(event.target.value)}
+      onBlur={() => {
+        setFocused(false);
+        onCommit?.(localValue);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+        onKeyDown?.(event);
+      }}
+    />
+  );
+}
+
+function DraftBatchCustomInput({ field, selectedCount, disabled = false, onApply, onCancel }) {
+  const [value, setValue] = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [field]);
+
+  const apply = () => {
+    onApply?.(value.trim());
+  };
+
+  const label =
+    field === 'category_group'
+      ? 'Neue Category-Group:'
+      : field === 'boss_group'
+        ? 'Neue Boss-Group:'
+        : 'Neue Chrono-Group:';
+
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#00ff66] shrink-0">
+        {label}
+      </span>
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        disabled={disabled}
+        placeholder="Gruppenname eingeben..."
+        className="min-w-0 flex-1 rounded-lg border-2 border-[#00ff66] bg-zinc-900 px-3 py-2 text-sm font-mono text-white placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            apply();
+          }
+        }}
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={apply}
+        className="rounded-lg bg-[#00ff66] px-3 py-2 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50"
+      >
+        Auf {selectedCount} Zeilen anwenden
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="rounded-lg bg-zinc-800 px-2 py-2 text-xs text-zinc-400 hover:text-white"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
+function PillRenameInput({ initialValue = '', disabled = false, onSave }) {
+  const [text, setText] = useState(initialValue ?? '');
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        value={text}
+        disabled={disabled}
+        placeholder="Neuer Gruppenname..."
+        className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            onSave?.(text);
+          }
+        }}
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onSave?.(text)}
+        className="shrink-0 rounded-lg bg-[#00ff66] px-2.5 py-1.5 text-[11px] font-mono font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50"
+      >
+        Speichern
+      </button>
+    </div>
+  );
+}
+
+function GroupPillPopover({
+  field,
+  pill,
+  isFiltered,
+  otherGroups,
+  filteredTargets,
+  pillMergeSearch,
+  setPillMergeSearch,
+  actionBusy,
+  pillPopoverRef,
+  onClose,
+  onToggleFilter,
+  onSelectGroupRows,
+  onRename,
+  onMoveGroup,
+}) {
+  return (
+    <div
+      ref={pillPopoverRef}
+      className="fixed left-3 right-3 top-[12vh] z-50 mx-auto w-auto max-w-sm rounded-2xl border border-zinc-600 bg-[#16181c] p-3 shadow-2xl flex flex-col gap-2.5 text-left sm:left-1/2 sm:right-auto sm:w-80 sm:-translate-x-1/2"
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+        <div className="min-w-0">
+          <span className="block text-[9px] font-mono uppercase tracking-wider text-zinc-400">
+            {field === 'category_group'
+              ? 'Category-Group bearbeiten'
+              : field === 'boss_group'
+                ? 'Boss-Group bearbeiten'
+                : 'Chronological-Group bearbeiten'}
+          </span>
+          <p className="text-xs font-bold text-white truncate">
+            {pill.label}{' '}
+            <span className="text-[#00ff66] font-mono">({pill.count} Zeilen)</span>
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded p-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-white"
+        >
+          ✕
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={onToggleFilter}
+        className={`w-full flex items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-[11px] font-mono font-bold transition ${
+          isFiltered
+            ? 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+            : 'border-[#00ff66]/40 bg-[#00ff66]/15 text-[#00ff66] hover:bg-[#00ff66]/25'
+        }`}
+      >
+        <span>
+          {isFiltered
+            ? '✕ Gruppen-Filter aufheben'
+            : '🔍 Nur diese Gruppe in Tabelle filtern'}
+        </span>
+        <span>{pill.count} Zeilen</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={onSelectGroupRows}
+        className="w-full flex items-center justify-between gap-2 rounded-xl border border-zinc-700 bg-zinc-800/80 px-2.5 py-1.5 text-[11px] font-mono text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800 transition"
+      >
+        <span>☑️ Alle {pill.count} Zeilen dieser Gruppe auswählen</span>
+      </button>
+
+      <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
+        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-300">
+          ✏️ Umbenennen / Zusammenführen mit:
+        </span>
+
+        <PillRenameInput
+          key={`${field}:${pill.key}`}
+          initialValue={pill.rawValue}
+          disabled={actionBusy}
+          onSave={(next) => onRename(next)}
+        />
+
+        {otherGroups.length > 0 && (
+          <div className="flex flex-col gap-1 mt-1">
+            {otherGroups.length > 5 && (
+              <input
+                type="text"
+                value={pillMergeSearch}
+                onChange={(e) => setPillMergeSearch(e.target.value)}
+                placeholder="Bestehende Gruppe suchen..."
+                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1 text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+              />
+            )}
+            <div className="max-h-36 overflow-y-auto flex flex-col gap-1 pr-0.5">
+              {filteredTargets.map((target) => {
+                const isSimilar = areGroupNamesSimilar(pill.rawValue, target.rawValue);
+                return (
+                  <button
+                    key={target.key}
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={() => onRename(target.rawValue)}
+                    className={`flex items-center justify-between gap-2 rounded-lg border px-2 py-1 text-[11px] font-mono text-left transition ${
+                      isSimilar
+                        ? 'border-amber-400/60 bg-amber-500/15 text-amber-200 font-bold hover:bg-amber-500/25'
+                        : 'border-zinc-800 bg-zinc-900/90 text-zinc-300 hover:border-[#00ff66]/40 hover:text-white'
+                    }`}
+                  >
+                    <span className="truncate">
+                      {isSimilar ? '💡 ' : '↳ '}
+                      {target.label}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-zinc-400">
+                      ({target.count})
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {!pill.isEmpty && (
+        <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-300">
+            ⇄ Ganze Gruppe verschieben nach:
+          </span>
+          <div className="grid grid-cols-3 gap-1">
+            {[
+              { targetField: 'chronological_group', label: 'Chrono (Tab 1)' },
+              { targetField: 'category_group', label: 'Category (Tab 2)' },
+              { targetField: 'boss_group', label: 'Boss (Tab 3)' },
+            ].map((target) => {
+              const isCurrent = target.targetField === field;
+              return (
+                <button
+                  key={target.targetField}
+                  type="button"
+                  disabled={actionBusy || isCurrent}
+                  onClick={() => onMoveGroup(target.targetField)}
+                  className={`rounded-lg border px-2 py-1 text-[10px] font-mono font-bold transition ${
+                    isCurrent
+                      ? 'border-zinc-800 bg-zinc-900/50 text-zinc-600 cursor-not-allowed'
+                      : 'border-purple-500/35 bg-purple-500/10 text-purple-200 hover:bg-purple-500/25 hover:border-purple-400'
+                  }`}
+                >
+                  {target.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const CHAPTER_TARGET_COLUMNS = [
   { value: 'chronological_group', label: 'Chrono (chronological_group)', shortLabel: '⏱️ Chrono' },
   { value: 'category_group', label: 'Category (category_group)', shortLabel: '🗂️ Category' },
@@ -787,7 +1071,6 @@ export default function IntranetDrafts({
   const [pillSortOrder, setPillSortOrder] = useState('az');
   /** { field: 'category_group' | 'chronological_group', value: string } | null */
   const [activePillPopover, setActivePillPopover] = useState(null);
-  const [pillRenameText, setPillRenameText] = useState('');
   const [pillMergeSearch, setPillMergeSearch] = useState('');
   const pillPopoverRef = useRef(null);
 
@@ -817,7 +1100,6 @@ export default function IntranetDrafts({
   // 2. Multi-Select & Floating Batch-Bar State
   const [selectedRowIds, setSelectedRowIds] = useState(() => new Set());
   const [batchCustomField, setBatchCustomField] = useState(null); // 'chronological_group' | 'category_group' | null
-  const [batchCustomValue, setBatchCustomValue] = useState('');
   const [chapterCopyTargetField, setChapterCopyTargetField] = useState('chronological_group');
 
   // 3. Trophäen-Schnell-Picker & Auto-Matcher ("Just Do It") State
@@ -1276,7 +1558,6 @@ export default function IntranetDrafts({
     setActiveSheetFilter('all');
     setActivePillPopover(null);
     setBatchCustomField(null);
-    setBatchCustomValue('');
     setMatcherActiveGroupKey(null);
     setMatcherExpandedGroupKeys(new Set());
     setMatcherTrophySearch('');
@@ -1473,6 +1754,31 @@ export default function IntranetDrafts({
       outlierCount,
     };
   }, [currentCreatorRows, pillSortOrder]);
+
+  const activePillMeta = useMemo(() => {
+    if (!activePillPopover) return null;
+    const sections = [
+      { field: 'category_group', pills: groupStats.categoryPills },
+      { field: 'chronological_group', pills: groupStats.chronoPills },
+      { field: 'boss_group', pills: groupStats.bossPills },
+    ];
+    const section = sections.find((item) => item.field === activePillPopover.field);
+    const pill = section?.pills.find((item) => item.key === activePillPopover.value);
+    if (!section || !pill) return null;
+
+    const otherGroups = section.pills.filter((item) => item.key !== pill.key);
+    const searchTrim = pillMergeSearch.trim().toLowerCase();
+    const filteredTargets = otherGroups
+      .filter((item) => !searchTrim || item.label.toLowerCase().includes(searchTrim))
+      .sort((a, b) => {
+        const simA = areGroupNamesSimilar(pill.rawValue, a.rawValue);
+        const simB = areGroupNamesSimilar(pill.rawValue, b.rawValue);
+        if (simA !== simB) return simA ? -1 : 1;
+        return b.count - a.count;
+      });
+
+    return { field: section.field, pill, otherGroups, filteredTargets };
+  }, [activePillPopover, groupStats, pillMergeSearch]);
 
   // Distinct prod_note (Take) values across currentCreatorRows
   const distinctTakeNotes = useMemo(() => {
@@ -1992,7 +2298,6 @@ export default function IntranetDrafts({
       }
 
       setActivePillPopover(null);
-      setPillRenameText('');
       setPillMergeSearch('');
 
       const oldLabel = oldGroupKey === EMPTY_GROUP_TOKEN ? '(Ohne Gruppe)' : `"${oldGroupKey}"`;
@@ -2132,7 +2437,6 @@ export default function IntranetDrafts({
       }));
 
       setBatchCustomField(null);
-      setBatchCustomValue('');
 
       let label = field;
       let valDisplay = String(value ?? '');
@@ -5200,21 +5504,6 @@ export default function IntranetDrafts({
                                   'border-dashed border-zinc-700 bg-zinc-900/70 text-zinc-400 hover:border-zinc-500';
                               }
 
-                              const otherGroups = section.pills.filter((p) => p.key !== pill.key);
-                              const searchTrim = pillMergeSearch.trim().toLowerCase();
-                              const filteredTargets = otherGroups
-                                .filter(
-                                  (p) =>
-                                    !searchTrim ||
-                                    p.label.toLowerCase().includes(searchTrim)
-                                )
-                                .sort((a, b) => {
-                                  const simA = areGroupNamesSimilar(pill.rawValue, a.rawValue);
-                                  const simB = areGroupNamesSimilar(pill.rawValue, b.rawValue);
-                                  if (simA !== simB) return simA ? -1 : 1;
-                                  return b.count - a.count;
-                                });
-
                               return (
                                 <div key={pill.key} className="relative inline-block">
                                   <button
@@ -5227,7 +5516,6 @@ export default function IntranetDrafts({
                                           field: section.field,
                                           value: pill.key,
                                         });
-                                        setPillRenameText(pill.rawValue);
                                         setPillMergeSearch('');
                                       }
                                     }}
@@ -5256,226 +5544,73 @@ export default function IntranetDrafts({
                                       </span>
                                     )}
                                   </button>
-
-                                  {/* Popover / Dropdown für diese Gruppen-Pille */}
-                                  {isPopoverOpen && (
-                                    <div
-                                      ref={pillPopoverRef}
-                                      className="fixed sm:absolute left-3 right-3 sm:left-0 sm:right-auto top-1/4 sm:top-full z-50 mt-1.5 sm:w-80 rounded-2xl border border-zinc-600 bg-[#16181c] p-3 shadow-2xl flex flex-col gap-2.5 text-left"
-                                    >
-                                      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
-                                        <div className="min-w-0">
-                                          <span className="block text-[9px] font-mono uppercase tracking-wider text-zinc-400">
-                                            {section.field === 'category_group'
-                                              ? 'Category-Group bearbeiten'
-                                              : section.field === 'boss_group'
-                                                ? 'Boss-Group bearbeiten'
-                                                : 'Chronological-Group bearbeiten'}
-                                          </span>
-                                          <p className="text-xs font-bold text-white truncate">
-                                            {pill.label}{' '}
-                                            <span className="text-[#00ff66] font-mono">
-                                              ({pill.count} Zeilen)
-                                            </span>
-                                          </p>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => setActivePillPopover(null)}
-                                          className="rounded p-1 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-white"
-                                        >
-                                          ✕
-                                        </button>
-                                      </div>
-
-                                      {/* b) Nur diese Gruppe in der Tabelle filtern */}
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (isFiltered) {
-                                            setActiveGroupFilter(null);
-                                          } else {
-                                            setActiveGroupFilter({
-                                              field: section.field,
-                                              value: pill.key,
-                                            });
-                                          }
-                                          setActivePillPopover(null);
-                                        }}
-                                        className={`w-full flex items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-[11px] font-mono font-bold transition ${
-                                          isFiltered
-                                            ? 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-                                            : 'border-[#00ff66]/40 bg-[#00ff66]/15 text-[#00ff66] hover:bg-[#00ff66]/25'
-                                        }`}
-                                      >
-                                        <span>
-                                          {isFiltered
-                                            ? '✕ Gruppen-Filter aufheben'
-                                            : '🔍 Nur diese Gruppe in Tabelle filtern'}
-                                        </span>
-                                        <span>{pill.count} Zeilen</span>
-                                      </button>
-
-                                      {/* Alle Zeilen dieser Gruppe direkt markieren (Multi-Select) */}
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const matchingIds = currentCreatorRows
-                                            .filter((r) => {
-                                              const val = getLocalizedItemName(r[section.field]).trim();
-                                              return (val || EMPTY_GROUP_TOKEN) === pill.key;
-                                            })
-                                            .map((r) => r.id);
-                                          setSelectedRowIds((prev) => {
-                                            const next = new Set(prev);
-                                            for (const id of matchingIds) next.add(id);
-                                            return next;
-                                          });
-                                          setActivePillPopover(null);
-                                        }}
-                                        className="w-full flex items-center justify-between gap-2 rounded-xl border border-zinc-700 bg-zinc-800/80 px-2.5 py-1.5 text-[11px] font-mono text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800 transition"
-                                      >
-                                        <span>☑️ Alle {pill.count} Zeilen dieser Gruppe auswählen</span>
-                                      </button>
-
-                                      {/* a) Umbenennen / Zusammenführen mit... */}
-                                      <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
-                                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-300">
-                                          ✏️ Umbenennen / Zusammenführen mit:
-                                        </span>
-
-                                        {/* Freitextfeld */}
-                                        <div className="flex items-center gap-1.5">
-                                          <input
-                                            type="text"
-                                            value={pillRenameText}
-                                            onChange={(e) => setPillRenameText(e.target.value)}
-                                            placeholder="Neuer Gruppenname..."
-                                            className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
-                                            onKeyDown={(e) => {
-                                              if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                handleRenameOrMergeGroup(
-                                                  section.field,
-                                                  pill.key,
-                                                  pillRenameText
-                                                );
-                                              }
-                                            }}
-                                          />
-                                          <button
-                                            type="button"
-                                            disabled={actionBusy}
-                                            onClick={() =>
-                                              handleRenameOrMergeGroup(
-                                                section.field,
-                                                pill.key,
-                                                pillRenameText
-                                              )
-                                            }
-                                            className="shrink-0 rounded-lg bg-[#00ff66] px-2.5 py-1.5 text-[11px] font-mono font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50"
-                                          >
-                                            Speichern
-                                          </button>
-                                        </div>
-
-                                        {/* Bestehende Gruppen zum 1-Klick-Zusammenführen */}
-                                        {otherGroups.length > 0 && (
-                                          <div className="flex flex-col gap-1 mt-1">
-                                            {otherGroups.length > 5 && (
-                                              <input
-                                                type="text"
-                                                value={pillMergeSearch}
-                                                onChange={(e) => setPillMergeSearch(e.target.value)}
-                                                placeholder="Bestehende Gruppe suchen..."
-                                                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1 text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
-                                              />
-                                            )}
-                                            <div className="max-h-36 overflow-y-auto flex flex-col gap-1 pr-0.5">
-                                              {filteredTargets.map((target) => {
-                                                const isSimilar = areGroupNamesSimilar(
-                                                  pill.rawValue,
-                                                  target.rawValue
-                                                );
-                                                return (
-                                                  <button
-                                                    key={target.key}
-                                                    type="button"
-                                                    disabled={actionBusy}
-                                                    onClick={() =>
-                                                      handleRenameOrMergeGroup(
-                                                        section.field,
-                                                        pill.key,
-                                                        target.rawValue
-                                                      )
-                                                    }
-                                                    className={`flex items-center justify-between gap-2 rounded-lg border px-2 py-1 text-[11px] font-mono text-left transition ${
-                                                      isSimilar
-                                                        ? 'border-amber-400/60 bg-amber-500/15 text-amber-200 font-bold hover:bg-amber-500/25'
-                                                        : 'border-zinc-800 bg-zinc-900/90 text-zinc-300 hover:border-[#00ff66]/40 hover:text-white'
-                                                    }`}
-                                                  >
-                                                    <span className="truncate">
-                                                      {isSimilar ? '💡 ' : '↳ '}
-                                                      {target.label}
-                                                    </span>
-                                                    <span className="shrink-0 text-[10px] text-zinc-400">
-                                                      ({target.count})
-                                                    </span>
-                                                  </button>
-                                                );
-                                              })}
-                                            </div>
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {/* c) 1-Klick-Aktion: Ganze Gruppe verschieben nach Chrono / Category / Boss */}
-                                      {!pill.isEmpty && (
-                                        <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
-                                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-300">
-                                            ⇄ Ganze Gruppe verschieben nach:
-                                          </span>
-                                          <div className="grid grid-cols-3 gap-1">
-                                            {[
-                                              { field: 'chronological_group', label: 'Chrono (Tab 1)' },
-                                              { field: 'category_group', label: 'Category (Tab 2)' },
-                                              { field: 'boss_group', label: 'Boss (Tab 3)' },
-                                            ].map((target) => {
-                                              const isCurrent = target.field === section.field;
-                                              return (
-                                                <button
-                                                  key={target.field}
-                                                  type="button"
-                                                  disabled={actionBusy || isCurrent}
-                                                  onClick={() =>
-                                                    handleMoveGroupToField(
-                                                      section.field,
-                                                      pill.key,
-                                                      target.field
-                                                    )
-                                                  }
-                                                  className={`rounded-lg border px-2 py-1 text-[10px] font-mono font-bold transition ${
-                                                    isCurrent
-                                                      ? 'border-zinc-800 bg-zinc-900/50 text-zinc-600 cursor-not-allowed'
-                                                      : 'border-purple-500/35 bg-purple-500/10 text-purple-200 hover:bg-purple-500/25 hover:border-purple-400'
-                                                  }`}
-                                                >
-                                                  {target.label}
-                                                </button>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
                                 </div>
                               );
                             })}
                           </div>
                         </div>
                       ))}
+
+                      {activePillMeta ? (
+                        <GroupPillPopover
+                          key={`${activePillMeta.field}:${activePillMeta.pill.key}`}
+                          field={activePillMeta.field}
+                          pill={activePillMeta.pill}
+                          isFiltered={
+                            activeGroupFilter?.field === activePillMeta.field &&
+                            activeGroupFilter?.value === activePillMeta.pill.key
+                          }
+                          otherGroups={activePillMeta.otherGroups}
+                          filteredTargets={activePillMeta.filteredTargets}
+                          pillMergeSearch={pillMergeSearch}
+                          setPillMergeSearch={setPillMergeSearch}
+                          actionBusy={actionBusy}
+                          pillPopoverRef={pillPopoverRef}
+                          onClose={() => setActivePillPopover(null)}
+                          onToggleFilter={() => {
+                            if (
+                              activeGroupFilter?.field === activePillMeta.field &&
+                              activeGroupFilter?.value === activePillMeta.pill.key
+                            ) {
+                              setActiveGroupFilter(null);
+                            } else {
+                              setActiveGroupFilter({
+                                field: activePillMeta.field,
+                                value: activePillMeta.pill.key,
+                              });
+                            }
+                            setActivePillPopover(null);
+                          }}
+                          onSelectGroupRows={() => {
+                            const matchingIds = currentCreatorRows
+                              .filter((row) => {
+                                const val = getLocalizedItemName(row[activePillMeta.field]).trim();
+                                return (val || EMPTY_GROUP_TOKEN) === activePillMeta.pill.key;
+                              })
+                              .map((row) => row.id);
+                            setSelectedRowIds((prev) => {
+                              const next = new Set(prev);
+                              for (const id of matchingIds) next.add(id);
+                              return next;
+                            });
+                            setActivePillPopover(null);
+                          }}
+                          onRename={(next) =>
+                            handleRenameOrMergeGroup(
+                              activePillMeta.field,
+                              activePillMeta.pill.key,
+                              next
+                            )
+                          }
+                          onMoveGroup={(targetField) =>
+                            handleMoveGroupToField(
+                              activePillMeta.field,
+                              activePillMeta.pill.key,
+                              targetField
+                            )
+                          }
+                        />
+                      ) : null}
                     </div>
                   )}
 
@@ -5869,64 +6004,64 @@ export default function IntranetDrafts({
 
                               {/* guide_id */}
                               <td className="py-1 px-1">
-                                <input
+                                <DraftInlineInput
                                   type="text"
                                   value={row.guide_id ?? ''}
-                                  onChange={(e) => handleUpdateRowField(row.id, 'guide_id', e.target.value)}
+                                  onCommit={(next) => handleUpdateRowField(row.id, 'guide_id', next)}
                                   className="w-8 sm:w-10 rounded border border-transparent bg-transparent px-0.5 py-0.5 text-zinc-300 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
                               {/* item_name */}
                               <td className="py-1 px-1">
-                                <input
+                                <DraftInlineInput
                                   type="text"
                                   value={itemNameStr}
-                                  onChange={(e) => handleUpdateRowField(row.id, 'item_name', e.target.value)}
+                                  onCommit={(next) => handleUpdateRowField(row.id, 'item_name', next)}
                                   className="w-full min-w-[7rem] sm:min-w-[8rem] rounded border border-transparent bg-transparent px-1 py-0.5 font-sans text-xs font-medium text-white hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
                               {/* chronological_group */}
                               <td className="py-1 px-1">
-                                <input
+                                <DraftInlineInput
                                   type="text"
                                   value={chronoStr}
                                   placeholder="—"
-                                  onChange={(e) => handleUpdateRowField(row.id, 'chronological_group', e.target.value)}
+                                  onCommit={(next) => handleUpdateRowField(row.id, 'chronological_group', next)}
                                   className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-zinc-300 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
                               {/* category_group */}
                               <td className="py-1 px-1">
-                                <input
+                                <DraftInlineInput
                                   type="text"
                                   value={categoryStr}
                                   placeholder="—"
-                                  onChange={(e) => handleUpdateRowField(row.id, 'category_group', e.target.value)}
+                                  onCommit={(next) => handleUpdateRowField(row.id, 'category_group', next)}
                                   className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-purple-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
                               {/* boss_group */}
                               <td className="py-1 px-1">
-                                <input
+                                <DraftInlineInput
                                   type="text"
                                   value={bossStr}
                                   placeholder="—"
-                                  onChange={(e) => handleUpdateRowField(row.id, 'boss_group', e.target.value)}
+                                  onCommit={(next) => handleUpdateRowField(row.id, 'boss_group', next)}
                                   className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-amber-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
                               {/* prod_note (🎬 Take / Rohdatei) */}
                               <td className="py-1 px-1">
-                                <input
+                                <DraftInlineInput
                                   type="text"
                                   value={row.prod_note ?? ''}
                                   placeholder="z. B. 03_Erde"
-                                  onChange={(e) => handleUpdateRowField(row.id, 'prod_note', e.target.value)}
+                                  onCommit={(next) => handleUpdateRowField(row.id, 'prod_note', next)}
                                   className="w-full min-w-[5rem] sm:min-w-[6rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-amber-300 placeholder-zinc-600 hover:border-amber-500/40 focus:border-amber-400 focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
@@ -5947,11 +6082,11 @@ export default function IntranetDrafts({
                                   >
                                     ▶
                                   </button>
-                                  <input
+                                  <DraftInlineInput
                                     type="text"
                                     value={row.timestamp ?? ''}
-                                    onChange={(e) => handleUpdateRowField(row.id, 'timestamp', e.target.value)}
                                     placeholder="0:00"
+                                    onCommit={(next) => handleUpdateRowField(row.id, 'timestamp', next)}
                                     className="w-14 rounded border border-transparent bg-transparent px-1 py-0.5 text-[10px] font-mono text-[#00ff66] hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                   />
                                 </div>
@@ -5979,12 +6114,11 @@ export default function IntranetDrafts({
 
                               {/* trophy_id */}
                               <td className="py-1 px-1">
-                                <input
+                                <DraftInlineInput
                                   type="text"
                                   placeholder="—"
                                   value={row.trophy_id ?? ''}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
+                                  onCommit={(val) => {
                                     handleUpdateRowField(row.id, 'trophy_id', val);
                                     handleUpdateRowField(row.id, 'is_trophy_relevant', val ? 'ja' : null);
                                   }}
@@ -6033,7 +6167,25 @@ export default function IntranetDrafts({
 
                 {/* ==================== 2. FLOATING BATCH-BAR (WENN ZEILEN AUSGEWÄHLT SIND) ==================== */}
                 {selectedRowIds.size > 0 && (
-                  <div className="fixed bottom-4 left-3 right-3 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[820px] z-50 rounded-2xl border-2 border-[#00ff66] bg-[#101412]/95 backdrop-blur-md p-3 shadow-2xl shadow-black/80 flex flex-col gap-2">
+                  <div
+                    className={`fixed left-3 right-3 z-50 rounded-2xl border-2 border-[#00ff66] bg-[#101412]/95 backdrop-blur-md p-3 shadow-2xl shadow-black/80 flex flex-col gap-2 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[820px] ${
+                      batchCustomField
+                        ? 'top-[12vh] bottom-auto sm:top-auto sm:bottom-4'
+                        : 'bottom-4'
+                    }`}
+                  >
+                    {batchCustomField ? (
+                      <DraftBatchCustomInput
+                        key={batchCustomField}
+                        field={batchCustomField}
+                        selectedCount={selectedRowIds.size}
+                        disabled={actionBusy}
+                        onApply={(next) => handleBatchOverwriteSelected(batchCustomField, next)}
+                        onCancel={() => {
+                          setBatchCustomField(null);
+                        }}
+                      />
+                    ) : null}
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="inline-flex items-center rounded-lg bg-[#00ff66] px-2.5 py-1 text-xs font-mono font-bold text-black">
@@ -6072,7 +6224,6 @@ export default function IntranetDrafts({
                           if (!val) return;
                           if (val === '__CUSTOM__') {
                             setBatchCustomField('chronological_group');
-                            setBatchCustomValue('');
                           } else if (val === '__CLEAR__') {
                             handleBatchOverwriteSelected('chronological_group', '');
                           } else {
@@ -6102,7 +6253,6 @@ export default function IntranetDrafts({
                           if (!val) return;
                           if (val === '__CUSTOM__') {
                             setBatchCustomField('category_group');
-                            setBatchCustomValue('');
                           } else if (val === '__CLEAR__') {
                             handleBatchOverwriteSelected('category_group', '');
                           } else {
@@ -6132,7 +6282,6 @@ export default function IntranetDrafts({
                           if (!val) return;
                           if (val === '__CUSTOM__') {
                             setBatchCustomField('boss_group');
-                            setBatchCustomValue('');
                           } else if (val === '__CLEAR__') {
                             handleBatchOverwriteSelected('boss_group', '');
                           } else {
@@ -6175,52 +6324,6 @@ export default function IntranetDrafts({
                       </div>
                     </div>
 
-                    {/* Freitext-Eingabe für neue Gruppe in der Batch-Bar */}
-                    {batchCustomField && (
-                      <div className="flex items-center gap-2 pt-1 border-t border-zinc-800">
-                        <span className="text-[10px] font-mono text-[#00ff66] shrink-0">
-                          {batchCustomField === 'category_group'
-                            ? 'Neue Category-Group:'
-                            : batchCustomField === 'boss_group'
-                              ? 'Neue Boss-Group:'
-                              : 'Neue Chrono-Group:'}
-                        </span>
-                        <input
-                          type="text"
-                          value={batchCustomValue}
-                          onChange={(e) => setBatchCustomValue(e.target.value)}
-                          placeholder="Gruppenname eingeben..."
-                          autoFocus
-                          className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-xs text-white focus:border-[#00ff66] focus:outline-none"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleBatchOverwriteSelected(batchCustomField, batchCustomValue);
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          disabled={actionBusy}
-                          onClick={() =>
-                            handleBatchOverwriteSelected(batchCustomField, batchCustomValue)
-                          }
-                          className="rounded-lg bg-[#00ff66] px-3 py-1 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90"
-                        >
-                          Auf {selectedRowIds.size} Zeilen anwenden
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBatchCustomField(null);
-                            setBatchCustomValue('');
-                          }}
-                          className="rounded-lg bg-zinc-800 px-2 py-1 text-xs text-zinc-400 hover:text-white"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    )}
                   </div>
                 )}
 
