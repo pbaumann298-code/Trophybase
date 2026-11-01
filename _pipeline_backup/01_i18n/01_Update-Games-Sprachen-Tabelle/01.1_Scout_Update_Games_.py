@@ -80,6 +80,55 @@ def get_valid_access_token(force_refresh: bool = False) -> str:
     return current_token
 
 
+# Fängt alle bekannten Sony-SDK-Entwickler-Unfälle am Anfang und Ende ab
+SONY_TRASH_PREFIX_RE = re.compile(
+    r"^\s*(?:"
+    r"trophy\s*(?:set|pack|list|collection|group)s?(?:\s+(?:of|for|from|in))?"
+    r"|trophies\s+(?:of|for|from|in)"
+    r"|set\s+of\s+trophies(?:\s+for)?"
+    r"|trofeos\s+de|troph[eé]es\s+de|trophäen(?:-set)?\s+(?:für|von)"
+    r")\s*[:\-–—|]*\s*",
+    re.IGNORECASE,
+)
+
+SONY_TRASH_SUFFIX_RE = re.compile(
+    r"\s*[:\-–—|]*\s*\b(?:"
+    r"additional\s+trophies|trophy\s*(?:set|pack|list|collection)s?"
+    r"|trophies|trophy|expansion\s+pack|dlc\s+suite"
+    r"|console\s+edition|ps[345]\s+edition|the\s+game"
+    r")\s*$",
+    re.IGNORECASE,
+)
+
+
+def clean_title(title: str) -> str:
+    t = str(title or "").strip()
+    t = re.sub(r"[\®\™\©]", "", t)
+    t = re.sub(r"\(.*?\)|\[.*?\]", "", t)
+
+    # 1. ZUERST "Trophy Set of / - ..." am Anfang wegschneiden (BEVOR am Bindestrich getrennt wird!)
+    t = SONY_TRASH_PREFIX_RE.sub("", t).strip()
+
+    # 2. Suffixe wie "... - Trophy Set" oder "... Trophies" am Ende wegschneiden
+    t = SONY_TRASH_SUFFIX_RE.sub("", t).strip()
+
+    # 3. Erst JETZT Untertitel nach " - " oder ":" prüfen
+    if " - " in t:
+        parts = [p.strip() for p in t.split(" - ") if p.strip()]
+        if len(parts) >= 2:
+            # Falls vorne immer noch ein generisches Wort stand, nimm den hinteren Teil
+            t = parts[1] if len(parts[0]) <= 3 else parts[0]
+
+    if ":" in t:
+        parts = t.split(":")
+        if len(parts[1].strip().split()) > 3:
+            t = parts[0]
+
+    # 4. Letzter Durchgang falls nach dem Split noch Suffixe übrig blieben
+    t = SONY_TRASH_SUFFIX_RE.sub("", t).strip(" :-–—|")
+    return " ".join(t.split()).strip()
+
+
 def normalize_title_key(title: str) -> str:
     s = str(title or "").lower()
     s = re.sub(r"[®™©]", "", s)
