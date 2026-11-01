@@ -611,28 +611,28 @@ function getLocalizedItemName(itemName) {
   return itemName.de || itemName.en || Object.values(itemName)[0] || '';
 }
 
-function getLocalizedTrophyName(trophyName) {
-  if (!trophyName) return '';
-  if (typeof trophyName === 'string') return trophyName;
-  return trophyName.de || trophyName.en || Object.values(trophyName)[0] || '';
+function pickLocalizedTrophyText(value, lang = 'de') {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value !== 'object' || Array.isArray(value)) return '';
+  const zhFallback =
+    (lang === 'zh-hans' || lang === 'zh-hant') && typeof value.zh === 'string' ? value.zh : '';
+  const picked = value[lang] || zhFallback || value.de || value.en;
+  if (typeof picked === 'string' && picked.trim()) return picked;
+  const first = Object.values(value).find((entry) => typeof entry === 'string' && entry.trim());
+  return first || '';
+}
+
+function getLocalizedTrophyName(trophyName, lang = 'de') {
+  return pickLocalizedTrophyText(trophyName, lang);
 }
 
 function getLocalizedTrophyDesc(trophyDesc, lang = 'de') {
-  if (!trophyDesc) return '';
-  if (typeof trophyDesc === 'string') return trophyDesc;
-  if (typeof trophyDesc === 'object') {
-    return trophyDesc[lang] || trophyDesc.de || trophyDesc.en || Object.values(trophyDesc)[0] || '';
-  }
-  return '';
+  return pickLocalizedTrophyText(trophyDesc, lang);
 }
 
 function getLocalizedGuideTip(guideTip, lang = 'de') {
-  if (!guideTip) return '';
-  if (typeof guideTip === 'string') return guideTip;
-  if (typeof guideTip === 'object') {
-    return guideTip[lang] || guideTip.de || guideTip.en || Object.values(guideTip)[0] || '';
-  }
-  return '';
+  return pickLocalizedTrophyText(guideTip, lang);
 }
 
 function TrophyTypeBadge({ type }) {
@@ -783,7 +783,7 @@ function AdminGameStatusDropdown({ game, onStatusUpdated }) {
 
 function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuideTip }) {
   const trophyId = trophy.platform_achievement_id || trophy.id;
-  const nameStr = getLocalizedTrophyName(trophy.trophy_name);
+  const nameStr = getLocalizedTrophyName(trophy.trophy_name, trophyLang);
   const descStr = getLocalizedTrophyDesc(trophy.trophy_desc ?? trophy.trophy_description, trophyLang);
   const tipStr = getLocalizedGuideTip(trophy.guide_tip, trophyLang);
 
@@ -3183,20 +3183,10 @@ export default function IntranetDrafts({
     return (gameTrophies ?? []).map((ach, idx) => {
       const rawAchId = ach.platform_achievement_id ?? ach.id ?? '';
       const numericId = extractNumericTrophyId(rawAchId, idx + 1);
-      const nameDe =
-        typeof ach.trophy_name === 'object' && ach.trophy_name !== null
-          ? ach.trophy_name.de || ''
-          : typeof ach.trophy_name === 'string'
-            ? ach.trophy_name
-            : '';
-      const nameEn =
-        typeof ach.trophy_name === 'object' && ach.trophy_name !== null
-          ? ach.trophy_name.en || ''
-          : '';
+      const nameDe = getLocalizedTrophyName(ach.trophy_name, 'de');
+      const nameEn = getLocalizedTrophyName(ach.trophy_name, 'en');
       const displayName =
-        (typeof ach.trophy_name === 'object' && ach.trophy_name !== null
-          ? ach.trophy_name[trophyLang] || ach.trophy_name.de || ach.trophy_name.en || Object.values(ach.trophy_name)[0]
-          : ach.trophy_name) || String(rawAchId);
+        getLocalizedTrophyName(ach.trophy_name, trophyLang) || String(rawAchId);
       const descDe = getLocalizedTrophyDesc(ach.trophy_desc ?? ach.trophy_description, 'de');
       const descEn = getLocalizedTrophyDesc(ach.trophy_desc ?? ach.trophy_description, 'en');
       const displayDesc = getLocalizedTrophyDesc(ach.trophy_desc ?? ach.trophy_description, trophyLang);
@@ -5276,9 +5266,13 @@ export default function IntranetDrafts({
                                   value={trophyLang}
                                   onChange={(e) => setTrophyLang(e.target.value)}
                                   className="rounded border border-zinc-700 bg-zinc-950 px-1.5 py-0.5 text-[10px] font-mono text-zinc-200"
+                                  title="Sprache für Trophäenname, Beschreibung & Tipp"
                                 >
-                                  <option value="de">DE</option>
-                                  <option value="en">EN</option>
+                                  {localeOptions().map((opt) => (
+                                    <option key={opt.code} value={opt.code}>
+                                      {opt.short} {opt.flag}
+                                    </option>
+                                  ))}
                                 </select>
                               </div>
                             </div>
@@ -6436,15 +6430,13 @@ export default function IntranetDrafts({
                     value={trophyLang}
                     onChange={(e) => setTrophyLang(e.target.value)}
                     className="rounded bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
-                    title="Sprache für Trophäentexte & Tipps"
+                    title="Sprache für Trophäenname, Beschreibung & Tipp"
                   >
-                    <option value="de">DE 🇩🇪</option>
-                    <option value="en">EN 🇬🇧</option>
-                    <option value="es">ES 🇪🇸</option>
-                    <option value="fr">FR 🇫🇷</option>
-                    <option value="it">IT 🇮🇹</option>
-                    <option value="ja">JA 🇯🇵</option>
-                    <option value="pt">PT 🇵🇹</option>
+                    {localeOptions().map((opt) => (
+                      <option key={opt.code} value={opt.code}>
+                        {opt.short} {opt.flag}
+                      </option>
+                    ))}
                   </select>
                   {activeRowId && (
                     <span className="text-[9px] font-mono text-[#00ff66] bg-[#00ff66]/10 px-1.5 py-0.5 rounded border border-[#00ff66]/30">
