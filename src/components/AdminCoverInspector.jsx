@@ -44,12 +44,14 @@ export default function AdminCoverInspector({
 
   useEffect(() => {
     setLocalCoverUrl(extractCoverUrl(game?.cover_url ?? game?.cover));
-    setLocalCoverStatus(game?.cover_status !== undefined ? game.cover_status : undefined);
+    if (game?.cover_status !== undefined) {
+      setLocalCoverStatus(game.cover_status);
+    }
     setErrorMsg('');
   }, [gameId, game?.cover_url, game?.cover, game?.cover_status]);
 
   useEffect(() => {
-    if (!gameId || hideThumb || localCoverStatus !== undefined) return undefined;
+    if (!gameId || localCoverStatus !== undefined) return undefined;
     let cancelled = false;
     supabase
       .from('games')
@@ -65,6 +67,23 @@ export default function AdminCoverInspector({
       cancelled = true;
     };
   }, [gameId, localCoverStatus]);
+
+  useEffect(() => {
+    if (!gameId || typeof window === 'undefined') return undefined;
+    const onCoverUpdated = (event) => {
+      const detail = event?.detail;
+      if (!detail || String(detail.gameId ?? '') !== gameId) return;
+      const patch = detail.patch || {};
+      if (patch.cover_status !== undefined) {
+        setLocalCoverStatus(patch.cover_status);
+      }
+      if (patch.cover_url !== undefined) {
+        setLocalCoverUrl(extractCoverUrl(patch.cover_url));
+      }
+    };
+    window.addEventListener('tb:game-cover-updated', onCoverUpdated);
+    return () => window.removeEventListener('tb:game-cover-updated', onCoverUpdated);
+  }, [gameId]);
 
   if (!gameId) return null;
 
@@ -154,9 +173,13 @@ export default function AdminCoverInspector({
         ? 'h-14 w-11'
         : 'h-20 w-16';
 
-  const statusValue = localCoverStatus || 'ungeprüft';
   const isVerified = localCoverStatus === 'valid';
   const isInvalid = localCoverStatus === 'invalid';
+  const statusValue = isInvalid ? 'invalid' : 'ungeprüft';
+
+  if (hideThumb && (isVerified || localCoverStatus === undefined)) {
+    return null;
+  }
 
   const modalNode =
     igdbOpen && typeof document !== 'undefined'
@@ -277,68 +300,70 @@ export default function AdminCoverInspector({
           </span>
         ) : null}
 
-        <div className={`flex ${hideThumb ? 'flex-row w-full gap-1' : 'flex-col gap-1'}`}>
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={handleClear}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') handleClear(e);
-            }}
-            title="Falsches Cover löschen und status.igdb entfernen"
-            className={`rounded-md border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-center font-mono text-[9px] font-bold uppercase tracking-wider text-red-300 transition hover:bg-red-500/20 cursor-pointer whitespace-nowrap select-none ${
-              hideThumb ? 'flex-1' : ''
-            } ${busy || !localCoverUrl ? 'opacity-40 pointer-events-none' : ''}`}
-          >
-            {busy ? '…' : 'Cover löschen'}
-          </span>
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              stopEvent(e);
-              if (busy) return;
-              setErrorMsg('');
-              setIgdbOpen(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
+        {!isVerified ? (
+          <div className={`flex ${hideThumb ? 'flex-row w-full gap-1' : 'flex-col gap-1'}`}>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={handleClear}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') handleClear(e);
+              }}
+              title="Falsches Cover löschen und status.igdb entfernen"
+              className={`rounded-md border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-center font-mono text-[9px] font-bold uppercase tracking-wider text-red-300 transition hover:bg-red-500/20 cursor-pointer whitespace-nowrap select-none ${
+                hideThumb ? 'flex-1' : ''
+              } ${busy || !localCoverUrl ? 'opacity-40 pointer-events-none' : ''}`}
+            >
+              {busy ? '…' : 'Cover löschen'}
+            </span>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
                 stopEvent(e);
                 if (busy) return;
                 setErrorMsg('');
                 setIgdbOpen(true);
-              }
-            }}
-            title="Neuen IGDB-Bildlink als Cover hinterlegen"
-            className={`rounded-md border border-[#00ff66]/40 bg-[#00ff66]/10 px-1.5 py-0.5 text-center font-mono text-[9px] font-bold uppercase tracking-wider text-[#00ff66] transition hover:bg-[#00ff66]/20 cursor-pointer whitespace-nowrap select-none ${
-              hideThumb ? 'flex-1' : ''
-            } ${busy ? 'opacity-50 pointer-events-none' : ''}`}
-          >
-            IGDB Link
-          </span>
-        </div>
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  stopEvent(e);
+                  if (busy) return;
+                  setErrorMsg('');
+                  setIgdbOpen(true);
+                }
+              }}
+              title="Neuen IGDB-Bildlink als Cover hinterlegen"
+              className={`rounded-md border border-[#00ff66]/40 bg-[#00ff66]/10 px-1.5 py-0.5 text-center font-mono text-[9px] font-bold uppercase tracking-wider text-[#00ff66] transition hover:bg-[#00ff66]/20 cursor-pointer whitespace-nowrap select-none ${
+                hideThumb ? 'flex-1' : ''
+              } ${busy ? 'opacity-50 pointer-events-none' : ''}`}
+            >
+              IGDB Link
+            </span>
+          </div>
+        ) : null}
       </div>
 
-      <span
-        role="button"
-        tabIndex={0}
-        onClick={handleVerifyStatus}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') handleVerifyStatus(e);
-        }}
-        title="Klick darauf verifiziert das Cover (setzt cover_status = 'valid')"
-        className={`w-full rounded-md border px-1.5 py-0.5 text-center font-mono text-[9px] font-bold transition cursor-pointer whitespace-nowrap select-none ${
-          busy ? 'opacity-50 pointer-events-none' : ''
-        } ${
-          isVerified
-            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
-            : isInvalid
+      {!isVerified ? (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={handleVerifyStatus}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') handleVerifyStatus(e);
+          }}
+          title="Klick darauf verifiziert das Cover (setzt cover_status = 'valid')"
+          className={`w-full rounded-md border px-1.5 py-0.5 text-center font-mono text-[9px] font-bold transition cursor-pointer whitespace-nowrap select-none ${
+            busy ? 'opacity-50 pointer-events-none' : ''
+          } ${
+            isInvalid
               ? 'border-red-500/40 bg-red-500/15 text-red-300 hover:bg-red-500/25'
               : 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-[#00ff66]/50 hover:bg-[#00ff66]/15 hover:text-[#00ff66]'
-        }`}
-      >
-        {isVerified ? '✓ cover_status: valid' : `cover_status: ${statusValue}`}
-      </span>
+          }`}
+        >
+          {`cover_status: ${statusValue}`}
+        </span>
+      ) : null}
 
       {errorMsg && !igdbOpen ? (
         <p className="max-w-[11rem] font-mono text-[9px] text-red-400 leading-tight m-0">{errorMsg}</p>

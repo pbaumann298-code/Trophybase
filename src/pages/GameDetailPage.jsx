@@ -1487,23 +1487,19 @@ function GamePageContent({
                   ) : null}
                 </div>
 
-                {isAdmin ? (
+                {isAdmin && effectiveCoverStatus !== 'valid' ? (
                   <button
                     type="button"
                     onClick={handleVerifyCover}
                     disabled={coverBusy}
                     title="Klick darauf verifiziert das Cover (setzt cover_status = 'valid')"
                     className={`w-full rounded-lg border px-2.5 py-1.5 text-center font-mono text-[11px] font-bold transition cursor-pointer disabled:opacity-50 ${
-                      effectiveCoverStatus === 'valid'
-                        ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
-                        : effectiveCoverStatus === 'invalid'
-                          ? 'border-red-500/40 bg-red-500/15 text-red-300 hover:bg-red-500/25'
-                          : 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-[#00ff66]/50 hover:bg-[#00ff66]/15 hover:text-[#00ff66]'
+                      effectiveCoverStatus === 'invalid'
+                        ? 'border-red-500/40 bg-red-500/15 text-red-300 hover:bg-red-500/25'
+                        : 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-[#00ff66]/50 hover:bg-[#00ff66]/15 hover:text-[#00ff66]'
                     }`}
                   >
-                    {effectiveCoverStatus === 'valid'
-                      ? '✓ cover_status: valid'
-                      : `cover_status: ${effectiveCoverStatus || 'ungeprüft'} (Klick = Verifizieren)`}
+                    {`cover_status: ${effectiveCoverStatus === 'invalid' ? 'invalid' : 'ungeprüft'} (Klick = Verifizieren)`}
                   </button>
                 ) : null}
               </div>

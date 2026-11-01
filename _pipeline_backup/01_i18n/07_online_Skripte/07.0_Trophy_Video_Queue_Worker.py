@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-07.0_Trophy_Video_Queue_Worker.py (Nachfolger von 00_TimeStemps_export_in_Excel-Guidedatei.py)
+07.0_Trophy_Video_Queue_Worker.py (Multi-Tab Rohmaterial Edition)
 Verarbeitet auf der Website eingetragene Trophäen-Sammelvideos aus 'trophy_video_scrape_queue':
 - Zieht Kapitel oder Description-Timestamps via yt-dlp (inkl. Playlist-Support).
 - Versieht JEDE extrahierte Zeile sofort mit der richtigen trophy_id & dem Trophäennamen als Gruppe.
-- Schiebt alles direkt in 'staging_game_guides' (Entwürfe-Tab im Intranet) zur finalen Sichtung & Freigabe!
+- Schreibt direkt als JSONB in 'game_guides_rohmaterial' (batch_status = 'OPEN') und setzt
+  games.status.rohmaterial = 'PENDING_MULTI_TAB', damit das Spiel sofort in der Multi-Tab-Bearbeitung als offen erscheint!
 """
 
 import os
 import re
 import sys
-import json
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 import yt_dlp
@@ -31,9 +32,41 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def extract_numeric_trophy_id(raw_tid: Any) -> int | None:
+def extract_numeric_trophy_id(raw_tid: Any) -> str | None:
     matches = re.findall(r"\d+", str(raw_tid or ""))
-    return int(matches[-1]) if matches else None
+    return str(int(matches[-1])) if matches else None
+
+
+def detect_text_locale(sample_text: str) -> str:
+    t = str(sample_text or "").lower()
+    if not t:
+        return "de"
+    if re.search(r"[а-яё]", t):
+        return "ru"
+    if re.search(r"[ぁ-んァ-ン]", t):
+        return "ja"
+    if re.search(r"[가-힣]", t):
+        return "ko"
+    if re.search(r"[\u4e00-\u9fff]", t):
+        return "zh-hans"
+    if re.search(r"[\u0600-\u06ff]", t):
+        return "ar"
+    if re.search(
+        r"(ã|õ|ção|ções|\btroféu|\btrofeus|\bcolecionáveis|\bcolecionaveis|\bcapítulo|\binício|\bchefe\b)",
+        t,
+    ):
+        return "pt"
+    if re.search(r"(ñ|¿|¡|\btrofeo|\bcoleccionables|\bjefe\b|\bmisión|\bcapítulo)", t):
+        return "es"
+    if re.search(
+        r"(\btrophée|\bchapitre|\btous les\b|\btoutes les\b|\bdébut\b|\bsoluce\b)", t
+    ):
+        return "fr"
+    if re.search(
+        r"(ä|ö|ü|ß|\bsammelobjekte|\bkapitel\b|\btrophäe|\bhauptspiel\b|\blösung\b)", t
+    ):
+        return "de"
+    return "en"
 
 
 def format_seconds_to_mmss(seconds: int) -> str:
@@ -168,15 +201,23 @@ def extract_timestamps_from_url(
 
 
 def get_next_guide_id_offset(game_id: str) -> int:
-    """Ermittelt die höchste bestehende guide_id in staging_game_guides + game_guides für dieses Spiel."""
+    """Ermittelt die höchste bestehende guide_id über alle 3 Guide-Tabellen für dieses Spiel."""
     max_id = 0
-    for table in ("staging_game_guides", "game_guides"):
+    for table in ("game_guides_rohmaterial", "staging_game_guides", "game_guides"):
         res = supabase.table(table).select("guide_id").eq("game_id", game_id).execute()
         for r in res.data or []:
             m = re.search(r"\d+", str(r.get("guide_id") or ""))
             if m:
                 max_id = max(max_id, int(m.group(0)))
     return max_id
+
+
+def resolve_sheet_type_for_col(target_col: str) -> list[int]:
+    if target_col == "chronological_group":
+        return [1]
+    if target_col == "boss_group":
+        return [3]
+    return [2]
 
 
 def process_queue():
@@ -193,7 +234,7 @@ def process_queue():
         return
 
     print(
-        f"🚀 Verarbeite {len(jobs)} Trophäen-Video-Aufträge aus der Website-Queue...\n"
+        f"🚀 Verarbeite {len(jobs)} Trophäen-Video-Aufträge -> Direkt in Multi-Tab (game_guides_rohmaterial)...\n"
     )
 
     ydl_opts = {
@@ -213,30 +254,30 @@ def process_queue():
             game_id = job["game_id"]
             video_url = str(job["video_url"]).strip()
             raw_tid = job["trophy_id"]
-            num_tid = extract_numeric_trophy_id(raw_tid)
+            str_tid = extract_numeric_trophy_id(raw_tid)
             trophy_name = str(job.get("trophy_name") or f"Trophäe #{raw_tid}").strip()
             group_name = str(job.get("custom_group_name") or trophy_name).strip()
             target_col = job.get("target_group_col") or "category_group"
 
-            # NPWR aus games holen, falls im Job leer
+            g_res = (
+                supabase.table("games")
+                .select("platform_game_id, status")
+                .eq("id", game_id)
+                .limit(1)
+                .execute()
+            )
+            g_row = (g_res.data or [{}])[0]
+
             npwr = str(job.get("platform_game_id") or "").strip()
             if not npwr:
-                g_res = (
-                    supabase.table("games")
-                    .select("platform_game_id")
-                    .eq("id", game_id)
-                    .limit(1)
-                    .execute()
+                raw_p = g_row.get("platform_game_id")
+                npwr = (
+                    raw_p[0]
+                    if isinstance(raw_p, list) and raw_p
+                    else str(raw_p or game_id)
                 )
-                if g_res.data:
-                    raw_p = g_res.data[0].get("platform_game_id")
-                    npwr = (
-                        raw_p[0]
-                        if isinstance(raw_p, list) and raw_p
-                        else str(raw_p or "")
-                    )
 
-            print(f"📺 [{trophy_name} | Trophy #{num_tid}] Scanne: {video_url}")
+            print(f"📺 [{trophy_name} | Trophy #{str_tid}] Scanne: {video_url}")
             supabase.table("trophy_video_scrape_queue").update(
                 {"status": "PROCESSING"}
             ).eq("id", job_id).execute()
@@ -254,53 +295,84 @@ def process_queue():
                     print("   ⚠️ Keine Timestamps im Video gefunden.")
                     continue
 
+                sample_str = " ".join(
+                    f"{it['label']} {it['video_title']}" for it in items[:20]
+                )
+                src_lang = detect_text_locale(sample_str)
+                sheet_type_arr = resolve_sheet_type_for_col(target_col)
                 next_gid = get_next_guide_id_offset(game_id) + 1
-                staging_rows = []
 
+                first_creator = items[0]["creator_name"]
+                safe_creator = re.sub(r"[^a-zA-Z0-9_-]", "_", first_creator)[:20]
+                batch_key = f"tvq_{str(game_id)[:8]}_t{str_tid or '0'}_{safe_creator}_{int(time.time())}"
+
+                # Mehrsprachiges Gruppen-JSONB (de + erkannte Video-Sprache setzen, damit im DE-Editor sofort sichtbar)
+                group_jsonb = {"de": group_name, src_lang: group_name}
+
+                roh_rows = []
                 for it in items:
-                    row_payload = {
-                        "game_id": game_id,
-                        "platform_game_id": npwr or str(game_id),
-                        "creator_name": it["creator_name"],
-                        "creator_input_url": video_url,
-                        "guide_id": next_gid,
-                        # staging_game_guides hat NOT NULL auf chronological_group:
-                        "chronological_group": (
-                            group_name
-                            if target_col == "chronological_group"
-                            else "Sammelobjekte"
-                        ),
-                        "category_group": (
-                            group_name if target_col == "category_group" else None
-                        ),
-                        "boss_group": (
-                            group_name if target_col == "boss_group" else None
-                        ),
-                        "video_chapter": it["video_title"],
-                        "item_name": it["label"],
-                        "timestamp": it["timestamp"],
-                        "video_url": f"{it['base_video_url']}&t={it['seconds']}s",
-                        "trophy_id": num_tid,
-                        "is_trophy_relevant": "Ja",
-                    }
-                    staging_rows.append(row_payload)
+                    item_jsonb = {"de": it["label"], src_lang: it["label"]}
+                    chap_jsonb = {"de": it["video_title"], src_lang: it["video_title"]}
+
+                    roh_rows.append(
+                        {
+                            "batch_key": batch_key,
+                            "batch_status": "OPEN",
+                            "game_id": game_id,
+                            "platform_game_id": npwr,
+                            "creator_name": it["creator_name"],
+                            "playlist_url": video_url,
+                            "guide_id": str(next_gid),
+                            "sheet_type": sheet_type_arr,
+                            "item_name": item_jsonb,
+                            "chronological_group": (
+                                group_jsonb
+                                if target_col == "chronological_group"
+                                else None
+                            ),
+                            "category_group": (
+                                group_jsonb if target_col == "category_group" else None
+                            ),
+                            "boss_group": (
+                                group_jsonb if target_col == "boss_group" else None
+                            ),
+                            "video_chapter": chap_jsonb,
+                            "timestamp": it["timestamp"],
+                            "video_url": f"{it['base_video_url']}&t={it['seconds']}s",
+                            "trophy_id": str_tid,
+                            "is_trophy_relevant": "Ja",
+                        }
+                    )
                     next_gid += 1
 
-                supabase.table("staging_game_guides").upsert(
-                    staging_rows, on_conflict="game_id,creator_name,video_url,timestamp"
+                for i in range(0, len(roh_rows), 500):
+                    supabase.table("game_guides_rohmaterial").insert(
+                        roh_rows[i : i + 500]
+                    ).execute()
+
+                # Spiel-Status auf PENDING_MULTI_TAB heben, damit es sofort in der Multi-Tab-Queue als offen auftaucht
+                status_obj = (
+                    dict(g_row.get("status") or {})
+                    if isinstance(g_row.get("status"), dict)
+                    else {}
+                )
+                status_obj["rohmaterial"] = "PENDING_MULTI_TAB"
+                supabase.table("games").update({"status": status_obj}).eq(
+                    "id", game_id
                 ).execute()
 
                 supabase.table("trophy_video_scrape_queue").update(
                     {
                         "status": "DONE",
-                        "extracted_count": len(staging_rows),
+                        "extracted_count": len(roh_rows),
                         "error_msg": None,
                         "processed_at": datetime.now(timezone.utc).isoformat(),
                     }
                 ).eq("id", job_id).execute()
 
                 print(
-                    f"   ✅ {len(staging_rows)} Schritte mit trophy_id={num_tid} & Gruppe '{group_name}' in Entwürfe (staging_game_guides) geladen!"
+                    f"   ✅ {len(roh_rows)} Schritte (Trophy #{str_tid} | Gruppe '{group_name}' | Tab {sheet_type_arr}) "
+                    f"direkt in Multi-Tab (game_guides_rohmaterial) geladen!"
                 )
             except Exception as e:
                 supabase.table("trophy_video_scrape_queue").update(

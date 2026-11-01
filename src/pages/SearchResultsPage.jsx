@@ -102,7 +102,7 @@ function SearchResultRow({
             }}
           />
         </div>
-        {isAdmin && gameUuid ? (
+        {isAdmin && gameUuid && effectiveGame?.cover_status !== 'valid' ? (
           <AdminCoverInspector
             game={effectiveGame}
             hideThumb

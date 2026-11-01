@@ -1,6 +1,7 @@
 import { ALLOWED_ADMINS, normalizeEmail } from './maintenanceAccess';
 
 export const ADMIN_RETURN_STORAGE_KEY = 'tb_admin_return';
+export const ADMIN_ORIGIN_STORAGE_KEY = 'tb_admin_origin';
 export const ADMIN_TAB_STORAGE_KEY = 'tb_admin_tab';
 export const INTRANET_GAME_SEARCH_STORAGE_KEY = 'tb_intranet_game_search';
 export const DRAFT_RETURN_STORAGE_KEY = 'tb_draft_return_context';
@@ -90,15 +91,36 @@ export async function getSessionOrTimeout(client, timeoutMs = AUTH_SESSION_TIMEO
 }
 
 /** Admin hat die Website geöffnet und kann zurück zum Panel. */
-export function setAdminReturnFlag(active = true) {
+export function setAdminReturnFlag(active = true, originPath = null) {
   try {
     if (active) {
       sessionStorage.setItem(ADMIN_RETURN_STORAGE_KEY, '1');
+      let resolvedOrigin = originPath;
+      if (!resolvedOrigin && typeof window !== 'undefined') {
+        const pathname = String(window.location.pathname || '').toLowerCase();
+        if (pathname.includes('intranet')) {
+          resolvedOrigin = '/intranet.html';
+        } else if (pathname.includes('admin')) {
+          resolvedOrigin = '/admin.html';
+        }
+      }
+      if (!resolvedOrigin) {
+        resolvedOrigin = localStorage.getItem(ADMIN_ORIGIN_STORAGE_KEY) || '/intranet.html';
+      }
+      localStorage.setItem(ADMIN_ORIGIN_STORAGE_KEY, resolvedOrigin);
     } else {
       sessionStorage.removeItem(ADMIN_RETURN_STORAGE_KEY);
     }
   } catch {
     /* ignore */
+  }
+}
+
+export function getAdminReturnUrl(fallback = '/intranet.html') {
+  try {
+    return localStorage.getItem(ADMIN_ORIGIN_STORAGE_KEY) || fallback;
+  } catch {
+    return fallback;
   }
 }
 

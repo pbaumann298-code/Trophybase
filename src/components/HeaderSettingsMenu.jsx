@@ -32,6 +32,7 @@ function GearIcon({ className }) {
 function HeaderSettingsMenu({
   sessionUser = null,
   isAdmin = false,
+  isCreator = false,
   onLogout,
   onOpenWatchlist,
   onOpenProfile,
@@ -510,6 +511,37 @@ function HeaderSettingsMenu({
           >
             {t('watchlistTitle')}
           </a>
+
+          {isAdmin ? (
+            <>
+              <div className="my-1.5 border-t border-zinc-800" role="separator" />
+              <a
+                href="/intranet.html"
+                role="menuitem"
+                className="block px-3 py-2 text-xs font-mono font-bold text-amber-300 no-underline hover:bg-zinc-800/80"
+              >
+                🛠️ Intranet öffnen
+              </a>
+              <a
+                href="/admin.html"
+                role="menuitem"
+                className="block px-3 py-2 text-xs font-mono font-bold text-sky-300 no-underline hover:bg-zinc-800/80"
+              >
+                ⚙️ Admin-Panel öffnen
+              </a>
+            </>
+          ) : isCreator ? (
+            <>
+              <div className="my-1.5 border-t border-zinc-800" role="separator" />
+              <a
+                href="/intranet.html"
+                role="menuitem"
+                className="block px-3 py-2 text-xs font-mono font-bold text-amber-300 no-underline hover:bg-zinc-800/80"
+              >
+                🎬 Creator Studio öffnen
+              </a>
+            </>
+          ) : null}
 
           {sessionUser ? (
             <>

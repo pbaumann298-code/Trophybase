@@ -64,6 +64,31 @@ let homeRailsInflight = null;
 let homeRailsCache = null;
 
 /**
+ * Aktualisiert ein Spiel im In-Memory-Startseiten-Cache (z. B. nach Cover-Verifizierung),
+ * damit beim Wechsel zwischen Ansichten oder Kacheln der neue Status sofort erhalten bleibt.
+ * @param {string} gameId
+ * @param {Record<string, unknown>} patch
+ */
+export function patchHomeRailsCacheGame(gameId, patch) {
+  const id = String(gameId ?? '').trim();
+  if (!id || !patch || typeof patch !== 'object') return;
+  if (homeRailsCache?.rails && typeof homeRailsCache.rails === 'object') {
+    const nextRails = {};
+    for (const [railId, list] of Object.entries(homeRailsCache.rails)) {
+      nextRails[railId] = Array.isArray(list)
+        ? list.map((g) => (String(g?.[GAME_PK] ?? g?.id ?? '') === id ? { ...g, ...patch } : g))
+        : list;
+    }
+    homeRailsCache = { ...homeRailsCache, rails: nextRails };
+  }
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(
+      new CustomEvent('tb:game-cover-updated', { detail: { gameId: id, patch } }),
+    );
+  }
+}
+
+/**
  * Eindeutige Spiele nach games.id (Fallback: Route-Slug, dann Titel).
  * Der Schlüssel muss ein Primitive sein, sonst greift die Map-Deduplizierung
  * nicht.

@@ -474,7 +474,7 @@ function QuickwinGameCard({
                 <GuideOnlineBadge game={detailGame} visible={isAdmin} size="sm" />
               </div>
               <PlatinumUnlockedBadge active={platinumDone} size="sm" />
-              {isAdmin ? (
+              {isAdmin && detailGame?.cover_status !== 'valid' ? (
                 <div className="absolute top-1.5 right-1.5 z-10 flex flex-col items-end gap-1">
                   <button
                     type="button"
@@ -500,23 +500,19 @@ function QuickwinGameCard({
                 </div>
               ) : null}
             </div>
-            {isAdmin ? (
+            {isAdmin && detailGame?.cover_status !== 'valid' ? (
               <button
                 type="button"
                 onClick={handleVerifyCover}
                 disabled={coverBusy}
                 title="Klick darauf verifiziert das Cover (setzt cover_status = 'valid')"
                 className={`rounded-md border px-2 py-1 text-center font-mono text-[10px] font-bold transition cursor-pointer disabled:opacity-50 ${
-                  detailGame?.cover_status === 'valid'
-                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
-                    : detailGame?.cover_status === 'invalid'
-                      ? 'border-red-500/40 bg-red-500/15 text-red-300 hover:bg-red-500/25'
-                      : 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-[#00ff66]/50 hover:bg-[#00ff66]/15 hover:text-[#00ff66]'
+                  detailGame?.cover_status === 'invalid'
+                    ? 'border-red-500/40 bg-red-500/15 text-red-300 hover:bg-red-500/25'
+                    : 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-[#00ff66]/50 hover:bg-[#00ff66]/15 hover:text-[#00ff66]'
                 }`}
               >
-                {detailGame?.cover_status === 'valid'
-                  ? '✓ cover_status: valid'
-                  : `cover_status: ${detailGame?.cover_status || 'ungeprüft'}`}
+                {`cover_status: ${detailGame?.cover_status === 'invalid' ? 'invalid' : 'ungeprüft'}`}
               </button>
             ) : null}
             {coverError && !igdbPrompt ? (

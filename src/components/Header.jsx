@@ -1,7 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import HeaderSettingsMenu from './HeaderSettingsMenu';
-import { isStaffOrPreviewContext, readDraftReturnContext } from '../lib/adminAccess';
+import {
+  fetchMyCreatorProfile,
+  getAdminReturnUrl,
+  hasAdminReturnFlag,
+  isAdminUser,
+  isStaffOrPreviewContext,
+  readDraftReturnContext,
+} from '../lib/adminAccess';
 import { navigateToHome, PROFILE_PATH, WATCHLIST_PATH } from '../lib/routeUtils';
+import { supabase } from '../pages/supabaseClient';
 
 function Header({
   setCurrentView,
@@ -17,6 +25,25 @@ function Header({
     staffOrPreview ? readDraftReturnContext() : null
   );
   const isLoggedIn = Boolean(sessionUser);
+  const isAdmin = isAdminUser(sessionUser, { allowPublic: true });
+  const showStaffReturn = isAdmin && (staffOrPreview || hasAdminReturnFlag());
+  const [creatorProfile, setCreatorProfile] = useState(null);
+
+  useEffect(() => {
+    if (!sessionUser?.id || isAdmin) {
+      setCreatorProfile(null);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchMyCreatorProfile(supabase).then((profile) => {
+      if (!cancelled) {
+        setCreatorProfile(profile || null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionUser?.id, isAdmin]);
 
   const handleHomeClick = (event) => {
     event.preventDefault();
@@ -72,9 +99,26 @@ function Header({
               : ''}
           </a>
         ) : null}
+        {showStaffReturn ? (
+          <a
+            href={getAdminReturnUrl('/intranet.html')}
+            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 rounded-lg transition whitespace-nowrap no-underline"
+          >
+            🛠️ Intranet / Admin
+          </a>
+        ) : null}
+        {!isAdmin && creatorProfile?.id ? (
+          <a
+            href="/intranet.html"
+            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 rounded-lg transition whitespace-nowrap no-underline"
+          >
+            🎬 Creator Studio
+          </a>
+        ) : null}
         <HeaderSettingsMenu
           sessionUser={sessionUser}
-          isAdmin={false}
+          isAdmin={isAdmin}
+          isCreator={Boolean(creatorProfile?.id)}
           onLogout={onLogout}
           onOpenWatchlist={onOpenWatchlist}
           onOpenProfile={onOpenProfile}

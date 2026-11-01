@@ -1,6 +1,8 @@
 import {
   TABLES,
+  GAME_PK,
   GAME_FK,
+  GAME_STRUCT,
   FALLBACK_LANGUAGE,
   GUIDE_STRUCT,
   GUIDE_I18N,
@@ -13,9 +15,20 @@ import { getGameUuid, getRouteSlug } from './gameModel';
 import { localizeJsonField } from './translationUtils';
 import { resolveGuideLanguage } from './localeResolver';
 import { resolveGameUuid } from './gameQueries';
+import { isGameDraftMode } from './guidePublication';
 import { resolveProductionVideoAndNote } from '../utils/videoUrl';
 
 export { resolveGuideLanguage, hasSheetType };
+
+function hasExplicitPreviewParam() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('preview') === '1';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * @param {object|string|null|undefined} gameOrId
@@ -148,23 +161,44 @@ export async function fetchGuidesForGame(
     from += PAGE_SIZE;
   }
 
-  // Fallback auf staging_game_guides für Creator-Entwürfe oder Admin-Vorabprüfung,
-  // wenn noch keine produktiven Zeilen in game_guides liegen (RLS schützt vor öffentlichem Zugriff).
+  // Fallback auf staging_game_guides NUR wenn explizit ?preview=1 in der URL steht
+  // ODER das Spiel sich im aktiven Video-Roadmap-Entwurfsmodus befindet.
   if (allRows.length === 0) {
-    let sFrom = 0;
-    while (true) {
-      const { data: sRows, error: sErr } = await supabase
-        .from('staging_game_guides')
-        .select('*')
-        .eq(GAME_FK, uuid)
-        .order('guide_id', { ascending: true })
-        .order('id', { ascending: true })
-        .range(sFrom, sFrom + PAGE_SIZE - 1);
+    let allowStagingFallback = hasExplicitPreviewParam();
 
-      if (sErr || !sRows?.length) break;
-      allRows = allRows.concat(sRows);
-      if (sRows.length < PAGE_SIZE) break;
-      sFrom += PAGE_SIZE;
+    if (!allowStagingFallback) {
+      if (
+        gameRef &&
+        typeof gameRef === 'object' &&
+        (gameRef[GAME_STRUCT.status] !== undefined || gameRef.status !== undefined)
+      ) {
+        allowStagingFallback = isGameDraftMode(gameRef);
+      } else {
+        const { data: gameStatusRow } = await supabase
+          .from(TABLES.games)
+          .select(GAME_STRUCT.status)
+          .eq(GAME_PK, uuid)
+          .maybeSingle();
+        allowStagingFallback = isGameDraftMode(gameStatusRow);
+      }
+    }
+
+    if (allowStagingFallback) {
+      let sFrom = 0;
+      while (true) {
+        const { data: sRows, error: sErr } = await supabase
+          .from('staging_game_guides')
+          .select('*')
+          .eq(GAME_FK, uuid)
+          .order('guide_id', { ascending: true })
+          .order('id', { ascending: true })
+          .range(sFrom, sFrom + PAGE_SIZE - 1);
+
+        if (sErr || !sRows?.length) break;
+        allRows = allRows.concat(sRows);
+        if (sRows.length < PAGE_SIZE) break;
+        sFrom += PAGE_SIZE;
+      }
     }
   }
 

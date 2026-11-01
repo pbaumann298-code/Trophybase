@@ -28,6 +28,7 @@ import {
 } from './guidePublication';
 import { normalizeLocale } from './locale';
 import { localizeJsonField, mergeLocalizedValue } from './translationUtils';
+import { patchHomeRailsCacheGame } from './homeCategories';
 import { getPlatformGameId } from './gameModel';
 import { normalizeTrophyVideoInput, getYouTubeVideoId } from '../utils/videoUrl';
 
@@ -899,15 +900,28 @@ export async function markGameCoverValid(supabase, gameId) {
   const id = String(gameId ?? '').trim();
   if (!id) return { coverStatus: null, error: new Error('Kein Spiel ausgewählt.') };
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from(TABLES.games)
     .update({
       [GAME_STRUCT.coverStatus]: 'valid',
       [GAME_STRUCT.coverNotes]: null,
     })
-    .eq(GAME_PK, id);
+    .eq(GAME_PK, id)
+    .select(`${GAME_PK}, ${GAME_STRUCT.coverStatus}`)
+    .maybeSingle();
 
-  return { coverStatus: error ? null : 'valid', error: error ?? null };
+  if (error) {
+    return { coverStatus: null, error };
+  }
+  if (!data) {
+    return {
+      coverStatus: null,
+      error: new Error('Cover-Status konnte nicht gespeichert werden (keine Schreibberechtigung oder Spiel nicht gefunden).'),
+    };
+  }
+
+  patchHomeRailsCacheGame(id, { cover_status: 'valid', cover_notes: null });
+  return { coverStatus: 'valid', error: null };
 }
 
 /**
@@ -962,11 +976,18 @@ export async function setIntranetIgdbCover(supabase, gameId, imageUrl) {
     .maybeSingle();
 
   if (error) return { coverUrl: null, coverMap: null, coverStatus: null, status: null, error };
+  const resolvedStatus = parseStatusMap(data?.[GAME_STRUCT.status] ?? statusMap);
+  patchHomeRailsCacheGame(id, {
+    cover_url: cover,
+    cover_status: 'valid',
+    cover_notes: null,
+    status: resolvedStatus,
+  });
   return {
     coverUrl,
     coverMap: cover,
     coverStatus: 'valid',
-    status: parseStatusMap(data?.[GAME_STRUCT.status] ?? statusMap),
+    status: resolvedStatus,
     error: null,
   };
 }
@@ -1005,8 +1026,15 @@ export async function clearIntranetCover(supabase, gameId) {
     .maybeSingle();
 
   if (error) return { status: null, coverStatus: null, error };
+  const resolvedStatus = parseStatusMap(data?.[GAME_STRUCT.status] ?? statusMap);
+  patchHomeRailsCacheGame(id, {
+    cover_url: {},
+    cover_status: null,
+    cover_notes: null,
+    status: resolvedStatus,
+  });
   return {
-    status: parseStatusMap(data?.[GAME_STRUCT.status] ?? statusMap),
+    status: resolvedStatus,
     coverStatus: null,
     error: null,
   };

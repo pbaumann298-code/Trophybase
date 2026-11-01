@@ -197,7 +197,7 @@ function GameTile({
         <div className="home-tile-shine" aria-hidden />
       </div>
       <div className="home-tile-meta">
-        {isAdmin && gameId ? (
+        {isAdmin && gameId && effectiveGame?.cover_status !== 'valid' ? (
           <div className="mb-1.5 w-full">
             <AdminCoverInspector
               game={effectiveGame}
