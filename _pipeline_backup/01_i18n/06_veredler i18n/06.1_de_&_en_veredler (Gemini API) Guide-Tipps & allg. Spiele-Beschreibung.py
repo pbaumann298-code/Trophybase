@@ -33,7 +33,7 @@ ALLOWED_SPIEL_TYPEN = [
     "Standard",
     "easy_platin",
     "Servertot",
-    "Evergreen, easy_platin",
+    "Quickwin" "Evergreen, easy_platin",
     "Evergreen, Servertot",
     "Premium, easy_platin",
     "Premium, Servertot",

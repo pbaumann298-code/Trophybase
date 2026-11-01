@@ -286,7 +286,7 @@ def fetch_published_games_for_radar(limit: int = 500):
             "title_de:spieltitel->>de, title_en:spieltitel->>en, radar_profile"
         )
         .eq("status->>guide_de", "PUBLISHED")
-        .in_("spiel_typ", ["Premium", "Evergreen"])
+        .in_("spiel_typ", ["Premium", "Evergreen", "Standard"])
         .limit(limit)
         .execute()
     )
