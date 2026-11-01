@@ -794,6 +794,12 @@
   color: #fff;
 }
 
+@media (min-width: 1024px) {
+  .home-tile-title {
+    font-size: calc(0.7rem + 0.5px);
+  }
+}
+
 .home-tile-badge {
   display: inline-block;
   margin-top: 0.25rem;
