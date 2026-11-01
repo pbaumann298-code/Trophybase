@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getGameUuid, getRouteSlug } from '../lib/gameModel';
 import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
+import { getHomeCategoryTitle } from '../lib/homeCategories';
 import { useLocale } from '../context/LocaleContext';
 import GameTile from './GameTile';
 
@@ -21,8 +22,8 @@ function CategoryCarousel({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
-  const displayTitle = category.titleKey ? t(category.titleKey) : category.title;
-  const searchTerm = category.searchTerm || category.title;
+  const displayTitle = getHomeCategoryTitle(category, globalLocale, t);
+  const searchTerm = category.searchTerm || category.title || displayTitle;
 
   const updateScrollHints = useCallback(() => {
     const el = trackRef.current;

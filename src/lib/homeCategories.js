@@ -11,8 +11,41 @@ import {
 } from './gameQueries';
 import { getLocale } from './locale';
 import { isGuidePublished } from './guidePublication';
+import { translateHomeTag } from './homeTagDefs';
 
 const LIMIT = 12;
+
+/** Schienen, die `tb_get_home_rails` wirklich füllt (Original-Startseite). */
+export const HOME_RAILS_RPC_IDS = new Set([
+  'beliebt',
+  'neu',
+  'souls',
+  'capcom',
+  'openworld',
+  'ubisoft',
+  'rockstar',
+  'family',
+  'indie',
+  'racing',
+  'godofwar',
+  'tombraider',
+]);
+
+function tagRail({ id, emoji, title, titleKey, tag, accent, searchMatch }) {
+  const search = { kind: 'tag', tag };
+  return {
+    id,
+    emoji,
+    title,
+    titleKey,
+    tagSlug: tag,
+    searchMatch,
+    search,
+    accent,
+    fetch: (supabase, locale, includeReady, limit = LIMIT) =>
+      fetchCategoryList({ search }, supabase, locale, includeReady, limit),
+  };
+}
 
 /**
  * Optimierte `tb_get_home_rails` (supabase/home_rails.sql).
@@ -209,9 +242,13 @@ async function mapPool(items, concurrency, worker) {
   return results;
 }
 
-async function fetchHomeRailsLegacy(supabase, locale, includeReady) {
+async function fetchHomeRailsLegacy(supabase, locale, includeReady, categoryIds = null) {
+  const wanted = Array.isArray(categoryIds) && categoryIds.length
+    ? new Set(categoryIds)
+    : HOME_RAILS_RPC_IDS;
+  const cats = HOME_CATEGORIES.filter((cat) => wanted.has(cat.id));
   const entries = await mapPool(
-    HOME_CATEGORIES,
+    cats,
     HOME_RAILS_LEGACY_CONCURRENCY,
     async (cat) => {
       try {
@@ -237,8 +274,8 @@ export const HOME_CATEGORIES = [
     title: 'Beliebt',
     titleKey: 'homeCatBeliebt',
     accent: '#ff6b35',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const { data, error } = await fetchPopularGames(supabase, LIMIT, locale, includeReady);
+    fetch: async (supabase, locale = getLocale(), includeReady = false, limit = LIMIT) => {
+      const { data, error } = await fetchPopularGames(supabase, limit, locale, includeReady);
       if (error) {
         console.error('Kategorie beliebt:', error.message);
         return [];
@@ -252,8 +289,8 @@ export const HOME_CATEGORIES = [
     title: 'Neue Guides',
     titleKey: 'homeCatNeu',
     accent: '#a3e635',
-    fetch: async (supabase, locale = getLocale(), includeReady = false) => {
-      const { data, error } = await fetchNewGuideGames(supabase, LIMIT, locale, includeReady);
+    fetch: async (supabase, locale = getLocale(), includeReady = false, limit = LIMIT) => {
+      const { data, error } = await fetchNewGuideGames(supabase, limit, locale, includeReady);
       if (error) {
         console.error('Kategorie neu:', error.message);
         return [];
@@ -266,11 +303,12 @@ export const HOME_CATEGORIES = [
     emoji: '💀',
     title: 'Souls / Soulslike',
     titleKey: 'homeCatSouls',
+    tagSlug: HOME_TAGS.SOULSLIKE,
     searchMatch: /^(souls(\s*\/\s*soulslike)?|soulslike)$/i,
     search: { kind: 'souls' },
     accent: '#a855f7',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList({ search: { kind: 'souls' } }, supabase, locale, includeReady, LIMIT),
+    fetch: (supabase, locale, includeReady, limit = LIMIT) =>
+      fetchCategoryList({ search: { kind: 'souls' } }, supabase, locale, includeReady, limit),
   },
   {
     id: 'capcom',
@@ -280,151 +318,87 @@ export const HOME_CATEGORIES = [
     searchMatch: /^capcom$/i,
     search: { kind: 'studio', studio: 'Capcom', dropQuickwins: true },
     accent: '#ef4444',
-    fetch: (supabase, locale, includeReady) =>
+    fetch: (supabase, locale, includeReady, limit = LIMIT) =>
       fetchCategoryList(
         { search: { kind: 'studio', studio: 'Capcom', dropQuickwins: true } },
         supabase,
         locale,
         includeReady,
-        LIMIT,
+        limit,
       ),
   },
-  {
+  tagRail({
     id: 'openworld',
     emoji: '🗺️',
     title: 'Open World',
     titleKey: 'homeCatOpenWorld',
+    tag: HOME_TAGS.OPEN_WORLD,
     searchMatch: /^(open[_\s-]?world)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.OPEN_WORLD },
     accent: '#34d399',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.OPEN_WORLD } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
-  {
+  }),
+  tagRail({
     id: 'rpg',
     emoji: '🐉',
     title: 'Rollenspiele (RPG)',
     titleKey: 'homeCatRpg',
+    tag: HOME_TAGS.RPG,
     searchMatch: /^(rpg|rollenspiele?)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.RPG },
     accent: '#c084fc',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.RPG } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
-  {
+  }),
+  tagRail({
     id: 'lootshooter',
     emoji: '🎯',
     title: 'Loot-Shooter',
     titleKey: 'homeCatLootShooter',
+    tag: HOME_TAGS.LOOT_SHOOTER,
     searchMatch: /^(loot[- ]?shooter|looter[- ]?shooter)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.LOOT_SHOOTER },
     accent: '#fb923c',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.LOOT_SHOOTER } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
-  {
+  }),
+  tagRail({
     id: 'fps',
     emoji: '🔫',
     title: 'Ego-Shooter (FPS)',
     titleKey: 'homeCatFps',
+    tag: HOME_TAGS.FPS,
     searchMatch: /^(ego[- ]?shooter|fps|first[- ]person[- ]shooter)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.FPS },
     accent: '#f87171',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.FPS } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
-  {
+  }),
+  tagRail({
     id: 'tps',
     emoji: '🕹️',
     title: 'Third-Person-Shooter',
     titleKey: 'homeCatTps',
+    tag: HOME_TAGS.TPS,
     searchMatch: /^(third[- ]person[- ]shooter|tps)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.TPS },
     accent: '#60a5fa',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.TPS } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
-  {
+  }),
+  tagRail({
     id: 'coop',
     emoji: '🤝',
     title: 'Koop & Multiplayer',
     titleKey: 'homeCatCoop',
+    tag: HOME_TAGS.COOP_MP,
     searchMatch: /^(koop|co-?op|multiplayer|koop\s*&\s*multiplayer)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.COOP_MP },
     accent: '#38bdf8',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.COOP_MP } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
-  {
+  }),
+  tagRail({
     id: 'horror',
     emoji: '🩸',
     title: 'Horror & Survival',
     titleKey: 'homeCatHorror',
+    tag: HOME_TAGS.SURVIVAL_HORROR,
     searchMatch: /^(horror|survival[- ]?horror|horror\s*&\s*survival)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.SURVIVAL_HORROR },
     accent: '#dc2626',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.SURVIVAL_HORROR } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
-  {
+  }),
+  tagRail({
     id: 'tactics',
     emoji: '♟️',
     title: 'Strategie & Taktik',
     titleKey: 'homeCatTactics',
+    tag: HOME_TAGS.TACTICS,
     searchMatch: /^(strategie|taktik|strategie\s*&\s*taktik|tactics)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.TACTICS },
     accent: '#eab308',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.TACTICS } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
+  }),
   {
     id: 'ubisoft',
     emoji: '🦅',
@@ -433,13 +407,13 @@ export const HOME_CATEGORIES = [
     searchMatch: /^(ubisoft([- ]welten)?)$/i,
     search: { kind: 'studio', studio: 'Ubisoft', dropQuickwins: true },
     accent: '#38bdf8',
-    fetch: (supabase, locale, includeReady) =>
+    fetch: (supabase, locale, includeReady, limit = LIMIT) =>
       fetchCategoryList(
         { search: { kind: 'studio', studio: 'Ubisoft', dropQuickwins: true } },
         supabase,
         locale,
         includeReady,
-        LIMIT,
+        limit,
       ),
   },
   {
@@ -450,66 +424,42 @@ export const HOME_CATEGORIES = [
     searchMatch: /^(rockstar(\s+games)?)$/i,
     search: { kind: 'studio', studio: 'Rockstar', dropQuickwins: true },
     accent: '#facc15',
-    fetch: (supabase, locale, includeReady) =>
+    fetch: (supabase, locale, includeReady, limit = LIMIT) =>
       fetchCategoryList(
         { search: { kind: 'studio', studio: 'Rockstar', dropQuickwins: true } },
         supabase,
         locale,
         includeReady,
-        LIMIT,
+        limit,
       ),
   },
-  {
+  tagRail({
     id: 'family',
     emoji: '🧸',
     title: 'Familienspaß & Easy Platin',
     titleKey: 'homeCatFamily',
+    tag: HOME_TAGS.FAMILY,
     searchMatch: /^(familienspa[sß].*|easy platin)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.FAMILY },
     accent: '#4ade80',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.FAMILY } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
-  {
+  }),
+  tagRail({
     id: 'indie',
     emoji: '🕹️',
     title: 'Indie-Perlen',
     titleKey: 'homeCatIndie',
+    tag: HOME_TAGS.INDIE,
     searchMatch: /^(indie([- ]perlen)?)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.INDIE },
     accent: '#f472b6',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.INDIE } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
-  {
+  }),
+  tagRail({
     id: 'racing',
     emoji: '⏱️',
     title: 'Highspeed & Asphalt',
     titleKey: 'homeCatRacing',
+    tag: HOME_TAGS.RACING,
     searchMatch: /^(highspeed.*|asphalt|racing)$/i,
-    search: { kind: 'tag', tag: HOME_TAGS.RACING },
     accent: '#22d3ee',
-    fetch: (supabase, locale, includeReady) =>
-      fetchCategoryList(
-        { search: { kind: 'tag', tag: HOME_TAGS.RACING } },
-        supabase,
-        locale,
-        includeReady,
-        LIMIT,
-      ),
-  },
+  }),
   {
     id: 'godofwar',
     emoji: '⚔️',
@@ -518,13 +468,13 @@ export const HOME_CATEGORIES = [
     searchMatch: /^god of war$/i,
     search: { kind: 'titles', titles: ['%God of War%'] },
     accent: '#c4a35a',
-    fetch: (supabase, locale, includeReady) =>
+    fetch: (supabase, locale, includeReady, limit = LIMIT) =>
       fetchCategoryList(
         { search: { kind: 'titles', titles: ['%God of War%'] } },
         supabase,
         locale,
         includeReady,
-        LIMIT,
+        limit,
       ),
   },
   {
@@ -535,15 +485,127 @@ export const HOME_CATEGORIES = [
     searchMatch: /^tomb raider$/i,
     search: { kind: 'titles', titles: ['%Tomb Raider%', '%Lara Croft%'] },
     accent: '#14b8a6',
-    fetch: (supabase, locale, includeReady) =>
+    fetch: (supabase, locale, includeReady, limit = LIMIT) =>
       fetchCategoryList(
         { search: { kind: 'titles', titles: ['%Tomb Raider%', '%Lara Croft%'] } },
         supabase,
         locale,
         includeReady,
-        LIMIT,
+        limit,
       ),
   },
+  tagRail({
+    id: 'action_adventure',
+    emoji: '🧭',
+    title: 'Action-Adventure',
+    tag: HOME_TAGS.ACTION_ADVENTURE,
+    searchMatch: /^(action[- ]?adventure|action[- ]?abenteuer)$/i,
+    accent: '#fb7185',
+  }),
+  tagRail({
+    id: 'roguelike',
+    emoji: '🎲',
+    title: 'Roguelike / Roguelite',
+    tag: HOME_TAGS.ROGUELIKE,
+    searchMatch: /^(rogue[- ]?like|rogue[- ]?lite)$/i,
+    accent: '#f59e0b',
+  }),
+  tagRail({
+    id: 'platformer',
+    emoji: '🦘',
+    title: 'Jump ’n’ Run / Platformer',
+    tag: HOME_TAGS.PLATFORMER,
+    searchMatch: /^(platformer|jump\s*['’]?\s*n\s*['’]?\s*run|jump.?n.?run)$/i,
+    accent: '#4ade80',
+  }),
+  tagRail({
+    id: 'fighting',
+    emoji: '🥊',
+    title: 'Beat ’em up / Kampfspiel',
+    tag: HOME_TAGS.FIGHTING,
+    searchMatch: /^(fighting|kampfspiel|beat[- ]?em[- ]?up)$/i,
+    accent: '#f97316',
+  }),
+  tagRail({
+    id: 'sports',
+    emoji: '⚽',
+    title: 'Sport',
+    tag: HOME_TAGS.SPORTS,
+    searchMatch: /^(sports?|sportspiele?)$/i,
+    accent: '#84cc16',
+  }),
+  tagRail({
+    id: 'simulation',
+    emoji: '🛠️',
+    title: 'Simulation',
+    tag: HOME_TAGS.SIMULATION,
+    searchMatch: /^(simulation|simulator|sim)$/i,
+    accent: '#94a3b8',
+  }),
+  tagRail({
+    id: 'scifi_cyberpunk',
+    emoji: '🌃',
+    title: 'Sci-Fi & Cyberpunk',
+    tag: HOME_TAGS.SCIFI_CYBERPUNK,
+    searchMatch: /^(sci[- ]?fi|cyberpunk|sci[- ]?fi\s*&\s*cyberpunk)$/i,
+    accent: '#22d3ee',
+  }),
+  tagRail({
+    id: 'mystery_crime',
+    emoji: '🕵️',
+    title: 'Mystery, Crime & Detektiv',
+    tag: HOME_TAGS.MYSTERY_CRIME,
+    searchMatch: /^(mystery|crime|detektiv|krimi|mystery.*crime)$/i,
+    accent: '#818cf8',
+  }),
+  tagRail({
+    id: 'hidden_object',
+    emoji: '🔍',
+    title: 'Wimmelbild',
+    tag: HOME_TAGS.HIDDEN_OBJECT,
+    searchMatch: /^(hidden[- ]?object|wimmelbild)$/i,
+    accent: '#fbbf24',
+  }),
+  tagRail({
+    id: 'visual_novel',
+    emoji: '📖',
+    title: 'Visual Novel',
+    tag: HOME_TAGS.VISUAL_NOVEL,
+    searchMatch: /^(visual[- ]?novel)$/i,
+    accent: '#e879f9',
+  }),
+  tagRail({
+    id: 'fmv',
+    emoji: '🎥',
+    title: 'FMV / Interaktiver Film',
+    tag: HOME_TAGS.FMV,
+    searchMatch: /^(fmv|interaktiver film|interactive movie)$/i,
+    accent: '#c084fc',
+  }),
+  tagRail({
+    id: 'point_and_click',
+    emoji: '🖱️',
+    title: 'Point & Click',
+    tag: HOME_TAGS.POINT_AND_CLICK,
+    searchMatch: /^(point\s*&\s*click|point[- ]and[- ]click)$/i,
+    accent: '#67e8f9',
+  }),
+  tagRail({
+    id: 'otome_romance',
+    emoji: '💕',
+    title: 'Otome & Romance',
+    tag: HOME_TAGS.OTOME_ROMANCE,
+    searchMatch: /^(otome|romance|otome\s*&\s*romance)$/i,
+    accent: '#fb7185',
+  }),
+  tagRail({
+    id: 'psych_horror',
+    emoji: '🧠',
+    title: 'Psychologischer Horror',
+    tag: HOME_TAGS.PSYCH_HORROR,
+    searchMatch: /^(psych(ological)?[- ]?horror|psychologischer horror)$/i,
+    accent: '#a78bfa',
+  }),
 ];
 
 async function fetchCategoryList(category, supabase, locale, includeReady, limit) {
@@ -630,13 +692,38 @@ export async function searchHomeCategory(
   return { data: [], error: null };
 }
 
-export function findHomeCategoryForQuery(query) {
+export function getHomeCategoryById(id) {
+  return HOME_CATEGORIES.find((cat) => cat.id === id) ?? null;
+}
+
+export function getHomeCategoriesByIds(ids) {
+  const map = new Map(HOME_CATEGORIES.map((cat) => [cat.id, cat]));
+  return (ids ?? []).map((id) => map.get(id)).filter(Boolean);
+}
+
+export function getHomeCategoryTitle(category, locale = getLocale(), translateUi) {
+  if (category?.tagSlug) {
+    return translateHomeTag(category.tagSlug, locale, category.title);
+  }
+  if (category?.titleKey && typeof translateUi === 'function') {
+    return translateUi(category.titleKey);
+  }
+  return category?.title || '';
+}
+
+export function findHomeCategoryForQuery(query, locale = getLocale()) {
   const q = String(query ?? '').trim();
   if (!q) return null;
+  const lower = q.toLowerCase();
   return (
     HOME_CATEGORIES.find((cat) => {
+      if (cat.id === lower || cat.tagSlug === lower) return true;
       if (cat.searchMatch?.test(q)) return true;
-      return cat.search && cat.title.toLowerCase() === q.toLowerCase();
+      if (cat.title.toLowerCase() === lower) return true;
+      if (cat.tagSlug && translateHomeTag(cat.tagSlug, locale).toLowerCase() === lower) {
+        return true;
+      }
+      return Boolean(cat.search && cat.title.toLowerCase() === lower);
     }) ?? null
   );
 }
@@ -658,11 +745,55 @@ export async function fetchAllHomeCategories(supabase, locale = getLocale(), inc
   const viaRpc = HOME_RAILS_RPC_ENABLED
     ? await fetchHomeRailsViaRpc(supabase, locale)
     : null;
-  const rails = viaRpc ?? (await fetchHomeRailsLegacy(supabase, locale, includeReady));
+  const rails = viaRpc ?? (await fetchHomeRailsLegacy(
+    supabase,
+    locale,
+    includeReady,
+    [...HOME_RAILS_RPC_IDS],
+  ));
 
   if (viaRpc) {
     homeRailsCache = { locale, at: Date.now(), rails: viaRpc };
   }
 
   return railsForLocale(rails, locale);
+}
+
+/**
+ * Nur die gewünschten Schienen. RPC-Cache für die 12 Original-Reihen,
+ * fehlende Bausteine (weitere der 26 Genres) per Legacy nachladen.
+ */
+export async function fetchHomeCategoriesForIds(
+  supabase,
+  locale = getLocale(),
+  categoryIds = [],
+  includeReady = false,
+) {
+  const wanted = [...new Set(categoryIds)].filter((id) => getHomeCategoryById(id));
+  const byId = await fetchAllHomeCategories(supabase, locale, includeReady);
+  const missing = wanted
+    .map((id) => getHomeCategoryById(id))
+    .filter((cat) => cat && !HOME_RAILS_RPC_IDS.has(cat.id));
+
+  if (missing.length > 0) {
+    const extras = await mapPool(
+      missing,
+      HOME_RAILS_LEGACY_CONCURRENCY,
+      async (cat) => {
+        try {
+          const games = await cat.fetch(supabase, locale, includeReady);
+          return [cat.id, games];
+        } catch (err) {
+          console.error(`Kategorie ${cat.id}:`, err);
+          return [cat.id, []];
+        }
+      },
+    );
+    const extraRails = railsForLocale(Object.fromEntries(extras), locale);
+    for (const [id, games] of Object.entries(extraRails)) {
+      byId[id] = games;
+    }
+  }
+
+  return Object.fromEntries(wanted.map((id) => [id, byId[id] || []]));
 }

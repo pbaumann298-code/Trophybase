@@ -30,6 +30,7 @@ function HeaderSettingsMenu({
   onOpenWatchlist,
   onOpenProfile,
   onOpenPlatformTrophies,
+  onCustomizeHome,
   watchlistPath = '/watchlist',
   profilePath = '/profile',
 }) {
@@ -192,6 +193,20 @@ function HeaderSettingsMenu({
           </button>
 
           <div className="my-1.5 border-t border-zinc-800" role="separator" />
+
+          {typeof onCustomizeHome === 'function' ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full px-3 py-2 text-left text-xs font-semibold text-[#00ff66] hover:bg-zinc-800/80"
+              onClick={() => {
+                setOpen(false);
+                onCustomizeHome();
+              }}
+            >
+              {t('customizeTrophyBase')}
+            </button>
+          ) : null}
 
           {sessionUser || isAdmin ? (
             <a

@@ -25,7 +25,13 @@ const TILE_CLASS =
  * Kompakte Watchlist-Leiste auf der Startseite (nur ab HOME_WATCHLIST_MIN Einträgen).
  * Volle Liste: /watchlist
  */
-function Dashboard({ openGame, onOpenWatchlist, isAdmin = false }) {
+function Dashboard({
+  openGame,
+  onOpenWatchlist,
+  isAdmin = false,
+  minItems = HOME_WATCHLIST_MIN,
+  showEmpty = false,
+}) {
   const { globalLocale, t } = useLocale();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -163,7 +169,28 @@ function Dashboard({ openGame, onOpenWatchlist, isAdmin = false }) {
     openGame({ id: item.gameUuid, [GAME_PLATFORM_ID]: item.routeSlug });
   };
 
-  if (loading || visibleItems.length < HOME_WATCHLIST_MIN) {
+  if (loading) {
+    return showEmpty ? (
+      <section className="home-category w-full min-w-0 max-w-full" aria-labelledby="home-watchlist-title">
+        <p className="home-category-empty">{t('homeWatchlistLoading')}</p>
+      </section>
+    ) : null;
+  }
+
+  if (visibleItems.length === 0) {
+    return showEmpty ? (
+      <section className="home-category w-full min-w-0 max-w-full" aria-labelledby="home-watchlist-title">
+        <header className="home-category-header">
+          <h2 id="home-watchlist-title" className="home-category-title">
+            {t('watchlistTitle')}
+          </h2>
+        </header>
+        <p className="home-category-empty">{t('homeWatchlistEmpty')}</p>
+      </section>
+    ) : null;
+  }
+
+  if (visibleItems.length < minItems) {
     return null;
   }
 

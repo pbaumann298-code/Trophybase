@@ -123,6 +123,20 @@ export const HOME_TAGS = {
   COOP_MP: 'coop_mp',
   RPG: 'rpg',
   SURVIVAL_HORROR: 'survival_horror',
+  ACTION_ADVENTURE: 'action_adventure',
+  ROGUELIKE: 'roguelike',
+  PLATFORMER: 'platformer',
+  FIGHTING: 'fighting',
+  SPORTS: 'sports',
+  SIMULATION: 'simulation',
+  SCIFI_CYBERPUNK: 'scifi_cyberpunk',
+  MYSTERY_CRIME: 'mystery_crime',
+  HIDDEN_OBJECT: 'hidden_object',
+  VISUAL_NOVEL: 'visual_novel',
+  FMV: 'fmv',
+  POINT_AND_CLICK: 'point_and_click',
+  OTOME_ROMANCE: 'otome_romance',
+  PSYCH_HORROR: 'psych_horror',
 };
 
 /** Tag-Slug → Startseiten-Reihe. Studios/Franchises haben keine Tags. */
@@ -139,6 +153,20 @@ export const HOME_TAG_RAILS = {
   [HOME_TAGS.COOP_MP]: 'coop',
   [HOME_TAGS.RPG]: 'rpg',
   [HOME_TAGS.SURVIVAL_HORROR]: 'horror',
+  [HOME_TAGS.ACTION_ADVENTURE]: 'action_adventure',
+  [HOME_TAGS.ROGUELIKE]: 'roguelike',
+  [HOME_TAGS.PLATFORMER]: 'platformer',
+  [HOME_TAGS.FIGHTING]: 'fighting',
+  [HOME_TAGS.SPORTS]: 'sports',
+  [HOME_TAGS.SIMULATION]: 'simulation',
+  [HOME_TAGS.SCIFI_CYBERPUNK]: 'scifi_cyberpunk',
+  [HOME_TAGS.MYSTERY_CRIME]: 'mystery_crime',
+  [HOME_TAGS.HIDDEN_OBJECT]: 'hidden_object',
+  [HOME_TAGS.VISUAL_NOVEL]: 'visual_novel',
+  [HOME_TAGS.FMV]: 'fmv',
+  [HOME_TAGS.POINT_AND_CLICK]: 'point_and_click',
+  [HOME_TAGS.OTOME_ROMANCE]: 'otome_romance',
+  [HOME_TAGS.PSYCH_HORROR]: 'psych_horror',
 };
 
 /** Werte von games.spiel_typ */

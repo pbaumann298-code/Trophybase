@@ -10,6 +10,7 @@ function Header({
   onOpenWatchlist,
   onOpenProfile,
   onOpenPlatformTrophies,
+  onCustomizeHome,
 }) {
   const [showAdminReturn, setShowAdminReturn] = useState(false);
   const [draftReturnCtx, setDraftReturnCtx] = useState(null);
@@ -110,6 +111,7 @@ function Header({
           onOpenWatchlist={onOpenWatchlist}
           onOpenProfile={onOpenProfile}
           onOpenPlatformTrophies={onOpenPlatformTrophies}
+          onCustomizeHome={onCustomizeHome}
           watchlistPath={WATCHLIST_PATH}
           profilePath={PROFILE_PATH}
         />

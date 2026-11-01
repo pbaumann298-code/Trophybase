@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from './pages/supabaseClient';
 import Header from './components/Header';
 import HomePage from './pages/HomePage';
+import CustomizeTrophyBaseModal from './components/CustomizeTrophyBaseModal';
 import SearchResultsPage from './pages/SearchResultsPage';
 import AdvancedSearchPage from './pages/AdvancedSearchPage';
 import QuickwinsPage from './pages/QuickwinsPage';
@@ -182,6 +183,7 @@ function App() {
   const lastSearchQueryRef = useRef('');
   const [dbOk, setDbOk] = useState(null);
 
+  const [customizeOpen, setCustomizeOpen] = useState(false);
   const [selectedGame, setSelectedGame] = useState(null);
   const [activeTrophies, setActiveTrophies] = useState([]);
   const [guideItems, setGuideItems] = useState([]);
@@ -1025,13 +1027,20 @@ function App() {
     <PlatinumStatusProvider sessionUser={sessionUser}>
     <div className="min-h-screen w-full max-w-full min-w-0 overflow-x-hidden flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
       
-      <Header 
-        setCurrentView={setCurrentView} 
-        sessionUser={sessionUser} 
+      <Header
+        setCurrentView={setCurrentView}
+        sessionUser={sessionUser}
         onLogout={handleLogout}
         onOpenWatchlist={openWatchlist}
         onOpenProfile={openProfile}
         onOpenPlatformTrophies={openPlatformTrophies}
+        onCustomizeHome={() => {
+          if (currentView !== 'home') {
+            setCurrentView('home');
+            navigateToHome();
+          }
+          setCustomizeOpen(true);
+        }}
       />
 
       <main
@@ -1071,6 +1080,7 @@ function App() {
                 onOpenAdvancedSearch={openAdvancedSearch}
                 onOpenWatchlist={openWatchlist}
                 onOpenGuideHelp={openGuideHelp}
+                onCustomizeHome={() => setCustomizeOpen(true)}
                 excludeQuickwins={excludeQuickwins}
                 onExcludeQuickwinsChange={setExcludeQuickwins}
                 includeTrophiesOnly={includeTrophiesOnly}
@@ -1264,6 +1274,10 @@ function App() {
 
       </main>
 
+      <CustomizeTrophyBaseModal
+        open={customizeOpen}
+        onClose={() => setCustomizeOpen(false)}
+      />
       <MediaConsentBanner onOpenPrivacy={openPrivacy} />
       <SiteFooter
         dbOk={dbOk}
