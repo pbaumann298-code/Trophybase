@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isLabModeActive } from '../lib/adminAccess';
 
 const HUB_FILTERS = {
+  platinliste_v1: {
+    id: 'platinliste_v1',
+    banner: 'Aktiver Hub: 🏆 Trophäenliste V1',
+    hudTitle: 'Trophäenliste V1',
+    hudMeta: '24 Plattform-Trophäen & Meilensteine',
+    hudCta: 'Trophäenliste V1 öffnen',
+  },
   steam: {
     id: 'steam',
     banner: 'Aktiver Hub: 🖥️ Steam',
@@ -33,6 +40,13 @@ const HUB_FILTERS = {
 };
 
 const ZONES = [
+  {
+    id: 'platinliste_v1',
+    filter: null,
+    label: '🏆 Trophäenliste V1 (Plattform-Meilensteine)',
+    color: '#00ff66',
+    areas: ['left-[3%] top-[3%] w-[28.5%] h-[31%]'],
+  },
   {
     id: 'steam',
     filter: 'steam',
@@ -197,6 +211,7 @@ function RoomScene({
 export default function GamingRoomDrawer({
   sessionUser = null,
   onOpenCockpit,
+  onOpenPlatformTrophies,
   onRequestLogin,
 }) {
   const labActive = isLabModeActive(sessionUser);
@@ -206,6 +221,7 @@ export default function GamingRoomDrawer({
   const [showcaseOpen, setShowcaseOpen] = useState(false);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const touchStartRef = useRef(null);
+  const edgePointerStartRef = useRef(null);
 
   const closeRoom = useCallback(() => {
     setOpen(false);
@@ -234,13 +250,18 @@ export default function GamingRoomDrawer({
 
   const handleSelectZone = useCallback(
     (zone) => {
+      if (zone.id === 'platinliste_v1') {
+        closeRoom();
+        onOpenPlatformTrophies?.();
+        return;
+      }
       if (zone.id === 'trophy') {
         openTrophyWall();
         return;
       }
       applyFilter(zone.filter);
     },
-    [applyFilter, openTrophyWall],
+    [applyFilter, closeRoom, onOpenPlatformTrophies, openTrophyWall],
   );
 
   const handlePointerMove = useCallback((event) => {
@@ -251,16 +272,95 @@ export default function GamingRoomDrawer({
     setTilt({ x: py * -6, y: px * 8 });
   }, []);
 
+  const handleEdgePointerDown = useCallback((event) => {
+    edgePointerStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+    };
+  }, []);
+
+  const handleEdgePointerMove = useCallback(
+    (event) => {
+      const start = edgePointerStartRef.current;
+      if (!start) return;
+      const deltaX = event.clientX - start.x;
+      const deltaY = event.clientY - start.y;
+      if (deltaX < -24 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+        edgePointerStartRef.current = null;
+        openRoom();
+      }
+    },
+    [openRoom],
+  );
+
+  const handleEdgePointerUp = useCallback(
+    (event) => {
+      const start = edgePointerStartRef.current;
+      edgePointerStartRef.current = null;
+      if (!start) return;
+      const deltaX = event.clientX - start.x;
+      const deltaY = event.clientY - start.y;
+      if (deltaX < -24 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+        openRoom();
+      }
+    },
+    [openRoom],
+  );
+
+  const handleEdgeTouchStart = useCallback((event) => {
+    const touch = event.changedTouches?.[0];
+    if (!touch) return;
+    edgePointerStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleEdgeTouchMove = useCallback(
+    (event) => {
+      const start = edgePointerStartRef.current;
+      const touch = event.changedTouches?.[0];
+      if (!start || !touch) return;
+      const deltaX = touch.clientX - start.x;
+      const deltaY = touch.clientY - start.y;
+      if (deltaX < -24 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+        edgePointerStartRef.current = null;
+        openRoom();
+      }
+    },
+    [openRoom],
+  );
+
+  const handleEdgeTouchEnd = useCallback(
+    (event) => {
+      const start = edgePointerStartRef.current;
+      const touch = event.changedTouches?.[0];
+      edgePointerStartRef.current = null;
+      if (!start || !touch) return;
+      const deltaX = touch.clientX - start.x;
+      const deltaY = touch.clientY - start.y;
+      if (deltaX < -24 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+        openRoom();
+      }
+    },
+    [openRoom],
+  );
+
   useEffect(() => {
     if (!labActive) return undefined;
 
     const onKeyDown = (event) => {
       if (isTypingTarget(event.target)) return;
-      if (!open && (event.key === 'r' || event.key === 'R' || event.key === 'ArrowRight')) {
+      if (
+        !open &&
+        (event.key === 'r' ||
+          event.key === 'R' ||
+          event.code === 'KeyR' ||
+          event.key === 'ArrowLeft' ||
+          event.key === 'ArrowRight')
+      ) {
         event.preventDefault();
         openRoom();
+        return;
       }
-      if (open && event.key === 'Escape') {
+      if (open && (event.key === 'Escape' || event.key === 'ArrowRight')) {
         event.preventDefault();
         closeRoom();
       }
@@ -279,19 +379,31 @@ export default function GamingRoomDrawer({
       if (!start || !touch) return;
       const deltaX = touch.clientX - start.x;
       const deltaY = touch.clientY - start.y;
-      const horizontal = Math.abs(deltaX) > Math.abs(deltaY) * 1.8;
+      const horizontal = Math.abs(deltaX) > Math.abs(deltaY) * 1.25;
       if (!horizontal) return;
-      if (!open && deltaX < -70) openRoom();
-      if (open && deltaX > 70) closeRoom();
+      if (!open && deltaX < -45) openRoom();
+      if (open && deltaX > 45) closeRoom();
+    };
+
+    const onWheel = (event) => {
+      if (event.target?.closest?.('.home-carousel-track')) return;
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) * 2) return;
+      if (!open && event.deltaX > 60) {
+        openRoom();
+      } else if (open && event.deltaX < -60) {
+        closeRoom();
+      }
     };
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('touchstart', onTouchStart, { passive: true });
     window.addEventListener('touchend', onTouchEnd, { passive: true });
+    window.addEventListener('wheel', onWheel, { passive: true });
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('touchstart', onTouchStart);
       window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('wheel', onWheel);
     };
   }, [labActive, open, openRoom, closeRoom]);
 
@@ -309,13 +421,27 @@ export default function GamingRoomDrawer({
       `}</style>
 
       {!open ? (
-        <button
-          type="button"
-          onClick={openRoom}
-          className="fixed right-0 top-1/2 z-[55] -translate-y-1/2 rounded-l-2xl border border-r-0 border-[#00ff66]/50 bg-[#101412]/95 px-2.5 py-3 font-mono text-[11px] font-bold tracking-wide text-[#00ff66] shadow-xl shadow-black/50 backdrop-blur-md hover:bg-[#00ff66] hover:text-black"
+        <div
+          aria-hidden="false"
+          onPointerDown={handleEdgePointerDown}
+          onPointerMove={handleEdgePointerMove}
+          onPointerUp={handleEdgePointerUp}
+          onPointerCancel={() => {
+            edgePointerStartRef.current = null;
+          }}
+          onTouchStart={handleEdgeTouchStart}
+          onTouchMove={handleEdgeTouchMove}
+          onTouchEnd={handleEdgeTouchEnd}
+          className="fixed right-0 top-16 bottom-0 z-[54] w-6 sm:w-8 touch-pan-y select-none"
         >
-          🕹️ Gaming Room ← Swipe
-        </button>
+          <button
+            type="button"
+            onClick={openRoom}
+            className="fixed right-0 top-1/2 z-[55] -translate-y-1/2 rounded-l-2xl border border-r-0 border-[#00ff66]/50 bg-[#101412]/95 px-2.5 py-3 font-mono text-[11px] font-bold tracking-wide text-[#00ff66] shadow-xl shadow-black/50 backdrop-blur-md hover:bg-[#00ff66] hover:text-black"
+          >
+            🕹️ Gaming Room ← Swipe
+          </button>
+        </div>
       ) : null}
 
       {activeHub && !open ? (

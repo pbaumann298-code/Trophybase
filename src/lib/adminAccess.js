@@ -289,32 +289,34 @@ export function isAdminUser(user, { allowPublic = false } = {}) {
 
 export function setLabModeFlag(active = true) {
   try {
-    if (active) {
-      sessionStorage.setItem(LAB_MODE_STORAGE_KEY, '1');
-    } else {
-      sessionStorage.removeItem(LAB_MODE_STORAGE_KEY);
-    }
+    sessionStorage.setItem(LAB_MODE_STORAGE_KEY, active ? '1' : '0');
   } catch {
     /* ignore */
   }
 }
 
 /**
- * V2-Sandbox-Gate: nur Admin-Login plus ?lab=1 bzw. gesetztes Lab-Flag.
- * Darf die öffentliche V1-UI nicht öffnen – nur Zugriff auf src/v2/.
+ * V2-Sandbox-Gate: für den eingeloggten Admin standardmäßig aktiv
+ * (außer explizit ?lab=0 oder sessionStorage === '0').
+ * Normale Besucher (!isAdminUser) sehen weiterhin zu 100 % die eingefrorene V1-UI.
  */
 export function isLabModeActive(sessionUser) {
   if (!isAdminUser(sessionUser, { allowPublic: true })) return false;
   if (typeof window === 'undefined') return false;
   try {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('lab') === '1') {
+    const labParam = params.get('lab');
+    if (labParam === '0') {
+      setLabModeFlag(false);
+      return false;
+    }
+    if (labParam === '1') {
       setLabModeFlag(true);
       return true;
     }
-    return sessionStorage.getItem(LAB_MODE_STORAGE_KEY) === '1';
+    return sessionStorage.getItem(LAB_MODE_STORAGE_KEY) !== '0';
   } catch {
-    return false;
+    return true;
   }
 }
 

@@ -6,6 +6,7 @@ import {
   fetchPopularGames,
   searchGamesByColumn,
   searchGamesByHomeTag,
+  searchGamesBySubGenre,
   searchGamesByStudio,
   GAME_SEARCH_LOCALIZED_COLUMNS,
 } from './gameQueries';
@@ -451,15 +452,25 @@ export const HOME_CATEGORIES = [
     searchMatch: /^(indie([- ]perlen)?)$/i,
     accent: '#f472b6',
   }),
-  tagRail({
+  {
     id: 'racing',
     emoji: '⏱️',
     title: 'Highspeed & Asphalt',
     titleKey: 'homeCatRacing',
-    tag: HOME_TAGS.RACING,
-    searchMatch: /^(highspeed.*|asphalt|racing)$/i,
+    tagSlug: HOME_TAGS.RACING,
+    searchTerm: 'Racing',
+    searchMatch: /^(highspeed.*|asphalt|racing|rennspiel(e)?)$/i,
+    search: { kind: 'genre', genre: 'Racing', tag: HOME_TAGS.RACING },
     accent: '#22d3ee',
-  }),
+    fetch: (supabase, locale, includeReady, limit = LIMIT) =>
+      fetchCategoryList(
+        { search: { kind: 'genre', genre: 'Racing', tag: HOME_TAGS.RACING } },
+        supabase,
+        locale,
+        includeReady,
+        limit,
+      ),
+  },
   {
     id: 'godofwar',
     emoji: '⚔️',
@@ -652,6 +663,22 @@ export async function searchHomeCategory(
     );
     if (error) return { data: [], error };
     return { data: dropRows(data, true).slice(0, fetchLimit), error: null };
+  }
+
+  if (spec.kind === 'genre') {
+    const rows = await mergeRailRows(
+      [
+        spec.genre
+          ? searchGamesBySubGenre(supabase, spec.genre, fetchLimit, locale, opts)
+          : Promise.resolve({ data: [], error: null }),
+        spec.tag
+          ? searchGamesByHomeTag(supabase, spec.tag, fetchLimit, locale, opts)
+          : Promise.resolve({ data: [], error: null }),
+      ],
+      locale,
+      { dropQuickwins: !forceInclude, limit: fetchLimit },
+    );
+    return { data: rows, error: null };
   }
 
   if (spec.kind === 'studio') {

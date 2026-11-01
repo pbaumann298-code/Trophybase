@@ -61,8 +61,9 @@ grant execute on function public.tb_home_game_payload(
   uuid, jsonb, text, text, text[], text, jsonb, text, timestamptz, integer, jsonb, jsonb
 ) to anon, authenticated;
 
--- Alte Signatur ohne Locale entfernen (sonst bleibt die Overload-Variante stehen).
+-- Alte Signaturen entfernen (sonst bleibt die Overload-Variante stehen).
 drop function if exists public.tb_get_home_rails();
+drop function if exists public.tb_get_home_rails(text, text[]);
 
 create or replace function public.tb_get_home_rails(p_locale text default 'de')
 returns table (
@@ -246,7 +247,11 @@ as $$
     where
       g.status ->> ('guide_' || p.lang) = 'PUBLISHED'
       and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot')
-      and 'racing' = any(coalesce(g.home_tags, '{}'::text[]))
+      and exists (
+        select 1
+        from unnest(coalesce(g.sub_genres, '{}'::text[])) s
+        where lower(s) = 'racing'
+      )
     order by g.created_at desc nulls last, g.views desc
     limit 12
   ),

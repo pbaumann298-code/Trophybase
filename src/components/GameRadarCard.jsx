@@ -1,43 +1,37 @@
 import React from 'react';
 import { useLocale } from '../context/LocaleContext';
+import { RADAR_AXIS_LABELS, resolveRadarProfile } from '../lib/gameOverviewCopy';
+import { normalizeLocale } from '../lib/locale';
+
+export { RADAR_AXIS_LABELS };
 
 /**
  * Platin-Anforderungsprofil (6-Achsen-DNA) Radar Chart.
  *
  * @param {Object} props
  * @param {Object|null} props.profile - RadarProfile mit { summary?: string, axes: Array<{ key, label, score, reason }> }
- * @param {boolean} props.isAdmin - True für Admins / Preview
+ * @param {boolean} [props.isAdmin] - True für Admins / Preview
  * @param {boolean} [props.embedded=false] - In übergeordneter CollapsibleSectionCard eingebettet
+ * @param {string} [props.locale] - Optionale Zielsprache (überschreibt globalLocale)
  */
-export default function GameRadarCard({ profile, isAdmin, embedded = false }) {
+export default function GameRadarCard({ profile, embedded = false, locale: localeProp = '' }) {
   const { globalLocale, t } = useLocale();
-  const locale = String(globalLocale || 'de').toLowerCase();
+  const langKey = normalizeLocale(localeProp || globalLocale || 'de');
 
-  const resolvedProfile = React.useMemo(() => {
-    if (!profile || typeof profile !== 'object') return null;
-    if (profile[locale] && typeof profile[locale] === 'object' && Array.isArray(profile[locale].axes)) {
-      return profile[locale];
-    }
-    if (Array.isArray(profile.axes)) {
-      // Falls ein unlokalisiertes Roh-Objekt mit deutschen Texten übergeben wurde, auf nicht-deutschen Seiten ausblenden,
-      // sofern es nicht bereits über rawRadar[locale] aufgelöst wurde.
-      if (locale !== 'de' && (profile.de || (!profile._resolvedLocale && /[äöüß]|Schwierigkeit|Sammel|Verpassbar|Zeitaufwand/i.test(JSON.stringify(profile.axes))))) {
-        return null;
-      }
-      return profile;
-    }
-    if (locale === 'de' && profile.de && Array.isArray(profile.de.axes)) {
-      return profile.de;
-    }
-    return null;
-  }, [profile, locale]);
+  const resolvedProfile = React.useMemo(
+    () => resolveRadarProfile(profile, langKey),
+    [profile, langKey],
+  );
 
   // Guard: Wenn noch keine Daten da sind -> unsichtbar
   if (!resolvedProfile || !resolvedProfile.axes || resolvedProfile.axes.length !== 6) {
     return null;
   }
 
-  const heading = t('radarProfileHeading');
+  const heading =
+    RADAR_AXIS_LABELS[langKey]?.title ||
+    t('radarProfileHeading') ||
+    RADAR_AXIS_LABELS.de.title;
 
   const size = 260;
   const center = size / 2;
@@ -145,7 +139,7 @@ export default function GameRadarCard({ profile, isAdmin, embedded = false }) {
               key={axis.key || axis.label}
               className="rounded-lg bg-zinc-900/60 p-2.5 border border-zinc-800/60"
             >
-              <div className="flex items-center justify-between mb-1">
+              <div className={`flex items-center justify-between ${axis.reason ? 'mb-1' : ''}`}>
                 <span className="text-xs font-semibold text-zinc-200">
                   {axis.label}
                 </span>
@@ -153,9 +147,11 @@ export default function GameRadarCard({ profile, isAdmin, embedded = false }) {
                   {axis.score} / 10
                 </span>
               </div>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                {axis.reason}
-              </p>
+              {axis.reason ? (
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  {axis.reason}
+                </p>
+              ) : null}
             </div>
           ))}
         </div>
@@ -168,11 +164,6 @@ export default function GameRadarCard({ profile, isAdmin, embedded = false }) {
       <details open className="group mt-6 pt-5 border-t border-zinc-800/80">
         <summary className="mb-3 flex cursor-pointer list-none items-center justify-between gap-2 select-none [&::-webkit-details-marker]:hidden">
           <div className="flex items-center gap-2">
-            {isAdmin && (
-              <span className="rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 border border-amber-500/20 font-mono uppercase">
-                ADMIN-PREVIEW
-              </span>
-            )}
             <h4 className="font-semibold text-xs sm:text-sm text-zinc-300 font-mono uppercase tracking-wider">
               {heading}
             </h4>
@@ -192,11 +183,6 @@ export default function GameRadarCard({ profile, isAdmin, embedded = false }) {
   return (
     <div className="mb-6 rounded-xl border border-zinc-800 bg-zinc-950/90 text-zinc-100 shadow-lg p-5">
       <div className="mb-3 flex items-center gap-2">
-        {isAdmin && (
-          <span className="rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 border border-amber-500/20 font-mono uppercase">
-            ADMIN-PREVIEW
-          </span>
-        )}
         <h4 className="font-semibold text-xs sm:text-sm text-zinc-300 font-mono uppercase tracking-wider">
           {heading}
         </h4>

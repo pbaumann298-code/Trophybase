@@ -1058,6 +1058,7 @@ function App() {
           <GamingRoomDrawer
             sessionUser={sessionUser}
             onOpenCockpit={openProfile}
+            onOpenPlatformTrophies={openPlatformTrophies}
             onRequestLogin={() => setCurrentView('login')}
           />
         </Suspense>

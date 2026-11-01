@@ -4,6 +4,7 @@ import { GAME_FIELDS, GAME_I18N, GAME_STRUCT, GAME_TYPE } from '../lib/gameSchem
 import {
   buildPlatinumQuickFacts,
   hasPlaytimeValue,
+  resolveRadarProfile,
   resolveStatusExplanation,
   storedStatusExplanation,
 } from '../lib/gameOverviewCopy';
@@ -111,38 +112,10 @@ function AdminGameOverview({
     game?.radarProfile ??
     null;
 
-  const profile = useMemo(() => {
-    if (!rawProfile) return null;
-    let parsed = rawProfile;
-    if (typeof parsed === 'string') {
-      try {
-        parsed = JSON.parse(parsed);
-      } catch {
-        return null;
-      }
-    }
-    if (!parsed || typeof parsed !== 'object') return null;
-
-    const langKey = locale || 'de';
-    if (parsed[langKey] && typeof parsed[langKey] === 'object' && Array.isArray(parsed[langKey].axes)) {
-      return { ...parsed[langKey], _resolvedLocale: langKey };
-    }
-
-    // Rein deutsches radar_profile nur auf deutschen Seiten anzeigen
-    if (langKey === 'de') {
-      if (parsed.de && typeof parsed.de === 'object' && Array.isArray(parsed.de.axes)) {
-        return { ...parsed.de, _resolvedLocale: 'de' };
-      }
-      if (Array.isArray(parsed.axes)) {
-        return { ...parsed, _resolvedLocale: 'de' };
-      }
-      if (Array.isArray(parsed)) {
-        return { axes: parsed, _resolvedLocale: 'de' };
-      }
-    }
-
-    return null;
-  }, [rawProfile, locale]);
+  const profile = useMemo(
+    () => resolveRadarProfile(rawProfile, locale),
+    [rawProfile, locale],
+  );
 
   const trophyCounts = useMemo(() => {
     const list = Array.isArray(trophies) ? trophies : [];
@@ -388,7 +361,7 @@ function AdminGameOverview({
         </div>
       ) : null}
 
-      <GameRadarCard profile={profile} isAdmin={isAdmin} embedded />
+      <GameRadarCard profile={profile} locale={locale} isAdmin={isAdmin} embedded />
     </CollapsibleSectionCard>
   );
 }

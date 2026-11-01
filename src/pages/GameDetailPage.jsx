@@ -44,7 +44,7 @@ import {
   saveHiddenTrophyMode,
 } from '../lib/hiddenTrophyPreference';
 import { fetchMyCreatorProfile, isAdminUser } from '../lib/adminAccess';
-import { isGuidePublished, isGameDraftMode } from '../lib/guidePublication';
+import { isGuidePublished, isGameDraftMode, hasPublishedGuide } from '../lib/guidePublication';
 import {
   clearGameGuideTips,
   clearIntranetCover,
@@ -187,7 +187,10 @@ function GamePageContent({
     if (Array.isArray(bossItems)) setBossRows(bossItems);
   }, [bossItems]);
 
+  const hadLanguageOverrideRef = useRef(false);
+
   useEffect(() => {
+    hadLanguageOverrideRef.current = false;
     setGuideLanguageOverride(null);
     setCoverOverride(null);
     setCoverError('');
@@ -233,8 +236,10 @@ function GamePageContent({
   useEffect(() => {
     // App.jsx lädt guideItems, chapterItems, bossItems und activeTrophies bereits beim Öffnen.
     // Hier nur nachladen, wenn der Admin/User die Guide-Sprache explizit überschreibt
-    // oder ein Reload nach dem Speichern angefordert wurde.
-    if (guideLanguageOverride === null && guideReloadToken === 0) {
+    // (oder danach wieder auf Standard zurücksetzt) oder ein Reload nach dem Speichern angefordert wurde.
+    if (guideLanguageOverride !== null) {
+      hadLanguageOverrideRef.current = true;
+    } else if (!hadLanguageOverrideRef.current && guideReloadToken === 0) {
       return undefined;
     }
 
@@ -568,12 +573,13 @@ function GamePageContent({
   ]);
 
   const isDraftRoadmap = isGameDraftMode(gameForPublication);
-  /** Sichtbarkeit der Guide-Reiter hängt an der gerade gezeigten Sprache. */
+  /** Sichtbarkeit der Guide-Reiter hängt an der gerade gezeigten Sprache (oder ob das Spiel veröffentlicht ist). */
   const guidePublished = isGuidePublished(gameForPublication, effectiveGuideLang);
+  const anyGuidePublished = hasPublishedGuide(gameForPublication);
   /** Admins und der zugeordnete Creator sehen den Guide als Vorschau (auch bei DRAFT / staging), Besucher erst nach der Freigabe. */
   const canSeeGuides =
     (!trophiesOnly || isAdmin || isCreatorForGame) &&
-    (guidePublished || isAdmin || isCreatorForGame || isDraftRoadmap || inRohmaterialPreview);
+    (guidePublished || anyGuidePublished || isAdmin || isCreatorForGame || isDraftRoadmap || inRohmaterialPreview);
   const contentLocales = useMemo(
     () => contentLocalesForGame(gameForPublication, { includeReady: isAdmin }),
     [gameForPublication, isAdmin],

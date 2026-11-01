@@ -1,7 +1,7 @@
 import { TRADEMARK_DISCLAIMER } from '../lib/legalConfig';
 import { useLocale } from '../context/LocaleContext';
 
-function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy, onOpenHelp, onOpenPlatformTrophies }) {
+function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy, onOpenHelp }) {
   const { t } = useLocale();
 
   return (
@@ -43,16 +43,6 @@ function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy, onOpenHelp, onOpenPl
             }}
           >
             {t('howTo')}
-          </a>
-          <a
-            href="/platinliste"
-            className="hover:text-zinc-300 transition text-[#00ff66]/90 font-medium"
-            onClick={(e) => {
-              e.preventDefault();
-              onOpenPlatformTrophies?.();
-            }}
-          >
-            🏆 TrophyBase Platinliste V1
           </a>
         </nav>
         <div className="flex items-center gap-2 font-mono text-[11px] min-w-0 max-w-full">

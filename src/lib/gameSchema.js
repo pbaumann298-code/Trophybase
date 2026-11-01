@@ -99,6 +99,8 @@ export const GAME_STRUCT = {
   views: 'views',
   /** Stimmungstags (Allowlist), z. B. soulslike, open_world */
   homeTags: 'home_tags',
+  /** Steam/IGDB-Subgenres, z. B. Racing */
+  subGenres: 'sub_genres',
   /** true = Modell darf home_tags nicht überschreiben */
   homeTagsLocked: 'home_tags_locked',
   /** Platin-Anforderungsprofil (6-Achsen-DNA) */

@@ -64,18 +64,20 @@ function quoteFilterValue(pattern) {
   return `"${String(pattern ?? '').replace(/["\\]/g, '')}"`;
 }
 
-function titleOrFilter(stem) {
+function titleOrFilter(stem, locale = getLocale()) {
   const value = quoteFilterValue(`%${stem}%`);
-  const locales = [...new Set(['de', 'en', getLocale()])];
+  const locales = [...new Set([locale, 'de', 'en'].filter(Boolean))];
   return locales.map((lang) => `${GAME_I18N.title}->>${lang}.ilike.${value}`).join(',');
 }
 
-function livingCatalog(query, includeReady) {
+function livingCatalog(query, includeReady, locale = getLocale()) {
   return excludeQuickwinStyleTypes(
     applyGuideCatalogFilter(query, {
       includeReady: Boolean(includeReady),
-      publishedOnly: !includeReady,
-      locale: 'de',
+      publishedInAny: !includeReady
+        ? [...new Set([locale, 'de', 'en'].filter(Boolean))]
+        : undefined,
+      locale,
     }),
   );
 }
@@ -92,8 +94,9 @@ export async function fetchNewerVersions(supabase, game, locale = getLocale(), {
   const stem = seriesStem(getGameTitle(game, locale)) || seriesStem(getGameTitle(game, 'en'));
   if (stem) {
     const { data, error } = await livingCatalog(
-      supabase.from(TABLES.games).select(getGameSelect()).or(titleOrFilter(stem.label)).neq('id', selfId),
+      supabase.from(TABLES.games).select(getGameSelect()).or(titleOrFilter(stem.label, locale)).neq('id', selfId),
       includeReady,
+      locale,
     )
       .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })
       .limit(40);
@@ -118,6 +121,7 @@ export async function fetchNewerVersions(supabase, game, locale = getLocale(), {
       .or(`${GAME_STRUCT.publisher}.ilike.${value},${GAME_STRUCT.developer}.ilike.${value}`)
       .neq('id', selfId),
     includeReady,
+    locale,
   )
     .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })
     .limit(24);

@@ -3,6 +3,108 @@ import { normalizeLocale } from './locale.js';
 import { localizeJsonField } from './translationUtils.js';
 import { t } from './uiStrings.js';
 
+export const RADAR_AXIS_LABELS = {
+  de: { title: '6-Achsen Platin-Radar', motorik: 'Motorik & Peak', planung: 'Guide-Zwang', grind: 'Grind & Sammelwut', rng: 'RNG & Willkür', haerte: 'Bestrafungs-Härte', mp: 'MP-Abhängigkeit' },
+  en: { title: '6-Axis Platinum Radar', motorik: 'Mechanics & Peak', planung: 'Guide Reliance', grind: 'Grind & Collectibles', rng: 'RNG & Luck', haerte: 'Punishment Severity', mp: 'Co-op / MP Dependency' },
+  es: { title: 'Radar de Platino de 6 Ejes', motorik: 'Habilidad y Reflejos', planung: 'Dependencia de Guía', grind: 'Farmeo y Coleccionables', rng: 'RNG y Azar', haerte: 'Nivel de Castigo', mp: 'Dependencia Multijugador' },
+  pt: { title: 'Radar de Platina de 6 Eixos', motorik: 'Mecânica e Reflexos', planung: 'Dependência de Guia', grind: 'Grind e Colecionáveis', rng: 'RNG e Sorte', haerte: 'Rigor de Punição', mp: 'Dependência Multiplayer' },
+  fr: { title: 'Radar Platine à 6 Axes', motorik: 'Mécaniques & Réflexes', planung: 'Dépendance au Guide', grind: 'Grind & Collectibles', rng: 'RNG & Hasard', haerte: 'Sévérité & Punition', mp: 'Dépendance Multijoueur' },
+  it: { title: 'Radar Platino a 6 Assi', motorik: 'Meccaniche e Riflessi', planung: 'Dipendenza da Guida', grind: 'Grind e Collezionabili', rng: 'RNG e Fortuna', haerte: 'Severità di Punizione', mp: 'Dipendenza Multiplayer' },
+  nl: { title: '6-Assige Platina Radar', motorik: 'Motoriek & Vaardigheid', planung: 'Gids-afhankelijkheid', grind: 'Grind & Verzamelobjecten', rng: 'RNG & Geluk', haerte: 'Strafmaat', mp: 'MP-afhankelijkheid' },
+  pl: { title: '6-Osiowy Radar Platyny', motorik: 'Mechanika i Zręczność', planung: 'Wymóg Poradnika', grind: 'Grind i Znajdźki', rng: 'RNG i Losowość', haerte: 'Surowość Kar', mp: 'Zależność od MP' },
+  ru: { title: '6-осевой радар платины', motorik: 'Механика и скилл', planung: 'Зависимость от гайда', grind: 'Гринд и коллекibles', rng: 'Рандом и удача', haerte: 'Суровость наказаний', mp: 'Зависимость от онлайна' },
+  sv: { title: '6-axlig Platinaradar', motorik: 'Mekanik & Skicklighet', planung: 'Guideberoende', grind: 'Grind & Samlarföremål', rng: 'RNG & Tur', haerte: 'Straffgrad', mp: 'MP-beroende' },
+  fi: { title: '6-akselinen Platinatutka', motorik: 'Mekaniikka & Taito', planung: 'Opasriippuvuus', grind: 'Grindaus & Keräily', rng: 'RNG & Tuuri', haerte: 'Rangaistavuus', mp: 'Moninpeliriippuvuus' },
+  ar: { title: 'رادار البلاتينيوم سداسي المحاور', motorik: 'المهارة ورد الفعل', planung: 'الاعتماد على الدليل', grind: 'التكرار والتجميع', rng: 'الحظ والعشوائية', haerte: 'قسوة العقوبة', mp: 'الاعتماد على الأونلاين' },
+  ja: { title: '6軸プラチナレーダー', motorik: '操作スキル・反射神経', planung: '攻略ガイド依存度', grind: '周回・収集要素', rng: '運要素 (RNG)', haerte: 'デスペナルティ・厳しさ', mp: 'マルチプレイ依存度' },
+  ko: { title: '6축 플래티넘 레이더', motorik: '피지컬 & 조작 난이도', planung: '공략 의존도', grind: '반복 작업 & 수집', rng: '운 & 확률 (RNG)', haerte: '패널티 강도', mp: '멀티플레이 의존도' },
+  'zh-hans': { title: '六维白金雷达', motorik: '操作与上限', planung: '攻略依赖度', grind: '刷图与收集', rng: '随机与运气 (RNG)', haerte: '惩罚严厉度', mp: '联机依赖度' },
+  'zh-hant': { title: '六維白金雷達', motorik: '操作與上限', planung: '攻略依賴度', grind: '農度與收集', rng: '隨機與運氣 (RNG)', haerte: '懲罰嚴厲度', mp: '連線依賴度' },
+};
+
+/**
+ * Löst `radar_profile` sprachübergreifend für alle 16 unterstützten Locales auf.
+ * - Existiert `parsed[langKey]?.axes`, werden die lokalisierten Achsen, `summary` und `reason` genutzt.
+ * - Existiert nur das flache Standard-Objekt (`parsed.axes`) oder `parsed.de?.axes`, wird das
+ *   Diagramm trotzdem in allen Sprachen angezeigt, die Achsen-Labels über `RADAR_AXIS_LABELS`
+ *   übersetzt und deutsche Freitexte (`summary` / `axis.reason`) nur bei `langKey === 'de'` gezeigt.
+ */
+export function resolveRadarProfile(rawProfile, locale = 'de') {
+  if (!rawProfile) return null;
+  let parsed = rawProfile;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  const langKey = normalizeLocale(locale || 'de');
+  const axisDict = RADAR_AXIS_LABELS[langKey] || RADAR_AXIS_LABELS.en || RADAR_AXIS_LABELS.de;
+
+  if (parsed._resolvedLocale === langKey && Array.isArray(parsed.axes)) {
+    const showReasons = Boolean(parsed._hasLocalizedText || langKey === 'de');
+    return {
+      ...parsed,
+      summary: showReasons ? (parsed.summary || '') : '',
+      axes: parsed.axes.map((axis) => ({
+        ...axis,
+        label: axisDict?.[axis?.key] || axis?.label || '',
+        reason: showReasons ? (axis?.reason || '') : '',
+      })),
+    };
+  }
+
+  const meta = {
+    online_requirement: parsed.online_requirement ?? parsed.de?.online_requirement,
+    playthroughs: parsed.playthroughs ?? parsed.de?.playthroughs,
+    cloud_save_shortcut: parsed.cloud_save_shortcut ?? parsed.de?.cloud_save_shortcut,
+  };
+
+  if (parsed[langKey] && typeof parsed[langKey] === 'object' && Array.isArray(parsed[langKey].axes)) {
+    const localized = parsed[langKey];
+    return {
+      ...meta,
+      ...localized,
+      _resolvedLocale: langKey,
+      _hasLocalizedText: true,
+      summary: localized.summary || '',
+      axes: localized.axes.map((axis) => ({
+        ...axis,
+        label: axisDict?.[axis?.key] || axis?.label || '',
+        reason: axis?.reason || '',
+      })),
+    };
+  }
+
+  const base =
+    parsed.de && typeof parsed.de === 'object' && Array.isArray(parsed.de.axes)
+      ? parsed.de
+      : Array.isArray(parsed.axes)
+        ? parsed
+        : Array.isArray(parsed)
+          ? { axes: parsed }
+          : null;
+
+  if (!base || !Array.isArray(base.axes)) return null;
+
+  const isDe = langKey === 'de';
+  return {
+    ...meta,
+    ...base,
+    _resolvedLocale: langKey,
+    _hasLocalizedText: isDe,
+    summary: isDe ? (base.summary || '') : '',
+    axes: base.axes.map((axis) => ({
+      ...axis,
+      label: axisDict?.[axis?.key] || axis?.label || '',
+      reason: isDe ? (axis?.reason || '') : '',
+    })),
+  };
+}
+
 function parseCount(value) {
   if (value == null || value === '') return null;
   const n = Number(value);

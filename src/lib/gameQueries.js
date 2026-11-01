@@ -819,6 +819,41 @@ export async function searchGamesByHomeTag(
 }
 
 /**
+ * games.sub_genres (text[]): exakter Genre-Treffer, z. B. Racing.
+ */
+export async function searchGamesBySubGenre(
+  supabase,
+  genre,
+  limit = SEARCH_RESULT_CAP,
+  locale = getLocale(),
+  options = {},
+) {
+  const value = String(genre ?? '').trim();
+  if (!value) return { data: [], error: new Error('Genre fehlt') };
+
+  const { data, error } = await fetchSearchRows(
+    () => {
+      let query = supabase
+        .from(TABLES.games)
+        .select(getGameSelect())
+        .overlaps(GAME_STRUCT.subGenres, [value])
+        .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false });
+      return applyExcludeQuickwins(
+        applyGuideCatalogFilter(query, {
+          includeReady: Boolean(options.includeReady),
+          publishedOnly: Boolean(options.publishedOnly) && !options.includeReady,
+          locale,
+        }),
+        options.excludeQuickwins,
+      );
+    },
+    capSearchLimit(limit),
+  );
+  if (error) return { data: [], error };
+  return { data: mergeGameRows(data, locale), error: null };
+}
+
+/**
  * Studio in entwickler oder publisher (Rockstar sitzt oft nur im Publisher).
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} pattern bereits validiertes ilike-Muster
