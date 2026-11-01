@@ -62,6 +62,8 @@ import TrophyTypeIcon from '../TrophyTypeIcon';
 
 const PAGE = 1000;
 const MAX_QUEUE_ROWS = 10000;
+const UNVERIFIED_COVER_LIMIT = 300;
+const VALID_COVER_LIMIT = 200;
 const PUBLISH_LANG = 'de';
 const GUIDE_TYPS = ['S', 'A', 'B', 'C', 'D'];
 const ONLINE_KEYWORDS =
@@ -108,6 +110,19 @@ const SICKBAY_COVER_COLUMNS = [
   'cover_status',
   'cover_notes',
   'computed_error_reason',
+].join(', ');
+
+/** Spalten aus public.games für Ungeprüft / Verifiziert (gleiches Zeilenformat wie die View). */
+const GAME_COVER_REVIEW_COLUMNS = [
+  GAME_PK,
+  'slug',
+  'spieltitel',
+  'ecosystem',
+  'hardware',
+  'spiel_typ',
+  'cover_url',
+  'cover_status',
+  'cover_notes',
 ].join(', ');
 
 const SICKBAY_TABS = [
@@ -394,13 +409,93 @@ async function fetchSickbayCovers() {
     rows.push(...(data ?? []));
     if ((data ?? []).length < PAGE) break;
   }
+  sortCoverRows(rows);
+  return { rows, error: null };
+}
+
+function sortCoverRows(rows) {
   rows.sort((a, b) =>
     collator.compare(
       String(a.display_title || pickText(a.spieltitel) || ''),
       String(b.display_title || pickText(b.spieltitel) || ''),
     ),
   );
-  return { rows, error: null };
+  return rows;
+}
+
+function mapGameToSickbayCoverRow(game, computedErrorReason) {
+  const displayTitle = pickText(game?.spieltitel);
+  return {
+    id: game?.[GAME_PK],
+    slug: game?.slug ?? null,
+    spieltitel: game?.spieltitel ?? null,
+    display_title: displayTitle,
+    ecosystem: game?.ecosystem ?? null,
+    hardware: game?.hardware ?? null,
+    spiel_typ: game?.spiel_typ ?? null,
+    cover_url: game?.cover_url ?? null,
+    cover_status: game?.cover_status ?? null,
+    cover_notes: game?.cover_notes ?? null,
+    computed_error_reason: computedErrorReason,
+  };
+}
+
+function applyCoverReviewFilters(query, mode) {
+  if (mode === 'valid') {
+    return query.eq('cover_status', 'valid');
+  }
+  return query
+    .not('cover_url', 'is', null)
+    .neq('cover_url', '{}')
+    .or('cover_status.is.null,cover_status.eq.unverified,status->>igdb.eq.UNSURE');
+}
+
+/** Gesamtzahl für die Pills, ohne die Zeilen selbst zu laden. */
+async function fetchCoverReviewCount(mode) {
+  const { count, error } = await applyCoverReviewFilters(
+    supabase.from(TABLES.games).select(GAME_PK, { count: 'exact', head: true }),
+    mode,
+  );
+  if (error) return { count: null, error };
+  return { count: count ?? 0, error: null };
+}
+
+/**
+ * Cover-Fehler-Tab:
+ * - all / invalid / missing → View v_sickbay_covers
+ * - unverified → games mit Cover-URL, Status NULL/unverified oder IGDB UNSURE (max. 300)
+ * - valid → games mit cover_status = valid (max. 200, Count ist die Gesamtzahl)
+ */
+async function fetchSickbayCoversByMode(mode) {
+  if (mode !== 'unverified' && mode !== 'valid') {
+    const result = await fetchSickbayCovers();
+    return { ...result, total: result.rows.length };
+  }
+
+  const limit = mode === 'valid' ? VALID_COVER_LIMIT : UNVERIFIED_COVER_LIMIT;
+  const reason =
+    mode === 'valid' ? '✓ Verifiziert (valid)' : 'Ungeprüft (unverified / NULL)';
+  const rows = [];
+  let total = 0;
+
+  for (let from = 0; from < limit; from += PAGE) {
+    const to = Math.min(from + PAGE, limit) - 1;
+    const { data, error, count } = await applyCoverReviewFilters(
+      supabase
+        .from(TABLES.games)
+        .select(GAME_COVER_REVIEW_COLUMNS, { count: 'exact' })
+        .order(GAME_PK, { ascending: true }),
+      mode,
+    ).range(from, to);
+
+    if (error) return { rows: [], error, total: 0 };
+    if (typeof count === 'number') total = count;
+    rows.push(...(data ?? []).map((game) => mapGameToSickbayCoverRow(game, reason)));
+    if ((data ?? []).length < to - from + 1) break;
+  }
+
+  sortCoverRows(rows);
+  return { rows, error: null, total };
 }
 
 /**
@@ -874,10 +969,15 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
   const [notice, setNotice] = useState('');
   const reloadToken = useRef(0);
 
-  // Tab 2 (Cover-Fehler: v_sickbay_covers) & Tab 3 (Fehlermeldungen: community_reports)
+  // Tab 2 (Cover-Fehler: v_sickbay_covers, plus Ungeprüft/Verifiziert aus games)
   const [coverRows, setCoverRows] = useState([]);
+  const [reviewCoverRows, setReviewCoverRows] = useState([]);
   const [coversLoading, setCoversLoading] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
   const [coverFilter, setCoverFilter] = useState('all');
+  const [coverReviewNonce, setCoverReviewNonce] = useState(0);
+  const [unverifiedTotal, setUnverifiedTotal] = useState(null);
+  const [validTotal, setValidTotal] = useState(null);
   const [coverSearch, setCoverSearch] = useState('');
   const [coverBusyId, setCoverBusyId] = useState('');
 
@@ -895,15 +995,27 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
     setCoversLoading(true);
     setReportsLoading(true);
     try {
-      const [coversRes, reportsRes] = await Promise.all([
-        fetchSickbayCovers(),
+      const [coversRes, reportsRes, unverifiedCountRes, validCountRes] = await Promise.all([
+        fetchSickbayCoversByMode('all'),
         fetchCommunityReports(supabase),
+        fetchCoverReviewCount('unverified'),
+        fetchCoverReviewCount('valid'),
       ]);
       if (coversRes.error) {
         console.error('Krankenstation Cover-Fehler:', coversRes.error);
         setError((prev) => prev || coversRes.error.message || 'Cover-Fehler konnten nicht geladen werden.');
       } else {
         setCoverRows(coversRes.rows);
+      }
+      if (unverifiedCountRes.error) {
+        console.error('Krankenstation Ungeprüft-Anzahl:', unverifiedCountRes.error);
+      } else {
+        setUnverifiedTotal(unverifiedCountRes.count);
+      }
+      if (validCountRes.error) {
+        console.error('Krankenstation Verifiziert-Anzahl:', validCountRes.error);
+      } else {
+        setValidTotal(validCountRes.count);
       }
       if (reportsRes.error) {
         console.error('Krankenstation Fehlermeldungen:', reportsRes.error);
@@ -954,11 +1066,38 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
     }
   }, [mode, isSickbayMode, loadQueueSafe, loadSickbayExtras]);
 
+  // Ungeprüft / Verifiziert kommen aus games, nicht aus v_sickbay_covers.
+  useEffect(() => {
+    if (!isSickbayMode) return undefined;
+    if (coverFilter !== 'unverified' && coverFilter !== 'valid') return undefined;
+
+    let cancelled = false;
+    setReviewLoading(true);
+    fetchSickbayCoversByMode(coverFilter).then((result) => {
+      if (cancelled) return;
+      if (result.error) {
+        console.error('Krankenstation Cover-Review:', result.error);
+        setError((prev) => prev || result.error.message || 'Cover-Ansicht konnte nicht geladen werden.');
+        setReviewCoverRows([]);
+      } else {
+        setReviewCoverRows(result.rows);
+        if (coverFilter === 'unverified') setUnverifiedTotal(result.total);
+        else setValidTotal(result.total);
+      }
+      setReviewLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSickbayMode, coverFilter, coverReviewNonce]);
+
   const reload = (withPublished = includePublished) => {
     const token = ++reloadToken.current;
     loadQueueSafe(withPublished, token);
     if (isSickbayMode) {
       loadSickbayExtras();
+      setCoverReviewNonce((nonce) => nonce + 1);
     }
   };
 
@@ -1296,8 +1435,30 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
           : game,
       ),
     );
-    // Optimistic UI: im Tab "Cover-Fehler" verschwindet die Zeile sofort aus der Liste
+    // Optimistic UI: Fehler- und Ungeprüft-Zeilen verschwinden, verifizierte bleiben mit neuem Cover.
     setCoverRows((prev) => prev.filter((row) => row.id !== gameId));
+    setReviewCoverRows((prev) => {
+      if (coverFilter === 'valid') {
+        return prev.map((row) =>
+          row.id === gameId
+            ? {
+                ...row,
+                cover_url: { ...(row.cover_url || {}), ...resolvedMap },
+                cover_status: 'valid',
+                cover_notes: null,
+                computed_error_reason: '✓ Verifiziert (valid)',
+              }
+            : row,
+        );
+      }
+      return prev.filter((row) => row.id !== gameId);
+    });
+    if (coverFilter === 'unverified') {
+      setUnverifiedTotal((count) => (count == null ? count : Math.max(0, count - 1)));
+      setValidTotal((count) => (count == null ? count : count + 1));
+    } else if (coverFilter !== 'valid') {
+      setValidTotal((count) => (count == null ? count : count + 1));
+    }
     setReportRows((prev) =>
       prev.map((report) =>
         report.game?.id === gameId
@@ -1314,7 +1475,7 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
       ),
     );
     setNotice('✓ Cover gespeichert (cover_status = valid) und Liste aktualisiert.');
-  }, []);
+  }, [coverFilter]);
 
   /**
    * Quick-Action „Trotzdem OK" (False Positive) im Tab „Cover-Fehler":
@@ -1324,16 +1485,41 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
   const handleMarkCoverOk = async (row) => {
     if (!row?.id || coverBusyId) return;
     const previousRows = coverRows;
+    const previousReviewRows = reviewCoverRows;
+    const previousUnverifiedTotal = unverifiedTotal;
+    const previousValidTotal = validTotal;
     const title = row.display_title || pickText(row.spieltitel) || 'Spiel';
     setError('');
     setNotice('');
-    // Optimistic UI: sofort aus der Liste entfernen
-    setCoverRows((prev) => prev.filter((entry) => entry.id !== row.id));
+    if (coverFilter === 'valid') {
+      setReviewCoverRows((prev) =>
+        prev.map((entry) =>
+          entry.id === row.id
+            ? {
+                ...entry,
+                cover_status: 'valid',
+                cover_notes: null,
+                computed_error_reason: '✓ Verifiziert (valid)',
+              }
+            : entry,
+        ),
+      );
+    } else {
+      setCoverRows((prev) => prev.filter((entry) => entry.id !== row.id));
+      setReviewCoverRows((prev) => prev.filter((entry) => entry.id !== row.id));
+      if (coverFilter === 'unverified') {
+        setUnverifiedTotal((count) => (count == null ? count : Math.max(0, count - 1)));
+      }
+      setValidTotal((count) => (count == null ? count : count + 1));
+    }
     setCoverBusyId(row.id);
     const { error: updateError } = await markGameCoverValid(supabase, row.id);
     setCoverBusyId('');
     if (updateError) {
       setCoverRows(previousRows);
+      setReviewCoverRows(previousReviewRows);
+      setUnverifiedTotal(previousUnverifiedTotal);
+      setValidTotal(previousValidTotal);
       setError(updateError.message || 'Cover-Status konnte nicht auf valid gesetzt werden.');
       return;
     }
@@ -1402,12 +1588,15 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
       if (row.cover_status === 'invalid') invalid += 1;
       else missing += 1;
     }
-    return { all: coverRows.length, invalid, missing };
-  }, [coverRows]);
+    return { all: coverRows.length, invalid, missing, unverified: unverifiedTotal, valid: validTotal };
+  }, [coverRows, unverifiedTotal, validTotal]);
+
+  const coverSourceRows = coverFilter === 'unverified' || coverFilter === 'valid' ? reviewCoverRows : coverRows;
+  const coverListLoading = coverFilter === 'unverified' || coverFilter === 'valid' ? reviewLoading : coversLoading;
 
   const filteredCovers = useMemo(() => {
     const needle = coverSearch.trim().toLowerCase();
-    return coverRows.filter((row) => {
+    return coverSourceRows.filter((row) => {
       if (coverFilter === 'invalid' && row.cover_status !== 'invalid') return false;
       if (coverFilter === 'missing' && row.cover_status === 'invalid') return false;
       if (!needle) return true;
@@ -1423,7 +1612,7 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [coverRows, coverFilter, coverSearch]);
+  }, [coverSourceRows, coverFilter, coverSearch]);
 
   const reportCounts = useMemo(() => {
     const pendingCount = reportRows.filter((r) => (r.status || 'pending') === 'pending').length;
@@ -1552,7 +1741,7 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
         <p className="rounded border border-[#00ff66]/30 bg-[#00ff66]/10 px-3 py-2 text-xs text-[#00ff66]">{notice}</p>
       ) : null}
 
-      {/* TAB 2: Cover-Fehler (Datenquelle: v_sickbay_covers) */}
+      {/* TAB 2: Cover-Fehler (View) plus Ungeprüft / Verifiziert aus games */}
       {isSickbayMode && sickbayTab === 'covers' ? (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
@@ -1578,6 +1767,22 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
               >
                 Fehlend (NULL / &#123;&#125;)
               </Pill>
+              <Pill
+                active={coverFilter === 'unverified'}
+                onClick={() => setCoverFilter('unverified')}
+                count={coverCounts.unverified}
+                title="Cover-URL vorhanden, cover_status leer oder unverified, oder IGDB UNSURE"
+              >
+                Unklar / Ungeprüft
+              </Pill>
+              <Pill
+                active={coverFilter === 'valid'}
+                onClick={() => setCoverFilter('valid')}
+                count={coverCounts.valid}
+                title="cover_status = valid (Liste zeigt die ersten 200, die Zahl ist die Gesamtanzahl)"
+              >
+                Verifiziert (valid)
+              </Pill>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -1588,7 +1793,16 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                 className="w-64 rounded border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-100 focus:border-[#00ff66]/40 focus:outline-none"
               />
               <span className="font-mono text-[11px] text-zinc-500">
-                {coversLoading ? 'Lädt…' : `${filteredCovers.length} Einträge`}
+                {coverListLoading
+                  ? 'Lädt…'
+                  : coverFilter === 'valid' && validTotal != null && validTotal > filteredCovers.length && !coverSearch.trim()
+                    ? `${filteredCovers.length} von ${validTotal}`
+                    : coverFilter === 'unverified' &&
+                        unverifiedTotal != null &&
+                        unverifiedTotal > filteredCovers.length &&
+                        !coverSearch.trim()
+                      ? `${filteredCovers.length} von ${unverifiedTotal}`
+                      : `${filteredCovers.length} Einträge`}
               </span>
             </div>
           </div>
@@ -1600,6 +1814,7 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                 const title = row.display_title || pickText(row.spieltitel) || 'Unbenanntes Spiel';
                 const googleUrl = buildGoogleImagesCoverUrl(row);
                 const isInvalid = row.cover_status === 'invalid';
+                const isValidCover = row.cover_status === 'valid';
                 return (
                   <li
                     key={row.id}
@@ -1651,10 +1866,15 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                             className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-[10px] font-bold ${
                               isInvalid
                                 ? 'border-red-500/40 bg-red-500/10 text-red-300'
-                                : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                                : isValidCover
+                                  ? 'border-[#00ff66]/40 bg-[#00ff66]/10 text-[#00ff66]'
+                                  : coverFilter === 'unverified'
+                                    ? 'border-sky-500/40 bg-sky-500/10 text-sky-200'
+                                    : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
                             }`}
                           >
-                            {isInvalid ? '⚠️' : '🖼️'} {row.computed_error_reason || 'Cover fehlt / ungültig'}
+                            {isInvalid ? '⚠️' : isValidCover ? '✓' : coverFilter === 'unverified' ? '❓' : '🖼️'}{' '}
+                            {row.computed_error_reason || 'Cover fehlt / ungültig'}
                           </span>
                           {row.slug ? (
                             <span className="font-mono text-[10px] text-zinc-500">/{row.slug}</span>
@@ -1694,9 +1914,9 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                   </li>
                 );
               })}
-              {!coversLoading && !filteredCovers.length ? (
+              {!coverListLoading && !filteredCovers.length ? (
                 <li className="px-4 py-10 text-center text-xs text-zinc-500">
-                  Keine Cover-Fehler für diesen Filter gefunden.
+                  Keine Einträge für diesen Filter gefunden.
                 </li>
               ) : null}
             </ul>

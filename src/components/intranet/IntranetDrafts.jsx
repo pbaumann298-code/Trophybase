@@ -600,6 +600,14 @@ function getLocalizedTitle(spieltitel) {
   return spieltitel.de || spieltitel.en || Object.values(spieltitel)[0] || 'Unbenanntes Spiel';
 }
 
+/** Erste NPWR aus games.platform_game_id (JSONB-Array oder Text), sonst die Spiel-ID. */
+function resolveDraftPlatformGameId(game) {
+  if (!game) return '';
+  const raw = game.platform_game_id;
+  const picked = Array.isArray(raw) ? raw[0] : raw || game.id;
+  return String(picked ?? game.id ?? '').trim();
+}
+
 function getLocalizedCover(coverUrl) {
   if (!coverUrl) return '';
   if (typeof coverUrl === 'string') return coverUrl;
@@ -1029,6 +1037,13 @@ export default function IntranetDrafts({
   const [replaceValue, setReplaceValue] = useState('');
   const [useRegex, setUseRegex] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(false);
+
+  // Spiel-Zuordnung umhängen (verrutster Match)
+  const [showReassignGame, setShowReassignGame] = useState(false);
+  const [reassignQuery, setReassignQuery] = useState('');
+  const [reassignResults, setReassignResults] = useState([]);
+  const [reassignSearching, setReassignSearching] = useState(false);
+  const [reassignSearchDone, setReassignSearchDone] = useState(false);
 
   // Rohmaterial (verschobene große Spiele) & Multi-Tab Editor
   const [showRohmaterialView, setShowRohmaterialView] = useState(false);
@@ -3777,6 +3792,317 @@ export default function IntranetDrafts({
     }
   };
 
+  // 8c-b. Treffer-Zeilen komplett löschen, oder Suchfelder leeren wenn nichts getroffen wurde
+  const handleDeleteMatchedSearchRows = async () => {
+    const queryActive = Boolean(String(searchQuery ?? '').trim());
+    const hasText = queryActive || Boolean(String(replaceValue ?? '').trim());
+    const { matchCount, matchedRows, regexError } = searchReplacePreview;
+
+    if (queryActive && matchCount > 0 && !regexError) {
+      if (actionBusy) return;
+      if (
+        !window.confirm(
+          `Wirklich alle ${matchCount} gefundenen Treffer-Zeilen komplett löschen?`
+        )
+      ) {
+        return;
+      }
+
+      setActionBusy(true);
+      setError('');
+      setNotice('');
+
+      try {
+        const idsByTable = new Map();
+        for (const match of matchedRows) {
+          const sourceTable = match.row?._sourceTable || 'staging_game_guides';
+          const list = idsByTable.get(sourceTable) || [];
+          list.push(match.id);
+          idsByTable.set(sourceTable, list);
+        }
+
+        const deletedIds = [];
+        for (const [tableName, ids] of idsByTable.entries()) {
+          const CHUNK_SIZE = 100;
+          for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+            const chunkIds = ids.slice(i, i + CHUNK_SIZE);
+            const { error: delErr } = await supabase.from(tableName).delete().in('id', chunkIds);
+            if (delErr) {
+              if (deletedIds.length > 0) {
+                const partial = new Set(deletedIds);
+                setStagingRows((prev) => prev.filter((row) => !partial.has(row.id)));
+                setRohmaterialRows((prev) => prev.filter((row) => !partial.has(row.id)));
+                setProductiveRohRows((prev) => prev.filter((row) => !partial.has(row.id)));
+              }
+              throw new Error(`${tableName}: ${delErr.message}`);
+            }
+            deletedIds.push(...chunkIds);
+          }
+        }
+
+        const deletedSet = new Set(deletedIds);
+        setStagingRows((prev) => prev.filter((row) => !deletedSet.has(row.id)));
+        setRohmaterialRows((prev) => prev.filter((row) => !deletedSet.has(row.id)));
+        setProductiveRohRows((prev) => prev.filter((row) => !deletedSet.has(row.id)));
+        setSelectedRowIds((prev) => {
+          const next = new Set(prev);
+          for (const id of deletedSet) next.delete(id);
+          return next;
+        });
+        setActiveRowId((prev) => (prev && deletedSet.has(prev) ? null : prev));
+        setSearchQuery('');
+        setReplaceValue('');
+        setNotice(`🗑️ ${deletedIds.length} Treffer-Zeilen komplett gelöscht.`);
+      } catch (err) {
+        setError(`Treffer-Zeilen löschen fehlgeschlagen: ${err.message}`);
+      } finally {
+        setActionBusy(false);
+      }
+      return;
+    }
+
+    if (hasText) {
+      setSearchQuery('');
+      setReplaceValue('');
+    }
+  };
+
+  // 8c-c. Zielspiel für verrutschte Creator-Zuordnung suchen (Titel via RPC, NPWR via Containment)
+  const handleSearchReassignGames = async (event) => {
+    if (event) event.preventDefault();
+    const raw = reassignQuery.trim();
+    if (!raw || reassignSearching) return;
+
+    const words = raw
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter(Boolean);
+
+    setReassignSearching(true);
+    setReassignSearchDone(false);
+    setError('');
+
+    try {
+      const merged = [];
+      const seen = new Set();
+      const pushGame = (game) => {
+        if (!game?.id || seen.has(game.id)) return;
+        seen.add(game.id);
+        merged.push(game);
+      };
+
+      const npwrMatch = raw.match(/NPWR\d+_\d+/i);
+      if (npwrMatch) {
+        const npwr = npwrMatch[0].toUpperCase();
+        const { data: npwrRows, error: npwrErr } = await supabase
+          .from(TABLES.games)
+          .select(GAMES_QUEUE_SELECT_COLS)
+          .contains('platform_game_id', JSON.stringify([npwr]))
+          .limit(15);
+        if (npwrErr) throw new Error(npwrErr.message);
+        for (const game of npwrRows ?? []) pushGame(game);
+      }
+
+      if (words.length > 0) {
+        const { data, error: rpcErr } = await supabase.rpc('tb_search_games_trophies_only', {
+          p_words: words,
+          p_limit: 15,
+        });
+        if (rpcErr) throw new Error(rpcErr.message);
+        const list = Array.isArray(data) ? data : [];
+        for (const game of list) pushGame(game);
+      }
+
+      setReassignResults(merged.slice(0, 15));
+      setReassignSearchDone(true);
+    } catch (err) {
+      setReassignResults([]);
+      setReassignSearchDone(true);
+      setError(`Spielsuche fehlgeschlagen: ${err.message}`);
+    } finally {
+      setReassignSearching(false);
+    }
+  };
+
+  // 8c-d. Aktuellen Creator-Entwurf an ein anderes Spiel hängen
+  const handleReassignCreatorToGame = async (targetGame) => {
+    if (!targetGame?.id || !selectedGameId || !selectedCreatorName || actionBusy) return;
+
+    const targetGameId = targetGame.id;
+    if (targetGameId === selectedGameId) {
+      setNotice('Dieses Spiel ist bereits die aktuelle Zuordnung.');
+      return;
+    }
+
+    const rowsToMove = currentCreatorRows.filter((row) => {
+      const sourceTable = row._sourceTable || 'staging_game_guides';
+      return sourceTable === 'staging_game_guides' || sourceTable === TABLES.guidesRohmaterial;
+    });
+
+    if (rowsToMove.length === 0) {
+      setError('Für diesen Creator gibt es keine Entwurfszeilen, die umgehängt werden können.');
+      return;
+    }
+
+    const targetNpwr = resolveDraftPlatformGameId(targetGame);
+    if (!targetNpwr) {
+      setError('Zielspiel hat keine platform_game_id.');
+      return;
+    }
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    const sourceGameId = selectedGameId;
+
+    try {
+      const idsByTable = new Map();
+      for (const row of rowsToMove) {
+        const sourceTable = row._sourceTable || 'staging_game_guides';
+        const list = idsByTable.get(sourceTable) || [];
+        list.push(row.id);
+        idsByTable.set(sourceTable, list);
+      }
+
+      for (const [tableName, ids] of idsByTable.entries()) {
+        const CHUNK_SIZE = 100;
+        for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+          const chunkIds = ids.slice(i, i + CHUNK_SIZE);
+          const { error: upErr } = await supabase
+            .from(tableName)
+            .update({
+              game_id: targetGameId,
+              platform_game_id: targetNpwr,
+            })
+            .in('id', chunkIds);
+          if (upErr) {
+            throw new Error(`${tableName}: ${upErr.message}`);
+          }
+        }
+      }
+
+      let nextStatus = targetGame.status;
+      let statusWarning = '';
+      if (activeDataSource === 'rohmaterial') {
+        const { data: currentGameData, error: readErr } = await supabase
+          .from(TABLES.games)
+          .select(GAME_STRUCT.status)
+          .eq(GAME_PK, targetGameId)
+          .maybeSingle();
+        if (readErr) {
+          statusWarning = `status.rohmaterial lesen fehlgeschlagen: ${readErr.message}`;
+        } else {
+          nextStatus = {
+            ...parseStatusMap(currentGameData?.[GAME_STRUCT.status] ?? targetGame.status),
+            rohmaterial: 'PENDING_MULTI_TAB',
+          };
+          const { error: statusUpErr } = await supabase
+            .from(TABLES.games)
+            .update({ [GAME_STRUCT.status]: nextStatus })
+            .eq(GAME_PK, targetGameId);
+          if (statusUpErr) {
+            statusWarning = `status.rohmaterial setzen fehlgeschlagen: ${statusUpErr.message}`;
+            nextStatus = targetGame.status;
+          }
+        }
+      }
+
+      const targetGameForMap = {
+        ...targetGame,
+        id: targetGameId,
+        status: nextStatus,
+      };
+      const movedIds = new Set(rowsToMove.map((row) => row.id));
+      const patchRow = (row) =>
+        movedIds.has(row.id)
+          ? { ...row, game_id: targetGameId, platform_game_id: targetNpwr }
+          : row;
+
+      setStagingRows((prev) => prev.map(patchRow));
+      setRohmaterialRows((prev) => prev.map(patchRow));
+      setGamesMap((prev) => {
+        const next = new Map(prev);
+        next.set(targetGameId, { ...(next.get(targetGameId) || {}), ...targetGameForMap });
+        return next;
+      });
+
+      const movedRohCount = rowsToMove.filter(
+        (row) => row._sourceTable === TABLES.guidesRohmaterial
+      ).length;
+      if (movedRohCount > 0) {
+        setRohGamesMap((prev) => {
+          const next = new Map(prev);
+          next.set(targetGameId, { ...(next.get(targetGameId) || {}), ...targetGameForMap });
+          return next;
+        });
+        const sourceCount = rohmaterialRows.filter(
+          (row) => row.game_id === sourceGameId && !movedIds.has(row.id)
+        ).length;
+        const targetCount =
+          rohmaterialRows.filter((row) => row.game_id === targetGameId).length + movedRohCount;
+        setRohmaterialGames((prev) => {
+          const next = prev
+            .map((item) => {
+              if (item.gameId !== sourceGameId) return item;
+              return { ...item, rowCount: sourceCount };
+            })
+            .filter((item) => item.gameId !== sourceGameId || sourceCount > 0);
+
+          const targetTitle = getLocalizedTitle(targetGame.spieltitel);
+          const existing = next.find((item) => item.gameId === targetGameId);
+          if (existing) {
+            return next.map((item) =>
+              item.gameId === targetGameId
+                ? {
+                    ...item,
+                    game: { ...item.game, ...targetGameForMap },
+                    title: targetTitle,
+                    platformGameId: targetNpwr,
+                    coverUrl: getLocalizedCover(targetGame.cover_url) || item.coverUrl,
+                    rowCount: targetCount,
+                    statusRohmaterial: 'PENDING_MULTI_TAB',
+                  }
+                : item
+            );
+          }
+
+          return [
+            {
+              gameId: targetGameId,
+              game: targetGameForMap,
+              title: targetTitle,
+              platformGameId: targetNpwr,
+              coverUrl: getLocalizedCover(targetGame.cover_url),
+              creatorCount: 1,
+              creatorList: selectedCreatorName ? [selectedCreatorName] : [],
+              batchList: [],
+              rowCount: targetCount,
+              statusRohmaterial: 'PENDING_MULTI_TAB',
+            },
+            ...next,
+          ];
+        });
+      }
+
+      setShowReassignGame(false);
+      setReassignQuery('');
+      setReassignResults([]);
+      setReassignSearchDone(false);
+      setSelectedGameId(targetGameId);
+      setNotice(
+        `✓ Entwurf (${currentCreatorRows.length} Zeilen) erfolgreich zu "${getLocalizedTitle(targetGame.spieltitel)}" verschoben!`
+      );
+      if (statusWarning) {
+        setError(`Zeilen sind verschoben, aber ${statusWarning}`);
+      }
+    } catch (err) {
+      setError(`Spiel-Zuordnung ändern fehlgeschlagen: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   // 8d. Großes Spiel -> Rohmaterial (Multi-Tab) verschieben
   const handleMoveToRohmaterial = async () => {
     if (!selectedGameId || !selectedCreatorName || actionBusy) return;
@@ -5149,6 +5475,75 @@ export default function IntranetDrafts({
                           {selectedGame.publisher || selectedGame.entwickler || 'Publisher N/A'}
                         </p>
 
+                        {!isCreatorMode && (
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              disabled={actionBusy}
+                              onClick={() => {
+                                setShowReassignGame((prev) => !prev);
+                                setReassignSearchDone(false);
+                              }}
+                              title="Entwurf dieses Creators an ein anderes Spiel hängen (verrutster Match)"
+                              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-mono font-bold transition disabled:opacity-40 ${
+                                showReassignGame
+                                  ? 'border-sky-300 bg-sky-400/20 text-sky-100'
+                                  : 'border-sky-500/40 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20'
+                              }`}
+                            >
+                              🔀 Spiel-Zuordnung ändern
+                            </button>
+                            {showReassignGame && (
+                              <div className="mt-2 rounded-xl border border-sky-500/30 bg-sky-500/5 p-2 flex flex-col gap-2">
+                                <form onSubmit={handleSearchReassignGames} className="flex gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={reassignQuery}
+                                    onChange={(e) => setReassignQuery(e.target.value)}
+                                    placeholder="Spieltitel oder NPWR-ID…"
+                                    className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] text-zinc-100 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                                  />
+                                  <button
+                                    type="submit"
+                                    disabled={reassignSearching || actionBusy || !reassignQuery.trim()}
+                                    className="shrink-0 rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2.5 py-1 text-[11px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40"
+                                  >
+                                    {reassignSearching ? 'Sucht…' : 'Suchen'}
+                                  </button>
+                                </form>
+                                {reassignResults.length > 0 && (
+                                  <div className="flex max-h-48 flex-col gap-1 overflow-y-auto">
+                                    {reassignResults.map((game) => {
+                                      const npwr = resolveDraftPlatformGameId(game);
+                                      const isCurrent = game.id === selectedGameId;
+                                      return (
+                                        <button
+                                          key={game.id}
+                                          type="button"
+                                          disabled={actionBusy || isCurrent}
+                                          onClick={() => handleReassignCreatorToGame(game)}
+                                          className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-left text-[11px] hover:border-[#00ff66]/50 disabled:opacity-40"
+                                        >
+                                          <span className="truncate font-bold text-white">
+                                            {getLocalizedTitle(game.spieltitel)}
+                                          </span>
+                                          <span className="shrink-0 font-mono text-[10px] text-zinc-400">
+                                            {npwr || 'ohne NPWR'}
+                                            {isCurrent ? ' · aktuell' : ''}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                {reassignSearchDone && !reassignSearching && reassignResults.length === 0 && (
+                                  <p className="text-[10px] font-mono text-zinc-500">Keine Spiele gefunden.</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {/* Spiel-Typ & Status Dropdowns (nur Admin) */}
                         {!isCreatorMode && (
                           <>
@@ -5288,6 +5683,42 @@ export default function IntranetDrafts({
 
                 {/* C. GUIDE-ZEILEN TABELLE & GRUPPEN-RÖNTGENBLICK (SUPER COMPACT HIGH-DENSITY) */}
                 <div className="rounded-2xl border border-zinc-800 bg-[#121314] p-3 flex flex-col gap-2.5">
+                  {creatorTabs.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#00ff66]/30 bg-[#00ff66]/5 px-2.5 py-2">
+                      <span className="text-xs font-mono font-bold text-[#00ff66]">
+                        ▶ {selectedCreatorName}
+                      </span>
+                      {creatorTabs.length === 1 && (
+                        <span className="rounded bg-zinc-900/60 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400">
+                          {creatorTabs[0].videoCount} Videos | {creatorTabs[0].rowCount} Zeilen
+                        </span>
+                      )}
+                      {creatorTabs.length > 1 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {creatorTabs.map((tab) => {
+                            const isActive = tab.creatorName === selectedCreatorName;
+                            return (
+                              <button
+                                key={tab.creatorName}
+                                type="button"
+                                onClick={() => setSelectedCreatorName(tab.creatorName)}
+                                className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-mono transition ${
+                                  isActive
+                                    ? 'bg-[#00ff66]/15 text-[#00ff66] border border-[#00ff66]/40 font-bold'
+                                    : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:bg-zinc-700'
+                                }`}
+                              >
+                                <span>▶ {tab.creatorName}</span>
+                                <span className="rounded bg-zinc-900/60 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                                  {tab.videoCount} Videos | {tab.rowCount} Zeilen
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between px-1 flex-wrap gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-white">
@@ -5978,6 +6409,20 @@ export default function IntranetDrafts({
                       <option value="video_chapter">Chapter (video_chapter)</option>
                       <option value="prod_note">🎬 Take / Rohdatei (prod_note)</option>
                     </select>
+
+                    <button
+                      type="button"
+                      title={
+                        searchReplacePreview.matchCount > 0
+                          ? `${searchReplacePreview.matchCount} Treffer-Zeilen komplett löschen`
+                          : 'Suchfelder leeren'
+                      }
+                      disabled={actionBusy && searchReplacePreview.matchCount > 0}
+                      onClick={handleDeleteMatchedSearchRows}
+                      className="inline-flex shrink-0 items-center justify-center rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1 text-sm leading-none hover:bg-red-500/20 disabled:opacity-40 transition"
+                    >
+                      🗑️
+                    </button>
 
                     <input
                       type="text"
