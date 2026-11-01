@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 PAGE_LIMIT = 200
 MAX_TROPHIES_PER_CALL = 75  # Ideale Batch-Größe für gleichzeitige DE+EN Ausgabe
 DELAY_BETWEEN_CALLS_SEC = 0.25
