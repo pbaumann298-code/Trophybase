@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import HeaderSettingsMenu from './HeaderSettingsMenu';
-import { hasAdminReturnFlag, isAdminUser, readDraftReturnContext } from '../lib/adminAccess';
+import { isStaffOrPreviewContext, readDraftReturnContext } from '../lib/adminAccess';
 import { navigateToHome, PROFILE_PATH, WATCHLIST_PATH } from '../lib/routeUtils';
 
 function Header({
@@ -12,10 +12,11 @@ function Header({
   onOpenPlatformTrophies,
   onCustomizeHome,
 }) {
-  const [showAdminReturn] = useState(() => hasAdminReturnFlag());
-  const [draftReturnCtx] = useState(() => readDraftReturnContext());
-  const isAdmin = isAdminUser(sessionUser);
-  const isLoggedIn = Boolean(sessionUser) || isAdmin || showAdminReturn || Boolean(draftReturnCtx);
+  const staffOrPreview = isStaffOrPreviewContext();
+  const [draftReturnCtx] = useState(() =>
+    staffOrPreview ? readDraftReturnContext() : null
+  );
+  const isLoggedIn = Boolean(sessionUser);
 
   const handleHomeClick = (event) => {
     event.preventDefault();
@@ -55,19 +56,7 @@ function Header({
             🏆 Mein Cockpit
           </a>
         ) : null}
-        {isAdmin ? (
-          <a
-            href="/platinliste"
-            onClick={(e) => {
-              e.preventDefault();
-              onOpenPlatformTrophies?.();
-            }}
-            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-[#00ff66] bg-[#00ff66]/10 hover:bg-[#00ff66]/15 border border-[#00ff66]/30 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline backdrop-blur-sm"
-          >
-            🏆 Platinliste V1
-          </a>
-        ) : null}
-        {draftReturnCtx?.gameId ? (
+        {staffOrPreview && draftReturnCtx?.gameId ? (
           <a
             href={draftReturnCtx.staffPath || '/intranet.html#entwuerfe'}
             onClick={(e) => {
@@ -83,25 +72,9 @@ function Header({
               : ''}
           </a>
         ) : null}
-        {isAdmin ? (
-          <a
-            href="/intranet"
-            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-zinc-300 bg-[#121314]/90 hover:bg-[#202122] border border-zinc-800 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline backdrop-blur-sm"
-          >
-            Intranet
-          </a>
-        ) : null}
-        {isAdmin || showAdminReturn ? (
-          <a
-            href="/admin.html"
-            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-amber-400 bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/30 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline backdrop-blur-sm"
-          >
-            Admin
-          </a>
-        ) : null}
         <HeaderSettingsMenu
           sessionUser={sessionUser}
-          isAdmin={isAdmin}
+          isAdmin={false}
           onLogout={onLogout}
           onOpenWatchlist={onOpenWatchlist}
           onOpenProfile={onOpenProfile}

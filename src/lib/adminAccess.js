@@ -4,6 +4,7 @@ export const ADMIN_RETURN_STORAGE_KEY = 'tb_admin_return';
 export const ADMIN_TAB_STORAGE_KEY = 'tb_admin_tab';
 export const INTRANET_GAME_SEARCH_STORAGE_KEY = 'tb_intranet_game_search';
 export const DRAFT_RETURN_STORAGE_KEY = 'tb_draft_return_context';
+export const LAB_MODE_STORAGE_KEY = 'tb_lab_mode';
 
 /** Öffentliche SPA darf /intranet und /admin nicht als Startseite rendern. */
 const STAFF_HTML_BY_PATH = {
@@ -101,7 +102,18 @@ export function setAdminReturnFlag(active = true) {
   }
 }
 
+export function isStaffOrPreviewContext() {
+  if (typeof window === 'undefined') return false;
+  const p = window.location.pathname.toLowerCase();
+  if (p.includes('/admin') || p.includes('/intranet')) {
+    return true;
+  }
+  const params = new URLSearchParams(window.location.search);
+  return params.get('preview') === '1' || params.get('rohmaterial') === '1';
+}
+
 export function hasAdminReturnFlag() {
+  if (!isStaffOrPreviewContext()) return false;
   try {
     return sessionStorage.getItem(ADMIN_RETURN_STORAGE_KEY) === '1';
   } catch {
@@ -269,9 +281,41 @@ export function handleStaffGamePreviewClick(event, href) {
   }
 }
 
-export function isAdminUser(user) {
+export function isAdminUser(user, { allowPublic = false } = {}) {
   if (!user?.email) return false;
+  if (!allowPublic && !isStaffOrPreviewContext()) return false;
   return ALLOWED_ADMINS.includes(normalizeEmail(user.email));
+}
+
+export function setLabModeFlag(active = true) {
+  try {
+    if (active) {
+      sessionStorage.setItem(LAB_MODE_STORAGE_KEY, '1');
+    } else {
+      sessionStorage.removeItem(LAB_MODE_STORAGE_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * V2-Sandbox-Gate: nur Admin-Login plus ?lab=1 bzw. gesetztes Lab-Flag.
+ * Darf die öffentliche V1-UI nicht öffnen – nur Zugriff auf src/v2/.
+ */
+export function isLabModeActive(sessionUser) {
+  if (!isAdminUser(sessionUser, { allowPublic: true })) return false;
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('lab') === '1') {
+      setLabModeFlag(true);
+      return true;
+    }
+    return sessionStorage.getItem(LAB_MODE_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
 /**

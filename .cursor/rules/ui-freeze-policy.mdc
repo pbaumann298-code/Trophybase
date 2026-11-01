@@ -1,0 +1,19 @@
+---
+description: Strikter UI-Freeze für die öffentliche V1-Live-Website. Neue UI-Konzepte, Multi-Plattform-Ansichten und Experimente dürfen ausschließlich hinter dem Admin-Lab-Gate in src/v2/ gebaut werden.
+globs: src/**/*
+alwaysApply: true
+---
+
+# TrophyBase Live-UI-Freeze & V2-Sandbox-Policy
+
+1. **STRIKTER V1-FREEZE (LIVE-BETRIEB):**
+   - Alle bestehenden öffentlichen Seiten und Komponenten (`src/pages/*`, `src/components/*`, `src/app.jsx`) befinden sich im **Production Freeze**.
+   - An diesen Dateien dürfen **ausschließlich reine Bugfixes** vorgenommen werden.
+   - Keine Layout-Experimente, keine neuen UI-Elemente und keine unfertigen Multi-Plattform-Umbauten im öffentlichen V1-Code!
+
+2. **ÖFFENTLICHE SEITE = 100 % GAST-DESIGN:**
+   - Ein eingeloggter Admin (`master@trophybase.app`) sieht auf der normalen Website (ohne `?lab=1` oder `?preview=1`) exakt dasselbe UI wie ein normaler Besucher.
+
+3. **NEUE FEATURES & REDESIGNS NUR IN `src/v2/` (HINTER LOGIN + LAB-GATE):**
+   - Alle neuen UI-Konzepte (wie die interaktive 3D/2.5D-Gaming-Room-Startseite, Wimmelbild-Navigation, Xbox/Steam-Ansichten) müssen strikt isoliert im Ordner `src/v2/` entwickelt werden.
+   - Der Zugriff auf `src/v2/`-Komponenten darf ausschließlich über `isLabModeActive(sessionUser)` aus `src/lib/adminAccess.js` erfolgen (erfordert Admin-Login UND `?lab=1` bzw. aktiviertes Lab-Flag).

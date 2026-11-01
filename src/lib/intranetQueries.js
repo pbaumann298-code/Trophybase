@@ -74,7 +74,7 @@ export function intranetGameHref(game) {
     getPlatformGameId(game) ||
     String(game?.slug ?? '').trim() ||
     String(game?.[GAME_PK] ?? '').trim();
-  return id ? `/guide/${encodeURIComponent(id)}` : '';
+  return id ? `/guide/${encodeURIComponent(id)}?preview=1` : '';
 }
 
 /**

@@ -2827,6 +2827,11 @@ export default function IntranetDrafts({
           setError(`Freigabe über approve_staging_guide fehlgeschlagen: ${rpcErr.message}`);
           return;
         }
+
+        await Promise.all([
+          supabase.from('staging_game_guides').delete().eq('game_id', selectedGameId),
+          supabase.from(TABLES.guidesRohmaterial).delete().eq('game_id', selectedGameId),
+        ]);
       } else {
         // Rohmaterial / Multi-Tab Freigabe
         let creatorId = currentCreatorRows.find((r) => r.creator_id)?.creator_id || null;
@@ -2959,15 +2964,20 @@ export default function IntranetDrafts({
 
         await removeGameFromWiedervorlage(supabase, selectedGameId);
 
-        await supabase
-          .from(TABLES.guidesRohmaterial)
-          .delete()
-          .eq('game_id', selectedGameId);
+        await Promise.all([
+          supabase.from('staging_game_guides').delete().eq('game_id', selectedGameId),
+          supabase.from(TABLES.guidesRohmaterial).delete().eq('game_id', selectedGameId),
+        ]);
       }
 
       const approvedGameId = selectedGameId;
       const approvedCreator = selectedCreatorName;
-      const hadMultipleCreators = creatorTabs.length > 1;
+
+      const localOverrides = loadStagingLocalOverrides();
+      for (const row of currentGameRows) {
+        if (row?.id) delete localOverrides[row.id];
+      }
+      saveStagingLocalOverrides(localOverrides);
 
       setShowApproveModal(false);
       setShowConflictModal(false);
@@ -2987,20 +2997,11 @@ export default function IntranetDrafts({
         );
       }
 
-      if (activeDataSource === 'rohmaterial') {
-        jumpToNextGame(approvedGameId);
-        setRohmaterialRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
-        setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== approvedGameId));
-        setProductiveRohRows([]);
-      } else if (hadMultipleCreators) {
-        jumpToNextCreatorOrGame(approvedGameId, approvedCreator);
-        setStagingRows((prev) =>
-          prev.filter((r) => !(r.game_id === approvedGameId && r.creator_name === approvedCreator))
-        );
-      } else {
-        jumpToNextGame(approvedGameId);
-        setStagingRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
-      }
+      jumpToNextGame(approvedGameId);
+      setStagingRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
+      setRohmaterialRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
+      setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== approvedGameId));
+      setProductiveRohRows([]);
     } catch (err) {
       setActionBusy(false);
       setError(`Unerwarteter Fehler bei der Freigabe: ${err.message}`);

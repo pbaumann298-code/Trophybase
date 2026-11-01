@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { supabase } from './pages/supabaseClient';
 import Header from './components/Header';
 import HomePage from './pages/HomePage';
@@ -14,7 +14,9 @@ import TesterSetupPage from './pages/TesterSetupPage';
 import MaintenancePage from './pages/MaintenancePage';
 import BetaRegistrationPage from './pages/BetaRegistrationPage';
 import { hasMaintenanceBypass } from './lib/maintenanceAccess';
-import { isAdminUser, staffAppHtmlForPath } from './lib/adminAccess';
+import { isAdminUser, isLabModeActive, staffAppHtmlForPath } from './lib/adminAccess';
+
+const GamingRoomDrawer = lazy(() => import('./v2/GamingRoomDrawer'));
 import {
   handleSocialLinkRedirect,
   signInWithGatePassword,
@@ -1050,6 +1052,16 @@ function App() {
           setCustomizeOpen(true);
         }}
       />
+
+      {isLabModeActive(sessionUser) && currentView === 'home' ? (
+        <Suspense fallback={null}>
+          <GamingRoomDrawer
+            sessionUser={sessionUser}
+            onOpenCockpit={openProfile}
+            onRequestLogin={() => setCurrentView('login')}
+          />
+        </Suspense>
+      ) : null}
 
       <main
         className={`flex-1 flex flex-col w-full max-w-full min-w-0 overflow-x-hidden ${
