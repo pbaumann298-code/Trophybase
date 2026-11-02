@@ -44,7 +44,7 @@ import {
   saveHiddenTrophyMode,
 } from '../lib/hiddenTrophyPreference';
 import { VIDEO_TIMESTAMP_LAYOUT, useUserPreferences } from '../lib/userPreferences';
-import { fetchMyCreatorProfile, isAdminUser } from '../lib/adminAccess';
+import { fetchMyCreatorProfile, isAdminUser, isStaffDeviceOrSession } from '../lib/adminAccess';
 import { isGuidePublished, isGameDraftMode, hasPublishedGuide } from '../lib/guidePublication';
 import {
   clearGameGuideTips,
@@ -222,12 +222,6 @@ function GamePageContent({
     setRohIndex(0);
     setRohBusy(false);
   }, [selectedGame?.id, selectedGame?.platform_game_id]);
-
-  useEffect(() => {
-    const uuid = getGameUuid(selectedGame);
-    if (!uuid) return;
-    incrementGameViews(supabase, uuid);
-  }, [selectedGame?.id]);
 
   const creatorGameId = getGameUuid(selectedGame);
 
@@ -587,6 +581,14 @@ function GamePageContent({
   ]);
 
   const isDraftRoadmap = isGameDraftMode(gameForPublication);
+
+  useEffect(() => {
+    const uuid = getGameUuid(selectedGame);
+    if (!uuid) return;
+    if (!isAdmin && !isCreatorForGame && !trophiesOnly && !isStaffDeviceOrSession(sessionUser)) {
+      incrementGameViews(supabase, uuid, sessionUser);
+    }
+  }, [selectedGame?.id, isAdmin, isCreatorForGame, trophiesOnly, sessionUser]);
   /** Sichtbarkeit der Guide-Reiter hängt an der gerade gezeigten Sprache (oder ob das Spiel veröffentlicht ist). */
   const guidePublished = isGuidePublished(gameForPublication, effectiveGuideLang);
   const anyGuidePublished = hasPublishedGuide(gameForPublication);
@@ -1159,9 +1161,9 @@ function GamePageContent({
                 {progressPercent}% ({completedCount}/{activeTrophies.length})
               </span>
             </div>
-            <div className="w-full bg-zinc-800 h-2.5 rounded-full overflow-hidden">
+            <div className="relative w-full bg-zinc-800 h-2.5 rounded-full overflow-hidden">
               <div
-                className="bg-[#00ff66] h-full rounded-full transition-all duration-500 shadow-[0_0_8px_rgba(0,255,102,0.5)]"
+                className="absolute inset-y-0 start-0 bg-[#00ff66] h-full rounded-full transition-all duration-500 shadow-[0_0_8px_rgba(0,255,102,0.5)]"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>

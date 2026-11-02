@@ -12,3 +12,19 @@ Disallow: /login
 Disallow: /api/
 
 Sitemap: https://trophybase.app/sitemap.xml
+Sitemap: https://trophybase.app/sitemap-de.xml
+Sitemap: https://trophybase.app/sitemap-en.xml
+Sitemap: https://trophybase.app/sitemap-fr.xml
+Sitemap: https://trophybase.app/sitemap-es.xml
+Sitemap: https://trophybase.app/sitemap-pt.xml
+Sitemap: https://trophybase.app/sitemap-it.xml
+Sitemap: https://trophybase.app/sitemap-nl.xml
+Sitemap: https://trophybase.app/sitemap-pl.xml
+Sitemap: https://trophybase.app/sitemap-ru.xml
+Sitemap: https://trophybase.app/sitemap-ja.xml
+Sitemap: https://trophybase.app/sitemap-ko.xml
+Sitemap: https://trophybase.app/sitemap-zh-hans.xml
+Sitemap: https://trophybase.app/sitemap-zh-hant.xml
+Sitemap: https://trophybase.app/sitemap-fi.xml
+Sitemap: https://trophybase.app/sitemap-sv.xml
+Sitemap: https://trophybase.app/sitemap-ar.xml

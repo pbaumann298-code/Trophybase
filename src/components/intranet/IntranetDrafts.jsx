@@ -997,6 +997,8 @@ export default function IntranetDrafts({
 
   // Selection
   const [selectedGameId, setSelectedGameId] = useState(initialGameId);
+  const selectedGameIdRef = useRef(initialGameId);
+  selectedGameIdRef.current = selectedGameId;
   const [selectedCreatorName, setSelectedCreatorName] = useState(null);
   const [activeRowId, setActiveRowId] = useState(null);
 
@@ -1007,6 +1009,7 @@ export default function IntranetDrafts({
   // Parallel Trophies
   const [gameTrophies, setGameTrophies] = useState([]);
   const [loadingTrophies, setLoadingTrophies] = useState(false);
+  const loadedTrophiesGameIdRef = useRef(null);
   const [trophyLang, setTrophyLang] = useState('de');
 
   // Busy action state
@@ -1057,7 +1060,10 @@ export default function IntranetDrafts({
 
   useEffect(() => {
     if (initialDataSource) setActiveDataSource(initialDataSource);
-    if (initialGameId) setSelectedGameId(initialGameId);
+    if (initialGameId) {
+      selectedGameIdRef.current = initialGameId;
+      setSelectedGameId(initialGameId);
+    }
   }, [initialDataSource, initialGameId]);
 
   // Restore context when returning from live game page ("⬅️ Zurück zum Entwurf")
@@ -1070,6 +1076,7 @@ export default function IntranetDrafts({
     if (draftCtx.activeDataSource === 'rohmaterial' || draftCtx.activeDataSource === 'staging') {
       setActiveDataSource(draftCtx.activeDataSource);
     }
+    selectedGameIdRef.current = draftCtx.gameId;
     setSelectedGameId(draftCtx.gameId);
     if (draftCtx.creatorName) {
       pendingReturnCreatorRef.current = draftCtx.creatorName;
@@ -1256,11 +1263,60 @@ export default function IntranetDrafts({
     }
   }, [getGameRandomWeight]);
 
-  // Load staging queue (with 1000-row chunk loop to bypass PostgREST max_rows limit)
-  const fetchQueue = useCallback(async () => {
+  // Load staging queue (capped to MAX_VISIBLE_QUEUE_GAMES = 10 unique games to avoid loading 17,000+ rows)
+  const fetchQueue = useCallback(async (preferredGameId = null) => {
     setLoading(true);
     setError('');
     try {
+      let { data: slimRowsRaw, error: slimError } = await supabase
+        .from('staging_game_guides')
+        .select('game_id, creator_id, creator_name, workflow_status')
+        .order('id', { ascending: true })
+        .limit(400);
+
+      if (slimError) {
+        const fallbackRes = await supabase
+          .from('staging_game_guides')
+          .select('game_id, creator_id, creator_name')
+          .order('id', { ascending: true })
+          .limit(400);
+        slimRowsRaw = fallbackRes.data;
+        slimError = fallbackRes.error;
+      }
+
+      if (slimError) {
+        throw new Error(`Fehler beim Laden von staging_game_guides: ${slimError.message}`);
+      }
+
+      const slimFiltered =
+        isCreatorMode && creatorProfile?.id
+          ? (slimRowsRaw ?? []).filter(
+              (r) =>
+                String(r.creator_id ?? '') === String(creatorProfile.id) ||
+                (creatorProfile.channel_name &&
+                  String(r.creator_name ?? '').toLowerCase() ===
+                    String(creatorProfile.channel_name).toLowerCase())
+            )
+          : (slimRowsRaw ?? []);
+
+      const candidateGameIds = [...new Set(slimFiltered.map((r) => r.game_id).filter(Boolean))];
+      candidateGameIds.sort((a, b) => getGameRandomWeight(a) - getGameRandomWeight(b));
+
+      const pinnedId = preferredGameId || selectedGameIdRef.current || initialGameId;
+      let top10GameIds = candidateGameIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
+      if (pinnedId && !top10GameIds.includes(pinnedId)) {
+        top10GameIds = [pinnedId, ...candidateGameIds.filter((id) => id !== pinnedId)].slice(
+          0,
+          MAX_VISIBLE_QUEUE_GAMES
+        );
+      }
+
+      if (top10GameIds.length === 0) {
+        setStagingRows([]);
+        setGamesMap(new Map());
+        return;
+      }
+
       let allRows = [];
       let from = 0;
       const PAGE_SIZE = 1000;
@@ -1269,6 +1325,7 @@ export default function IntranetDrafts({
         const { data: rows, error: readError } = await supabase
           .from('staging_game_guides')
           .select('*')
+          .in('game_id', top10GameIds)
           .order('id', { ascending: true })
           .range(from, from + PAGE_SIZE - 1);
 
@@ -1304,53 +1361,17 @@ export default function IntranetDrafts({
 
       setStagingRows(mergedStaging);
 
-      // Extract unique game_ids & sort by random weight so the first 10 games load first
-      const gameIds = [...new Set(mergedStaging.map((r) => r.game_id).filter(Boolean))];
-      gameIds.sort((a, b) => getGameRandomWeight(a) - getGameRandomWeight(b));
+      const { data: initialGames, error: initialErr } = await supabase
+        .from(TABLES.games)
+        .select(GAMES_QUEUE_SELECT_COLS)
+        .in('id', top10GameIds);
 
-      if (gameIds.length > 0) {
-        const initialIds = gameIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
-        const { data: initialGames, error: initialErr } = await supabase
-          .from(TABLES.games)
-          .select(GAMES_QUEUE_SELECT_COLS)
-          .in('id', initialIds);
-
-        if (initialErr) {
-          throw new Error(`Fehler beim Laden der Spiele-Details: ${initialErr.message}`);
-        }
-
-        const initialMap = new Map((initialGames ?? []).map((g) => [g.id, g]));
-        setGamesMap(initialMap);
-        setLoading(false);
-
-        const remainingIds = gameIds.slice(MAX_VISIBLE_QUEUE_GAMES);
-        if (remainingIds.length > 0) {
-          const CHUNK_SIZE = 100;
-          const chunks = [];
-          for (let i = 0; i < remainingIds.length; i += CHUNK_SIZE) {
-            chunks.push(remainingIds.slice(i, i + CHUNK_SIZE));
-          }
-          const results = await Promise.all(
-            chunks.map((chunkIds) =>
-              supabase
-                .from(TABLES.games)
-                .select(GAMES_QUEUE_SELECT_COLS)
-                .in('id', chunkIds)
-            )
-          );
-          setGamesMap((prev) => {
-            const next = new Map(prev);
-            for (const res of results) {
-              for (const g of res.data ?? []) {
-                next.set(g.id, g);
-              }
-            }
-            return next;
-          });
-        }
-      } else {
-        setGamesMap(new Map());
+      if (initialErr) {
+        throw new Error(`Fehler beim Laden der Spiele-Details: ${initialErr.message}`);
       }
+
+      const initialMap = new Map((initialGames ?? []).map((g) => [g.id, g]));
+      setGamesMap(initialMap);
     } catch (err) {
       console.error('Entwürfe-Queue Fehler:', err);
       setStagingRows([]);
@@ -1358,7 +1379,7 @@ export default function IntranetDrafts({
     } finally {
       setLoading(false);
     }
-  }, [getGameRandomWeight, isCreatorMode, creatorProfile]);
+  }, [getGameRandomWeight, isCreatorMode, creatorProfile, initialGameId]);
 
   useEffect(() => {
     fetchQueue();
@@ -2032,7 +2053,12 @@ export default function IntranetDrafts({
   // Load trophies for selected game (nutzt tb_fetch_achievements_for_auth als Fallback/Creator-RPC für unveröffentlichte Spiele)
   useEffect(() => {
     if (!selectedGameId) {
+      loadedTrophiesGameIdRef.current = null;
       setGameTrophies([]);
+      return;
+    }
+
+    if (loadedTrophiesGameIdRef.current === selectedGameId) {
       return;
     }
 
@@ -2049,7 +2075,12 @@ export default function IntranetDrafts({
             .order('platform_achievement_id', { ascending: true });
 
           if (!trophyErr && Array.isArray(data) && data.length > 0) {
-            loaded = data;
+            loaded = [...data];
+            loaded.sort(
+              (a, b) =>
+                extractNumericTrophyId(a.platform_achievement_id, 9999) -
+                extractNumericTrophyId(b.platform_achievement_id, 9999)
+            );
           }
         }
 
@@ -2062,17 +2093,17 @@ export default function IntranetDrafts({
             throw new Error(`Fehler beim Laden der Trophäen via RPC: ${rpcErr.message}`);
           }
           if (Array.isArray(rpcData)) {
-            loaded = [...rpcData].sort((a, b) =>
-              String(a.platform_achievement_id ?? '').localeCompare(
-                String(b.platform_achievement_id ?? ''),
-                'de',
-                { numeric: true }
-              )
+            loaded = [...rpcData];
+            loaded.sort(
+              (a, b) =>
+                extractNumericTrophyId(a.platform_achievement_id, 9999) -
+                extractNumericTrophyId(b.platform_achievement_id, 9999)
             );
           }
         }
 
         if (!cancelled) {
+          loadedTrophiesGameIdRef.current = selectedGameId;
           setGameTrophies(loaded);
         }
       } catch (err) {
@@ -2575,6 +2606,7 @@ export default function IntranetDrafts({
       setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== gameId));
     } else {
       setStagingRows((prev) => prev.filter((r) => r.game_id !== gameId));
+      fetchQueue();
     }
   };
 
@@ -2706,6 +2738,7 @@ export default function IntranetDrafts({
         setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== targetGameId));
       } else {
         setStagingRows((prev) => prev.filter((r) => r.game_id !== targetGameId));
+        fetchQueue();
       }
     } else {
       jumpToNextCreatorOrGame(targetGameId, targetCreator);
@@ -2845,6 +2878,17 @@ export default function IntranetDrafts({
           }
           setError(`Freigabe über approve_staging_guide fehlgeschlagen: ${rpcErr.message}`);
           return;
+        }
+
+        const targetCheckTable = TABLES.guides;
+        const { count: targetCount, error: countErr } = await supabase
+          .from(targetCheckTable)
+          .select('id', { count: 'exact', head: true })
+          .eq('game_id', selectedGameId);
+        if (countErr || !targetCount || targetCount === 0) {
+          throw new Error(
+            'Sicherheits-Stopp: Ziel-Tabelle enthält noch 0 Zeilen für dieses Spiel! Quell-Daten wurden NICHT gelöscht.'
+          );
         }
 
         await Promise.all([
@@ -3070,6 +3114,17 @@ export default function IntranetDrafts({
 
         await removeGameFromWiedervorlage(supabase, selectedGameId);
 
+        const targetCheckTable = TABLES.guides;
+        const { count: targetCount, error: countErr } = await supabase
+          .from(targetCheckTable)
+          .select('id', { count: 'exact', head: true })
+          .eq('game_id', selectedGameId);
+        if (countErr || !targetCount || targetCount === 0) {
+          throw new Error(
+            'Sicherheits-Stopp: Ziel-Tabelle enthält noch 0 Zeilen für dieses Spiel! Quell-Daten wurden NICHT gelöscht.'
+          );
+        }
+
         let rohCleanupQuery = supabase
           .from(TABLES.guidesRohmaterial)
           .delete()
@@ -3116,6 +3171,7 @@ export default function IntranetDrafts({
       setRohmaterialRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
       setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== approvedGameId));
       setProductiveRohRows([]);
+      fetchQueue();
     } catch (err) {
       setActionBusy(false);
       setError(`Unerwarteter Fehler bei der Freigabe: ${err.message}`);
@@ -3482,31 +3538,23 @@ export default function IntranetDrafts({
 
   // Automatischer "Just Do It" Lauf sobald ein Spiel-Entwurf + Trophäen geladen sind
   useEffect(() => {
-    if (
-      !selectedGameId ||
-      !selectedCreatorName ||
-      loading ||
-      loadingTrophies ||
-      currentCreatorRows.length === 0 ||
-      normalizedTrophies.length === 0
-    ) {
+    if (!selectedGameId || !selectedCreatorName || loading || loadingTrophies) {
       return;
     }
 
     const sessionKey = `${activeDataSource}::${selectedGameId}::${selectedCreatorName}`;
     if (autoMatchedKeysRef.current.has(sessionKey)) return;
+    if (currentCreatorRows.length === 0 || normalizedTrophies.length === 0) return;
     autoMatchedKeysRef.current.add(sessionKey);
 
     runJustDoItAutoMatcher(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     selectedGameId,
     selectedCreatorName,
     activeDataSource,
     loading,
     loadingTrophies,
-    currentCreatorRows.length,
-    normalizedTrophies.length,
-    runJustDoItAutoMatcher,
   ]);
 
   // Anzahl offener Zeilen ohne trophy_id
@@ -3792,79 +3840,10 @@ export default function IntranetDrafts({
     }
   };
 
-  // 8c-b. Treffer-Zeilen komplett löschen, oder Suchfelder leeren wenn nichts getroffen wurde
-  const handleDeleteMatchedSearchRows = async () => {
-    const queryActive = Boolean(String(searchQuery ?? '').trim());
-    const hasText = queryActive || Boolean(String(replaceValue ?? '').trim());
-    const { matchCount, matchedRows, regexError } = searchReplacePreview;
-
-    if (queryActive && matchCount > 0 && !regexError) {
-      if (actionBusy) return;
-      if (
-        !window.confirm(
-          `Wirklich alle ${matchCount} gefundenen Treffer-Zeilen komplett löschen?`
-        )
-      ) {
-        return;
-      }
-
-      setActionBusy(true);
-      setError('');
-      setNotice('');
-
-      try {
-        const idsByTable = new Map();
-        for (const match of matchedRows) {
-          const sourceTable = match.row?._sourceTable || 'staging_game_guides';
-          const list = idsByTable.get(sourceTable) || [];
-          list.push(match.id);
-          idsByTable.set(sourceTable, list);
-        }
-
-        const deletedIds = [];
-        for (const [tableName, ids] of idsByTable.entries()) {
-          const CHUNK_SIZE = 100;
-          for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
-            const chunkIds = ids.slice(i, i + CHUNK_SIZE);
-            const { error: delErr } = await supabase.from(tableName).delete().in('id', chunkIds);
-            if (delErr) {
-              if (deletedIds.length > 0) {
-                const partial = new Set(deletedIds);
-                setStagingRows((prev) => prev.filter((row) => !partial.has(row.id)));
-                setRohmaterialRows((prev) => prev.filter((row) => !partial.has(row.id)));
-                setProductiveRohRows((prev) => prev.filter((row) => !partial.has(row.id)));
-              }
-              throw new Error(`${tableName}: ${delErr.message}`);
-            }
-            deletedIds.push(...chunkIds);
-          }
-        }
-
-        const deletedSet = new Set(deletedIds);
-        setStagingRows((prev) => prev.filter((row) => !deletedSet.has(row.id)));
-        setRohmaterialRows((prev) => prev.filter((row) => !deletedSet.has(row.id)));
-        setProductiveRohRows((prev) => prev.filter((row) => !deletedSet.has(row.id)));
-        setSelectedRowIds((prev) => {
-          const next = new Set(prev);
-          for (const id of deletedSet) next.delete(id);
-          return next;
-        });
-        setActiveRowId((prev) => (prev && deletedSet.has(prev) ? null : prev));
-        setSearchQuery('');
-        setReplaceValue('');
-        setNotice(`🗑️ ${deletedIds.length} Treffer-Zeilen komplett gelöscht.`);
-      } catch (err) {
-        setError(`Treffer-Zeilen löschen fehlgeschlagen: ${err.message}`);
-      } finally {
-        setActionBusy(false);
-      }
-      return;
-    }
-
-    if (hasText) {
-      setSearchQuery('');
-      setReplaceValue('');
-    }
+  // 8c-b. Suchfelder leeren (KEIN DB-Delete!)
+  const handleClearSearchReplaceInputs = () => {
+    setSearchQuery('');
+    setReplaceValue('');
   };
 
   // 8c-c. Zielspiel für verrutschte Creator-Zuordnung suchen (Titel via RPC, NPWR via Containment)
@@ -4130,7 +4109,18 @@ export default function IntranetDrafts({
           p_creator_name: targetCreator,
         });
         if (!rpcErr) {
-          movedViaRpc = true;
+          const targetCheckTable = TABLES.guidesRohmaterial;
+          const { count: rpcCount, error: rpcCountErr } = await supabase
+            .from(targetCheckTable)
+            .select('id', { count: 'exact', head: true })
+            .eq('game_id', selectedGameId);
+          if (!rpcCountErr && rpcCount && rpcCount > 0) {
+            movedViaRpc = true;
+          } else {
+            console.warn(
+              'RPC move_staging_to_rohmaterial lieferte 0 Zeilen in Ziel-Tabelle, nutze Fallback.'
+            );
+          }
         } else {
           console.warn(
             'RPC move_staging_to_rohmaterial nicht verfügbar oder fehlgeschlagen, nutze Fallback:',
@@ -4212,6 +4202,18 @@ export default function IntranetDrafts({
           console.warn('Warnung beim Setzen von status.rohmaterial:', statusUpErr.message);
         }
 
+        // Sicherheits-Check vor dem Löschen aus staging_game_guides
+        const targetCheckTable = TABLES.guidesRohmaterial;
+        const { count: targetCount, error: countErr } = await supabase
+          .from(targetCheckTable)
+          .select('id', { count: 'exact', head: true })
+          .eq('game_id', selectedGameId);
+        if (countErr || !targetCount || targetCount === 0) {
+          throw new Error(
+            'Sicherheits-Stopp: Ziel-Tabelle enthält noch 0 Zeilen für dieses Spiel! Quell-Daten wurden NICHT gelöscht.'
+          );
+        }
+
         // Aus staging_game_guides löschen (für dieses Spiel)
         const { error: delStagingErr } = await supabase
           .from('staging_game_guides')
@@ -4228,6 +4230,7 @@ export default function IntranetDrafts({
       );
       jumpToNextGame(targetGameId);
       setStagingRows((prev) => prev.filter((r) => r.game_id !== targetGameId));
+      fetchQueue();
       fetchRohmaterialSummary();
     } catch (err) {
       setError(`Verschieben zu Rohmaterial fehlgeschlagen: ${err.message}`);
@@ -4425,6 +4428,17 @@ export default function IntranetDrafts({
       }
 
       // 5. Alte Zeilen aus public.game_guides löschen & ALLE Zeilen dieses Spiels aus public.staging_game_guides löschen
+      const targetCheckTable = TABLES.guidesRohmaterial;
+      const { count: targetCount, error: countErr } = await supabase
+        .from(targetCheckTable)
+        .select('id', { count: 'exact', head: true })
+        .eq('game_id', selectedGameId);
+      if (countErr || !targetCount || targetCount === 0) {
+        throw new Error(
+          'Sicherheits-Stopp: Ziel-Tabelle enthält noch 0 Zeilen für dieses Spiel! Quell-Daten wurden NICHT gelöscht.'
+        );
+      }
+
       if (allLiveRows.length > 0) {
         const { error: delLiveErr } = await supabase
           .from(TABLES.guides)
@@ -6412,16 +6426,12 @@ export default function IntranetDrafts({
 
                     <button
                       type="button"
-                      title={
-                        searchReplacePreview.matchCount > 0
-                          ? `${searchReplacePreview.matchCount} Treffer-Zeilen komplett löschen`
-                          : 'Suchfelder leeren'
-                      }
-                      disabled={actionBusy && searchReplacePreview.matchCount > 0}
-                      onClick={handleDeleteMatchedSearchRows}
-                      className="inline-flex shrink-0 items-center justify-center rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1 text-sm leading-none hover:bg-red-500/20 disabled:opacity-40 transition"
+                      title="Eingabe leeren (Suchen & Ersetzen zurücksetzen)"
+                      disabled={!searchQuery && !replaceValue}
+                      onClick={handleClearSearchReplaceInputs}
+                      className="inline-flex shrink-0 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300 hover:bg-zinc-700 hover:text-white disabled:opacity-40 transition"
                     >
-                      🗑️
+                      ✕ Eingabe leeren
                     </button>
 
                     <input
@@ -6622,6 +6632,36 @@ export default function IntranetDrafts({
                     </div>
                   </div>
 
+                  {creatorTabs.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-2.5 py-1.5">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
+                        Creator ({creatorTabs.length}):
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {creatorTabs.map((tab) => {
+                          const isActive = tab.creatorName === selectedCreatorName;
+                          return (
+                            <button
+                              key={tab.creatorName}
+                              type="button"
+                              onClick={() => setSelectedCreatorName(tab.creatorName)}
+                              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-mono transition ${
+                                isActive
+                                  ? 'bg-[#00ff66]/15 text-[#00ff66] border border-[#00ff66]/40 font-bold'
+                                  : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:bg-zinc-700'
+                              }`}
+                            >
+                              <span>▶ {tab.creatorName}</span>
+                              <span className="rounded bg-zinc-900/60 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                                {tab.videoCount} Videos | {tab.rowCount} Zeilen
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-[11px] font-mono border-collapse min-w-[780px] sm:min-w-0">
                       <thead>
@@ -6653,7 +6693,7 @@ export default function IntranetDrafts({
                           </th>
                           <th
                             onClick={() => handleToggleSort('item_name')}
-                            className="py-2 px-1 cursor-pointer hover:text-white transition"
+                            className="py-2 px-1 min-w-[14rem] sm:min-w-[18rem] cursor-pointer hover:text-white transition"
                             title="Nach Item / Bezeichnung sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
@@ -6665,7 +6705,7 @@ export default function IntranetDrafts({
                           </th>
                           <th
                             onClick={() => handleToggleSort('chronological_group')}
-                            className="py-2 px-1 w-24 cursor-pointer hover:text-white transition"
+                            className="py-2 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem] cursor-pointer hover:text-white transition"
                             title="Nach Chronological-Group sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
@@ -6677,7 +6717,7 @@ export default function IntranetDrafts({
                           </th>
                           <th
                             onClick={() => handleToggleSort('category_group')}
-                            className="py-2 px-1 w-24 cursor-pointer hover:text-white transition"
+                            className="py-2 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem] cursor-pointer hover:text-white transition"
                             title="Nach Category-Group sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
@@ -6689,7 +6729,7 @@ export default function IntranetDrafts({
                           </th>
                           <th
                             onClick={() => handleToggleSort('boss_group')}
-                            className="py-2 px-1 w-24 cursor-pointer hover:text-white transition"
+                            className="py-2 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem] cursor-pointer hover:text-white transition"
                             title="Nach Boss-Group sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
@@ -6725,7 +6765,7 @@ export default function IntranetDrafts({
                           </th>
                           <th
                             onClick={() => handleToggleSort('video_chapter')}
-                            className="py-2 px-1 w-[52ch] min-w-[260px] sm:min-w-[320px] cursor-pointer hover:text-white transition"
+                            className="py-2 px-1 w-44 max-w-[13rem] truncate cursor-pointer hover:text-white transition"
                             title="Nach Chapter / Info sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
@@ -6806,45 +6846,45 @@ export default function IntranetDrafts({
                               </td>
 
                               {/* item_name */}
-                              <td className="py-1 px-1">
+                              <td className="py-1 px-1 min-w-[14rem] sm:min-w-[18rem]">
                                 <DraftInlineInput
                                   type="text"
                                   value={itemNameStr}
                                   onCommit={(next) => handleUpdateRowField(row.id, 'item_name', next)}
-                                  className="w-full min-w-[7rem] sm:min-w-[8rem] rounded border border-transparent bg-transparent px-1 py-0.5 font-sans text-xs font-medium text-white hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                  className="w-full min-w-[14rem] sm:min-w-[18rem] rounded border border-transparent bg-transparent px-1 py-0.5 font-sans text-xs font-medium text-white hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
                               {/* chronological_group */}
-                              <td className="py-1 px-1">
+                              <td className="py-1 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem]">
                                 <DraftInlineInput
                                   type="text"
                                   value={chronoStr}
                                   placeholder="—"
                                   onCommit={(next) => handleUpdateRowField(row.id, 'chronological_group', next)}
-                                  className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-zinc-300 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                  className="w-full min-w-[9rem] sm:min-w-[10.5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-zinc-300 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
                               {/* category_group */}
-                              <td className="py-1 px-1">
+                              <td className="py-1 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem]">
                                 <DraftInlineInput
                                   type="text"
                                   value={categoryStr}
                                   placeholder="—"
                                   onCommit={(next) => handleUpdateRowField(row.id, 'category_group', next)}
-                                  className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-purple-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                  className="w-full min-w-[9rem] sm:min-w-[10.5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-purple-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
                               {/* boss_group */}
-                              <td className="py-1 px-1">
+                              <td className="py-1 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem]">
                                 <DraftInlineInput
                                   type="text"
                                   value={bossStr}
                                   placeholder="—"
                                   onCommit={(next) => handleUpdateRowField(row.id, 'boss_group', next)}
-                                  className="w-full min-w-[4rem] sm:min-w-[5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-amber-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                  className="w-full min-w-[9rem] sm:min-w-[10.5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-amber-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
@@ -6893,15 +6933,11 @@ export default function IntranetDrafts({
                                   if (row.video_url) setActiveVideoUrl(row.video_url);
                                   if (row.timestamp) setActiveTimestamp(row.timestamp);
                                 }}
-                                className="py-1 px-1 text-zinc-400 text-[10px] w-[52ch] min-w-[260px] sm:min-w-[320px] cursor-pointer hover:text-white hover:underline align-middle"
+                                className="py-1 px-1 text-zinc-400 text-[10px] w-44 max-w-[13rem] truncate cursor-pointer hover:text-white hover:underline align-middle"
                                 title={`${chapterStr || '—'} (Klicken zum Abspielen)`}
                               >
-                                <div className="break-words line-clamp-2 leading-snug">
-                                  {chapterStr
-                                    ? chapterStr.length > 100
-                                      ? `${chapterStr.slice(0, 100)}…`
-                                      : chapterStr
-                                    : '—'}
+                                <div className="truncate leading-snug">
+                                  {chapterStr || '—'}
                                 </div>
                               </td>
 
@@ -7227,7 +7263,7 @@ export default function IntranetDrafts({
           </div>
 
           {/* ==================== D. RECHTE SPALTE: Parallele Trophäen-Ansicht (3 Cols) ==================== */}
-          <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 max-h-[calc(100vh-160px)] overflow-hidden">
+          <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 min-h-[320px] max-h-[calc(100vh-160px)] overflow-hidden">
             <div className="flex flex-col gap-2 border-b border-zinc-800/80 pb-2.5 px-1">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
@@ -7273,17 +7309,17 @@ export default function IntranetDrafts({
                 )}
             </div>
 
-            {loadingTrophies ? (
-              <div className="py-8 text-center text-xs font-mono text-zinc-500 animate-pulse">
-                Trophäen laden…
-              </div>
-            ) : gameTrophies.length === 0 ? (
-              <div className="py-8 text-center text-xs font-mono text-zinc-500">
-                Keine Trophäen für dieses Spiel in DB.
-              </div>
-            ) : (
-              <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
-                {gameTrophies.map((trophy) => (
+            <div className="flex-1 min-h-[320px] overflow-y-scroll flex flex-col gap-2 pr-1">
+              {loadingTrophies ? (
+                <div className="py-8 text-center text-xs font-mono text-zinc-500 animate-pulse">
+                  Trophäen laden…
+                </div>
+              ) : gameTrophies.length === 0 ? (
+                <div className="py-8 text-center text-xs font-mono text-zinc-500">
+                  Keine Trophäen für dieses Spiel in DB.
+                </div>
+              ) : (
+                gameTrophies.map((trophy) => (
                   <TrophyDraftItem
                     key={trophy.platform_achievement_id || trophy.id}
                     trophy={trophy}
@@ -7292,9 +7328,9 @@ export default function IntranetDrafts({
                     onAssign={handleAssignTrophyToActiveRow}
                     onSaveGuideTip={handleSaveTrophyGuideTip}
                   />
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
 
         </div>

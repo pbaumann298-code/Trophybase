@@ -57,7 +57,7 @@ function Header({
         href="/"
         onClick={handleHomeClick}
         aria-label="TrophyBase.app – Startseite"
-        className="site-header-logo absolute inset-y-0 left-0 z-0 flex items-center pl-3 md:pl-4 no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#00ff66]/60"
+        className="site-header-logo absolute inset-y-0 start-0 z-0 flex items-center ps-3 md:ps-4 no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#00ff66]/60"
       >
         <img
           src="/images/logo-mark.jpg"
@@ -70,7 +70,7 @@ function Header({
         />
       </a>
 
-      <div className="site-header-right relative z-20 ml-auto flex h-full min-w-0 shrink-0 items-center gap-2 pr-4 md:pr-6 pl-2">
+      <div className="site-header-right relative z-20 ms-auto flex h-full min-w-0 shrink-0 items-center gap-2 pe-4 md:pe-6 ps-2">
         {isLoggedIn ? (
           <a
             href={PROFILE_PATH}

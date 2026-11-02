@@ -3,7 +3,7 @@
  * Navigations → Network, fallback /offline.html
  * Supabase / API → Network Only (keine Trophäenstände im Cache)
  */
-const CACHE_VERSION = 'tb-static-v7';
+const CACHE_VERSION = 'tb-static-v9';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [

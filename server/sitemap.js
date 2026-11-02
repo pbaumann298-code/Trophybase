@@ -1,5 +1,4 @@
 import { SUPPORTED_LOCALES } from '../shared/countryLocaleMap.js';
-import { PUBLIC_SITE_LOCALES } from '../src/lib/contentLocales.js';
 import { GAME_STRUCT, GAME_TYPE } from '../src/lib/gameSchema.js';
 import { hardwareToUrlSegment, buildPrettyGamePath } from '../src/lib/gameSlug.js';
 import { servertotPublicPath } from '../src/lib/servertotPage.js';
@@ -49,20 +48,8 @@ async function loadIndexablePublishedGames(supabase, locale) {
   return data.filter(isSitemapRow);
 }
 
-async function localesWithIndexableGames(supabase) {
-  const checks = await Promise.all(
-    SUPPORTED_LOCALES.map(async (locale) => {
-      try {
-        const { data, error } = await rpcSitemapRows(supabase, locale, 1);
-        if (error) return null;
-        return data.some(isSitemapRow) ? locale : null;
-      } catch {
-        return null;
-      }
-    }),
-  );
-  const ensured = new Set([...PUBLIC_SITE_LOCALES, ...checks.filter(Boolean)]);
-  return SUPPORTED_LOCALES.filter((locale) => ensured.has(locale));
+function localesWithIndexableGames() {
+  return SUPPORTED_LOCALES;
 }
 
 function urlEntry(loc, lastmod = '') {
@@ -135,13 +122,12 @@ export async function handleSitemapRequest(requestUrl) {
   };
 
   try {
-    const supabase = getPublicSupabase();
-
     if (parsed.kind === 'index') {
-      const localesWithUrls = await localesWithIndexableGames(supabase);
+      const localesWithUrls = localesWithIndexableGames();
       return new Response(sitemapIndex(origin, localesWithUrls), { status: 200, headers });
     }
 
+    const supabase = getPublicSupabase();
     const games = await loadIndexablePublishedGames(supabase, parsed.locale);
     return new Response(urlset(origin, parsed.locale, games), {
       status: 200,

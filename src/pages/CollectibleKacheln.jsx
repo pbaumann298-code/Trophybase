@@ -13,6 +13,7 @@ import { guideProgressKey } from '../lib/guideProgressStorage';
 import { buildGuideGroupTree } from '../lib/guideData';
 import {
   COMPLETED_TROPHY_STYLE,
+  GUIDE_ROW_ORDER,
   VIDEO_TIMESTAMP_LAYOUT,
   useUserPreferences,
 } from '../lib/userPreferences';
@@ -460,6 +461,7 @@ function SplitScreenGuideKacheln({
     videoTimestampLayout,
     setVideoTimestampLayout,
     completedTrophyStyle,
+    guideRowOrder,
   } = useUserPreferences();
   const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -823,6 +825,52 @@ function SplitScreenGuideKacheln({
                     const hasVideo = isPublicVideoUrl(item.video_url);
                     const rowDimmed =
                       isCompleted && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM;
+                    const isCheckboxRight = guideRowOrder === GUIDE_ROW_ORDER.CHECKBOX_RIGHT;
+                    const isTimestampRight = guideRowOrder === GUIDE_ROW_ORDER.TIMESTAMP_RIGHT;
+
+                    const checkboxEl =
+                      typeof toggleCompleted === 'function' ? (
+                        <input
+                          type="checkbox"
+                          checked={isCompleted}
+                          onChange={() => toggleCompleted(progressKey)}
+                          className={
+                            isCheckboxRight
+                              ? 'ml-auto w-5 h-5 shrink-0 cursor-pointer'
+                              : 'w-4 h-4 shrink-0 cursor-pointer'
+                          }
+                          style={{
+                            accentColor: '#00ff66',
+                            cursor: 'pointer',
+                            width: isCheckboxRight ? '20px' : '16px',
+                            height: isCheckboxRight ? '20px' : '16px',
+                            flexShrink: 0,
+                            ...(isCheckboxRight ? { marginLeft: 'auto' } : {}),
+                          }}
+                          aria-label={
+                            isCompleted ? 'Als offen markieren' : 'Als erledigt markieren'
+                          }
+                        />
+                      ) : null;
+
+                    const timestampBadge = item.timestamp ? (
+                      <span
+                        style={{
+                          fontFamily: 'monospace',
+                          fontSize: '11px',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: isActive ? 'rgba(0, 255, 102, 0.18)' : '#121314',
+                          border: isActive
+                            ? '1px solid rgba(0, 255, 102, 0.5)'
+                            : '1px solid #27272a',
+                          color: hasVideo ? '#00ff66' : '#a1a1aa',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {hasVideo ? `▶ ${item.timestamp}` : item.timestamp}
+                      </span>
+                    ) : null;
 
                     return (
                       <tr
@@ -842,23 +890,7 @@ function SplitScreenGuideKacheln({
                               flexWrap: showProdTools ? 'wrap' : 'nowrap',
                             }}
                           >
-                            {typeof toggleCompleted === 'function' && (
-                              <input
-                                type="checkbox"
-                                checked={isCompleted}
-                                onChange={() => toggleCompleted(progressKey)}
-                                style={{
-                                  accentColor: '#00ff66',
-                                  cursor: 'pointer',
-                                  width: '16px',
-                                  height: '16px',
-                                  flexShrink: 0,
-                                }}
-                                aria-label={
-                                  isCompleted ? 'Als offen markieren' : 'Als erledigt markieren'
-                                }
-                              />
-                            )}
+                            {!isCheckboxRight ? checkboxEl : null}
                             <button
                               type="button"
                               onClick={() => selectItemVideo(group.key, item)}
@@ -885,24 +917,7 @@ function SplitScreenGuideKacheln({
                                 fontWeight: isActive ? 'bold' : 'normal',
                               }}
                             >
-                              {item.timestamp ? (
-                                <span
-                                  style={{
-                                    fontFamily: 'monospace',
-                                    fontSize: '11px',
-                                    padding: '1px 6px',
-                                    borderRadius: '4px',
-                                    backgroundColor: isActive ? 'rgba(0, 255, 102, 0.18)' : '#121314',
-                                    border: isActive
-                                      ? '1px solid rgba(0, 255, 102, 0.5)'
-                                      : '1px solid #27272a',
-                                    color: hasVideo ? '#00ff66' : '#a1a1aa',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {hasVideo ? `▶ ${item.timestamp}` : item.timestamp}
-                                </span>
-                              ) : null}
+                              {!isTimestampRight ? timestampBadge : null}
                               {gameId && reportKey ? (
                                 <Reportable
                                   as="span"
@@ -919,6 +934,24 @@ function SplitScreenGuideKacheln({
                               {renderNameAddon ? renderNameAddon(item, rowDimmed) : null}
                             </button>
                             {renderRowAction ? renderRowAction(item, rowDimmed, rowTipCtx) : null}
+                            {isTimestampRight && timestampBadge ? (
+                              <button
+                                type="button"
+                                onClick={() => selectItemVideo(group.key, item)}
+                                disabled={!hasVideo}
+                                className="ml-auto shrink-0"
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  marginLeft: 'auto',
+                                  cursor: hasVideo ? 'pointer' : 'default',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {timestampBadge}
+                              </button>
+                            ) : null}
                             {showProdTools && (
                               <ProductionInlineRowEditor
                                 item={item}
@@ -950,6 +983,7 @@ function SplitScreenGuideKacheln({
                                 ×
                               </button>
                             ) : null}
+                            {isCheckboxRight ? checkboxEl : null}
                           </div>
                           {renderRowDetail ? renderRowDetail(item, rowDimmed, rowTipCtx) : null}
                           </div>

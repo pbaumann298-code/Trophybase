@@ -575,6 +575,7 @@ p.quickwin-card-title:hover {
 }
 
 .quickwin-progress-track {
+  position: relative;
   height: 0.55rem;
   background: #27272a;
   border-radius: 999px;
@@ -583,6 +584,9 @@ p.quickwin-card-title:hover {
 }
 
 .quickwin-progress-track div {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
   height: 100%;
   background: #00ff66;
   border-radius: 999px;

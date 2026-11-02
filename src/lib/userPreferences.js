@@ -10,6 +10,7 @@ export const VIDEO_TIMESTAMP_LAYOUT_KEY = 'tb_video_timestamp_layout';
 export const HIDE_PLATINUMED_GAMES_KEY = 'tb_hide_platinumed_games';
 export const COMPLETED_TROPHY_STYLE_KEY = 'tb_completed_trophy_style';
 export const HIDE_SWIPE_HANDLES_KEY = 'tb_hide_swipe_handles';
+export const GUIDE_ROW_ORDER_KEY = 'tb_guide_row_order';
 export const PREFERRED_LOCALES_KEY = 'preferred_locales';
 
 export const VIDEO_TIMESTAMP_LAYOUT = {
@@ -21,6 +22,12 @@ export const COMPLETED_TROPHY_STYLE = {
   CHECK: 'check',
   DIM: 'dim',
   HIDE: 'hide',
+};
+
+export const GUIDE_ROW_ORDER = {
+  DEFAULT: 'default',
+  CHECKBOX_RIGHT: 'checkbox-right',
+  TIMESTAMP_RIGHT: 'timestamp-right',
 };
 
 export const HOME_LAYOUT_MODE = {
@@ -98,6 +105,11 @@ export function sanitizeUserPreferences(raw) {
     raw?.completedTrophyStyle === COMPLETED_TROPHY_STYLE.HIDE
       ? raw.completedTrophyStyle
       : COMPLETED_TROPHY_STYLE.DIM;
+  const guideRowOrder =
+    raw?.guideRowOrder === GUIDE_ROW_ORDER.CHECKBOX_RIGHT ||
+    raw?.guideRowOrder === GUIDE_ROW_ORDER.TIMESTAMP_RIGHT
+      ? raw.guideRowOrder
+      : GUIDE_ROW_ORDER.DEFAULT;
   const preferredLocales = sanitizePreferredLocales(raw?.preferredLocales);
 
   return {
@@ -109,6 +121,7 @@ export function sanitizeUserPreferences(raw) {
     hidePlatinumedGames: Boolean(raw?.hidePlatinumedGames),
     completedTrophyStyle: completedStyle,
     hideSwipeHandles: Boolean(raw?.hideSwipeHandles),
+    guideRowOrder,
     preferredLocales,
   };
 }
@@ -121,6 +134,7 @@ export function getDefaultUserPreferences() {
     hidePlatinumedGames: false,
     completedTrophyStyle: COMPLETED_TROPHY_STYLE.DIM,
     hideSwipeHandles: false,
+    guideRowOrder: GUIDE_ROW_ORDER.DEFAULT,
     preferredLocales: ['de', 'en'],
   };
 }
@@ -143,6 +157,12 @@ function loadPreferences() {
         : COMPLETED_TROPHY_STYLE.DIM;
     const hideSwipeRaw = localStorage.getItem(HIDE_SWIPE_HANDLES_KEY);
     const hideSwipeHandles = hideSwipeRaw === '1' || hideSwipeRaw === 'true';
+    const guideRowOrderRaw = localStorage.getItem(GUIDE_ROW_ORDER_KEY);
+    const guideRowOrder =
+      guideRowOrderRaw === GUIDE_ROW_ORDER.CHECKBOX_RIGHT ||
+      guideRowOrderRaw === GUIDE_ROW_ORDER.TIMESTAMP_RIGHT
+        ? guideRowOrderRaw
+        : parsed?.guideRowOrder;
     let preferredLocales = parsed?.preferredLocales;
     const rawPreferred = localStorage.getItem(PREFERRED_LOCALES_KEY);
     if (rawPreferred) {
@@ -159,6 +179,7 @@ function loadPreferences() {
       hidePlatinumedGames,
       completedTrophyStyle,
       hideSwipeHandles,
+      guideRowOrder,
       preferredLocales,
     });
   } catch {
@@ -180,6 +201,7 @@ function persistPreferences(prefs) {
     localStorage.setItem(HIDE_PLATINUMED_GAMES_KEY, prefs.hidePlatinumedGames ? '1' : '0');
     localStorage.setItem(COMPLETED_TROPHY_STYLE_KEY, prefs.completedTrophyStyle);
     localStorage.setItem(HIDE_SWIPE_HANDLES_KEY, prefs.hideSwipeHandles ? '1' : '0');
+    localStorage.setItem(GUIDE_ROW_ORDER_KEY, prefs.guideRowOrder);
     localStorage.setItem(PREFERRED_LOCALES_KEY, JSON.stringify(prefs.preferredLocales));
   } catch {
     /* Speicher voll oder nicht verfügbar */
@@ -216,6 +238,7 @@ if (typeof window !== 'undefined') {
       event.key !== HIDE_PLATINUMED_GAMES_KEY &&
       event.key !== COMPLETED_TROPHY_STYLE_KEY &&
       event.key !== HIDE_SWIPE_HANDLES_KEY &&
+      event.key !== GUIDE_ROW_ORDER_KEY &&
       event.key !== PREFERRED_LOCALES_KEY
     ) {
       return;
@@ -259,6 +282,15 @@ export function setCompletedTrophyStyle(style) {
 
 export function setHideSwipeHandles(hide) {
   commit({ ...snapshot, hideSwipeHandles: Boolean(hide) });
+}
+
+export function setGuideRowOrder(order) {
+  const next =
+    order === GUIDE_ROW_ORDER.CHECKBOX_RIGHT ||
+    order === GUIDE_ROW_ORDER.TIMESTAMP_RIGHT
+      ? order
+      : GUIDE_ROW_ORDER.DEFAULT;
+  commit({ ...snapshot, guideRowOrder: next });
 }
 
 export function setPreferredLocales(locales) {
@@ -372,6 +404,7 @@ export function useUserPreferences() {
     hidePlatinumedGames: prefs.hidePlatinumedGames,
     completedTrophyStyle: prefs.completedTrophyStyle,
     hideSwipeHandles: prefs.hideSwipeHandles,
+    guideRowOrder: prefs.guideRowOrder,
     preferredLocales: prefs.preferredLocales,
     setHomeLayoutMode,
     setOrderedHomeCategories,
@@ -379,6 +412,7 @@ export function useUserPreferences() {
     setHidePlatinumedGames,
     setCompletedTrophyStyle,
     setHideSwipeHandles,
+    setGuideRowOrder,
     setPreferredLocales,
     togglePreferredLocale,
     toggleHomeCategory,

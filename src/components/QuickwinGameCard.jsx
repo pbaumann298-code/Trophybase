@@ -604,8 +604,8 @@ function QuickwinGameCard({
                     {progressPercent}% ({doneCount}/{trophies.length})
                   </strong>
                 </div>
-                <div className="quickwin-progress-track">
-                  <div style={{ width: `${progressPercent}%` }} />
+                <div className="quickwin-progress-track relative">
+                  <div className="absolute inset-y-0 start-0" style={{ width: `${progressPercent}%` }} />
                 </div>
               </div>
               <label className="quickwin-hide-done">

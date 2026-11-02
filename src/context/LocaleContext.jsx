@@ -81,7 +81,10 @@ export function LocaleProvider({ children }) {
       : coerceToAvailableLocale(normalized, availableLocales);
     syncPathLocale(pathLocale);
     if (typeof document !== 'undefined') {
+      const isRtl = pathLocale === 'ar';
       document.documentElement.lang = pathLocale;
+      document.documentElement.dir = isRtl ? 'rtl' : 'ltr';
+      document.documentElement.classList.toggle('rtl-mode', isRtl);
     }
   }, [availableLocales, localeUnlocked]);
 
@@ -103,7 +106,10 @@ export function LocaleProvider({ children }) {
     window.addEventListener(LOCALE_CHANGE_EVENT, onLocaleChange);
     window.addEventListener('storage', onStorage);
     if (typeof document !== 'undefined') {
+      const isRtl = displayLocale === 'ar';
       document.documentElement.lang = displayLocale;
+      document.documentElement.dir = isRtl ? 'rtl' : 'ltr';
+      document.documentElement.classList.toggle('rtl-mode', isRtl);
     }
     return () => {
       window.removeEventListener(LOCALE_CHANGE_EVENT, onLocaleChange);

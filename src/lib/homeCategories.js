@@ -290,7 +290,7 @@ async function fetchHomeRailsLegacy(supabase, locale, includeReady, categoryIds 
 }
 
 /**
- * Kuratierte Startseiten-Reihen (Netflix-Prinzip).
+ * Kuratierte Startseiten-Kategorie-Reihen.
  * search.kind: tag | studio | souls | titles — derselbe Filter gilt für Schiene und Klick.
  */
 export const HOME_CATEGORIES = [

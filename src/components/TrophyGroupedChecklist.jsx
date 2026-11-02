@@ -11,7 +11,11 @@ import { enqueueTrophyVideoForTimestampScrape } from '../lib/intranetGameEdits';
 import { reportableDataAttrs } from '../lib/reportableAttrs';
 import { groupTrophiesByPack, countUnlockedInList } from '../lib/trophyGroups';
 import { getTrophyAiTranslation, getTrophyDescription, getTrophyIdKey } from '../lib/trophyQueries';
-import { COMPLETED_TROPHY_STYLE, useUserPreferences } from '../lib/userPreferences';
+import {
+  COMPLETED_TROPHY_STYLE,
+  GUIDE_ROW_ORDER,
+  useUserPreferences,
+} from '../lib/userPreferences';
 import { supabase } from '../pages/supabaseClient';
 import { getYouTubeEmbedUrl } from '../utils/videoUrl';
 
@@ -518,6 +522,7 @@ function TrophyRow({
   onlinePicked = false,
   onOnlinePickToggle = null,
   completedTrophyStyle = COMPLETED_TROPHY_STYLE.DIM,
+  guideRowOrder = GUIDE_ROW_ORDER.DEFAULT,
 }) {
   const { t } = useLocale();
   const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
@@ -542,6 +547,53 @@ function TrophyRow({
   }, [videoOpen, notifyVideoStarted, notifyVideoCleared]);
 
   const isDimmed = isUnlocked && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM;
+  const isCheckboxRight = guideRowOrder === GUIDE_ROW_ORDER.CHECKBOX_RIGHT;
+  const isTimestampRight = guideRowOrder === GUIDE_ROW_ORDER.TIMESTAMP_RIGHT;
+
+  const checkboxSizeClass = isCheckboxRight
+    ? 'ml-auto w-5 h-5 mt-1 flex-shrink-0'
+    : 'w-4 h-4 mt-1 flex-shrink-0';
+
+  const checkboxNode = onlinePickMode ? (
+    <input
+      type="checkbox"
+      checked={onlinePicked}
+      disabled={conceal}
+      onClick={(event) => event.stopPropagation()}
+      onChange={() => !conceal && onOnlinePickToggle?.(trophyKey)}
+      title={t('markOnlineBulk')}
+      className={`${checkboxSizeClass} cursor-pointer rounded-sm border-zinc-700 bg-[#1a1b1c] text-sky-400 focus:ring-0 disabled:cursor-default disabled:opacity-40`}
+    />
+  ) : (
+    <input
+      type="checkbox"
+      checked={isUnlocked}
+      disabled={isEarned}
+      onChange={() => !isEarned && onToggle(trophyKey)}
+      title={isEarned ? t('psnSyncedTitle') : undefined}
+      className={`rounded-sm border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 ${checkboxSizeClass} ${
+        isEarned ? 'cursor-default opacity-70' : 'cursor-pointer'
+      }`}
+    />
+  );
+
+  const timestampChipNode =
+    !conceal && !onlinePickMode && trophy.timestamp && embedUrl ? (
+      <button
+        type="button"
+        onClick={() => setVideoOpen((open) => !open)}
+        aria-expanded={videoOpen}
+        className={`${
+          isTimestampRight ? 'ml-auto ' : ''
+        }shrink-0 rounded border px-1.5 py-0.5 font-mono text-[11px] font-bold transition cursor-pointer ${
+          videoOpen
+            ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
+            : 'border-zinc-700 bg-[#121314] text-[#00ff66] hover:border-[#00ff66]/40'
+        }`}
+      >
+        ▶ {trophy.timestamp}
+      </button>
+    ) : null;
 
   const rowTone = onlinePickMode
     ? onlinePicked
@@ -572,28 +624,7 @@ function TrophyRow({
       aria-pressed={onlinePickMode ? onlinePicked : undefined}
     >
       <div className="flex items-start gap-4">
-        {onlinePickMode ? (
-          <input
-            type="checkbox"
-            checked={onlinePicked}
-            disabled={conceal}
-            onClick={(event) => event.stopPropagation()}
-            onChange={() => !conceal && onOnlinePickToggle?.(trophyKey)}
-            title={t('markOnlineBulk')}
-            className="mt-1 h-4 w-4 flex-shrink-0 cursor-pointer rounded-sm border-zinc-700 bg-[#1a1b1c] text-sky-400 focus:ring-0 disabled:cursor-default disabled:opacity-40"
-          />
-        ) : (
-          <input
-            type="checkbox"
-            checked={isUnlocked}
-            disabled={isEarned}
-            onChange={() => !isEarned && onToggle(trophyKey)}
-            title={isEarned ? t('psnSyncedTitle') : undefined}
-            className={`rounded-sm border-zinc-700 bg-[#1a1b1c] text-[#00ff66] focus:ring-0 w-4 h-4 mt-1 flex-shrink-0 ${
-              isEarned ? 'cursor-default opacity-70' : 'cursor-pointer'
-            }`}
-          />
-        )}
+        {!isCheckboxRight ? checkboxNode : null}
         <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0">
           {conceal ? (
             <div className="flex h-full w-full items-center justify-center text-lg text-zinc-600" aria-hidden="true">
@@ -611,6 +642,7 @@ function TrophyRow({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
+            {!isTimestampRight && isCheckboxRight ? timestampChipNode : null}
             {conceal ? (
               <p className="text-sm font-bold text-zinc-500">{t('hiddenTrophyName')}</p>
             ) : (
@@ -647,6 +679,7 @@ function TrophyRow({
                 {t('badgeOnline')}
               </span>
             )}
+            {isTimestampRight ? timestampChipNode : null}
           </div>
           {!conceal && (trophyDesc || trophyTranslation) && (
             <div className="mt-1">
@@ -687,6 +720,7 @@ function TrophyRow({
             <TrophyTypeIcon type={trophy.trophy_type} size={22} />
           </span>
         </div>
+        {isCheckboxRight ? checkboxNode : null}
       </div>
       {(guideTipEditor || guideTipLongEditor) && !onlinePickMode ? (
         <>
@@ -794,7 +828,7 @@ function TrophyList({
   onOnlinePickToggle = null,
 }) {
   const { t } = useLocale();
-  const { completedTrophyStyle } = useUserPreferences();
+  const { completedTrophyStyle, guideRowOrder } = useUserPreferences();
   const earnedSet = earnedTrophyIds ?? new Set();
   const effectiveHideCompleted =
     hideCompleted || completedTrophyStyle === COMPLETED_TROPHY_STYLE.HIDE;
@@ -835,6 +869,7 @@ function TrophyList({
             onlinePicked={Boolean(onlinePickIds?.has?.(key))}
             onOnlinePickToggle={onOnlinePickToggle}
             completedTrophyStyle={completedTrophyStyle}
+            guideRowOrder={guideRowOrder}
           />
         );
       })}

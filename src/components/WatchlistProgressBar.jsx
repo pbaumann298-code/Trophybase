@@ -15,11 +15,11 @@ function WatchlistProgressBar({ percent, className = '' }) {
       </div>
       <div className="relative h-2.5 sm:h-3 w-full rounded-full bg-zinc-800/90 overflow-hidden border border-zinc-700/50">
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[#00cc52] via-[#00ff66] to-[#66ff99] transition-all duration-700 ease-out shadow-[0_0_12px_rgba(0,255,102,0.55)]"
+          className="absolute inset-y-0 start-0 rounded-full bg-gradient-to-r from-[#00cc52] via-[#00ff66] to-[#66ff99] transition-all duration-700 ease-out shadow-[0_0_12px_rgba(0,255,102,0.55)]"
           style={{ width: `${value}%` }}
         />
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-white/20 mix-blend-overlay transition-all duration-700"
+          className="absolute inset-y-0 start-0 rounded-full bg-white/20 mix-blend-overlay transition-all duration-700"
           style={{ width: `${value}%` }}
         />
       </div>

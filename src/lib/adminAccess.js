@@ -6,6 +6,24 @@ export const ADMIN_TAB_STORAGE_KEY = 'tb_admin_tab';
 export const INTRANET_GAME_SEARCH_STORAGE_KEY = 'tb_intranet_game_search';
 export const DRAFT_RETURN_STORAGE_KEY = 'tb_draft_return_context';
 export const LAB_MODE_STORAGE_KEY = 'tb_lab_mode';
+export const STAFF_DEVICE_STORAGE_KEY = 'tb_device_is_staff';
+
+function markDeviceAsStaff() {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(STAFF_DEVICE_STORAGE_KEY, '1');
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+if (typeof window !== 'undefined') {
+  const initPath = String(window.location.pathname || '').toLowerCase();
+  if (initPath.includes('/admin') || initPath.includes('/intranet')) {
+    markDeviceAsStaff();
+  }
+}
 
 /** Öffentliche SPA darf /intranet und /admin nicht als Startseite rendern. */
 const STAFF_HTML_BY_PATH = {
@@ -128,6 +146,7 @@ export function isStaffOrPreviewContext() {
   if (typeof window === 'undefined') return false;
   const p = window.location.pathname.toLowerCase();
   if (p.includes('/admin') || p.includes('/intranet')) {
+    markDeviceAsStaff();
     return true;
   }
   try {
@@ -327,7 +346,30 @@ export function handleStaffGamePreviewClick(event, href) {
 export function isAdminUser(user, { allowPublic = false } = {}) {
   if (!user?.email) return false;
   if (!allowPublic && !isStaffOrPreviewContext()) return false;
-  return ALLOWED_ADMINS.includes(normalizeEmail(user.email));
+  const isAdm = ALLOWED_ADMINS.includes(normalizeEmail(user.email));
+  if (isAdm) {
+    markDeviceAsStaff();
+  }
+  return isAdm;
+}
+
+export function isStaffDeviceOrSession(user = null) {
+  const effectiveUser = user || readCachedSessionUser();
+  if (isAdminUser(effectiveUser, { allowPublic: true })) return true;
+  if (isStaffOrPreviewContext()) return true;
+  if (hasAdminReturnFlag()) return true;
+  try {
+    if (
+      typeof window !== 'undefined' &&
+      window.localStorage &&
+      window.localStorage.getItem(STAFF_DEVICE_STORAGE_KEY) === '1'
+    ) {
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
 export function setLabModeFlag(active = true) {

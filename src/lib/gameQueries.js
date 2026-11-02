@@ -16,6 +16,7 @@ import { mergeLocalizedValue } from './translationUtils.js';
 import { hardwareToUrlSegment } from './gameSlug.js';
 import { NPWR_ID_PATTERN } from './routeUtils.js';
 import { formatLocalizedHomeTags, resolveMatchingHomeTagSlugs } from './homeTagDefs.js';
+import { isStaffDeviceOrSession } from './adminAccess.js';
 
 export const GAME_SELECT = [
   GAME_PK,
@@ -1283,7 +1284,8 @@ const VIEWED_SESSION_PREFIX = 'tb_viewed:';
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {unknown} gameUuid
  */
-export async function incrementGameViews(supabase, gameUuid) {
+export async function incrementGameViews(supabase, gameUuid, sessionUser = null) {
+  if (isStaffDeviceOrSession(sessionUser)) return;
   const uuid = String(gameUuid ?? '').trim();
   if (!uuid || !isUuid(uuid)) return;
 

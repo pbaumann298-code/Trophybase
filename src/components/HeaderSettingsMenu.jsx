@@ -6,6 +6,7 @@ import { SUPPORTED_LOCALES } from '../lib/locale';
 import { DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
 import {
   COMPLETED_TROPHY_STYLE,
+  GUIDE_ROW_ORDER,
   HOME_LAYOUT_MODE,
   VIDEO_TIMESTAMP_LAYOUT,
   useUserPreferences,
@@ -48,11 +49,13 @@ function HeaderSettingsMenu({
     hidePlatinumedGames,
     completedTrophyStyle,
     hideSwipeHandles,
+    guideRowOrder,
     setHomeLayoutMode,
     setVideoTimestampLayout,
     setHidePlatinumedGames,
     setCompletedTrophyStyle,
     setHideSwipeHandles,
+    setGuideRowOrder,
   } = useUserPreferences();
   const [open, setOpen] = useState(false);
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
@@ -150,7 +153,7 @@ function HeaderSettingsMenu({
           id={menuId}
           role="menu"
           aria-label={t('settingsMenu')}
-          className="header-settings__menu absolute right-0 top-[calc(100%+0.4rem)] z-[80] max-h-[min(80vh,34rem)] min-w-[18.5rem] sm:min-w-[20.5rem] max-w-[92vw] overflow-y-auto rounded-xl border border-zinc-800 bg-[#121314] py-1.5 shadow-xl shadow-black/40"
+          className="header-settings__menu absolute end-0 top-[calc(100%+0.4rem)] z-[80] max-h-[min(80vh,34rem)] min-w-[18.5rem] sm:min-w-[20.5rem] max-w-[92vw] overflow-y-auto rounded-xl border border-zinc-800 bg-[#121314] py-1.5 shadow-xl shadow-black/40"
         >
           {languageOptions.length >= 2 ? (
             <>
@@ -307,7 +310,7 @@ function HeaderSettingsMenu({
                     {[
                       {
                         id: HOME_LAYOUT_MODE.RAILS,
-                        label: 'Standard (Netflix-Reihen)',
+                        label: 'Standard (Kategorie-Reihen)',
                         hint: 'Kategorie-Schienen mit Covern',
                       },
                       {
@@ -485,6 +488,48 @@ function HeaderSettingsMenu({
                       >
                         {showSwipeHandles ? 'An' : 'Aus'}
                       </button>
+                    </div>
+
+                    {/* 5. Zeilen-Anordnung im Guide (Abhaken & Timestamps) */}
+                    <div className="space-y-1 border-t border-zinc-800/80 pt-2">
+                      <p className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400">
+                        5. Zeilen-Anordnung im Guide (Abhaken & Timestamps)
+                      </p>
+                      {[
+                        {
+                          id: GUIDE_ROW_ORDER.DEFAULT,
+                          label: 'Standard (Checkbox → Timestamp → Item)',
+                        },
+                        {
+                          id: GUIDE_ROW_ORDER.CHECKBOX_RIGHT,
+                          label: 'Daumen-Modus (Timestamp → Item → Checkbox rechts)',
+                        },
+                        {
+                          id: GUIDE_ROW_ORDER.TIMESTAMP_RIGHT,
+                          label: 'Timestamp rechts (Checkbox → Item → Timestamp rechts)',
+                        },
+                      ].map((opt) => {
+                        const active = guideRowOrder === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={active}
+                            onClick={() => setGuideRowOrder(opt.id)}
+                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition cursor-pointer ${
+                              active
+                                ? 'bg-[#00ff66]/10 text-[#00ff66] font-semibold'
+                                : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-white'
+                            }`}
+                          >
+                            <span className="w-3 flex-shrink-0 font-mono" aria-hidden>
+                              {active ? '●' : '○'}
+                            </span>
+                            <span>{opt.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
