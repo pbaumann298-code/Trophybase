@@ -1057,6 +1057,8 @@ export default function IntranetDrafts({
   const [loadingRohmaterial, setLoadingRohmaterial] = useState(false);
   /** 'staging' | 'rohmaterial' */
   const [activeDataSource, setActiveDataSource] = useState(initialDataSource);
+  const activeDataSourceRef = useRef(initialDataSource);
+  activeDataSourceRef.current = activeDataSource;
 
   useEffect(() => {
     if (initialDataSource) setActiveDataSource(initialDataSource);
@@ -1149,10 +1151,87 @@ export default function IntranetDrafts({
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [activePillPopover]);
 
-  // Load Rohmaterial games (status->>rohmaterial = PENDING_MULTI_TAB or in game_guides_rohmaterial)
-  const fetchRohmaterialSummary = useCallback(async () => {
+  // Load Rohmaterial queue (capped to MAX_VISIBLE_QUEUE_GAMES = 10 unique games).
+  // Candidate ids come from games.status.rohmaterial (one light row per game).
+  // Full guide rows are loaded only for those 10 ids. selectedGameId is included
+  // when it is one of those candidates, or while the Multi-Tab view is open.
+  const fetchRohmaterialSummary = useCallback(async (preferredGameId = null) => {
     setLoadingRohmaterial(true);
     try {
+      const candidateGameIds = [];
+      let idFrom = 0;
+      const ID_PAGE = 1000;
+
+      while (true) {
+        const { data: idChunk, error: idErr } = await supabase
+          .from(TABLES.games)
+          .select('id')
+          .eq('status->>rohmaterial', 'PENDING_MULTI_TAB')
+          .order('id', { ascending: true })
+          .range(idFrom, idFrom + ID_PAGE - 1);
+
+        if (idErr) {
+          throw new Error(`Fehler beim Laden der Rohmaterial-Spiele: ${idErr.message}`);
+        }
+
+        const ids = (idChunk ?? []).map((g) => g.id).filter(Boolean);
+        candidateGameIds.push(...ids);
+        if (ids.length < ID_PAGE) break;
+        idFrom += ID_PAGE;
+      }
+
+      // Unflagged batches: only peek at the next distinct game_ids until the cap is filled.
+      // Never page the whole guide table — one large game can be thousands of rows.
+      if (candidateGameIds.length < MAX_VISIBLE_QUEUE_GAMES) {
+        const seen = new Set(candidateGameIds);
+        let cursor = null;
+        let steps = 0;
+        while (candidateGameIds.length < MAX_VISIBLE_QUEUE_GAMES && steps < MAX_VISIBLE_QUEUE_GAMES) {
+          steps += 1;
+          let distinctQuery = supabase
+            .from(TABLES.guidesRohmaterial)
+            .select('game_id')
+            .not('game_id', 'is', null)
+            .order('game_id', { ascending: true })
+            .limit(1);
+          if (cursor) distinctQuery = distinctQuery.gt('game_id', cursor);
+
+          const { data: distinctRows, error: distinctErr } = await distinctQuery;
+          if (distinctErr) {
+            throw new Error(`Fehler beim Laden von game_guides_rohmaterial: ${distinctErr.message}`);
+          }
+          const nextId = distinctRows?.[0]?.game_id;
+          if (!nextId) break;
+          cursor = nextId;
+          if (!seen.has(nextId)) {
+            seen.add(nextId);
+            candidateGameIds.push(nextId);
+          }
+        }
+      }
+
+      const uniqueCandidateIds = [...new Set(candidateGameIds)];
+      uniqueCandidateIds.sort((a, b) => getGameRandomWeight(a) - getGameRandomWeight(b));
+
+      const pinnedId = preferredGameId || selectedGameIdRef.current || initialGameId;
+      const shouldPin =
+        Boolean(pinnedId) &&
+        (uniqueCandidateIds.includes(pinnedId) || activeDataSourceRef.current === 'rohmaterial');
+      let top10GameIds = uniqueCandidateIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
+      if (shouldPin && !top10GameIds.includes(pinnedId)) {
+        top10GameIds = [pinnedId, ...uniqueCandidateIds.filter((id) => id !== pinnedId)].slice(
+          0,
+          MAX_VISIBLE_QUEUE_GAMES
+        );
+      }
+
+      if (top10GameIds.length === 0) {
+        setRohmaterialRows([]);
+        setRohGamesMap(new Map());
+        setRohmaterialGames([]);
+        return;
+      }
+
       let rohRows = [];
       let rFrom = 0;
       const PAGE_SIZE = 1000;
@@ -1161,6 +1240,7 @@ export default function IntranetDrafts({
         const { data: chunk, error: rErr } = await supabase
           .from(TABLES.guidesRohmaterial)
           .select('*')
+          .in('game_id', top10GameIds)
           .order('id', { ascending: true })
           .range(rFrom, rFrom + PAGE_SIZE - 1);
 
@@ -1178,39 +1258,23 @@ export default function IntranetDrafts({
 
       setRohmaterialRows(rohRows);
 
-      const { data: pendingGames, error: pendingErr } = await supabase
+      const { data: loadedGames, error: gamesErr } = await supabase
         .from(TABLES.games)
         .select(GAMES_QUEUE_SELECT_COLS)
-        .eq('status->>rohmaterial', 'PENDING_MULTI_TAB');
+        .in('id', top10GameIds);
 
-      if (pendingErr) {
-        throw new Error(`Fehler beim Laden der Rohmaterial-Spiele: ${pendingErr.message}`);
+      if (gamesErr) {
+        throw new Error(`Fehler beim Laden der Rohmaterial-Spiele: ${gamesErr.message}`);
       }
 
-      const gameIdsFromRoh = [...new Set(rohRows.map((r) => r.game_id).filter(Boolean))];
-      const existingMap = new Map((pendingGames ?? []).map((g) => [g.id, g]));
-      const missingIds = gameIdsFromRoh.filter((id) => !existingMap.has(id));
-
-      if (missingIds.length > 0) {
-        for (let i = 0; i < missingIds.length; i += 100) {
-          const slice = missingIds.slice(i, i + 100);
-          const { data: extraGames, error: extraErr } = await supabase
-            .from(TABLES.games)
-            .select(GAMES_QUEUE_SELECT_COLS)
-            .in('id', slice);
-          if (extraErr) {
-            throw new Error(`Fehler beim Nachladen der Rohmaterial-Spiele: ${extraErr.message}`);
-          }
-          for (const g of extraGames ?? []) {
-            existingMap.set(g.id, g);
-          }
-        }
-      }
-
+      const existingMap = new Map((loadedGames ?? []).map((g) => [g.id, g]));
       setRohGamesMap(existingMap);
 
       const groupedByGame = new Map();
       for (const g of existingMap.values()) {
+        const isPending = String(g.status?.rohmaterial ?? '') === 'PENDING_MULTI_TAB';
+        const hasRows = rohRows.some((r) => r.game_id === g.id);
+        if (!isPending && !hasRows) continue;
         groupedByGame.set(g.id, {
           gameId: g.id,
           game: g,
@@ -1261,7 +1325,7 @@ export default function IntranetDrafts({
     } finally {
       setLoadingRohmaterial(false);
     }
-  }, [getGameRandomWeight]);
+  }, [getGameRandomWeight, initialGameId]);
 
   // Load staging queue (capped to MAX_VISIBLE_QUEUE_GAMES = 10 unique games to avoid loading 17,000+ rows)
   const fetchQueue = useCallback(async (preferredGameId = null) => {
@@ -6663,7 +6727,7 @@ export default function IntranetDrafts({
                   )}
 
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left text-[11px] font-mono border-collapse min-w-[780px] sm:min-w-0">
+                    <table className="w-max min-w-full text-left text-[11px] font-mono border-collapse">
                       <thead>
                         <tr className="border-b border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider select-none">
                           {/* Multi-Select Header Checkbox */}
@@ -6765,7 +6829,7 @@ export default function IntranetDrafts({
                           </th>
                           <th
                             onClick={() => handleToggleSort('video_chapter')}
-                            className="py-2 px-1 w-44 max-w-[13rem] truncate cursor-pointer hover:text-white transition"
+                            className="py-2 px-1 w-[100ch] min-w-[100ch] max-w-[100ch] cursor-pointer hover:text-white transition"
                             title="Nach Chapter / Info sortieren"
                           >
                             <span className="inline-flex items-center gap-1">
@@ -6933,10 +6997,10 @@ export default function IntranetDrafts({
                                   if (row.video_url) setActiveVideoUrl(row.video_url);
                                   if (row.timestamp) setActiveTimestamp(row.timestamp);
                                 }}
-                                className="py-1 px-1 text-zinc-400 text-[10px] w-44 max-w-[13rem] truncate cursor-pointer hover:text-white hover:underline align-middle"
+                                className="py-1 px-1 text-zinc-400 text-[10px] w-[100ch] min-w-[100ch] max-w-[100ch] align-top cursor-pointer hover:text-white"
                                 title={`${chapterStr || '—'} (Klicken zum Abspielen)`}
                               >
-                                <div className="truncate leading-snug">
+                                <div className="w-[100ch] max-w-[100ch] whitespace-normal break-words leading-snug line-clamp-3">
                                   {chapterStr || '—'}
                                 </div>
                               </td>
