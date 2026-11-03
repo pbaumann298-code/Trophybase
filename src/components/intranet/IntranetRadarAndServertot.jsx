@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
-import { getPlatformGameId } from '../../lib/gameModel';
+import { getPlatformGameId, isUuid } from '../../lib/gameModel';
+import { buildSupabaseTableUrl } from '../../lib/supabaseDeepLink';
 import {
   ACHIEVEMENT_PK,
   GAME_FK,
@@ -1885,6 +1886,17 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
 
                     {/* Quick-Actions im Tab "Cover-Fehler" */}
                     <div className="flex flex-wrap items-center gap-2">
+                      {row.id ? (
+                        <a
+                          href={buildSupabaseTableUrl('games', 'id', row.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-zinc-200 transition hover:border-[#00ff66]/50 hover:text-[#00ff66]"
+                          title="Direkt in Supabase öffnen"
+                        >
+                          🗄️ DB
+                        </a>
+                      ) : null}
                       <a
                         href={googleUrl}
                         target="_blank"
@@ -1962,6 +1974,9 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
             <ul className="divide-y divide-zinc-900">
               {filteredReports.map((report) => {
                 const linkedGame = report.game;
+                const reportGameId =
+                  linkedGame?.[GAME_PK] ||
+                  (isUuid(report.source_identifier) ? String(report.source_identifier).trim() : '');
                 const gameHref = linkedGame ? intranetGameHref(linkedGame) : report.gameHref || '';
                 const title = linkedGame
                   ? pickText(linkedGame.spieltitel) || 'Unbenanntes Spiel'
@@ -2079,6 +2094,28 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
 
                     {/* Rechte Seite: Aktionen zum Erledigen / Übernehmen / Löschen */}
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {reportGameId ? (
+                        <>
+                          <a
+                            href={buildSupabaseTableUrl('games', 'id', reportGameId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-200 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
+                            title="Direkt in Supabase öffnen"
+                          >
+                            🗄️ DB
+                          </a>
+                          <a
+                            href={buildSupabaseTableUrl('game_guides', 'game_id', reportGameId)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-sky-200 hover:border-sky-400/50 hover:text-sky-100"
+                            title="game_guides dieses Spiels direkt in Supabase öffnen"
+                          >
+                            🗄️ game_guides
+                          </a>
+                        </>
+                      ) : null}
                       {linkedGame ? (
                         <button
                           type="button"
@@ -2230,6 +2267,18 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                                   live
                                 </span>
                               ) : null}
+                              {id ? (
+                                <a
+                                  href={buildSupabaseTableUrl('games', 'id', id)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="ml-auto rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase text-zinc-300 hover:border-[#00ff66]/50 hover:text-[#00ff66]"
+                                  title="Direkt in Supabase öffnen"
+                                >
+                                  🗄️ DB
+                                </a>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -2289,6 +2338,17 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-3">
+                        {activeGame[GAME_PK] ? (
+                          <a
+                            href={buildSupabaseTableUrl('games', 'id', activeGame[GAME_PK])}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-zinc-200 transition hover:border-[#00ff66]/50 hover:text-[#00ff66]"
+                            title="Direkt in Supabase öffnen"
+                          >
+                            🗄️ DB
+                          </a>
+                        ) : null}
                         <AdminHardwareSelect
                           gameId={activeGame[GAME_PK]}
                           hardware={activeGame.hardware}

@@ -28,6 +28,7 @@ import {
   clearDraftReturnContext,
 } from '../../lib/adminAccess';
 import { localeOptions } from '../../lib/uiStrings';
+import { getGameSupabaseDeepLinks } from '../../lib/supabaseDeepLink';
 
 const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
 const MAX_VISIBLE_QUEUE_GAMES = 10;
@@ -1048,6 +1049,15 @@ export default function IntranetDrafts({
   const [reassignSearching, setReassignSearching] = useState(false);
   const [reassignSearchDone, setReassignSearchDone] = useState(false);
 
+  // Supabase Deep-Link & DB-Röntgenblick (Game-Header)
+  const [showDbInspector, setShowDbInspector] = useState(false);
+  const [dbCopiedTable, setDbCopiedTable] = useState('');
+  const [selectedGameDbCounts, setSelectedGameDbCounts] = useState({
+    game_guides: null,
+    game_guides_rohmaterial: null,
+    staging_game_guides: null,
+  });
+
   // Rohmaterial (verschobene große Spiele) & Multi-Tab Editor
   const [showRohmaterialView, setShowRohmaterialView] = useState(false);
   const [rohmaterialGames, setRohmaterialGames] = useState([]);
@@ -1664,6 +1674,7 @@ export default function IntranetDrafts({
     setMatcherExpandedGroupKeys(new Set());
     setMatcherTrophySearch('');
     setAutoMatchedBannerCount(0);
+    setDbCopiedTable('');
   }, [selectedGameId, selectedCreatorName, activeDataSource]);
 
   // Current game's rows
@@ -2003,6 +2014,11 @@ export default function IntranetDrafts({
     if (!selectedGameId) {
       setLiveGuideRows([]);
       setShowConflictModal(false);
+      setSelectedGameDbCounts({
+        game_guides: null,
+        game_guides_rohmaterial: null,
+        staging_game_guides: null,
+      });
       return undefined;
     }
 
@@ -2010,10 +2026,13 @@ export default function IntranetDrafts({
     async function checkSelectedGameConflict() {
       setLoadingLiveGuides(true);
       try {
-        const [guidesRes, gameRes] = await Promise.all([
+        const [guidesRes, gameRes, rohCountRes, stagingCountRes] = await Promise.all([
           supabase
             .from(TABLES.guides)
-            .select('id, guide_id, sheet_type, item_name, chronological_group, category_group, boss_group, video_chapter, timestamp, video_url, trophy_id')
+            .select(
+              'id, guide_id, sheet_type, item_name, chronological_group, category_group, boss_group, video_chapter, timestamp, video_url, trophy_id',
+              { count: 'exact' }
+            )
             .eq('game_id', selectedGameId)
             .order('id', { ascending: true })
             .limit(1000),
@@ -2022,6 +2041,14 @@ export default function IntranetDrafts({
             .select(GAMES_QUEUE_SELECT_COLS)
             .eq(GAME_PK, selectedGameId)
             .maybeSingle(),
+          supabase
+            .from('game_guides_rohmaterial')
+            .select('id', { count: 'exact', head: true })
+            .eq('game_id', selectedGameId),
+          supabase
+            .from('staging_game_guides')
+            .select('id', { count: 'exact', head: true })
+            .eq('game_id', selectedGameId),
         ]);
 
         if (cancelled) return;
@@ -2030,6 +2057,14 @@ export default function IntranetDrafts({
         const freshGame = gameRes.data ?? null;
 
         setLiveGuideRows(fetchedGuides);
+        setSelectedGameDbCounts({
+          game_guides:
+            typeof guidesRes.count === 'number' ? guidesRes.count : fetchedGuides.length,
+          game_guides_rohmaterial:
+            typeof rohCountRes?.count === 'number' ? rohCountRes.count : null,
+          staging_game_guides:
+            typeof stagingCountRes?.count === 'number' ? stagingCountRes.count : null,
+        });
         setLiveGuideCountsMap((prev) => {
           const next = new Map(prev);
           next.set(selectedGameId, fetchedGuides.length);
@@ -2113,6 +2148,97 @@ export default function IntranetDrafts({
       liveRowCount,
     };
   }, [selectedGame, liveGuideRows]);
+
+  const selectedGameDeepLinks = useMemo(
+    () => (selectedGameId ? getGameSupabaseDeepLinks(selectedGameId) : null),
+    [selectedGameId]
+  );
+
+  const dbXrayStats = useMemo(() => {
+    const sourceRows =
+      currentCreatorRows.length > 0
+        ? currentCreatorRows
+        : currentGameRows.length > 0
+          ? currentGameRows
+          : liveGuideRows;
+
+    const sourceLabel =
+      currentCreatorRows.length > 0 || currentGameRows.length > 0
+        ? activeDataSource === 'rohmaterial'
+          ? `game_guides_rohmaterial${selectedCreatorName ? ` (${selectedCreatorName})` : ''}`
+          : `staging_game_guides${selectedCreatorName ? ` (${selectedCreatorName})` : ''}`
+        : liveGuideRows.length > 0
+          ? 'game_guides (Live)'
+          : activeDataSource === 'rohmaterial'
+            ? 'game_guides_rohmaterial'
+            : 'staging_game_guides';
+
+    let chronoFilled = 0;
+    let categoryFilled = 0;
+    let bossFilled = 0;
+    const sheetCounts = new Map();
+
+    for (const row of sourceRows) {
+      if (getLocalizedItemName(row?.chronological_group).trim()) chronoFilled += 1;
+      if (getLocalizedItemName(row?.category_group).trim()) categoryFilled += 1;
+      if (getLocalizedItemName(row?.boss_group).trim()) bossFilled += 1;
+
+      const resolvedRaw = resolveSheetTypes(row?.sheet_type);
+      const effectiveTypes = resolvedRaw.length > 0 ? resolvedRaw : deriveSheetTypesFromRow(row);
+      const key =
+        resolvedRaw.length > 0
+          ? `[${effectiveTypes.join(', ')}]`
+          : `[${effectiveTypes.join(', ')}] (auto)`;
+      sheetCounts.set(key, (sheetCounts.get(key) || 0) + 1);
+    }
+
+    const sheetDistribution = [...sheetCounts.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
+    const guidesCount =
+      selectedGameDbCounts.game_guides != null
+        ? selectedGameDbCounts.game_guides
+        : liveGuideRows.length;
+    const rohInMemoryCount =
+      (rohGameGroups.get(selectedGameId) || []).filter((r) => r._sourceTable !== TABLES.guides)
+        .length;
+    const rohCount =
+      selectedGameDbCounts.game_guides_rohmaterial != null
+        ? selectedGameDbCounts.game_guides_rohmaterial
+        : rohInMemoryCount;
+    const stagingInMemoryCount = (gameGroups.get(selectedGameId) || []).length;
+    const stagingCount =
+      selectedGameDbCounts.staging_game_guides != null
+        ? selectedGameDbCounts.staging_game_guides
+        : stagingInMemoryCount;
+
+    const statusObj = parseStatusMap(selectedGame?.status);
+
+    return {
+      sourceLabel,
+      totalLoadedRows: sourceRows.length,
+      chronoFilled,
+      categoryFilled,
+      bossFilled,
+      sheetDistribution,
+      guidesCount,
+      rohCount,
+      stagingCount,
+      statusObj,
+    };
+  }, [
+    currentCreatorRows,
+    currentGameRows,
+    liveGuideRows,
+    activeDataSource,
+    selectedCreatorName,
+    selectedGameDbCounts,
+    rohGameGroups,
+    gameGroups,
+    selectedGameId,
+    selectedGame,
+  ]);
 
   // Load trophies for selected game (nutzt tb_fetch_achievements_for_auth als Fallback/Creator-RPC für unveröffentlichte Spiele)
   useEffect(() => {
@@ -5525,9 +5651,25 @@ export default function IntranetDrafts({
                         />
                       ) : null}
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
-                          {selectedGame.platform_game_id || 'ID unbekannt'}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
+                            {selectedGame.platform_game_id || 'ID unbekannt'}
+                          </p>
+                          {selectedGameId && (
+                            <button
+                              type="button"
+                              onClick={() => setShowDbInspector((prev) => !prev)}
+                              title="Direkter Supabase-Tabellensprung & DB-Röntgenblick"
+                              className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-mono font-bold transition ${
+                                showDbInspector
+                                  ? 'border-[#00ff66] bg-[#00ff66]/20 text-[#00ff66]'
+                                  : 'border-zinc-700 bg-zinc-900/90 text-zinc-200 hover:border-[#00ff66]/50 hover:text-[#00ff66]'
+                              }`}
+                            >
+                              <span>🗄️ Supabase / DB</span>
+                            </button>
+                          )}
+                        </div>
                         {intranetGameHref(selectedGame) ? (
                           <a
                             href={intranetGameHref(selectedGame)}
@@ -5552,6 +5694,153 @@ export default function IntranetDrafts({
                         <p className="text-xs text-zinc-400 mt-0.5">
                           {selectedGame.publisher || selectedGame.entwickler || 'Publisher N/A'}
                         </p>
+
+                        {showDbInspector && selectedGameId && selectedGameDeepLinks && (
+                          <div className="mt-2.5 rounded-xl border border-emerald-500/40 bg-zinc-950/95 p-3 shadow-xl flex flex-col gap-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+                              <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                                <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-[#00ff66]">
+                                  🗄️ Supabase Deep-Links &amp; DB-Röntgenblick
+                                </span>
+                                <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-mono text-zinc-300 select-all">
+                                  {selectedGameId}
+                                </code>
+                                {dbCopiedTable && (
+                                  <span className="rounded bg-[#00ff66]/15 border border-[#00ff66]/40 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#00ff66]">
+                                    ✓ UUID kopiert ({dbCopiedTable})
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setShowDbInspector(false)}
+                                className="rounded px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                                title="Schließen"
+                              >
+                                ✕
+                              </button>
+                            </div>
+
+                            {/* 1. 5 Direkt-Sprung-Buttons ins Supabase-Dashboard */}
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                              {selectedGameDeepLinks.items.map((item) => (
+                                <a
+                                  key={item.key}
+                                  href={item.url || '#'}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={() => {
+                                    navigator.clipboard?.writeText(selectedGameId);
+                                    setDbCopiedTable(item.key);
+                                  }}
+                                  title={`${item.tableName} (${item.filterText}) in Supabase öffnen & game_id kopieren`}
+                                  className="inline-flex items-center justify-between gap-1 rounded-lg border border-zinc-700/90 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-mono font-bold text-zinc-100 hover:border-[#00ff66] hover:bg-[#00ff66]/10 hover:text-[#00ff66] no-underline transition"
+                                >
+                                  <span className="truncate">{item.label}</span>
+                                </a>
+                              ))}
+                            </div>
+
+                            {/* 2. Handy-optimierter Inline DB-Röntgenblick */}
+                            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-2.5 flex flex-col gap-2 text-[11px] font-mono">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                                <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1">
+                                  <span className="block text-[9px] uppercase text-zinc-500">spiel_typ</span>
+                                  <span className="font-bold text-zinc-100">
+                                    {selectedGame.spiel_typ || '—'}
+                                  </span>
+                                </div>
+                                <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1">
+                                  <span className="block text-[9px] uppercase text-zinc-500">guide_typ</span>
+                                  <span className="font-bold text-[#00ff66]">
+                                    {selectedGame.guide_typ || '—'}
+                                  </span>
+                                </div>
+                                <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1">
+                                  <span className="block text-[9px] uppercase text-zinc-500">Tabellen-Zeilen (DB)</span>
+                                  <span className="text-zinc-200">
+                                    guides: <strong className="text-white">{dbXrayStats.guidesCount}</strong>
+                                    {' · '}roh: <strong className="text-white">{dbXrayStats.rohCount}</strong>
+                                    {' · '}staging: <strong className="text-white">{dbXrayStats.stagingCount}</strong>
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1.5">
+                                <span className="block text-[9px] uppercase text-zinc-500 mb-1">
+                                  games.status
+                                </span>
+                                {Object.keys(dbXrayStats.statusObj).length > 0 ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {Object.entries(dbXrayStats.statusObj).map(([k, v]) => (
+                                      <span
+                                        key={k}
+                                        className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-200"
+                                      >
+                                        <span className="text-zinc-400">{k}:</span>{' '}
+                                        <strong className="text-[#00ff66]">{String(v)}</strong>
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-zinc-500">&#123;&#125; (leer)</span>
+                                )}
+                              </div>
+
+                              <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1.5 flex flex-col gap-1.5">
+                                <div className="flex flex-wrap items-center justify-between gap-1">
+                                  <span className="text-[9px] uppercase text-zinc-500">
+                                    Geladene Quelle: <strong className="text-zinc-300">{dbXrayStats.sourceLabel}</strong> ({dbXrayStats.totalLoadedRows} Zeilen)
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="text-[10px] text-zinc-400">sheet_type:</span>
+                                  {dbXrayStats.sheetDistribution.length > 0 ? (
+                                    dbXrayStats.sheetDistribution.map((entry) => (
+                                      <span
+                                        key={entry.label}
+                                        className="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-200"
+                                      >
+                                        {entry.label}: <strong>{entry.count}</strong>
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-zinc-500">keine Zeilen</span>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-3 gap-1.5 pt-0.5">
+                                  <div className="rounded border border-zinc-800/90 bg-zinc-900/80 px-2 py-1">
+                                    <span className="block text-[9px] text-zinc-400 truncate">chronological_group</span>
+                                    <strong className="text-xs text-white">
+                                      {dbXrayStats.chronoFilled}
+                                    </strong>
+                                    <span className="text-[10px] text-zinc-500">
+                                      {' '}/ {dbXrayStats.totalLoadedRows}
+                                    </span>
+                                  </div>
+                                  <div className="rounded border border-zinc-800/90 bg-zinc-900/80 px-2 py-1">
+                                    <span className="block text-[9px] text-zinc-400 truncate">category_group</span>
+                                    <strong className="text-xs text-white">
+                                      {dbXrayStats.categoryFilled}
+                                    </strong>
+                                    <span className="text-[10px] text-zinc-500">
+                                      {' '}/ {dbXrayStats.totalLoadedRows}
+                                    </span>
+                                  </div>
+                                  <div className="rounded border border-zinc-800/90 bg-zinc-900/80 px-2 py-1">
+                                    <span className="block text-[9px] text-zinc-400 truncate">boss_group</span>
+                                    <strong className="text-xs text-white">
+                                      {dbXrayStats.bossFilled}
+                                    </strong>
+                                    <span className="text-[10px] text-zinc-500">
+                                      {' '}/ {dbXrayStats.totalLoadedRows}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         {!isCreatorMode && (
                           <div className="mt-2">

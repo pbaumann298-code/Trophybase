@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-08.1_Creator_Channel_Harvester_Upload.py (Komplettversion inkl. Smart-Router & Auto-Spracherkennung)
+08.1_Creator_Channel_Harvester_Upload.py (Streaming-Version inkl. Anti-Ban & Smart-Router)
 - Liest die geprüfte 'QA_Video_Discovery.xlsx' (aus 08.0, 08.1 oder 08.2).
-- Zieht Timestamps via yt-dlp und speichert vor dem Upload ein lokales Crash-Backup.
+- Zieht Timestamps via yt-dlp, pusht SOFORT pro Spiel-Paket nach Supabase und führt ein Resume-Log.
 - Erkennt automatisch die Quellsprache des Creators (pt, es, fr, de, ru, ja, ko, zh-hans, ar, en).
 - Routet automatisch zwischen 'staging_game_guides' (kleine Guides) und
   'game_guides_rohmaterial' (Multi-Tab für Evergreen/Premium/S/A/große Playlists).
+- Bricht bei YouTube-Rate-Limit sofort sauber ab, ohne 00:00-Dummys zu speichern.
 """
 
 import os
 import re
 import sys
+import json
 import time
 from typing import Any, Dict, List, Tuple
 import yt_dlp
@@ -34,6 +36,16 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_EXCEL_FILE = os.path.join(_BASE_DIR, "QA_Video_Discovery.xlsx")
 FINAL_EXCEL_BACKUP = os.path.join(_BASE_DIR, "QA_Final_Staging_Rows.xlsx")
+COMPLETED_LOG_FILE = os.path.join(_BASE_DIR, "08.3_completed_bundles.json")
+
+SKIP_YT_FOR_LARGE_SINGLE_TROPHY_BUNDLES = True
+SINGLE_TROPHY_BUNDLE_THRESHOLD = (
+    12  # Ab 12 Videos pro Paket direkt über Videotitel anlegen (0 YT-Calls)
+)
+
+
+class YouTubeRateLimitError(Exception):
+    """Wird ausgelöst, sobald YouTube die IP/Session temporär drosselt."""
 
 
 def clean_str(val: Any) -> str:
@@ -44,15 +56,10 @@ def clean_str(val: Any) -> str:
 
 
 def detect_text_locale(sample_text: str) -> str:
-    """
-    Erkennt automatisch die Sprache der extrahierten Kapitel-/Item-Namen
-    (z. B. Brasilianisch/Portugiesisch 'pt', Spanisch 'es', Französisch 'fr', Deutsch 'de').
-    """
     t = str(sample_text or "").lower()
     if not t:
         return "en"
 
-    # 1. Eindeutige nicht-lateinische Schriftsysteme
     if re.search(r"[а-яё]", t):
         return "ru"
     if re.search(r"[ぁ-んァ-ン]", t):
@@ -64,24 +71,20 @@ def detect_text_locale(sample_text: str) -> str:
     if re.search(r"[\u0600-\u06ff]", t):
         return "ar"
 
-    # 2. Portugiesisch / Brasilianisch
     if re.search(
         r"(ã|õ|ção|ções|\btroféu|\btrofeus|\bcolecionáveis|\bcolecionaveis|\bcapítulo|\binício|\bchefe\b|\bmissão)",
         t,
     ):
         return "pt"
 
-    # 3. Spanisch
     if re.search(r"(ñ|¿|¡|\btrofeo|\bcoleccionables|\bjefe\b|\bmisión|\bcapítulo)", t):
         return "es"
 
-    # 4. Französisch
     if re.search(
         r"(\btrophée|\bchapitre|\btous les\b|\btoutes les\b|\bdébut\b|\bsoluce\b)", t
     ):
         return "fr"
 
-    # 5. Deutsch
     if re.search(
         r"(ä|ö|ü|ß|\bsammelobjekte|\bkapitel\b|\btrophäe|\bhauptspiel\b|\blösung\b)", t
     ):
@@ -97,7 +100,6 @@ def should_route_to_multitab(
     video_count: int,
     row_count: int,
 ) -> bool:
-    """Entscheidet, ob das Paket nach Multi-Tab (game_guides_rohmaterial) oder Staging gehört."""
     eq = explicit_queue.upper()
     if eq == "MULTI_TAB":
         return True
@@ -121,7 +123,6 @@ def should_route_to_multitab(
 
 
 def classify_and_sort_key(video_title: str) -> Tuple[int, int, int, str]:
-    """Liefert (bucket, chapter_num, sub_type, clean_label) für korrekte Kapitelreihenfolge."""
     vt_norm = re.sub(
         r"\b(level|chapter|episode|part)\s+([0-9])o\b",
         r"\1 \g<2>0",
@@ -172,10 +173,6 @@ def parse_time_str_to_seconds(t_str: str) -> int:
 
 
 def clean_extracted_chapter(raw_label: str, fallback_sec: int) -> Tuple[int, str]:
-    """
-    Repariert YouTube-Chapters, bei denen der Creator 'Level 1: 00:00:10 - 02:10' geschrieben hat
-    und YouTube fälschlich '02:10' als Startzeit und 'Level 1: 00:00:10' als Titel genommen hat.
-    """
     label = raw_label.strip()
     m_end_time = re.search(r"[:\s\-–—]+(\d{1,2}:\s*\d{2}(?::\s*\d{2})?)\s*$", label)
     if m_end_time:
@@ -203,7 +200,6 @@ def fetch_video_timestamps(video_url: str, ydl_full) -> List[Dict[str, Any]]:
         if not info:
             return []
 
-        # 1. Native YouTube Chapters (<Untitled Chapter 1> -> "Start")
         chapters = info.get("chapters")
         if chapters and isinstance(chapters, list) and len(chapters) > 1:
             result = []
@@ -237,7 +233,6 @@ def fetch_video_timestamps(video_url: str, ydl_full) -> List[Dict[str, Any]]:
                 result.sort(key=lambda x: x["seconds"])
                 return result
 
-        # 2. Fallback: Timestamps aus Description parsen
         desc = info.get("description") or ""
         if not desc:
             return []
@@ -279,16 +274,24 @@ def fetch_video_timestamps(video_url: str, ydl_full) -> List[Dict[str, Any]]:
             return parsed_ts
 
     except Exception as e:
+        err_msg = str(e)
+        if any(
+            k in err_msg.lower()
+            for k in (
+                "rate-limited",
+                "try again later",
+                "page needs to be reloaded",
+                "429",
+                "sign in to confirm",
+            )
+        ):
+            raise YouTubeRateLimitError(err_msg)
         print(f"   ⚠️ Fehler beim Timestamp-Abruf ({video_url}): {e}")
 
     return []
 
 
-def push_rows_to_supabase(rows: List[Dict[str, Any]]):
-    """
-    Entfernt In-Batch-Duplikate, erkennt automatisch die Creator-Sprache (z. B. 'pt', 'es', 'fr', 'de')
-    und routet jedes Spiel-Paket entweder nach 'staging_game_guides' oder 'game_guides_rohmaterial'.
-    """
+def push_rows_to_supabase(rows: List[Dict[str, Any]]) -> Tuple[int, int]:
     grouped_rows: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for r in rows:
         row_copy = dict(r)
@@ -306,7 +309,6 @@ def push_rows_to_supabase(rows: List[Dict[str, Any]]):
     multitab_count = 0
 
     for (gid, cname), bundle_rows in grouped_rows.items():
-        # 1. Deduplizierung pro (game_id, creator_name, video_url, timestamp)
         deduped_map: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
         unique_videos = set()
         for r in bundle_rows:
@@ -331,7 +333,6 @@ def push_rows_to_supabase(rows: List[Dict[str, Any]]):
         excel_pub = clean_str(first_row.get("_publisher"))
         creator_id = clean_str(first_row.get("_creator_id")) or None
 
-        # 2. Spiel-Metadaten (spiel_typ, guide_typ, publisher, status) aus DB prüfen
         g_res = (
             supabase.table("games")
             .select("spiel_typ, guide_typ, publisher, status")
@@ -355,14 +356,12 @@ def push_rows_to_supabase(rows: List[Dict[str, Any]]):
             except Exception:
                 pass
 
-        # 3. Quellsprache anhand der Kapitel-/Item-Namen automatisch erkennen
         sample_str = " ".join(
             f"{r.get('item_name') or ''} {r.get('video_chapter') or ''}"
             for r in clean_rows[:20]
         )
         src_lang = detect_text_locale(sample_str)
 
-        # 4. Routing-Entscheidung: Multi-Tab vs. Staging
         use_multitab = should_route_to_multitab(
             explicit_queue, spiel_typ, guide_typ, len(unique_videos), len(clean_rows)
         )
@@ -372,6 +371,7 @@ def push_rows_to_supabase(rows: List[Dict[str, Any]]):
             batch_key = f"qa_{str(gid)[:8]}_{safe_creator}_{int(time.time())}"
             roh_rows = []
             for r in clean_rows:
+                # Schreibt 'de' + src_lang ins JSONB, damit das Frontend immer sofort Text hat (ohne extra Spalte)
                 roh_rows.append(
                     {
                         "batch_key": batch_key,
@@ -383,10 +383,15 @@ def push_rows_to_supabase(rows: List[Dict[str, Any]]):
                         "playlist_url": r.get("creator_input_url"),
                         "guide_id": str(r["guide_id"]),
                         "sheet_type": [1],
-                        "item_name": {src_lang: r["item_name"]},
-                        "chronological_group": {src_lang: r["chronological_group"]},
-                        "video_chapter": {src_lang: r["video_chapter"]},
-                        "original_locale": src_lang,
+                        "item_name": {"de": r["item_name"], src_lang: r["item_name"]},
+                        "chronological_group": {
+                            "de": r["chronological_group"],
+                            src_lang: r["chronological_group"],
+                        },
+                        "video_chapter": {
+                            "de": r["video_chapter"],
+                            src_lang: r["video_chapter"],
+                        },
                         "timestamp": r["timestamp"],
                         "video_url": r["video_url"],
                         "trophy_id": None,
@@ -430,26 +435,29 @@ def push_rows_to_supabase(rows: List[Dict[str, Any]]):
                 f"   📝 [STAGING | Sprache: {src_lang.upper()}] {cname} ({gid[:8]}…): {len(staging_payload)} Zeilen -> staging_game_guides"
             )
 
-    # Erst NACH erfolgreichem Upload das lokale Backup aufräumen!
     if os.path.exists(FINAL_EXCEL_BACKUP):
         os.remove(FINAL_EXCEL_BACKUP)
 
-    print(
-        f"\n🏁 FERTIG! {staging_count} Paket(e) in Staging-Entwürfe, {multitab_count} Paket(e) in Multi-Tab (Rohmaterial) geladen."
-    )
+    return staging_count, multitab_count
+
+
+def load_completed_bundles() -> set[str]:
+    if os.path.exists(COMPLETED_LOG_FILE):
+        try:
+            with open(COMPLETED_LOG_FILE, "r", encoding="utf-8") as f:
+                return set(json.load(f))
+        except Exception:
+            pass
+    return set()
+
+
+def mark_bundle_completed(bundle_key: str, completed_set: set[str]):
+    completed_set.add(bundle_key)
+    with open(COMPLETED_LOG_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(completed_set), f)
 
 
 def run_stage2_enrich_and_upload():
-    # Falls das Backup aus einem abgebrochenen Lauf existiert -> Direkt hochladen ohne neuen YouTube-Crawl!
-    if os.path.exists(FINAL_EXCEL_BACKUP):
-        print(
-            f"⚡ Bestehendes Backup '{os.path.basename(FINAL_EXCEL_BACKUP)}' gefunden! Überspringe YouTube-Abfrage..."
-        )
-        df_backup = pd.read_excel(FINAL_EXCEL_BACKUP)
-        staging_rows = df_backup.to_dict(orient="records")
-        push_rows_to_supabase(staging_rows)
-        return
-
     if not os.path.exists(INPUT_EXCEL_FILE):
         sys.exit(f"❌ Bereinigte Excel nicht gefunden: {INPUT_EXCEL_FILE}")
 
@@ -458,11 +466,12 @@ def run_stage2_enrich_and_upload():
         print("ℹ️ Excel ist leer. Abbruch.")
         return
 
+    completed_bundles = load_completed_bundles()
     print(
-        f"📂 Lese {len(df)} bereinigte Zeilen aus '{os.path.basename(INPUT_EXCEL_FILE)}'..."
+        f"📂 Lese {len(df)} Zeilen aus '{os.path.basename(INPUT_EXCEL_FILE)}' "
+        f"({len(completed_bundles)} Spiel-Pakete bereits erledigt)..."
     )
 
-    # Gruppieren nach (game_id, creator_name)
     grouped: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for _, row in df.iterrows():
         gid = clean_str(row.get("game_id"))
@@ -470,6 +479,8 @@ def run_stage2_enrich_and_upload():
         if not gid:
             continue
         key = (gid, cname)
+        if f"{gid}::{cname}" in completed_bundles:
+            continue
         if key not in grouped:
             grouped[key] = {
                 "game_id": gid,
@@ -493,48 +504,99 @@ def run_stage2_enrich_and_upload():
                 }
             )
 
-    staging_rows = []
+    if not grouped:
+        print("🏁 Alle Pakete aus dieser Excel sind bereits in Supabase hochgeladen!")
+        return
 
     ydl_opts = {
         "skip_download": True,
         "quiet": True,
         "no_warnings": True,
-        "ignoreerrors": True,
+        "ignoreerrors": False,  # Muss False sein, damit Rate-Limits sofort abgefangen werden!
         "simulate": True,
         "check_formats": False,
+        "sleep_interval_requests": 1.5,
         "js_runtimes": {"node": {}},
-        "extractor_args": {
-            "youtube": {
-                "player_skip": ["configs", "js"],
-            }
-        },
+        "extractor_args": {"youtube": {"player_skip": ["configs", "js"]}},
     }
 
-    print(f"⏱️ Ziehe Timestamps & baue Guide-Zeilen für {len(grouped)} Spiel-Pakete...")
+    total_bundles = len(grouped)
+    yt_calls_made = 0
+    total_staging = 0
+    total_multitab = 0
+
+    print(f"🚀 Starte Streaming-Upload für {total_bundles} offene Spiel-Pakete...\n")
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        for (gid, cname), bundle in grouped.items():
-            unique_vids = {v["video_url"]: v for v in bundle["videos"]}.values()
+        for b_idx, ((gid, cname), bundle) in enumerate(grouped.items(), start=1):
+            unique_vids = list({v["video_url"]: v for v in bundle["videos"]}.values())
             enriched = []
             for v in unique_vids:
                 b, num, st, clean_lbl = classify_and_sort_key(v["video_title"])
                 enriched.append(
                     {**v, "b": b, "num": num, "st": st, "clean_label": clean_lbl}
                 )
-
             enriched.sort(key=lambda x: (x["b"], x["num"], x["st"], x["video_title"]))
 
             guide_id_counter = 1
             multi_video = len(enriched) > 1
-            print(f"   -> {bundle['game_title']} [{cname}] ({len(enriched)} Video(s))")
+            bundle_rows = []
+
+            # Fast-Path: Jedes Paket ab 12 Videos (oder ab 5 Videos mit Trophy/Part/Episode im Namen)
+            # wird OHNE YouTube-Einzelabruf direkt über die Videotitel angelegt!
+            is_single_trophy_series = SKIP_YT_FOR_LARGE_SINGLE_TROPHY_BUNDLES and (
+                len(enriched) >= SINGLE_TROPHY_BUNDLE_THRESHOLD
+                or (
+                    len(enriched) >= 5
+                    and sum(
+                        1
+                        for v in enriched
+                        if re.search(
+                            r"\b(trophy|trophäe|achievement|troféu|trofeo|part|episode|mission)\b",
+                            v["video_title"],
+                            re.I,
+                        )
+                    )
+                    >= len(enriched) * 0.5
+                )
+            )
+
+            mode_tag = (
+                "⚡ FAST-SERIES (0 YT-Calls)"
+                if is_single_trophy_series
+                else "⏱️ YT-CHAPTER-SCAN"
+            )
+            print(
+                f"[{b_idx}/{total_bundles}] {mode_tag}: {bundle['game_title']} [{cname}] ({len(enriched)} Vids)"
+            )
 
             for v in enriched:
                 base_url = v["video_url"]
-                ts_list = fetch_video_timestamps(base_url, ydl)
+                ts_list = []
+
+                if not is_single_trophy_series:
+                    try:
+                        ts_list = fetch_video_timestamps(base_url, ydl)
+                    except YouTubeRateLimitError:
+                        print(
+                            f"\n🛑 YOUTUBE RATE-LIMIT ERKANNT bei '{bundle['game_title']}'!\n"
+                            f"   Breche sofort sauber ab, damit keine leeren 00:00-Zeilen gespeichert werden.\n"
+                            f"   Alle bisherigen Spiele sind sicher in Supabase & '08.3_completed_bundles.json' gespeichert!"
+                        )
+                        sys.exit(1)
+
+                    yt_calls_made += 1
+                    time.sleep(2.0)
+                    if yt_calls_made % 300 == 0:
+                        print(
+                            "   ☕ Kurze 20s-Abkühlpause nach 300 YouTube-Calls (Anti-Ban)..."
+                        )
+                        time.sleep(20.0)
 
                 if ts_list:
                     group_name = v["clean_label"] if multi_video else "Walkthrough"
                     for ts in ts_list:
-                        staging_rows.append(
+                        bundle_rows.append(
                             {
                                 "game_id": bundle["game_id"],
                                 "platform_game_id": bundle["npwr_id"],
@@ -558,8 +620,8 @@ def run_stage2_enrich_and_upload():
                         )
                         guide_id_counter += 1
                 else:
-                    item_val = v["clean_label"] if multi_video else bundle["game_title"]
-                    staging_rows.append(
+                    item_val = v["video_title"] if multi_video else bundle["game_title"]
+                    bundle_rows.append(
                         {
                             "game_id": bundle["game_id"],
                             "platform_game_id": bundle["npwr_id"],
@@ -567,14 +629,24 @@ def run_stage2_enrich_and_upload():
                             "creator_input_url": bundle.get("creator_input_url")
                             or base_url,
                             "guide_id": guide_id_counter,
-                            "chronological_group": "Walkthrough",
+                            "chronological_group": (
+                                "Einzel-Trophäen & Videos"
+                                if is_single_trophy_series
+                                else "Walkthrough"
+                            ),
                             "video_chapter": v["video_title"],
-                            "item_name": item_val,
+                            "item_name": item_val[:120],
                             "timestamp": "00:00",
                             "video_url": f"{base_url}&t=0s",
                             "trophy_id": None,
-                            "is_trophy_relevant": "Nein",
-                            "_target_queue": bundle.get("target_queue"),
+                            "is_trophy_relevant": (
+                                "Ja" if is_single_trophy_series else "Nein"
+                            ),
+                            "_target_queue": (
+                                "STAGING"
+                                if is_single_trophy_series
+                                else bundle.get("target_queue")
+                            ),
                             "_spiel_typ": bundle.get("spiel_typ"),
                             "_guide_typ": bundle.get("guide_typ"),
                             "_publisher": bundle.get("publisher"),
@@ -583,14 +655,20 @@ def run_stage2_enrich_and_upload():
                     )
                     guide_id_counter += 1
 
-    # 1. Lokales Backup der finalen Zeilen speichern
-    pd.DataFrame(staging_rows).to_excel(FINAL_EXCEL_BACKUP, index=False)
-    print(
-        f"\n💾 Finale Zeilen als Backup gespeichert: {os.path.basename(FINAL_EXCEL_BACKUP)} ({len(staging_rows)} Zeilen)"
-    )
+            if bundle_rows:
+                try:
+                    s_cnt, m_cnt = push_rows_to_supabase(bundle_rows)
+                    total_staging += s_cnt
+                    total_multitab += m_cnt
+                    mark_bundle_completed(f"{gid}::{cname}", completed_bundles)
+                except Exception as db_err:
+                    print(f"   ❌ DB-Fehler bei {bundle['game_title']}: {db_err}")
+                    time.sleep(3.0)
 
-    # 2. Ab nach Supabase (Smart-Router: Staging vs. Multi-Tab)
-    push_rows_to_supabase(staging_rows)
+    print(
+        f"\n🏁 KOMPLETT FERTIG! {total_staging} Paket(e) in Staging-Entwürfe, "
+        f"{total_multitab} Paket(e) in Multi-Tab (Rohmaterial) geladen."
+    )
 
 
 if __name__ == "__main__":
