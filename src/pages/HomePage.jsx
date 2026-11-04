@@ -151,7 +151,9 @@ function HomeGamesTable({ games, openGame, loading }) {
                   </a>
                 </td>
                 <td>
-                  {consoleLabel ? <span className="home-tile-badge">{consoleLabel}</span> : '—'}
+                  {consoleLabel ? (
+                    <span className="home-tile-badge tb-bidi-isolate" dir="ltr">{consoleLabel}</span>
+                  ) : '—'}
                 </td>
                 <td className="home-data-table-tags">
                   <span className="home-data-tags">{tags || '—'}</span>
@@ -246,7 +248,7 @@ function HomePage({
     <div className="home-landing w-full min-w-0 overflow-x-hidden box-border">
       <header className="home-hero">
         <h1 className="home-hero-brand">
-          <a href="/" className="tb-brand" aria-label="TrophyBase.app">
+          <a href="/" className="tb-brand tb-bidi-isolate" dir="ltr" aria-label="TrophyBase.app">
             <span className="tb-name">TrophyBase</span>
             <span className="tb-tld">.app</span>
           </a>

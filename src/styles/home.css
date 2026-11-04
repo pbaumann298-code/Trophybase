@@ -21,7 +21,10 @@
 
 .tb-brand {
   display: inline-flex;
+  flex-direction: row;
   align-items: baseline;
+  direction: ltr;
+  unicode-bidi: isolate;
   font-weight: 900;
   letter-spacing: -0.03em;
   font-size: clamp(2rem, 5.5vw, 2.75rem);
@@ -802,6 +805,8 @@
 
 .home-tile-badge {
   display: inline-block;
+  direction: ltr;
+  unicode-bidi: isolate;
   margin-top: 0.25rem;
   font-size: 0.55rem;
   font-family: ui-monospace, monospace;

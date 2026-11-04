@@ -26,6 +26,12 @@ function extractGameTitle(rawTitle) {
   return 'Spiel';
 }
 
+function buildGoogleImagesCoverUrl(game) {
+  const title = extractGameTitle(game?.spieltitel ?? game?.title);
+  const query = `${title} ${game?.hardware || ''} cover igdb`.trim();
+  return `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(query)}`;
+}
+
 export default function AdminCoverInspector({
   game,
   size = 'md',
@@ -205,16 +211,26 @@ export default function AdminCoverInspector({
                     {extractGameTitle(game?.spieltitel ?? game?.title)}
                   </p>
                 </div>
-                {localCoverUrl ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={handleClear}
-                    className="shrink-0 rounded-lg border border-red-500/40 bg-red-500/10 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-red-300 hover:bg-red-500/20 disabled:opacity-50 cursor-pointer"
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <a
+                    href={buildGoogleImagesCoverUrl(game)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-sky-300 hover:bg-sky-500/20 no-underline"
                   >
-                    Cover löschen
-                  </button>
-                ) : null}
+                    🔍 Bild suchen
+                  </a>
+                  {localCoverUrl ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={handleClear}
+                      className="shrink-0 rounded-lg border border-red-500/40 bg-red-500/10 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-red-300 hover:bg-red-500/20 disabled:opacity-50 cursor-pointer"
+                    >
+                      Cover löschen
+                    </button>
+                  ) : null}
+                </div>
               </div>
 
               <p className="mt-2 text-xs leading-relaxed text-zinc-400">

@@ -55,6 +55,19 @@ function deriveSheetTypesFromRow(row) {
   return resolved.length > 0 ? resolved : [1];
 }
 
+function parseGuideIdNumber(value) {
+  const n = Number.parseInt(String(value ?? '').replace(/\D/g, ''), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function creatorKeyOfRow(row) {
+  return row?.creator_name || (row?.batch_key ? `Batch: ${row.batch_key}` : 'Unbekannter Creator');
+}
+
+function isEditableDraftTable(tableName) {
+  return tableName === 'staging_game_guides' || tableName === 'game_guides_rohmaterial';
+}
+
 function areGroupNamesSimilar(nameA, nameB) {
   const a = String(nameA ?? '').trim().toLowerCase();
   const b = String(nameB ?? '').trim().toLowerCase();
@@ -419,7 +432,7 @@ function GroupPillPopover({
 
 const CHAPTER_TARGET_COLUMNS = [
   { value: 'chronological_group', label: 'Chrono (chronological_group)', shortLabel: '⏱️ Chrono' },
-  { value: 'category_group', label: 'Category (category_group)', shortLabel: '🗂️ Category' },
+  { value: 'category_group', label: 'Category (category_group)', shortLabel: '🗂️ Collect' },
   { value: 'boss_group', label: 'Boss (boss_group)', shortLabel: '⚔️ Boss' },
   { value: 'item_name', label: 'Item / Bezeichnung (item_name)', shortLabel: '🏷️ Item' },
 ];
@@ -613,6 +626,107 @@ function getLocalizedCover(coverUrl) {
   if (!coverUrl) return '';
   if (typeof coverUrl === 'string') return coverUrl;
   return coverUrl.de || coverUrl.en || Object.values(coverUrl)[0] || '';
+}
+
+function chunkList(items, size) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function resolveQueueWorkflowStatus(statuses) {
+  if (statuses.has('READY_FOR_ADMIN')) return 'READY_FOR_ADMIN';
+  if (statuses.has('QWEN_QUEUE')) return 'QWEN_QUEUE';
+  if (statuses.has('CREATOR_REVIEW') || statuses.has('CREATOR_POLISH')) return 'CREATOR_REVIEW';
+  return 'CREATOR_RECORDING';
+}
+
+function filterRowsForCreator(rows, isCreatorMode, creatorProfile) {
+  if (!isCreatorMode || !creatorProfile?.id) return rows ?? [];
+  const creatorId = String(creatorProfile.id);
+  const channel = String(creatorProfile.channel_name ?? '').toLowerCase();
+  return (rows ?? []).filter(
+    (row) =>
+      String(row.creator_id ?? '') === creatorId ||
+      (channel && String(row.creator_name ?? '').toLowerCase() === channel),
+  );
+}
+
+function shapeStagingRows(rows) {
+  const localOverrides = loadStagingLocalOverrides();
+  return (rows ?? []).map((row) => {
+    const override = localOverrides[row.id];
+    return {
+      ...row,
+      ...(override || {}),
+      _sourceTable: 'staging_game_guides',
+    };
+  });
+}
+
+/** PostgREST liefert max. 1.000 Zeilen. range ist inklusiv. */
+async function fetchPages(buildQuery) {
+  const pageSize = 1000;
+  let from = 0;
+  const all = [];
+  while (true) {
+    const { data, error } = await buildQuery(from, from + pageSize - 1);
+    if (error) return { data: all, error };
+    const chunk = data ?? [];
+    all.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: all, error: null };
+}
+
+async function loadGamesByIds(ids) {
+  const map = new Map();
+  for (const chunk of chunkList(ids, 200)) {
+    if (chunk.length === 0) continue;
+    const { data, error } = await supabase
+      .from(TABLES.games)
+      .select(GAMES_QUEUE_SELECT_COLS)
+      .in('id', chunk);
+    if (error) {
+      throw new Error(`Fehler beim Laden der Spiele-Details: ${error.message}`);
+    }
+    for (const game of data ?? []) map.set(game.id, game);
+  }
+  return map;
+}
+
+async function loadGuideRowsByGameIds(table, gameIds) {
+  if (!gameIds.length) return [];
+  const { data, error } = await fetchPages((from, to) =>
+    supabase
+      .from(table)
+      .select('*')
+      .in('game_id', gameIds)
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
+  if (error) {
+    throw new Error(`Fehler beim Laden von ${table}: ${error.message}`);
+  }
+  return data;
+}
+
+async function loadGuideRowsForGame(table, gameId) {
+  const { data, error } = await fetchPages((from, to) =>
+    supabase
+      .from(table)
+      .select('*')
+      .eq('game_id', gameId)
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
+  if (error) {
+    throw new Error(`Fehler beim Laden von ${table}: ${error.message}`);
+  }
+  return data;
 }
 
 function getLocalizedItemName(itemName) {
@@ -984,6 +1098,13 @@ export default function IntranetDrafts({
   // Queue data
   const [stagingRows, setStagingRows] = useState([]);
   const [gamesMap, setGamesMap] = useState(new Map());
+  const [totalStagingCountsMap, setTotalStagingCountsMap] = useState(() => new Map());
+  const [totalStagingCreatorsMap, setTotalStagingCreatorsMap] = useState(() => new Map());
+  const [stagingWorkflowByGame, setStagingWorkflowByGame] = useState(() => new Map());
+  const stagingRowsRef = useRef(stagingRows);
+  stagingRowsRef.current = stagingRows;
+  const totalStagingCountsRef = useRef(totalStagingCountsMap);
+  totalStagingCountsRef.current = totalStagingCountsMap;
   const [filterQuery, setFilterQuery] = useState('');
   const [randomSeed, setRandomSeed] = useState(0);
   const randomWeightsRef = useRef(new Map());
@@ -1021,6 +1142,7 @@ export default function IntranetDrafts({
   const [approveLocale, setApproveLocale] = useState('');
   const [selectedGameTypes, setSelectedGameTypes] = useState([]);
   const [includeAllRohBatchesOnApprove, setIncludeAllRohBatchesOnApprove] = useState(true);
+  const [discardOtherCreators, setDiscardOtherCreators] = useState(true);
 
   // Vorabprüfung (Conflict Detection: Bereits Published oder Guide-Daten in game_guides)
   const [showConflictModal, setShowConflictModal] = useState(false);
@@ -1049,6 +1171,12 @@ export default function IntranetDrafts({
   const [reassignSearching, setReassignSearching] = useState(false);
   const [reassignSearchDone, setReassignSearchDone] = useState(false);
 
+  // Markierte Zeilen auf ein anderes Spiel verschieben oder duplizieren
+  const [batchTransferMode, setBatchTransferMode] = useState(null);
+  const [batchTransferQuery, setBatchTransferQuery] = useState('');
+  const [batchTransferResults, setBatchTransferResults] = useState([]);
+  const [batchTransferSearching, setBatchTransferSearching] = useState(false);
+
   // Supabase Deep-Link & DB-Röntgenblick (Game-Header)
   const [showDbInspector, setShowDbInspector] = useState(false);
   const [dbCopiedTable, setDbCopiedTable] = useState('');
@@ -1061,7 +1189,15 @@ export default function IntranetDrafts({
   // Rohmaterial (verschobene große Spiele) & Multi-Tab Editor
   const [showRohmaterialView, setShowRohmaterialView] = useState(false);
   const [rohmaterialGames, setRohmaterialGames] = useState([]);
+  const rohmaterialGamesRef = useRef(rohmaterialGames);
+  rohmaterialGamesRef.current = rohmaterialGames;
   const [rohmaterialRows, setRohmaterialRows] = useState([]);
+  const rohmaterialRowsRef = useRef(rohmaterialRows);
+  rohmaterialRowsRef.current = rohmaterialRows;
+  const creatorModeRef = useRef(isCreatorMode);
+  creatorModeRef.current = isCreatorMode;
+  const creatorProfileRef = useRef(creatorProfile);
+  creatorProfileRef.current = creatorProfile;
   const [productiveRohRows, setProductiveRohRows] = useState([]);
   const [rohGamesMap, setRohGamesMap] = useState(new Map());
   const [loadingRohmaterial, setLoadingRohmaterial] = useState(false);
@@ -1161,173 +1297,107 @@ export default function IntranetDrafts({
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [activePillPopover]);
 
-  // Load Rohmaterial queue (capped to MAX_VISIBLE_QUEUE_GAMES = 10 unique games).
-  // Candidate ids come from games.status.rohmaterial (one light row per game).
-  // Full guide rows are loaded only for those 10 ids. selectedGameId is included
-  // when it is one of those candidates, or while the Multi-Tab view is open.
+  // Gesamt-Index aller offenen Rohmaterial-Spiele. Volle Guide-Zeilen nur für die
+  // ersten MAX_VISIBLE_QUEUE_GAMES plus das aktuell ausgewählte Spiel.
   const fetchRohmaterialSummary = useCallback(async (preferredGameId = null) => {
     setLoadingRohmaterial(true);
     try {
-      const candidateGameIds = [];
+      const pendingIds = [];
       let idFrom = 0;
-      const ID_PAGE = 1000;
-
+      const idPage = 1000;
       while (true) {
         const { data: idChunk, error: idErr } = await supabase
           .from(TABLES.games)
           .select('id')
           .eq('status->>rohmaterial', 'PENDING_MULTI_TAB')
           .order('id', { ascending: true })
-          .range(idFrom, idFrom + ID_PAGE - 1);
+          .range(idFrom, idFrom + idPage - 1);
 
         if (idErr) {
           throw new Error(`Fehler beim Laden der Rohmaterial-Spiele: ${idErr.message}`);
         }
 
-        const ids = (idChunk ?? []).map((g) => g.id).filter(Boolean);
-        candidateGameIds.push(...ids);
-        if (ids.length < ID_PAGE) break;
-        idFrom += ID_PAGE;
+        const ids = (idChunk ?? []).map((game) => game.id).filter(Boolean);
+        pendingIds.push(...ids);
+        if (ids.length < idPage) break;
+        idFrom += idPage;
       }
 
-      // Unflagged batches: only peek at the next distinct game_ids until the cap is filled.
-      // Never page the whole guide table — one large game can be thousands of rows.
-      if (candidateGameIds.length < MAX_VISIBLE_QUEUE_GAMES) {
-        const seen = new Set(candidateGameIds);
-        let cursor = null;
-        let steps = 0;
-        while (candidateGameIds.length < MAX_VISIBLE_QUEUE_GAMES && steps < MAX_VISIBLE_QUEUE_GAMES) {
-          steps += 1;
-          let distinctQuery = supabase
-            .from(TABLES.guidesRohmaterial)
-            .select('game_id')
-            .not('game_id', 'is', null)
-            .order('game_id', { ascending: true })
-            .limit(1);
-          if (cursor) distinctQuery = distinctQuery.gt('game_id', cursor);
+      const { data: slimRows, error: slimErr } = await fetchPages((from, to) =>
+        supabase
+          .from(TABLES.guidesRohmaterial)
+          .select('game_id, creator_name, batch_key')
+          .order('id', { ascending: true })
+          .range(from, to),
+      );
+      if (slimErr) {
+        throw new Error(`Fehler beim Laden von game_guides_rohmaterial: ${slimErr.message}`);
+      }
 
-          const { data: distinctRows, error: distinctErr } = await distinctQuery;
-          if (distinctErr) {
-            throw new Error(`Fehler beim Laden von game_guides_rohmaterial: ${distinctErr.message}`);
-          }
-          const nextId = distinctRows?.[0]?.game_id;
-          if (!nextId) break;
-          cursor = nextId;
-          if (!seen.has(nextId)) {
-            seen.add(nextId);
-            candidateGameIds.push(nextId);
-          }
+      const counts = new Map();
+      const creators = new Map();
+      const batches = new Map();
+      const allIds = new Set(pendingIds.filter(Boolean));
+
+      for (const row of slimRows ?? []) {
+        const gameId = row.game_id;
+        if (!gameId) continue;
+        allIds.add(gameId);
+        counts.set(gameId, (counts.get(gameId) || 0) + 1);
+        if (!creators.has(gameId)) creators.set(gameId, new Set());
+        creators.get(gameId).add(row.creator_name || 'Unbekannt');
+        if (row.batch_key) {
+          if (!batches.has(gameId)) batches.set(gameId, new Set());
+          batches.get(gameId).add(row.batch_key);
         }
       }
 
-      const uniqueCandidateIds = [...new Set(candidateGameIds)];
-      uniqueCandidateIds.sort((a, b) => getGameRandomWeight(a) - getGameRandomWeight(b));
+      const sortedIds = [...allIds].sort(
+        (a, b) => getGameRandomWeight(a) - getGameRandomWeight(b),
+      );
+      const gamesById = await loadGamesByIds(sortedIds);
 
       const pinnedId = preferredGameId || selectedGameIdRef.current || initialGameId;
-      const shouldPin =
-        Boolean(pinnedId) &&
-        (uniqueCandidateIds.includes(pinnedId) || activeDataSourceRef.current === 'rohmaterial');
-      let top10GameIds = uniqueCandidateIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
-      if (shouldPin && !top10GameIds.includes(pinnedId)) {
-        top10GameIds = [pinnedId, ...uniqueCandidateIds.filter((id) => id !== pinnedId)].slice(
-          0,
-          MAX_VISIBLE_QUEUE_GAMES
-        );
+      let detailIds = sortedIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
+      if (pinnedId && allIds.has(pinnedId) && !detailIds.includes(pinnedId)) {
+        detailIds = [...detailIds, pinnedId];
       }
 
-      if (top10GameIds.length === 0) {
-        setRohmaterialRows([]);
-        setRohGamesMap(new Map());
-        setRohmaterialGames([]);
-        return;
-      }
-
-      let rohRows = [];
-      let rFrom = 0;
-      const PAGE_SIZE = 1000;
-
-      while (true) {
-        const { data: chunk, error: rErr } = await supabase
-          .from(TABLES.guidesRohmaterial)
-          .select('*')
-          .in('game_id', top10GameIds)
-          .order('id', { ascending: true })
-          .range(rFrom, rFrom + PAGE_SIZE - 1);
-
-        if (rErr) {
-          throw new Error(`Fehler beim Laden von game_guides_rohmaterial: ${rErr.message}`);
-        }
-        const list = (chunk ?? []).map((r) => ({
-          ...r,
+      const fullRows = (await loadGuideRowsByGameIds(TABLES.guidesRohmaterial, detailIds)).map(
+        (row) => ({
+          ...row,
           _sourceTable: TABLES.guidesRohmaterial,
-        }));
-        rohRows = rohRows.concat(list);
-        if (list.length < PAGE_SIZE) break;
-        rFrom += PAGE_SIZE;
-      }
+        }),
+      );
 
-      setRohmaterialRows(rohRows);
-
-      const { data: loadedGames, error: gamesErr } = await supabase
-        .from(TABLES.games)
-        .select(GAMES_QUEUE_SELECT_COLS)
-        .in('id', top10GameIds);
-
-      if (gamesErr) {
-        throw new Error(`Fehler beim Laden der Rohmaterial-Spiele: ${gamesErr.message}`);
-      }
-
-      const existingMap = new Map((loadedGames ?? []).map((g) => [g.id, g]));
-      setRohGamesMap(existingMap);
-
-      const groupedByGame = new Map();
-      for (const g of existingMap.values()) {
-        const isPending = String(g.status?.rohmaterial ?? '') === 'PENDING_MULTI_TAB';
-        const hasRows = rohRows.some((r) => r.game_id === g.id);
-        if (!isPending && !hasRows) continue;
-        groupedByGame.set(g.id, {
-          gameId: g.id,
-          game: g,
-          title: getLocalizedTitle(g.spieltitel),
-          platformGameId: g.platform_game_id || (Array.isArray(g.platform_game_id) ? g.platform_game_id[0] : '—'),
-          coverUrl: getLocalizedCover(g.cover_url),
-          creators: new Set(),
-          batches: new Set(),
-          rowCount: 0,
-          statusRohmaterial: g.status?.rohmaterial || null,
+      const summaryList = [];
+      for (const gameId of sortedIds) {
+        const game = gamesById.get(gameId);
+        const rowCount = counts.get(gameId) || 0;
+        const isPending = String(game?.status?.rohmaterial ?? '') === 'PENDING_MULTI_TAB';
+        if (!isPending && rowCount === 0) continue;
+        const creatorSet = creators.get(gameId) || new Set();
+        const batchSet = batches.get(gameId) || new Set();
+        summaryList.push({
+          gameId,
+          game: game || { id: gameId },
+          title: game ? getLocalizedTitle(game.spieltitel) : 'Unbekanntes Spiel',
+          platformGameId:
+            game?.platform_game_id ||
+            (Array.isArray(game?.platform_game_id) ? game.platform_game_id[0] : '—'),
+          coverUrl: game ? getLocalizedCover(game.cover_url) : '',
+          creators: creatorSet,
+          batches: batchSet,
+          rowCount,
+          creatorCount: Math.max(creatorSet.size, 1),
+          creatorList: [...creatorSet],
+          batchList: [...batchSet],
+          statusRohmaterial: game?.status?.rohmaterial || (rowCount > 0 ? 'ROHMATERIAL' : null),
         });
       }
 
-      for (const r of rohRows) {
-        const key = r.game_id || r.platform_game_id || r.batch_key;
-        if (!key) continue;
-        let entry = groupedByGame.get(key);
-        if (!entry) {
-          entry = {
-            gameId: key,
-            game: { id: key, platform_game_id: r.platform_game_id, spieltitel: r.platform_game_id || r.batch_key },
-            title: r.platform_game_id || r.batch_key || 'Unbekanntes Spiel',
-            platformGameId: r.platform_game_id || '—',
-            coverUrl: '',
-            creators: new Set(),
-            batches: new Set(),
-            rowCount: 0,
-            statusRohmaterial: 'ROHMATERIAL',
-          };
-          groupedByGame.set(key, entry);
-        }
-        if (r.creator_name) entry.creators.add(r.creator_name);
-        if (r.batch_key) entry.batches.add(r.batch_key);
-        entry.rowCount += 1;
-      }
-
-      const summaryList = [...groupedByGame.values()].map((item) => ({
-        ...item,
-        creatorCount: Math.max(item.creators.size, 1),
-        creatorList: [...item.creators],
-        batchList: [...item.batches],
-      }));
-      summaryList.sort((a, b) => getGameRandomWeight(a.gameId) - getGameRandomWeight(b.gameId));
+      setRohGamesMap(gamesById);
+      setRohmaterialRows(fullRows);
       setRohmaterialGames(summaryList);
     } catch (err) {
       console.error('Rohmaterial-Übersicht konnte nicht geladen werden:', err);
@@ -1337,115 +1407,86 @@ export default function IntranetDrafts({
     }
   }, [getGameRandomWeight, initialGameId]);
 
-  // Load staging queue (capped to MAX_VISIBLE_QUEUE_GAMES = 10 unique games to avoid loading 17,000+ rows)
+  // Gesamt-Index aller Staging-Entwürfe. Volle Guide-Zeilen nur für die ersten
+  // MAX_VISIBLE_QUEUE_GAMES plus das aktuell ausgewählte Spiel.
   const fetchQueue = useCallback(async (preferredGameId = null) => {
     setLoading(true);
     setError('');
     try {
-      let { data: slimRowsRaw, error: slimError } = await supabase
-        .from('staging_game_guides')
-        .select('game_id, creator_id, creator_name, workflow_status')
-        .order('id', { ascending: true })
-        .limit(400);
-
-      if (slimError) {
-        const fallbackRes = await supabase
-          .from('staging_game_guides')
-          .select('game_id, creator_id, creator_name')
-          .order('id', { ascending: true })
-          .limit(400);
-        slimRowsRaw = fallbackRes.data;
-        slimError = fallbackRes.error;
-      }
-
-      if (slimError) {
-        throw new Error(`Fehler beim Laden von staging_game_guides: ${slimError.message}`);
-      }
-
-      const slimFiltered =
-        isCreatorMode && creatorProfile?.id
-          ? (slimRowsRaw ?? []).filter(
-              (r) =>
-                String(r.creator_id ?? '') === String(creatorProfile.id) ||
-                (creatorProfile.channel_name &&
-                  String(r.creator_name ?? '').toLowerCase() ===
-                    String(creatorProfile.channel_name).toLowerCase())
-            )
-          : (slimRowsRaw ?? []);
-
-      const candidateGameIds = [...new Set(slimFiltered.map((r) => r.game_id).filter(Boolean))];
-      candidateGameIds.sort((a, b) => getGameRandomWeight(a) - getGameRandomWeight(b));
-
-      const pinnedId = preferredGameId || selectedGameIdRef.current || initialGameId;
-      let top10GameIds = candidateGameIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
-      if (pinnedId && !top10GameIds.includes(pinnedId)) {
-        top10GameIds = [pinnedId, ...candidateGameIds.filter((id) => id !== pinnedId)].slice(
-          0,
-          MAX_VISIBLE_QUEUE_GAMES
-        );
-      }
-
-      if (top10GameIds.length === 0) {
-        setStagingRows([]);
-        setGamesMap(new Map());
-        return;
-      }
-
-      let allRows = [];
+      let includeWorkflow = true;
+      const slimRows = [];
       let from = 0;
-      const PAGE_SIZE = 1000;
-
+      const pageSize = 1000;
       while (true) {
-        const { data: rows, error: readError } = await supabase
+        const columns = includeWorkflow
+          ? 'game_id, creator_id, creator_name, workflow_status'
+          : 'game_id, creator_id, creator_name';
+        const { data, error: slimError } = await supabase
           .from('staging_game_guides')
-          .select('*')
-          .in('game_id', top10GameIds)
+          .select(columns)
           .order('id', { ascending: true })
-          .range(from, from + PAGE_SIZE - 1);
+          .range(from, from + pageSize - 1);
 
-        if (readError) {
-          throw new Error(`Fehler beim Laden von staging_game_guides: ${readError.message}`);
+        if (slimError && includeWorkflow) {
+          includeWorkflow = false;
+          continue;
+        }
+        if (slimError) {
+          throw new Error(`Fehler beim Laden von staging_game_guides: ${slimError.message}`);
         }
 
-        const chunk = rows ?? [];
-        allRows = allRows.concat(chunk);
-        if (chunk.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
+        const chunk = data ?? [];
+        slimRows.push(...chunk);
+        if (chunk.length < pageSize) break;
+        from += pageSize;
       }
 
-      const localOverrides = loadStagingLocalOverrides();
-      const filteredRawRows =
-        isCreatorMode && creatorProfile?.id
-          ? allRows.filter(
-              (r) =>
-                String(r.creator_id ?? '') === String(creatorProfile.id) ||
-                (creatorProfile.channel_name &&
-                  String(r.creator_name ?? '').toLowerCase() ===
-                    String(creatorProfile.channel_name).toLowerCase())
-            )
-          : allRows;
-      const mergedStaging = filteredRawRows.map((r) => {
-        const ov = localOverrides[r.id];
-        return {
-          ...r,
-          ...(ov || {}),
-          _sourceTable: 'staging_game_guides',
-        };
-      });
+      const slimFiltered = filterRowsForCreator(slimRows, isCreatorMode, creatorProfile);
+      const countsMap = new Map();
+      const creatorsMap = new Map();
+      const workflowMap = new Map();
 
-      setStagingRows(mergedStaging);
-
-      const { data: initialGames, error: initialErr } = await supabase
-        .from(TABLES.games)
-        .select(GAMES_QUEUE_SELECT_COLS)
-        .in('id', top10GameIds);
-
-      if (initialErr) {
-        throw new Error(`Fehler beim Laden der Spiele-Details: ${initialErr.message}`);
+      for (const row of slimFiltered) {
+        const gameId = row.game_id;
+        if (!gameId) continue;
+        countsMap.set(gameId, (countsMap.get(gameId) || 0) + 1);
+        if (!creatorsMap.has(gameId)) creatorsMap.set(gameId, new Set());
+        creatorsMap.get(gameId).add(row.creator_name || 'Unbekannt');
+        if (!workflowMap.has(gameId)) workflowMap.set(gameId, new Set());
+        workflowMap
+          .get(gameId)
+          .add(String(row.workflow_status ?? 'CREATOR_RECORDING').trim().toUpperCase());
       }
 
-      const initialMap = new Map((initialGames ?? []).map((g) => [g.id, g]));
-      setGamesMap(initialMap);
+      const creatorCountMap = new Map();
+      for (const [gameId, names] of creatorsMap) creatorCountMap.set(gameId, names.size);
+      const workflowResolved = new Map();
+      for (const [gameId, statuses] of workflowMap) {
+        workflowResolved.set(gameId, resolveQueueWorkflowStatus(statuses));
+      }
+
+      const candidateGameIds = [...countsMap.keys()].sort(
+        (a, b) => getGameRandomWeight(a) - getGameRandomWeight(b),
+      );
+      const nextGamesMap = await loadGamesByIds(candidateGameIds);
+
+      const pinnedId = preferredGameId || selectedGameIdRef.current || initialGameId;
+      let detailIds = candidateGameIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
+      if (pinnedId && countsMap.has(pinnedId) && !detailIds.includes(pinnedId)) {
+        detailIds = [...detailIds, pinnedId];
+      }
+
+      const detailRows = filterRowsForCreator(
+        await loadGuideRowsByGameIds('staging_game_guides', detailIds),
+        isCreatorMode,
+        creatorProfile,
+      );
+
+      setTotalStagingCountsMap(countsMap);
+      setTotalStagingCreatorsMap(creatorCountMap);
+      setStagingWorkflowByGame(workflowResolved);
+      setGamesMap(nextGamesMap);
+      setStagingRows(shapeStagingRows(detailRows));
     } catch (err) {
       console.error('Entwürfe-Queue Fehler:', err);
       setStagingRows([]);
@@ -1461,6 +1502,55 @@ export default function IntranetDrafts({
       fetchRohmaterialSummary();
     }
   }, [fetchQueue, fetchRohmaterialSummary, isCreatorMode]);
+
+  // Volle Guide-Zeilen nur nachladen, wenn das gewählte Spiel nicht in den ersten 10 steckt.
+  useEffect(() => {
+    if (!selectedGameId) return undefined;
+    let cancelled = false;
+
+    async function ensureSelectedGuideRows() {
+      try {
+        if (activeDataSource === 'rohmaterial') {
+          if (rohmaterialRowsRef.current.some((row) => row.game_id === selectedGameId)) return;
+          const summary = rohmaterialGamesRef.current.find((item) => item.gameId === selectedGameId);
+          if (summary && !(Number(summary.rowCount) > 0)) return;
+          const rows = (await loadGuideRowsForGame(TABLES.guidesRohmaterial, selectedGameId)).map(
+            (row) => ({
+              ...row,
+              _sourceTable: TABLES.guidesRohmaterial,
+            }),
+          );
+          if (cancelled || rows.length === 0) return;
+          setRohmaterialRows((prev) => {
+            if (prev.some((row) => row.game_id === selectedGameId)) return prev;
+            return prev.concat(rows);
+          });
+          return;
+        }
+
+        if (stagingRowsRef.current.some((row) => row.game_id === selectedGameId)) return;
+        if (!totalStagingCountsRef.current.has(selectedGameId)) return;
+        const rows = filterRowsForCreator(
+          await loadGuideRowsForGame('staging_game_guides', selectedGameId),
+          creatorModeRef.current,
+          creatorProfileRef.current,
+        );
+        if (cancelled || rows.length === 0) return;
+        const shaped = shapeStagingRows(rows);
+        setStagingRows((prev) => {
+          if (prev.some((row) => row.game_id === selectedGameId)) return prev;
+          return prev.concat(shaped);
+        });
+      } catch (err) {
+        console.error('Guide-Zeilen für das ausgewählte Spiel konnten nicht geladen werden:', err);
+      }
+    }
+
+    ensureSelectedGuideRows();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGameId, activeDataSource]);
 
   // Load productive game_guides rows when a Rohmaterial game has PENDING_MULTI_TAB in game_guides
   useEffect(() => {
@@ -1537,18 +1627,22 @@ export default function IntranetDrafts({
   // List of games in staging queue (random order instead of alphabetical)
   const queueGamesList = useMemo(() => {
     const list = [];
-    for (const [gameId, rows] of gameGroups.entries()) {
+    for (const [gameId, indexedCount] of totalStagingCountsMap.entries()) {
+      const rows = gameGroups.get(gameId);
+      const hasDetail = Array.isArray(rows) && rows.length > 0;
       const game = gamesMap.get(gameId) || { id: gameId };
       const title = getLocalizedTitle(game.spieltitel);
-      const creators = new Set(rows.map((r) => r.creator_name || 'Unbekannt'));
-      const statuses = new Set(
-        rows.map((r) => String(r.workflow_status ?? 'CREATOR_RECORDING').trim().toUpperCase())
-      );
-      let workflowStatus = 'CREATOR_RECORDING';
-      if (statuses.has('READY_FOR_ADMIN')) workflowStatus = 'READY_FOR_ADMIN';
-      else if (statuses.has('QWEN_QUEUE')) workflowStatus = 'QWEN_QUEUE';
-      else if (statuses.has('CREATOR_REVIEW') || statuses.has('CREATOR_POLISH')) {
-        workflowStatus = 'CREATOR_REVIEW';
+      let creatorCount = totalStagingCreatorsMap.get(gameId) ?? 0;
+      let rowCount = indexedCount ?? 0;
+      let workflowStatus = stagingWorkflowByGame.get(gameId) || 'CREATOR_RECORDING';
+      if (hasDetail) {
+        creatorCount = new Set(rows.map((row) => row.creator_name || 'Unbekannt')).size;
+        rowCount = rows.length;
+        workflowStatus = resolveQueueWorkflowStatus(
+          new Set(
+            rows.map((row) => String(row.workflow_status ?? 'CREATOR_RECORDING').trim().toUpperCase()),
+          ),
+        );
       }
 
       list.push({
@@ -1556,8 +1650,8 @@ export default function IntranetDrafts({
         game,
         title,
         platformGameId: game.platform_game_id || (Array.isArray(game.platform_game_id) ? game.platform_game_id[0] : '—'),
-        creatorCount: creators.size,
-        rowCount: rows.length,
+        creatorCount,
+        rowCount,
         coverUrl: getLocalizedCover(game.cover_url),
         workflowStatus,
         source: 'staging',
@@ -1567,7 +1661,15 @@ export default function IntranetDrafts({
     list.sort((a, b) => getGameRandomWeight(a.gameId) - getGameRandomWeight(b.gameId));
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameGroups, gamesMap, getGameRandomWeight, randomSeed]);
+  }, [
+    totalStagingCountsMap,
+    totalStagingCreatorsMap,
+    stagingWorkflowByGame,
+    gameGroups,
+    gamesMap,
+    getGameRandomWeight,
+    randomSeed,
+  ]);
 
   // Active sidebar list depending on activeDataSource ('staging' vs 'rohmaterial')
   const activeSidebarGamesList = useMemo(() => {
@@ -1610,13 +1712,24 @@ export default function IntranetDrafts({
     return top;
   }, [filteredQueueList, selectedGameId]);
 
+  const totalStagingRowCount = useMemo(() => {
+    let sum = 0;
+    for (const count of totalStagingCountsMap.values()) sum += Number(count) || 0;
+    return sum;
+  }, [totalStagingCountsMap]);
+
+  const totalRohmaterialRowCount = useMemo(
+    () => rohmaterialGames.reduce((sum, item) => sum + (Number(item.rowCount) || 0), 0),
+    [rohmaterialGames],
+  );
+
   // Randomize queue order & select new top game
   const handleRandomizeQueue = useCallback(() => {
     randomWeightsRef.current.clear();
     const currentIds =
       activeDataSource === 'rohmaterial'
         ? rohmaterialGames.map((g) => g.gameId)
-        : Array.from(gameGroups.keys());
+        : Array.from(totalStagingCountsMap.keys());
 
     for (const id of currentIds) {
       if (id) {
@@ -1633,13 +1746,13 @@ export default function IntranetDrafts({
       );
       setSelectedGameId(sortedIds[0]);
     }
-  }, [activeDataSource, rohmaterialGames, gameGroups]);
+  }, [activeDataSource, rohmaterialGames, totalStagingCountsMap]);
 
   // Set default selection when queue loads or changes
   useEffect(() => {
     if (activeDataSource === 'staging') {
       if (queueGamesList.length > 0) {
-        if (!selectedGameId || !gameGroups.has(selectedGameId)) {
+        if (!selectedGameId || !queueGamesList.some((item) => item.gameId === selectedGameId)) {
           setSelectedGameId(queueGamesList[0].gameId);
         }
       } else if (rohmaterialGames.length > 0) {
@@ -1661,7 +1774,7 @@ export default function IntranetDrafts({
       setSelectedGameId(null);
       setSelectedCreatorName(null);
     }
-  }, [activeDataSource, queueGamesList, rohmaterialGames, selectedGameId, gameGroups]);
+  }, [activeDataSource, queueGamesList, rohmaterialGames, selectedGameId]);
 
   // Reset filters & selection when game or creator changes
   useEffect(() => {
@@ -1719,6 +1832,8 @@ export default function IntranetDrafts({
     }
     return tabs;
   }, [creatorGroups]);
+
+  const otherCreatorsCount = Math.max(0, creatorTabs.length - 1);
 
   // Keep creator selection valid
   useEffect(() => {
@@ -2674,6 +2789,7 @@ export default function IntranetDrafts({
         [field]: formatFieldValueForTable(row, field, value),
       }));
 
+      setSelectedRowIds(new Set());
       setBatchCustomField(null);
 
       let label = field;
@@ -2733,6 +2849,10 @@ export default function IntranetDrafts({
       const updatedCount = await persistRowPatchesToSupabase(targetRows, (row) => ({
         [targetField]: formatFieldValueForTable(row, targetField, cleanedByRowId.get(row.id)),
       }));
+
+      if (scope === 'selected') {
+        setSelectedRowIds(new Set());
+      }
 
       const colMeta = CHAPTER_TARGET_COLUMNS.find((c) => c.value === targetField);
       const colLabel = colMeta ? colMeta.label : targetField;
@@ -2847,6 +2967,7 @@ export default function IntranetDrafts({
     setApproveLocale((prev) => prev || 'de');
     setSelectedGameTypes(parseGameTypes(selectedGame?.spiel_typ));
     setIncludeAllRohBatchesOnApprove(true);
+    setDiscardOtherCreators(true);
     setShowConflictModal(true);
   };
 
@@ -2884,70 +3005,120 @@ export default function IntranetDrafts({
   };
 
   // Vorabprüfung: Entwurf verwerfen (Live-Spiel & bestehende game_guides bleiben unangetastet)
-  const handleConflictDiscardDraft = async () => {
+  const handleConflictDiscardDraft = async (scope = 'all') => {
     if (!selectedGameId || actionBusy) return;
     const targetGameId = selectedGameId;
     const targetCreator = selectedCreatorName;
-    const isSingleCreator = creatorTabs.length <= 1 || !targetCreator;
-    const targetTable =
-      activeDataSource === 'rohmaterial' ? TABLES.guidesRohmaterial : 'staging_game_guides';
+    const discardAll = scope !== 'single' || creatorTabs.length <= 1 || !targetCreator;
 
     setActionBusy(true);
     setNotice('');
     setError('');
 
-    let query = supabase.from(targetTable).delete().eq('game_id', targetGameId);
-    if (!isSingleCreator && targetCreator) {
-      query = query.eq('creator_name', targetCreator);
-    }
-
-    const { error: delErr } = await query;
+    const stagingDelete = supabase.from('staging_game_guides').delete().eq('game_id', targetGameId);
+    const rohDelete = supabase.from(TABLES.guidesRohmaterial).delete().eq('game_id', targetGameId);
+    const [{ error: stagingDelErr }, { error: rohDelErr }] = await Promise.all([
+      discardAll || !targetCreator ? stagingDelete : stagingDelete.eq('creator_name', targetCreator),
+      discardAll || !targetCreator ? rohDelete : rohDelete.eq('creator_name', targetCreator),
+    ]);
     setActionBusy(false);
 
-    if (delErr) {
-      setError(`Entwurf verwerfen fehlgeschlagen: ${delErr.message}`);
+    if (stagingDelErr || rohDelErr) {
+      setError(
+        `Entwurf verwerfen fehlgeschlagen: ${stagingDelErr?.message || rohDelErr?.message}`,
+      );
       return;
     }
 
-    setShowConflictModal(false);
-    setNotice(
-      `🗑️ Vorabprüfung: Entwurf für "${getLocalizedTitle(selectedGame?.spieltitel)}"${!isSingleCreator ? ` (Creator: ${targetCreator})` : ''} verworfen. Das veröffentlichte Live-Spiel bleibt unverändert.`
-    );
-
-    if (isSingleCreator) {
+    const gameTitle = getLocalizedTitle(selectedGame?.spieltitel);
+    if (discardAll) {
+      setShowConflictModal(false);
+      setNotice(
+        `🗑️ Vorabprüfung: Alle Entwürfe für "${gameTitle}" verworfen. Das veröffentlichte Live-Spiel bleibt unverändert.`,
+      );
       jumpToNextGame(targetGameId);
-      if (activeDataSource === 'rohmaterial') {
-        setRohmaterialRows((prev) =>
-          prev.filter(
-            (r) =>
-              r.game_id !== targetGameId &&
-              r.platform_game_id !== targetGameId &&
-              r.batch_key !== targetGameId
-          )
-        );
-        setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== targetGameId));
-      } else {
-        setStagingRows((prev) => prev.filter((r) => r.game_id !== targetGameId));
-        fetchQueue();
-      }
-    } else {
-      jumpToNextCreatorOrGame(targetGameId, targetCreator);
-      if (activeDataSource === 'rohmaterial') {
-        setRohmaterialRows((prev) =>
-          prev.filter((r) => !(r.game_id === targetGameId && r.creator_name === targetCreator))
-        );
-        fetchRohmaterialSummary();
-      } else {
-        setStagingRows((prev) =>
-          prev.filter((r) => !(r.game_id === targetGameId && r.creator_name === targetCreator))
-        );
-      }
+      setStagingRows((prev) => prev.filter((row) => row.game_id !== targetGameId));
+      setRohmaterialRows((prev) =>
+        prev.filter(
+          (row) =>
+            row.game_id !== targetGameId &&
+            row.platform_game_id !== targetGameId &&
+            row.batch_key !== targetGameId,
+        ),
+      );
+      setRohmaterialGames((prev) => prev.filter((game) => game.gameId !== targetGameId));
+      setTotalStagingCountsMap((prev) => {
+        if (!prev.has(targetGameId)) return prev;
+        const next = new Map(prev);
+        next.delete(targetGameId);
+        return next;
+      });
+      setTotalStagingCreatorsMap((prev) => {
+        if (!prev.has(targetGameId)) return prev;
+        const next = new Map(prev);
+        next.delete(targetGameId);
+        return next;
+      });
+      fetchQueue();
+      return;
     }
+
+    setNotice(
+      `🗑️ Vorabprüfung: Nur Creator "${targetCreator}" von "${gameTitle}" verworfen. Die übrigen Creator bleiben in der Queue.`,
+    );
+    setStagingRows((prev) =>
+      prev.filter((row) => !(row.game_id === targetGameId && row.creator_name === targetCreator)),
+    );
+    setRohmaterialRows((prev) =>
+      prev.filter((row) => !(row.game_id === targetGameId && row.creator_name === targetCreator)),
+    );
+    const removedStaging = stagingRows.filter(
+      (row) => row.game_id === targetGameId && row.creator_name === targetCreator,
+    ).length;
+    const removedRoh = rohmaterialRows.filter(
+      (row) => row.game_id === targetGameId && row.creator_name === targetCreator,
+    ).length;
+    if (removedStaging > 0) {
+      setTotalStagingCountsMap((prev) => {
+        const next = new Map(prev);
+        const left = (next.get(targetGameId) || 0) - removedStaging;
+        if (left > 0) next.set(targetGameId, left);
+        else next.delete(targetGameId);
+        return next;
+      });
+      setTotalStagingCreatorsMap((prev) => {
+        const next = new Map(prev);
+        const left = (next.get(targetGameId) || 1) - 1;
+        if (left > 0) next.set(targetGameId, left);
+        else next.delete(targetGameId);
+        return next;
+      });
+    }
+    if (removedRoh > 0) {
+      setRohmaterialGames((prev) =>
+        prev
+          .map((item) =>
+            item.gameId === targetGameId
+              ? { ...item, rowCount: Math.max(0, (item.rowCount || 0) - removedRoh) }
+              : item,
+          )
+          .filter((item) => item.gameId !== targetGameId || item.rowCount > 0),
+      );
+    }
+
+    const remainingCreators = creatorTabs.filter((tab) => tab.creatorName !== targetCreator);
+    if (remainingCreators.length === 0) {
+      setShowConflictModal(false);
+      jumpToNextGame(targetGameId);
+      return;
+    }
+    jumpToNextCreatorOrGame(targetGameId, targetCreator);
   };
 
   // Open approval modal (oder Vorabprüfung, falls Spiel bereits Published / Guide-Daten in game_guides hat)
   const handleOpenApproveModal = () => {
     if (!selectedGameId || !selectedCreatorName || actionBusy) return;
+    setDiscardOtherCreators(true);
     if (conflictInfo.hasConflict) {
       handleOpenConflictModal();
       return;
@@ -2955,6 +3126,7 @@ export default function IntranetDrafts({
     setApproveLocale('de');
     setSelectedGameTypes(parseGameTypes(selectedGame?.spiel_typ));
     setIncludeAllRohBatchesOnApprove(true);
+    setDiscardOtherCreators(true);
     setShowApproveModal(true);
   };
 
@@ -2981,7 +3153,76 @@ export default function IntranetDrafts({
     setNotice('');
     setError('');
 
+    const keepOtherCreators = discardOtherCreators === false && otherCreatorsCount > 0;
+    const otherCreatorStagingRows = keepOtherCreators
+      ? stagingRows.filter(
+          (row) => row.game_id === selectedGameId && row.creator_name !== selectedCreatorName,
+        )
+      : [];
+
+    const deleteDraftRowsAfterApprove = async () => {
+      if (!keepOtherCreators) {
+        const [{ error: stagingDelErr }, { error: rohDelErr }] = await Promise.all([
+          supabase.from('staging_game_guides').delete().eq('game_id', selectedGameId),
+          supabase.from(TABLES.guidesRohmaterial).delete().eq('game_id', selectedGameId),
+        ]);
+        if (stagingDelErr) throw new Error(`staging_game_guides: ${stagingDelErr.message}`);
+        if (rohDelErr) throw new Error(`${TABLES.guidesRohmaterial}: ${rohDelErr.message}`);
+        return [];
+      }
+
+      const [{ error: stagingDelErr }, { error: rohDelErr }] = await Promise.all([
+        supabase
+          .from('staging_game_guides')
+          .delete()
+          .eq('game_id', selectedGameId)
+          .eq('creator_name', selectedCreatorName),
+        supabase
+          .from(TABLES.guidesRohmaterial)
+          .delete()
+          .eq('game_id', selectedGameId)
+          .eq('creator_name', selectedCreatorName),
+      ]);
+      if (stagingDelErr) throw new Error(`staging_game_guides: ${stagingDelErr.message}`);
+      if (rohDelErr) throw new Error(`${TABLES.guidesRohmaterial}: ${rohDelErr.message}`);
+
+      if (otherCreatorStagingRows.length === 0) return [];
+
+      const { count: remainingCount, error: remainErr } = await supabase
+        .from('staging_game_guides')
+        .select('id', { count: 'exact', head: true })
+        .eq('game_id', selectedGameId);
+      if (remainErr) throw new Error(`staging_game_guides: ${remainErr.message}`);
+      if ((remainingCount ?? 0) > 0) return [];
+
+      const payloads = otherCreatorStagingRows.map((row) => {
+        const copy = { ...row };
+        delete copy.id;
+        delete copy._sourceTable;
+        return copy;
+      });
+      const restored = [];
+      const CHUNK = 80;
+      for (let i = 0; i < payloads.length; i += CHUNK) {
+        const chunk = payloads.slice(i, i + CHUNK);
+        const { data, error: insErr } = await supabase
+          .from('staging_game_guides')
+          .insert(chunk)
+          .select('*');
+        if (insErr) throw new Error(`staging_game_guides: ${insErr.message}`);
+        const rows = data ?? [];
+        if (rows.length !== chunk.length) {
+          throw new Error(
+            `staging_game_guides: Wiederherstellung lieferte ${rows.length} von ${chunk.length} Zeilen zurück.`,
+          );
+        }
+        for (const row of rows) restored.push({ ...row, _sourceTable: 'staging_game_guides' });
+      }
+      return restored;
+    };
+
     try {
+      let restoredStagingRows = [];
       // 1. Spieltyp speichern, falls gewählt/geändert
       const { error: typeErr } = await setIntranetGameType(
         supabase,
@@ -3081,14 +3322,12 @@ export default function IntranetDrafts({
           );
         }
 
-        await Promise.all([
-          supabase.from('staging_game_guides').delete().eq('game_id', selectedGameId),
-          supabase.from(TABLES.guidesRohmaterial).delete().eq('game_id', selectedGameId),
-        ]);
+        restoredStagingRows = await deleteDraftRowsAfterApprove();
       } else {
         // Rohmaterial / Multi-Tab Freigabe
         // Alle Rohmaterial-Zeilen des Spiels einschließen (damit 07.0 Trophäen-Videos mit abweichendem creator_name nicht beim Cleanup verloren gehen)
-        const baseCandidateRows = includeAllRohBatchesOnApprove
+        const publishAllRohBatches = includeAllRohBatchesOnApprove && !keepOtherCreators;
+        const baseCandidateRows = publishAllRohBatches
           ? [
               ...currentCreatorRows,
               ...currentGameRows.filter(
@@ -3105,7 +3344,7 @@ export default function IntranetDrafts({
           if (r.id) mergedRohById.set(r.id, r);
         }
 
-        if (includeAllRohBatchesOnApprove) {
+        if (publishAllRohBatches) {
           const { data: dbRohRows } = await supabase
             .from(TABLES.guidesRohmaterial)
             .select('*')
@@ -3288,7 +3527,7 @@ export default function IntranetDrafts({
           lang: selectedLanguage,
           guideState: GUIDE_PUBLICATION.PUBLISHED,
           hasVideo,
-          clearRohmaterial: includeAllRohBatchesOnApprove,
+          clearRohmaterial: publishAllRohBatches,
         });
 
         const { error: gameUpErr } = await supabase
@@ -3315,53 +3554,135 @@ export default function IntranetDrafts({
           );
         }
 
-        let rohCleanupQuery = supabase
-          .from(TABLES.guidesRohmaterial)
-          .delete()
-          .eq('game_id', selectedGameId);
-        if (!includeAllRohBatchesOnApprove && selectedCreatorName) {
-          rohCleanupQuery = rohCleanupQuery.eq('creator_name', selectedCreatorName);
-        }
-
-        await Promise.all([
-          supabase.from('staging_game_guides').delete().eq('game_id', selectedGameId),
-          rohCleanupQuery,
-        ]);
+        restoredStagingRows = await deleteDraftRowsAfterApprove();
       }
 
       const approvedGameId = selectedGameId;
       const approvedCreator = selectedCreatorName;
 
       const localOverrides = loadStagingLocalOverrides();
-      for (const row of currentGameRows) {
+      const overrideRows = keepOtherCreators ? currentCreatorRows : currentGameRows;
+      for (const row of overrideRows) {
         if (row?.id) delete localOverrides[row.id];
       }
       saveStagingLocalOverrides(localOverrides);
 
+      if (keepOtherCreators) {
+        const { data: freshGuides, error: guidesErr } = await fetchPages((from, to) =>
+          supabase
+            .from(TABLES.guides)
+            .select(
+              'id, guide_id, sheet_type, item_name, chronological_group, category_group, boss_group, video_chapter, timestamp, video_url, trophy_id',
+            )
+            .eq('game_id', approvedGameId)
+            .order('id', { ascending: true })
+            .range(from, to),
+        );
+        if (!guidesErr) {
+          const rows = freshGuides ?? [];
+          setLiveGuideRows(rows);
+          setLiveGuideCountsMap((prev) => {
+            const next = new Map(prev);
+            next.set(approvedGameId, rows.length);
+            return next;
+          });
+          setSelectedGameDbCounts((prev) => ({
+            ...prev,
+            game_guides: rows.length,
+          }));
+        }
+      }
+
       setShowApproveModal(false);
-      setShowConflictModal(false);
+      if (!keepOtherCreators) setShowConflictModal(false);
       setActionBusy(false);
 
+      const keptHint = keepOtherCreators
+        ? ` ${otherCreatorsCount} weitere Creator bleiben in der Queue.`
+        : '';
       if (resolvedConflictMode === 'replace') {
         setNotice(
-          `🔄 Vorabprüfung: Bestehende Guide-Daten wurden ersetzt und Entwurf von "${approvedCreator}" in [${selectedLanguage.toUpperCase()}] veröffentlicht!`
+          `🔄 Vorabprüfung: Bestehende Guide-Daten wurden ersetzt und Entwurf von "${approvedCreator}" in [${selectedLanguage.toUpperCase()}] veröffentlicht!${keptHint}`,
         );
       } else if (resolvedConflictMode === 'keep_both') {
         setNotice(
-          `➕ Vorabprüfung: Bestehende Live-Daten behalten und Entwurf von "${approvedCreator}" zusätzlich in [${selectedLanguage.toUpperCase()}] übernommen!`
+          `➕ Vorabprüfung: Bestehende Live-Daten behalten und Entwurf von "${approvedCreator}" zusätzlich in [${selectedLanguage.toUpperCase()}] übernommen!${keptHint}`,
         );
       } else {
         setNotice(
-          `✓ Guide von Creator "${approvedCreator}" erfolgreich in [${selectedLanguage.toUpperCase()}] freigegeben!`
+          `✓ Guide von Creator "${approvedCreator}" erfolgreich in [${selectedLanguage.toUpperCase()}] freigegeben!${keptHint}`,
         );
       }
 
-      jumpToNextGame(approvedGameId);
-      setStagingRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
-      setRohmaterialRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
-      setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== approvedGameId));
-      setProductiveRohRows([]);
-      fetchQueue();
+      if (!keepOtherCreators) {
+        jumpToNextGame(approvedGameId);
+        setStagingRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
+        setRohmaterialRows((prev) => prev.filter((r) => r.game_id !== approvedGameId));
+        setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== approvedGameId));
+        setProductiveRohRows([]);
+        setTotalStagingCountsMap((prev) => {
+          if (!prev.has(approvedGameId)) return prev;
+          const next = new Map(prev);
+          next.delete(approvedGameId);
+          return next;
+        });
+        setTotalStagingCreatorsMap((prev) => {
+          if (!prev.has(approvedGameId)) return prev;
+          const next = new Map(prev);
+          next.delete(approvedGameId);
+          return next;
+        });
+        fetchQueue();
+      } else {
+        const removedStaging = stagingRows.filter(
+          (row) => row.game_id === approvedGameId && row.creator_name === approvedCreator,
+        ).length;
+        const removedRoh = rohmaterialRows.filter(
+          (row) => row.game_id === approvedGameId && row.creator_name === approvedCreator,
+        ).length;
+        setStagingRows((prev) => {
+          const withoutApproved = prev.filter(
+            (row) => !(row.game_id === approvedGameId && row.creator_name === approvedCreator),
+          );
+          if (restoredStagingRows.length === 0) return withoutApproved;
+          return withoutApproved
+            .filter((row) => row.game_id !== approvedGameId)
+            .concat(restoredStagingRows);
+        });
+        setRohmaterialRows((prev) =>
+          prev.filter(
+            (row) => !(row.game_id === approvedGameId && row.creator_name === approvedCreator),
+          ),
+        );
+        if (removedStaging > 0) {
+          setTotalStagingCountsMap((prev) => {
+            const next = new Map(prev);
+            const left = (next.get(approvedGameId) || 0) - removedStaging;
+            if (left > 0) next.set(approvedGameId, left);
+            else next.delete(approvedGameId);
+            return next;
+          });
+          setTotalStagingCreatorsMap((prev) => {
+            const next = new Map(prev);
+            const left = (next.get(approvedGameId) || 1) - 1;
+            if (left > 0) next.set(approvedGameId, left);
+            else next.delete(approvedGameId);
+            return next;
+          });
+        }
+        if (removedRoh > 0) {
+          setRohmaterialGames((prev) =>
+            prev
+              .map((item) =>
+                item.gameId === approvedGameId
+                  ? { ...item, rowCount: Math.max(0, (item.rowCount || 0) - removedRoh) }
+                  : item,
+              )
+              .filter((item) => item.gameId !== approvedGameId || item.rowCount > 0),
+          );
+        }
+        jumpToNextCreatorOrGame(approvedGameId, approvedCreator);
+      }
     } catch (err) {
       setActionBusy(false);
       setError(`Unerwarteter Fehler bei der Freigabe: ${err.message}`);
@@ -4036,53 +4357,57 @@ export default function IntranetDrafts({
     setReplaceValue('');
   };
 
+  // Titel via RPC tb_search_games_trophies_only, NPWR über platform_game_id-Containment.
+  const searchGamesByTitleOrNpwr = async (raw) => {
+    const words = String(raw ?? '')
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter(Boolean);
+    const merged = [];
+    const seen = new Set();
+    const pushGame = (game) => {
+      if (!game?.id || seen.has(game.id)) return;
+      seen.add(game.id);
+      merged.push(game);
+    };
+
+    const npwrMatch = String(raw ?? '').match(/NPWR\d+_\d+/i);
+    if (npwrMatch) {
+      const npwr = npwrMatch[0].toUpperCase();
+      const { data: npwrRows, error: npwrErr } = await supabase
+        .from(TABLES.games)
+        .select(`${GAMES_QUEUE_SELECT_COLS}, hardware`)
+        .contains('platform_game_id', JSON.stringify([npwr]))
+        .limit(15);
+      if (npwrErr) throw new Error(npwrErr.message);
+      for (const game of npwrRows ?? []) pushGame(game);
+    }
+
+    if (words.length > 0) {
+      const { data, error: rpcErr } = await supabase.rpc('tb_search_games_trophies_only', {
+        p_words: words,
+        p_limit: 15,
+      });
+      if (rpcErr) throw new Error(rpcErr.message);
+      const list = Array.isArray(data) ? data : [];
+      for (const game of list) pushGame(game);
+    }
+
+    return merged.slice(0, 15);
+  };
+
   // 8c-c. Zielspiel für verrutschte Creator-Zuordnung suchen (Titel via RPC, NPWR via Containment)
   const handleSearchReassignGames = async (event) => {
     if (event) event.preventDefault();
     const raw = reassignQuery.trim();
     if (!raw || reassignSearching) return;
 
-    const words = raw
-      .split(/\s+/)
-      .map((word) => word.trim())
-      .filter(Boolean);
-
     setReassignSearching(true);
     setReassignSearchDone(false);
     setError('');
 
     try {
-      const merged = [];
-      const seen = new Set();
-      const pushGame = (game) => {
-        if (!game?.id || seen.has(game.id)) return;
-        seen.add(game.id);
-        merged.push(game);
-      };
-
-      const npwrMatch = raw.match(/NPWR\d+_\d+/i);
-      if (npwrMatch) {
-        const npwr = npwrMatch[0].toUpperCase();
-        const { data: npwrRows, error: npwrErr } = await supabase
-          .from(TABLES.games)
-          .select(GAMES_QUEUE_SELECT_COLS)
-          .contains('platform_game_id', JSON.stringify([npwr]))
-          .limit(15);
-        if (npwrErr) throw new Error(npwrErr.message);
-        for (const game of npwrRows ?? []) pushGame(game);
-      }
-
-      if (words.length > 0) {
-        const { data, error: rpcErr } = await supabase.rpc('tb_search_games_trophies_only', {
-          p_words: words,
-          p_limit: 15,
-        });
-        if (rpcErr) throw new Error(rpcErr.message);
-        const list = Array.isArray(data) ? data : [];
-        for (const game of list) pushGame(game);
-      }
-
-      setReassignResults(merged.slice(0, 15));
+      setReassignResults(await searchGamesByTitleOrNpwr(raw));
       setReassignSearchDone(true);
     } catch (err) {
       setReassignResults([]);
@@ -4091,6 +4416,155 @@ export default function IntranetDrafts({
     } finally {
       setReassignSearching(false);
     }
+  };
+
+  const handleSearchBatchTransferGames = async (event) => {
+    if (event) event.preventDefault();
+    const raw = batchTransferQuery.trim();
+    if (!raw || batchTransferSearching) return;
+
+    setBatchTransferSearching(true);
+    setError('');
+    try {
+      setBatchTransferResults(await searchGamesByTitleOrNpwr(raw));
+    } catch (err) {
+      setBatchTransferResults([]);
+      setError(`Spielsuche fehlgeschlagen: ${err.message}`);
+    } finally {
+      setBatchTransferSearching(false);
+    }
+  };
+
+  const fetchMaxGuideIdForGame = async (tableName, gameId) => {
+    let maxId = 0;
+    let from = 0;
+    for (;;) {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('guide_id')
+        .eq('game_id', gameId)
+        .range(from, from + 999);
+      if (error) throw new Error(`${tableName}: ${error.message}`);
+      const page = data ?? [];
+      for (const row of page) {
+        const n = parseGuideIdNumber(row.guide_id);
+        if (n > maxId) maxId = n;
+      }
+      if (page.length < 1000) break;
+      from += 1000;
+    }
+    return maxId;
+  };
+
+  const insertGuideRows = async (tableName, payloads) => {
+    const inserted = [];
+    const CHUNK = 80;
+    for (let i = 0; i < payloads.length; i += CHUNK) {
+      const chunk = payloads.slice(i, i + CHUNK);
+      const { data, error } = await supabase.from(tableName).insert(chunk).select('*');
+      if (error) throw new Error(`${tableName}: ${error.message}`);
+      const rows = data ?? [];
+      if (rows.length !== chunk.length) {
+        throw new Error(`${tableName}: Insert lieferte ${rows.length} von ${chunk.length} Zeilen zurück.`);
+      }
+      for (const row of rows) inserted.push({ ...row, _sourceTable: tableName });
+    }
+    return inserted;
+  };
+
+  // Kopie ohne id / _sourceTable. Staging bleibt flach (guide_id integer), Rohmaterial jsonb (guide_id text).
+  const buildGuideRowClonePayload = (row, { gameId, platformGameId, guideId, itemName }) => {
+    const table = row._sourceTable || 'staging_game_guides';
+    const isRoh = table === TABLES.guidesRohmaterial;
+    const trophyDigits = String(row.trophy_id ?? '').replace(/\D/g, '');
+    const nextItem =
+      itemName != null ? formatFieldValueForTable(row, 'item_name', itemName) : row.item_name;
+
+    if (isRoh) {
+      return {
+        game_id: gameId ?? row.game_id,
+        platform_game_id: platformGameId ?? row.platform_game_id,
+        creator_id: row.creator_id ?? null,
+        creator_name: row.creator_name ?? null,
+        playlist_url: row.playlist_url ?? row.creator_input_url ?? row.video_url ?? null,
+        batch_key: row.batch_key ?? null,
+        batch_status: row.batch_status ?? null,
+        sheet_type: Array.isArray(row.sheet_type) ? row.sheet_type : deriveSheetTypesFromRow(row),
+        guide_id: String(guideId),
+        item_name: nextItem ?? null,
+        chronological_group: row.chronological_group ?? null,
+        category_group: row.category_group ?? null,
+        boss_group: row.boss_group ?? null,
+        video_chapter: row.video_chapter ?? null,
+        timestamp: row.timestamp ?? null,
+        video_url: row.video_url ?? null,
+        trophy_id: trophyDigits ? String(Number.parseInt(trophyDigits, 10)) : null,
+        is_trophy_relevant: row.is_trophy_relevant ?? null,
+      };
+    }
+
+    return {
+      game_id: gameId ?? row.game_id,
+      platform_game_id: String(platformGameId ?? row.platform_game_id ?? ''),
+      creator_id: row.creator_id ?? null,
+      creator_name: row.creator_name || 'Unbekannt',
+      creator_input_url: row.creator_input_url ?? null,
+      guide_id: Number(guideId),
+      chronological_group: formatFieldValueForTable(
+        row,
+        'chronological_group',
+        getLocalizedItemName(row.chronological_group),
+      ),
+      category_group: formatFieldValueForTable(
+        row,
+        'category_group',
+        getLocalizedItemName(row.category_group),
+      ),
+      boss_group: formatFieldValueForTable(
+        row,
+        'boss_group',
+        getLocalizedItemName(row.boss_group),
+      ),
+      video_chapter: formatFieldValueForTable(
+        row,
+        'video_chapter',
+        getLocalizedItemName(row.video_chapter),
+      ),
+      item_name: typeof nextItem === 'string' ? nextItem : String(nextItem ?? ''),
+      timestamp: row.timestamp ?? null,
+      video_url: row.video_url || '',
+      prod_note: row.prod_note ?? null,
+      trophy_id: trophyDigits ? Number.parseInt(trophyDigits, 10) : null,
+      is_trophy_relevant: row.is_trophy_relevant ?? null,
+      ...(row.workflow_status ? { workflow_status: row.workflow_status } : {}),
+    };
+  };
+
+  const markTargetRohmaterialPending = async (targetGame) => {
+    const targetGameId = targetGame.id;
+    const { data: currentGameData, error: readErr } = await supabase
+      .from(TABLES.games)
+      .select(GAME_STRUCT.status)
+      .eq(GAME_PK, targetGameId)
+      .maybeSingle();
+    if (readErr) {
+      return { status: targetGame.status, warning: `status.rohmaterial lesen fehlgeschlagen: ${readErr.message}` };
+    }
+    const nextStatus = {
+      ...parseStatusMap(currentGameData?.[GAME_STRUCT.status] ?? targetGame.status),
+      rohmaterial: 'PENDING_MULTI_TAB',
+    };
+    const { error: statusUpErr } = await supabase
+      .from(TABLES.games)
+      .update({ [GAME_STRUCT.status]: nextStatus })
+      .eq(GAME_PK, targetGameId);
+    if (statusUpErr) {
+      return {
+        status: targetGame.status,
+        warning: `status.rohmaterial setzen fehlgeschlagen: ${statusUpErr.message}`,
+      };
+    }
+    return { status: nextStatus, warning: '' };
   };
 
   // 8c-d. Aktuellen Creator-Entwurf an ein anderes Spiel hängen
@@ -4267,6 +4741,439 @@ export default function IntranetDrafts({
       }
     } catch (err) {
       setError(`Spiel-Zuordnung ändern fehlgeschlagen: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Markierte Zeilen eines Creators auf ein anderes Spiel verschieben oder duplizieren.
+  const handleBatchTransferRowsToGame = async (targetGame, mode) => {
+    if (!targetGame?.id || !selectedGameId || actionBusy) return;
+    if (mode !== 'move' && mode !== 'duplicate') return;
+
+    const targetGameId = targetGame.id;
+    if (targetGameId === selectedGameId) {
+      setNotice('Dieses Spiel ist bereits die aktuelle Zuordnung.');
+      return;
+    }
+
+    const rowsToProcess = currentCreatorRows.filter((row) => selectedRowIds.has(row.id));
+    if (rowsToProcess.length === 0) {
+      setError('Keine markierten Zeilen zum Übertragen.');
+      return;
+    }
+
+    const targetNpwr = resolveDraftPlatformGameId(targetGame);
+    if (!targetNpwr) {
+      setError('Zielspiel hat keine platform_game_id.');
+      return;
+    }
+
+    const rowsByTable = new Map();
+    for (const row of rowsToProcess) {
+      const tableName = row._sourceTable || 'staging_game_guides';
+      if (!isEditableDraftTable(tableName)) continue;
+      const list = rowsByTable.get(tableName) || [];
+      list.push(row);
+      rowsByTable.set(tableName, list);
+    }
+    if (rowsByTable.size === 0) {
+      setError('Die markierten Zeilen liegen nicht in staging_game_guides oder game_guides_rohmaterial.');
+      return;
+    }
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    const sourceGameId = selectedGameId;
+    const targetTitle = getLocalizedTitle(targetGame.spieltitel);
+
+    try {
+      let statusWarning = '';
+      let nextStatus = targetGame.status;
+      const touchedRoh = rowsByTable.has(TABLES.guidesRohmaterial);
+      const insertedByTable = new Map();
+
+      if (mode === 'move') {
+        for (const [tableName, rows] of rowsByTable.entries()) {
+          const ids = rows.map((row) => row.id);
+          const CHUNK_SIZE = 100;
+          for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+            const chunkIds = ids.slice(i, i + CHUNK_SIZE);
+            const { error: upErr } = await supabase
+              .from(tableName)
+              .update({ game_id: targetGameId, platform_game_id: targetNpwr })
+              .in('id', chunkIds);
+            if (upErr) throw new Error(`${tableName}: ${upErr.message}`);
+          }
+        }
+      } else {
+        for (const [tableName, rows] of rowsByTable.entries()) {
+          const maxTargetGuideId = await fetchMaxGuideIdForGame(tableName, targetGameId);
+          const payloads = rows.map((row, index) =>
+            buildGuideRowClonePayload(row, {
+              gameId: targetGameId,
+              platformGameId: targetNpwr,
+              guideId: maxTargetGuideId + index + 1,
+            }),
+          );
+          const inserted = await insertGuideRows(tableName, payloads);
+          insertedByTable.set(tableName, inserted);
+        }
+      }
+
+      if (touchedRoh) {
+        const pending = await markTargetRohmaterialPending(targetGame);
+        nextStatus = pending.status;
+        statusWarning = pending.warning;
+      }
+
+      const targetGameForMap = { ...targetGame, id: targetGameId, status: nextStatus };
+      const transferredRows = [...rowsByTable.values()].flat();
+      const movedIds = new Set(transferredRows.map((row) => row.id));
+
+      if (mode === 'move') {
+        const patchRow = (row) =>
+          movedIds.has(row.id)
+            ? { ...row, game_id: targetGameId, platform_game_id: targetNpwr }
+            : row;
+        setStagingRows((prev) => prev.map(patchRow));
+        setRohmaterialRows((prev) => prev.map(patchRow));
+
+        const toRenumber = [];
+        const indexById = new Map();
+        const remainingByCreator = new Map();
+        for (const row of currentGameRows) {
+          if (movedIds.has(row.id)) continue;
+          if (!isEditableDraftTable(row._sourceTable || 'staging_game_guides')) continue;
+          const key = creatorKeyOfRow(row);
+          const list = remainingByCreator.get(key) || [];
+          list.push(row);
+          remainingByCreator.set(key, list);
+        }
+        for (const rows of remainingByCreator.values()) {
+          const sorted = [...rows].sort(
+            (a, b) => parseGuideIdNumber(a.guide_id) - parseGuideIdNumber(b.guide_id) || String(a.id).localeCompare(String(b.id)),
+          );
+          sorted.forEach((row, index) => {
+            indexById.set(row.id, index + 1);
+            toRenumber.push(row);
+          });
+        }
+        if (toRenumber.length > 0) {
+          await persistRowPatchesToSupabase(toRenumber, (row) => ({
+            guide_id: formatFieldValueForTable(row, 'guide_id', indexById.get(row.id)),
+          }));
+        }
+      } else {
+        const stagingInserted = insertedByTable.get('staging_game_guides') || [];
+        const rohInserted = insertedByTable.get(TABLES.guidesRohmaterial) || [];
+        if (stagingInserted.length > 0) {
+          setStagingRows((prev) => prev.concat(stagingInserted));
+        }
+        if (rohInserted.length > 0) {
+          setRohmaterialRows((prev) => prev.concat(rohInserted));
+        }
+      }
+
+      setGamesMap((prev) => {
+        const next = new Map(prev);
+        next.set(targetGameId, { ...(next.get(targetGameId) || {}), ...targetGameForMap });
+        return next;
+      });
+
+      const stagingDelta = (rowsByTable.get('staging_game_guides') || []).length;
+      if (stagingDelta > 0) {
+        setTotalStagingCountsMap((prev) => {
+          const next = new Map(prev);
+          if (mode === 'move') {
+            const srcLeft = (next.get(sourceGameId) || 0) - stagingDelta;
+            if (srcLeft > 0) next.set(sourceGameId, srcLeft);
+            else next.delete(sourceGameId);
+          }
+          next.set(targetGameId, (next.get(targetGameId) || 0) + stagingDelta);
+          return next;
+        });
+        setTotalStagingCreatorsMap((prev) => {
+          const next = new Map(prev);
+          if (!next.has(targetGameId)) next.set(targetGameId, 1);
+          if (mode === 'move') {
+            const srcLeft = (totalStagingCountsMap.get(sourceGameId) || 0) - stagingDelta;
+            if (srcLeft <= 0) next.delete(sourceGameId);
+          }
+          return next;
+        });
+        if (mode === 'move' && (totalStagingCountsMap.get(sourceGameId) || 0) - stagingDelta <= 0) {
+          setStagingWorkflowByGame((prev) => {
+            if (!prev.has(sourceGameId)) return prev;
+            const next = new Map(prev);
+            next.delete(sourceGameId);
+            return next;
+          });
+        }
+      }
+
+      const rohDelta = (rowsByTable.get(TABLES.guidesRohmaterial) || []).length;
+      if (rohDelta > 0) {
+        setRohGamesMap((prev) => {
+          const next = new Map(prev);
+          next.set(targetGameId, { ...(next.get(targetGameId) || {}), ...targetGameForMap });
+          return next;
+        });
+        setRohmaterialGames((prev) => {
+          const sourceDelta = mode === 'move' ? -rohDelta : 0;
+          let next = prev.map((item) => {
+            if (item.gameId !== sourceGameId || sourceDelta === 0) return item;
+            return { ...item, rowCount: Math.max(0, (item.rowCount || 0) + sourceDelta) };
+          });
+          if (mode === 'move') {
+            next = next.filter((item) => item.gameId !== sourceGameId || item.rowCount > 0);
+          }
+          const existing = next.find((item) => item.gameId === targetGameId);
+          if (existing) {
+            return next.map((item) =>
+              item.gameId === targetGameId
+                ? {
+                    ...item,
+                    game: { ...item.game, ...targetGameForMap },
+                    title: targetTitle,
+                    platformGameId: targetNpwr,
+                    coverUrl: getLocalizedCover(targetGame.cover_url) || item.coverUrl,
+                    rowCount: (item.rowCount || 0) + rohDelta,
+                    statusRohmaterial: touchedRoh ? 'PENDING_MULTI_TAB' : item.statusRohmaterial,
+                  }
+                : item,
+            );
+          }
+          return [
+            {
+              gameId: targetGameId,
+              game: targetGameForMap,
+              title: targetTitle,
+              platformGameId: targetNpwr,
+              coverUrl: getLocalizedCover(targetGame.cover_url),
+              creatorCount: 1,
+              creatorList: selectedCreatorName ? [selectedCreatorName] : [],
+              batchList: [],
+              rowCount: rohDelta,
+              statusRohmaterial: 'PENDING_MULTI_TAB',
+            },
+            ...next,
+          ];
+        });
+      }
+
+      setSelectedRowIds(new Set());
+      setBatchTransferMode(null);
+      setBatchTransferQuery('');
+      setBatchTransferResults([]);
+      const verb = mode === 'move' ? 'verschoben' : 'dupliziert';
+      setNotice(`✓ ${transferredRows.length} Zeilen nach „${targetTitle}“ ${verb}.`);
+      if (statusWarning) {
+        setError(`Zeilen sind ${verb}, aber ${statusWarning}`);
+      }
+    } catch (err) {
+      setError(`${mode === 'move' ? 'Verschieben' : 'Duplizieren'} fehlgeschlagen: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Multi-Item-Zeile am Komma in Einzelzeilen direkt unter dem Original zerlegen.
+  const handleSplitRowsByComma = async (targetRows) => {
+    if (actionBusy) return;
+    const plans = [];
+    for (const row of targetRows || []) {
+      const tableName = row._sourceTable || 'staging_game_guides';
+      if (!isEditableDraftTable(tableName)) continue;
+      const parts = getLocalizedItemName(row.item_name)
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+      if (parts.length < 2) continue;
+      plans.push({ row, parts });
+    }
+    if (plans.length === 0) {
+      setNotice('Keine der Zeilen enthält mehrere Komma-getrennte Items.');
+      return;
+    }
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const planById = new Map(plans.map((plan) => [plan.row.id, plan]));
+      let tempGuideId = 1000000;
+      for (const row of currentGameRows) {
+        tempGuideId = Math.max(tempGuideId, parseGuideIdNumber(row.guide_id) + 100000);
+      }
+
+      const insertedByOriginal = new Map();
+      for (const plan of plans) {
+        const tableName = plan.row._sourceTable || 'staging_game_guides';
+        const payloads = plan.parts.slice(1).map((part) => {
+          tempGuideId += 1;
+          return buildGuideRowClonePayload(plan.row, {
+            gameId: plan.row.game_id,
+            platformGameId: plan.row.platform_game_id,
+            guideId: tempGuideId,
+            itemName: part,
+          });
+        });
+        const inserted = await insertGuideRows(tableName, payloads);
+        const pool = [...inserted];
+        const orderedParts = plan.parts.slice(1).map((part) => {
+          const idx = pool.findIndex((row) => getLocalizedItemName(row.item_name).trim() === part);
+          if (idx < 0) return pool.shift() || null;
+          return pool.splice(idx, 1)[0];
+        }).filter(Boolean);
+        insertedByOriginal.set(plan.row.id, orderedParts);
+      }
+
+      await persistRowPatchesToSupabase(
+        plans.map((plan) => plan.row),
+        (row) => ({
+          item_name: formatFieldValueForTable(row, 'item_name', planById.get(row.id).parts[0]),
+        }),
+      );
+
+      const ordered = [];
+      for (const row of currentCreatorRows) {
+        const plan = planById.get(row.id);
+        if (!plan) {
+          ordered.push(row);
+          continue;
+        }
+        ordered.push({
+          ...row,
+          item_name: formatFieldValueForTable(row, 'item_name', plan.parts[0]),
+        });
+        ordered.push(...(insertedByOriginal.get(row.id) || []));
+      }
+
+      const indexById = new Map();
+      const withGuideIds = ordered.map((row, index) => {
+        const nextId = index + 1;
+        indexById.set(row.id, nextId);
+        return {
+          ...row,
+          guide_id: formatFieldValueForTable(row, 'guide_id', nextId),
+        };
+      });
+      const insertedIds = new Set(
+        [...insertedByOriginal.values()].flat().map((row) => row.id),
+      );
+      const newRows = withGuideIds.filter((row) => insertedIds.has(row.id));
+      const newStaging = newRows.filter((row) => (row._sourceTable || 'staging_game_guides') === 'staging_game_guides');
+      const newRoh = newRows.filter((row) => row._sourceTable === TABLES.guidesRohmaterial);
+      if (newStaging.length > 0) {
+        setStagingRows((prev) => prev.concat(newStaging));
+        if (selectedGameId) {
+          setTotalStagingCountsMap((prev) => {
+            const next = new Map(prev);
+            next.set(selectedGameId, (next.get(selectedGameId) || 0) + newStaging.length);
+            return next;
+          });
+        }
+      }
+      if (newRoh.length > 0) {
+        setRohmaterialRows((prev) => prev.concat(newRoh));
+        if (selectedGameId) {
+          setRohmaterialGames((prev) =>
+            prev.map((item) =>
+              item.gameId === selectedGameId
+                ? { ...item, rowCount: (item.rowCount || 0) + newRoh.length }
+                : item,
+            ),
+          );
+        }
+      }
+
+      await persistRowPatchesToSupabase(withGuideIds, (row) => ({
+        guide_id: formatFieldValueForTable(row, 'guide_id', indexById.get(row.id)),
+      }));
+
+      const created = insertedIds.size;
+      setSortField('guide_id');
+      setSortDirection('asc');
+      setSelectedRowIds(new Set());
+      setNotice(`✂️ ${plans.length} Zeile(n) in ${plans.length + created} Einzelzeilen zerlegt.`);
+    } catch (err) {
+      setError(`Zerlegen am Komma fehlgeschlagen: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Zeilen des aktuellen Creators (oder nur die markierten) in einen anderen Creator-Tab desselben Spiels ziehen.
+  const handleMergeCreatorIntoTarget = async (targetCreatorName) => {
+    const targetName = String(targetCreatorName ?? '').trim();
+    if (!targetName || !selectedCreatorName || targetName === selectedCreatorName || actionBusy) return;
+    if (!creatorGroups.has(targetName)) {
+      setError('Ziel-Creator wurde in diesem Spiel nicht gefunden.');
+      return;
+    }
+
+    const selected = currentCreatorRows.filter(
+      (row) => selectedRowIds.has(row.id) && isEditableDraftTable(row._sourceTable || 'staging_game_guides'),
+    );
+    const draftRows = currentCreatorRows.filter((row) =>
+      isEditableDraftTable(row._sourceTable || 'staging_game_guides'),
+    );
+    const rowsToMove = selectedRowIds.size > 0 ? selected : draftRows;
+    if (rowsToMove.length === 0) {
+      setError('Keine Entwurfszeilen zum Zusammenführen.');
+      return;
+    }
+
+    const targetRows = (creatorGroups.get(targetName) || []).filter((row) =>
+      isEditableDraftTable(row._sourceTable || 'staging_game_guides'),
+    );
+    if ((creatorGroups.get(targetName) || []).length > 0 && targetRows.length === 0) {
+      setError('Produktive Guide-Zeilen können nicht als Ziel dienen.');
+      return;
+    }
+    const targetCreatorId = targetRows.find((row) => row.creator_id)?.creator_id || null;
+    const incomingIds = new Set(rowsToMove.map((row) => row.id));
+    const remainingSource = draftRows.filter((row) => !incomingIds.has(row.id));
+    const targetSorted = [...targetRows].sort(
+      (a, b) => parseGuideIdNumber(a.guide_id) - parseGuideIdNumber(b.guide_id) || String(a.id).localeCompare(String(b.id)),
+    );
+    const combined = [...targetSorted, ...rowsToMove];
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const indexById = new Map();
+      combined.forEach((row, index) => indexById.set(row.id, index + 1));
+      const sourceIndex = new Map();
+      remainingSource.forEach((row, index) => sourceIndex.set(row.id, index + 1));
+
+      await persistRowPatchesToSupabase([...combined, ...remainingSource], (row) => {
+        const patch = {};
+        if (indexById.has(row.id)) {
+          patch.guide_id = formatFieldValueForTable(row, 'guide_id', indexById.get(row.id));
+        } else if (sourceIndex.has(row.id)) {
+          patch.guide_id = formatFieldValueForTable(row, 'guide_id', sourceIndex.get(row.id));
+        }
+        if (incomingIds.has(row.id)) {
+          patch.creator_name = targetName;
+          if (targetCreatorId) patch.creator_id = targetCreatorId;
+        }
+        return patch;
+      });
+
+      setSortField('guide_id');
+      setSortDirection('asc');
+      setSelectedRowIds(new Set());
+      setSelectedCreatorName(targetName);
+      setNotice(`🔗 ${rowsToMove.length} Zeilen mit „${targetName}“ zusammengeführt.`);
+    } catch (err) {
+      setError(`Zusammenführen fehlgeschlagen: ${err.message}`);
     } finally {
       setActionBusy(false);
     }
@@ -5209,7 +6116,7 @@ export default function IntranetDrafts({
                 <span>{showRohmaterialView ? '▲' : '▼'}</span>
               </button>
               <span className="text-[11px] font-mono text-zinc-500">
-                Staging: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({stagingRows.length} Zeilen) · Rohmaterial: <strong className="text-purple-300">{rohmaterialGames.length} Spiele</strong> ({rohmaterialRows.length} Zeilen)
+                Staging: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({totalStagingRowCount} Zeilen) · Rohmaterial: <strong className="text-purple-300">{rohmaterialGames.length} Spiele</strong> ({totalRohmaterialRowCount} Zeilen)
               </span>
             </>
           ) : (
@@ -5218,7 +6125,7 @@ export default function IntranetDrafts({
               <strong className="text-[#00ff66]">
                 {creatorProfile?.channel_name || 'Creator'}
               </strong>{' '}
-              · <strong className="text-zinc-200">{queueGamesList.length} Projekte</strong> ({stagingRows.length} Zeilen)
+              · <strong className="text-zinc-200">{queueGamesList.length} Projekte</strong> ({totalStagingRowCount} Zeilen)
             </span>
           )}
         </div>
@@ -5429,7 +6336,7 @@ export default function IntranetDrafts({
                   {activeDataSource === 'rohmaterial' ? '📦 Multi-Tab Queue' : '📝 Spiele-Queue'}
                 </h3>
                 <p className="text-[10px] text-zinc-500 font-mono">
-                  {visibleQueueList.length} / {filteredQueueList.length} Spiele ({activeDataSource === 'rohmaterial' ? rohmaterialRows.length : stagingRows.length} Zeilen)
+                  {visibleQueueList.length} / {filteredQueueList.length} Spiele ({activeDataSource === 'rohmaterial' ? totalRohmaterialRowCount : totalStagingRowCount} Zeilen)
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -6022,7 +6929,7 @@ export default function IntranetDrafts({
                       <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 mb-1.5">
                         Creator in der Queue ({creatorTabs.length}):
                       </p>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {creatorTabs.map((tab) => {
                           const isActive = tab.creatorName === selectedCreatorName;
                           return (
@@ -6043,6 +6950,30 @@ export default function IntranetDrafts({
                             </button>
                           );
                         })}
+                        {creatorTabs.length > 1 && (
+                          <label className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-300">
+                            <span>🔗 Mit Creator zusammenführen:</span>
+                            <select
+                              value=""
+                              disabled={actionBusy}
+                              onChange={(e) => {
+                                const next = e.target.value;
+                                if (next) handleMergeCreatorIntoTarget(next);
+                              }}
+                              title="Aktuelle Zeilen (oder nur die markierten) in den gewählten Creator-Tab übernehmen"
+                              className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
+                            >
+                              <option value="">wählen…</option>
+                              {creatorTabs
+                                .filter((tab) => tab.creatorName !== selectedCreatorName)
+                                .map((tab) => (
+                                  <option key={tab.creatorName} value={tab.creatorName}>
+                                    {tab.creatorName} ({tab.rowCount})
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                        )}
                       </div>
                     </div>
                   )}
@@ -6990,7 +7921,7 @@ export default function IntranetDrafts({
                       <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
                         Creator ({creatorTabs.length}):
                       </span>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         {creatorTabs.map((tab) => {
                           const isActive = tab.creatorName === selectedCreatorName;
                           return (
@@ -7011,6 +7942,30 @@ export default function IntranetDrafts({
                             </button>
                           );
                         })}
+                        {creatorTabs.length > 1 && (
+                          <label className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-300">
+                            <span>🔗 Mit Creator zusammenführen:</span>
+                            <select
+                              value=""
+                              disabled={actionBusy}
+                              onChange={(e) => {
+                                const next = e.target.value;
+                                if (next) handleMergeCreatorIntoTarget(next);
+                              }}
+                              title="Aktuelle Zeilen (oder nur die markierten) in den gewählten Creator-Tab übernehmen"
+                              className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
+                            >
+                              <option value="">wählen…</option>
+                              {creatorTabs
+                                .filter((tab) => tab.creatorName !== selectedCreatorName)
+                                .map((tab) => (
+                                  <option key={tab.creatorName} value={tab.creatorName}>
+                                    {tab.creatorName} ({tab.rowCount})
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                        )}
                       </div>
                     </div>
                   )}
@@ -7019,18 +7974,14 @@ export default function IntranetDrafts({
                     <table className="w-max min-w-full text-left text-[11px] font-mono border-collapse">
                       <thead>
                         <tr className="border-b border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider select-none">
-                          {/* Multi-Select Header Checkbox */}
-                          <th className="py-2 px-1 w-12">
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="checkbox"
-                                checked={allVisibleSelected}
-                                onChange={handleToggleSelectAllVisible}
-                                title="Alle sichtbaren Zeilen auswählen / abwählen"
-                                className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 text-[#00ff66] cursor-pointer focus:ring-0"
-                              />
-                              <span className="text-[9px] text-zinc-500">⤵</span>
-                            </div>
+                          <th className="py-2 px-1 w-8">
+                            <input
+                              type="checkbox"
+                              checked={allVisibleSelected}
+                              onChange={handleToggleSelectAllVisible}
+                              title="Alle sichtbaren Zeilen auswählen / abwählen"
+                              className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 text-[#00ff66] cursor-pointer focus:ring-0"
+                            />
                           </th>
                           <th
                             onClick={() => handleToggleSort('guide_id')}
@@ -7043,6 +7994,12 @@ export default function IntranetDrafts({
                                 <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                               )}
                             </span>
+                          </th>
+                          <th
+                            className="py-2 px-1 w-8 text-center"
+                            title="Ab dieser Zeile abwärts alle sichtbaren Zeilen auswählen / abwählen"
+                          >
+                            ⤵
                           </th>
                           <th
                             onClick={() => handleToggleSort('item_name')}
@@ -7165,37 +8122,40 @@ export default function IntranetDrafts({
                                     : 'hover:bg-zinc-800/40'
                               }`}
                             >
-                              {/* Checkbox + Ab dieser Zeile abwärts auswählen */}
                               <td
-                                className="py-1 px-1 whitespace-nowrap"
+                                className="py-1 px-1 w-8 whitespace-nowrap"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                <div className="inline-flex items-center gap-1">
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => handleToggleSelectRow(row.id)}
-                                    className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 text-[#00ff66] cursor-pointer focus:ring-0"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSelectFromRowDownwards(row.id)}
-                                    title="Ab dieser Zeile abwärts alle sichtbaren Zeilen auswählen / abwählen"
-                                    className="rounded px-1 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-700 hover:text-[#00ff66] transition"
-                                  >
-                                    ⤵
-                                  </button>
-                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleToggleSelectRow(row.id)}
+                                  className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 text-[#00ff66] cursor-pointer focus:ring-0"
+                                />
                               </td>
 
                               {/* guide_id */}
-                              <td className="py-1 px-1">
+                              <td className="py-1 px-1 w-10 sm:w-12">
                                 <DraftInlineInput
                                   type="text"
                                   value={row.guide_id ?? ''}
                                   onCommit={(next) => handleUpdateRowField(row.id, 'guide_id', next)}
                                   className="w-8 sm:w-10 rounded border border-transparent bg-transparent px-0.5 py-0.5 text-zinc-300 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
+                              </td>
+
+                              <td
+                                className="py-1 px-1 w-8 text-center"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectFromRowDownwards(row.id)}
+                                  title="Ab dieser Zeile abwärts alle sichtbaren Zeilen auswählen / abwählen"
+                                  className="rounded px-1 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-700 hover:text-[#00ff66] transition"
+                                >
+                                  ⤵
+                                </button>
                               </td>
 
                               {/* item_name */}
@@ -7315,6 +8275,20 @@ export default function IntranetDrafts({
                               {/* Actions */}
                               <td className="py-1 px-1 text-right whitespace-nowrap">
                                 <div className="flex items-center justify-end gap-0.5">
+                                  {itemNameStr.includes(',') && (
+                                    <button
+                                      type="button"
+                                      title="Multi-Item-Zeile am Komma in Einzelzeilen zerlegen"
+                                      disabled={actionBusy}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSplitRowsByComma([row]);
+                                      }}
+                                      className="rounded p-1 text-[10px] text-zinc-500 hover:bg-cyan-500/20 hover:text-cyan-300 disabled:opacity-40"
+                                    >
+                                      ✂️
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
                                     title="Ganzes Video / Chapter entfernen"
@@ -7389,6 +8363,19 @@ export default function IntranetDrafts({
                         >
                           ✕ Auswahl aufheben
                         </button>
+                        <button
+                          type="button"
+                          disabled={actionBusy}
+                          onClick={() =>
+                            handleSplitRowsByComma(
+                              currentCreatorRows.filter((row) => selectedRowIds.has(row.id)),
+                            )
+                          }
+                          title="Markierte Multi-Item-Zeilen am Komma in Einzelzeilen zerlegen"
+                          className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[10px] font-mono font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40"
+                        >
+                          ✂️ Am Komma zerlegen
+                        </button>
                       </div>
 
                       <span className="text-[10px] font-mono text-zinc-400">
@@ -7396,7 +8383,7 @@ export default function IntranetDrafts({
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       {/* 1-Klick Dropdown: chronological_group */}
                       <select
                         value=""
@@ -7414,7 +8401,7 @@ export default function IntranetDrafts({
                         }}
                         className="rounded-xl border border-cyan-500/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-cyan-200 focus:border-[#00ff66] focus:outline-none"
                       >
-                        <option value="">⏱️ Chrono-Group setzen…</option>
+                        <option value="">⏱️ Chrono</option>
                         <option value="__CUSTOM__">✏️ + Neue Chrono-Group eingeben…</option>
                         <option value="__CLEAR__">🗑️ (Chrono-Group leeren)</option>
                         {groupStats.chronoPills
@@ -7443,7 +8430,7 @@ export default function IntranetDrafts({
                         }}
                         className="rounded-xl border border-purple-500/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-purple-200 focus:border-[#00ff66] focus:outline-none"
                       >
-                        <option value="">🗂️ Category-Group setzen…</option>
+                        <option value="">🗂️ Collect</option>
                         <option value="__CUSTOM__">✏️ + Neue Category-Group eingeben…</option>
                         <option value="__CLEAR__">🗑️ (Category-Group leeren)</option>
                         {groupStats.categoryPills
@@ -7472,7 +8459,7 @@ export default function IntranetDrafts({
                         }}
                         className="rounded-xl border border-amber-500/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-amber-200 focus:border-[#00ff66] focus:outline-none"
                       >
-                        <option value="">⚔️ Boss-Group setzen…</option>
+                        <option value="">⚔️ Boss</option>
                         <option value="__CUSTOM__">✏️ + Neue Boss-Group eingeben…</option>
                         <option value="__CLEAR__">🗑️ (Boss-Group leeren)</option>
                         {groupStats.bossPills
@@ -7504,6 +8491,106 @@ export default function IntranetDrafts({
                           </button>
                         ))}
                       </div>
+                    </div>
+
+                    {creatorTabs.length > 1 && (
+                      <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800/80 pt-2">
+                        <span className="text-[10px] font-mono text-zinc-300">🔗 Mit Creator zusammenführen:</span>
+                        <select
+                          value=""
+                          disabled={actionBusy}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            if (next) handleMergeCreatorIntoTarget(next);
+                          }}
+                          title="Markierte Zeilen in den gewählten Creator-Tab dieses Spiels übernehmen"
+                          className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
+                        >
+                          <option value="">wählen…</option>
+                          {creatorTabs
+                            .filter((tab) => tab.creatorName !== selectedCreatorName)
+                            .map((tab) => (
+                              <option key={tab.creatorName} value={tab.creatorName}>
+                                {tab.creatorName} ({tab.rowCount})
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-2 border-t border-zinc-800/80 pt-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-mono text-zinc-300">
+                          📦 Markierte Zeilen ({selectedRowIds.size}) auf anderes Spiel:
+                        </span>
+                        <button
+                          type="button"
+                          disabled={actionBusy}
+                          onClick={() => setBatchTransferMode((prev) => (prev === 'move' ? null : 'move'))}
+                          className={`rounded-lg border px-2 py-1 text-[10px] font-mono font-bold transition disabled:opacity-40 ${
+                            batchTransferMode === 'move'
+                              ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
+                              : 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-[#00ff66]/40'
+                          }`}
+                        >
+                          ➡️ Verschieben
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionBusy}
+                          onClick={() =>
+                            setBatchTransferMode((prev) => (prev === 'duplicate' ? null : 'duplicate'))
+                          }
+                          className={`rounded-lg border px-2 py-1 text-[10px] font-mono font-bold transition disabled:opacity-40 ${
+                            batchTransferMode === 'duplicate'
+                              ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
+                              : 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-[#00ff66]/40'
+                          }`}
+                        >
+                          📋 Duplizieren
+                        </button>
+                      </div>
+
+                      {batchTransferMode && (
+                        <form onSubmit={handleSearchBatchTransferGames} className="flex flex-col gap-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={batchTransferQuery}
+                              onChange={(e) => setBatchTransferQuery(e.target.value)}
+                              placeholder="Zielspiel suchen (Titel oder NPWR)..."
+                              className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] font-mono text-zinc-100 placeholder:text-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                            />
+                            <button
+                              type="submit"
+                              disabled={actionBusy || batchTransferSearching || !batchTransferQuery.trim()}
+                              className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40"
+                            >
+                              {batchTransferSearching ? '…' : 'Suchen'}
+                            </button>
+                          </div>
+                          <div className="max-h-36 overflow-y-auto flex flex-col gap-1">
+                            {batchTransferResults.map((game) => (
+                              <div
+                                key={game.id}
+                                className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950/80 px-2 py-1"
+                              >
+                                <span className="min-w-0 truncate text-[10px] font-mono text-zinc-200">
+                                  {getLocalizedTitle(game.spieltitel)} · {resolveDraftPlatformGameId(game)} · {game.hardware || '—'}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={actionBusy}
+                                  onClick={() => handleBatchTransferRowsToGame(game, batchTransferMode)}
+                                  className="shrink-0 rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-2 py-0.5 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/20 disabled:opacity-40"
+                                >
+                                  {batchTransferMode === 'move' ? '➡️ Hierhin verschieben' : '📋 Hierhin duplizieren'}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </form>
+                      )}
                     </div>
 
                   </div>
@@ -7819,6 +8906,43 @@ export default function IntranetDrafts({
               )}
             </div>
 
+            {otherCreatorsCount > 0 && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-amber-200">
+                    ❓ Rest verwerfen? ({otherCreatorsCount} weitere{otherCreatorsCount === 1 ? 'r' : ''} Creator in diesem Spiel)
+                  </span>
+                  <span className="font-mono text-[10px] text-amber-300">
+                    {discardOtherCreators ? 'JA (Rest wird gelöscht)' : 'NEIN (Rest bleibt in Queue)'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDiscardOtherCreators(true)}
+                    className={`rounded-lg border px-3 py-1.5 font-mono text-xs font-bold transition ${
+                      discardOtherCreators
+                        ? 'border-[#00ff66] bg-[#00ff66] text-black shadow-sm'
+                        : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:text-white'
+                    }`}
+                  >
+                    ✓ Ja, Rest verwerfen ({otherCreatorsCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDiscardOtherCreators(false)}
+                    className={`rounded-lg border px-3 py-1.5 font-mono text-xs font-bold transition ${
+                      !discardOtherCreators
+                        ? 'border-sky-400 bg-sky-400 text-black shadow-sm'
+                        : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:text-white'
+                    }`}
+                  >
+                    ✕ Nein, Rest behalten
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex items-center justify-end gap-2 border-t border-zinc-800 pt-3 mt-1">
               <button
@@ -8090,6 +9214,43 @@ export default function IntranetDrafts({
               )}
             </div>
 
+            {otherCreatorsCount > 0 && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-amber-200">
+                    ❓ Rest verwerfen? ({otherCreatorsCount} weitere{otherCreatorsCount === 1 ? 'r' : ''} Creator in diesem Spiel)
+                  </span>
+                  <span className="font-mono text-[10px] text-amber-300">
+                    {discardOtherCreators ? 'JA (Rest wird gelöscht)' : 'NEIN (Rest bleibt in Queue)'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDiscardOtherCreators(true)}
+                    className={`rounded-lg border px-3 py-1.5 font-mono text-xs font-bold transition ${
+                      discardOtherCreators
+                        ? 'border-[#00ff66] bg-[#00ff66] text-black shadow-sm'
+                        : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:text-white'
+                    }`}
+                  >
+                    ✓ Ja, Rest verwerfen ({otherCreatorsCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDiscardOtherCreators(false)}
+                    className={`rounded-lg border px-3 py-1.5 font-mono text-xs font-bold transition ${
+                      !discardOtherCreators
+                        ? 'border-sky-400 bg-sky-400 text-black shadow-sm'
+                        : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:text-white'
+                    }`}
+                  >
+                    ✕ Nein, Rest behalten
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* 4. Die 4 Entscheidungs-Buttons nach Sichtung beider Daten */}
             <div className="flex flex-col gap-2 border-t border-zinc-800 pt-3">
               <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-400">
@@ -8097,21 +9258,35 @@ export default function IntranetDrafts({
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {/* Entscheidung A: Entwurf weg (Live bleibt) */}
-                <button
-                  type="button"
-                  disabled={actionBusy}
-                  onClick={handleConflictDiscardDraft}
-                  className="flex flex-col items-start gap-1 rounded-xl border border-red-500/45 bg-red-500/15 p-3 text-left hover:bg-red-500/25 hover:border-red-400 disabled:opacity-40 transition"
-                >
-                  <span className="text-xs font-bold text-red-300 flex items-center gap-1.5">
-                    <span>🗑️</span>
-                    <span>Entwurf verwerfen</span>
-                  </span>
-                  <span className="text-[10px] text-zinc-300 leading-snug">
-                    Entwurf wird gelöscht. Das veröffentlichte Spiel ({selectedGame.spiel_typ || 'Live'}) bleibt unverändert.
-                  </span>
-                </button>
+                {/* Entscheidung A: Alle Entwürfe weg (Live bleibt) */}
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={() => handleConflictDiscardDraft('all')}
+                    className="flex flex-col items-start gap-1 rounded-xl border border-red-500/45 bg-red-500/15 p-3 text-left hover:bg-red-500/25 hover:border-red-400 disabled:opacity-40 transition"
+                  >
+                    <span className="text-xs font-bold text-red-300 flex items-center gap-1.5">
+                      <span>🛡️</span>
+                      <span>
+                        Original behalten &amp; ALLE {creatorTabs.length} Entwürfe für dieses Spiel verwerfen
+                      </span>
+                    </span>
+                    <span className="text-[10px] text-zinc-300 leading-snug">
+                      Löscht sämtliche {currentGameRows.length} Staging-/Rohmaterial-Zeilen aller {creatorTabs.length} Creator für dieses Spiel auf einen Schlag. Dein Live-Guide bleibt 100% unangetastet.
+                    </span>
+                  </button>
+                  {creatorTabs.length > 1 && (
+                    <button
+                      type="button"
+                      disabled={actionBusy || !selectedCreatorName}
+                      onClick={() => handleConflictDiscardDraft('single')}
+                      className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-left text-[10px] font-mono text-zinc-300 hover:border-red-400/50 hover:text-red-200 disabled:opacity-40"
+                    >
+                      ✕ Nur Creator "{selectedCreatorName}" ({currentCreatorRows.length} Zeilen) verwerfen &amp; nächste Creator prüfen
+                    </button>
+                  )}
+                </div>
 
                 {/* Entscheidung B: Alte Daten weg, Entwurf übernimmt (Ersetzen) */}
                 <button

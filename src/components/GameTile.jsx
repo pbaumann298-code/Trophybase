@@ -218,7 +218,7 @@ function GameTile({
           </span>
         ) : null}
         {showConsole && consoleLabel ? (
-          <span className="home-tile-badge">{consoleLabel}</span>
+          <span className="home-tile-badge tb-bidi-isolate" dir="ltr">{consoleLabel}</span>
         ) : null}
       </div>
     </article>

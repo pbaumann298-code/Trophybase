@@ -593,7 +593,7 @@ function HeaderSettingsMenu({
               <div className="my-1.5 border-t border-zinc-800" role="separator" />
               {sessionUser.email ? (
                 <p className="px-3 pb-1 text-[10px] font-mono text-zinc-600 truncate" title={sessionUser.email}>
-                  {sessionUser.email}
+                  <span className="tb-bidi-isolate" dir="ltr">{sessionUser.email}</span>
                 </p>
               ) : null}
               <button

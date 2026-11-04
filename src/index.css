@@ -36,6 +36,13 @@ body {
   display: none;
 }
 
+/* LTR-Insel: Domains, Zähler (12 / 40), Versionen und Kennungen.
+   Isoliert nur dieses Element. Das umgebende dir=rtl-Layout bleibt unverändert. */
+.tb-bidi-isolate {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
 .site-header {
   display: flex;
   justify-content: flex-end;

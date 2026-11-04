@@ -1725,9 +1725,19 @@ function GamePageContent({
               onSubmit={handleSaveIgdbLink}
               className="w-full max-w-md rounded-2xl border border-zinc-700 bg-[#1a1b1c] p-5 shadow-2xl"
             >
-              <h2 id="igdb-link-title" className="text-sm font-bold text-white">
-                Neuer IGDB-Link
-              </h2>
+              <div className="flex items-start justify-between gap-3">
+                <h2 id="igdb-link-title" className="text-sm font-bold text-white">
+                  Neuer IGDB-Link
+                </h2>
+                <a
+                  href={`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(`${gameTitle} ${selectedGame?.[GAME_FIELDS.console] || ''} cover igdb`.trim())}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-sky-300 hover:bg-sky-500/20 no-underline"
+                >
+                  🔍 Bild suchen
+                </a>
+              </div>
               <p className="mt-2 text-xs leading-relaxed text-zinc-400">
                 Bildlink von images.igdb.com einfügen. Der ersetzt das Cover und hält den IGDB-Status auf erledigt, damit der nächste Lauf ihn nicht wieder überschreibt.
               </p>
