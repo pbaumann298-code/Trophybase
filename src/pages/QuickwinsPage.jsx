@@ -3,7 +3,8 @@ import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
 import { CATALOG_FETCH_PAGE, fetchGamesByType } from '../lib/gameQueries';
 import { GAME_TYPE } from '../lib/gameSchema';
-import { getGameTitle, getGameUuid } from '../lib/gameModel';
+import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
+import { GAME_FIELDS } from '../lib/gameSchema';
 import { translateHomeTag } from '../lib/homeTagDefs';
 import {
   QUICKWIN_ALPHABET,
@@ -17,6 +18,7 @@ import {
   quickwinPublisherKey,
   quickwinPublisherOptions,
   sortQuickwins,
+  titleAlphabetKey,
 } from '../lib/quickwinCatalog';
 import {
   QUICKWINS_PATH,
@@ -26,6 +28,8 @@ import {
 } from '../lib/routeUtils';
 import QuickwinGameCard, { formatQuickwinCount } from '../components/QuickwinGameCard';
 import CatalogLetterSection from '../components/CatalogLetterSection';
+import PublisherTile from '../components/PublisherTile';
+import WatchlistButton from '../components/WatchlistButton';
 import { normalizeLocale } from '../lib/locale';
 import '../styles/home.css';
 import '../styles/quickwins.css';
@@ -81,6 +85,225 @@ function gameMatchesTag(game, tagSlug) {
 }
 
 const DOM_CHUNK_SIZE = 60;
+const PUBLISHER_ROW_PREVIEW = 6;
+
+const TILE_SHELL_CLASS =
+  'catalog-tile-shell catalog-tile-shell--carousel flex-shrink-0 snap-start w-[9.25rem] sm:w-[10.5rem] lg:w-[11.25rem] max-w-[11.25rem]';
+
+function PublisherLetterSection({
+  letter,
+  publishers,
+  selectedPublisherKey,
+  onSelectPublisher,
+  onClosePublisher,
+  openGameId,
+  onToggleGame,
+  openGame,
+  onRequestLogin,
+  isAdmin,
+  sessionUser,
+  includeReady,
+  newerVersions,
+  serverNotice,
+  serverNoticeText,
+}) {
+  const { t, globalLocale } = useLocale();
+  const trackRef = useRef(null);
+  const [expanded, setExpanded] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const useGrid = expanded || publishers.length < PUBLISHER_ROW_PREVIEW;
+  const selectedGroup = publishers.find((group) => group.key === selectedPublisherKey) || null;
+
+  const updateScrollHints = useCallback(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 8);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+  }, []);
+
+  useEffect(() => {
+    if (useGrid) return undefined;
+    updateScrollHints();
+    const el = trackRef.current;
+    if (!el) return undefined;
+    const observer = new ResizeObserver(updateScrollHints);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [publishers.length, useGrid, updateScrollHints]);
+
+  const scrollByTiles = (direction) => {
+    const el = trackRef.current;
+    if (!el) return;
+    el.scrollBy({ left: Math.round(el.clientWidth * 0.85) * direction, behavior: 'smooth' });
+  };
+
+  const renderTile = (group) => (
+    <PublisherTile
+      key={group.key || group.label}
+      group={group}
+      selected={selectedPublisherKey === group.key}
+      onSelect={() => onSelectPublisher(group.key)}
+    />
+  );
+
+  return (
+    <section
+      id={`catalog-letter-${letter}`}
+      className="catalog-letter-section home-category w-full min-w-0 max-w-full"
+      aria-labelledby={`catalog-letter-title-${letter}`}
+    >
+      <header className="home-category-header">
+        <div className="home-category-heading min-w-0">
+          {publishers.length >= PUBLISHER_ROW_PREVIEW ? (
+            <button
+              type="button"
+              id={`catalog-letter-title-${letter}`}
+              className="home-category-title home-category-title--clickable"
+              onClick={() => setExpanded((prev) => !prev)}
+              aria-expanded={expanded}
+            >
+              {letter}
+              <span className="catalog-show-all-label">
+                {publishers.length}
+              </span>
+            </button>
+          ) : (
+            <h2 id={`catalog-letter-title-${letter}`} className="home-category-title">
+              {letter}
+              <span className="catalog-show-all-label">{publishers.length}</span>
+            </h2>
+          )}
+        </div>
+        {!useGrid ? (
+          <div className="home-category-nav flex-shrink-0">
+            <button
+              type="button"
+              className="home-scroll-btn"
+              aria-label={`${letter} nach links`}
+              disabled={!canScrollLeft}
+              onClick={() => scrollByTiles(-1)}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className="home-scroll-btn"
+              aria-label={`${letter} nach rechts`}
+              disabled={!canScrollRight}
+              onClick={() => scrollByTiles(1)}
+            >
+              ›
+            </button>
+          </div>
+        ) : null}
+      </header>
+
+      {useGrid ? (
+        <div className="publisher-tile-grid">
+          {publishers.map(renderTile)}
+        </div>
+      ) : (
+        <div className="home-carousel-wrap">
+          <div
+            ref={trackRef}
+            className="home-carousel-track scrollbar-hide"
+            onScroll={updateScrollHints}
+          >
+            {publishers.map((group) => (
+              <div key={group.key || group.label} className={TILE_SHELL_CLASS}>
+                {renderTile(group)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {selectedGroup ? (
+        <div className="catalog-detail catalog-detail--below-row publisher-detail">
+          <div className="publisher-detail-head">
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-white truncate">{selectedGroup.label}</h3>
+              <p className="text-[11px] font-mono text-zinc-400">
+                {formatQuickwinCount(
+                  selectedGroup.games.length,
+                  t('quickwinsGameCountOne'),
+                  t('quickwinsGameCount'),
+                )}
+              </p>
+            </div>
+            <button type="button" className="publisher-detail-close" onClick={onClosePublisher}>
+              ✕ {t('reportClose')}
+            </button>
+          </div>
+          <div className="catalog-expanded-list">
+            {selectedGroup.games.map((game) => {
+              const gameId = getGameUuid(game);
+              const title = getGameTitle(game, globalLocale);
+              const cover = getGameCover(game, globalLocale);
+              const consoleLabel = game[GAME_FIELDS.console] ?? '';
+              const year = game[GAME_FIELDS.year];
+              const yearLabel = year ? String(year) : '';
+              const isOpen = Boolean(gameId) && openGameId === gameId;
+              return (
+                <div key={gameId || title} className="catalog-list-row">
+                  <div className="publisher-game-row">
+                    <button
+                      type="button"
+                      className="catalog-list-row-btn"
+                      aria-expanded={isOpen}
+                      onClick={() => onToggleGame(gameId)}
+                    >
+                      <span className="catalog-list-row-cover-wrap">
+                        {cover ? (
+                          <img src={cover} className="catalog-list-row-cover" alt="" loading="lazy" />
+                        ) : (
+                          <div className="catalog-list-row-cover catalog-list-row-cover--empty">🎮</div>
+                        )}
+                      </span>
+                      <span className="catalog-list-row-meta">
+                        <span className="catalog-list-row-title">{title}</span>
+                        <span className="catalog-list-row-console">
+                          {[consoleLabel, yearLabel].filter(Boolean).join(' · ') || '—'}
+                        </span>
+                        {isAdmin ? (
+                          <span className="quickwin-type">
+                            {String(game.spiel_typ ?? '').trim() || '—'}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="catalog-list-row-chevron" aria-hidden>
+                        {isOpen ? '▲' : '▼'}
+                      </span>
+                    </button>
+                    <div className="publisher-game-watchlist">
+                      <WatchlistButton gameId={gameId} size="sm" />
+                    </div>
+                  </div>
+                  {isOpen ? (
+                    <div className="catalog-detail">
+                      <QuickwinGameCard
+                        game={game}
+                        openGame={openGame}
+                        onRequestLogin={onRequestLogin}
+                        isAdmin={isAdmin}
+                        sessionUser={sessionUser}
+                        newerVersions={newerVersions}
+                        includeReady={includeReady}
+                        serverNotice={serverNotice}
+                        serverNoticeText={serverNoticeText}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
 
 function QuickwinsPage({
   openGame,
@@ -127,7 +350,7 @@ function QuickwinsPage({
   const [hasMore, setHasMore] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [visibleCount, setVisibleCount] = useState(DOM_CHUNK_SIZE);
-  const [openPublishers, setOpenPublishers] = useState(() => new Set());
+  const [selectedPublisherKey, setSelectedPublisherKey] = useState(null);
   const [openGameId, setOpenGameId] = useState(null);
   const [activeLetter, setActiveLetter] = useState('');
   const loadMoreRef = useRef(null);
@@ -369,11 +592,6 @@ function QuickwinsPage({
     };
   }, [alphabetCatalog, alphabetGroups, visibleCount]);
 
-  const letterHasGames = useMemo(() => {
-    const set = new Set(alphabetGroups.map((group) => group.key));
-    return set;
-  }, [alphabetGroups]);
-
   const grouped = useMemo(() => {
     if (alphabetCatalog) return [];
     return groupQuickwinsByPublisher(filteredGames, globalLocale, t('quickwinsNoPublisher'), canon).map((group) => ({
@@ -382,12 +600,29 @@ function QuickwinsPage({
     }));
   }, [alphabetCatalog, filteredGames, globalLocale, t, canon, applied.sort]);
 
-  const visibleGrouped = useMemo(
-    () => (alphabetCatalog ? [] : grouped.slice(0, visibleCount)),
-    [alphabetCatalog, grouped, visibleCount],
-  );
-  const hasMoreGroupedDom = !alphabetCatalog && grouped.length > visibleCount;
-  const hasMoreDomChunks = alphabetCatalog ? hasMoreAlphabetDom : hasMoreGroupedDom;
+  const publisherLetterGroups = useMemo(() => {
+    if (alphabetCatalog) return [];
+    const buckets = new Map();
+    for (const group of grouped) {
+      const key = titleAlphabetKey(group.label, globalLocale);
+      const list = buckets.get(key);
+      if (list) list.push(group);
+      else buckets.set(key, [group]);
+    }
+    for (const list of buckets.values()) {
+      list.sort((a, b) => a.label.localeCompare(b.label, globalLocale || 'de', { sensitivity: 'base' }));
+    }
+    return [...QUICKWIN_ALPHABET, '#']
+      .filter((key) => buckets.has(key))
+      .map((key) => ({ key, publishers: buckets.get(key) }));
+  }, [alphabetCatalog, grouped, globalLocale]);
+
+  const letterHasEntries = useMemo(() => {
+    const source = alphabetCatalog ? alphabetGroups : publisherLetterGroups;
+    return new Set(source.map((group) => group.key));
+  }, [alphabetCatalog, alphabetGroups, publisherLetterGroups]);
+
+  const hasMoreDomChunks = alphabetCatalog ? hasMoreAlphabetDom : false;
 
   useEffect(() => {
     if (!hasMoreDomChunks) return undefined;
@@ -403,10 +638,10 @@ function QuickwinsPage({
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [hasMoreDomChunks, visibleAlphabetGroups.length, visibleGrouped.length]);
+  }, [hasMoreDomChunks, visibleAlphabetGroups.length]);
 
   const commit = (next, { replace = false } = {}) => {
-    setOpenPublishers(new Set());
+    setSelectedPublisherKey(null);
     setOpenGameId(null);
     const payload = alphabetCatalog
       ? { title: next.title, publisher: '', sort: 'title-asc' }
@@ -464,48 +699,61 @@ function QuickwinsPage({
     commit({ ...applied, sort: event.target.value }, { replace: true });
   };
 
-  const togglePublisher = (key, gameIds) => {
-    const closing = openPublishers.has(key);
-    setOpenPublishers((prev) => {
-      const next = new Set(prev);
-      if (prev.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-    if (closing) {
-      setOpenGameId((current) => (gameIds.has(current) ? null : current));
-    }
+  const selectPublisher = (key) => {
+    setSelectedPublisherKey((current) => (current === key ? null : key));
+    setOpenGameId(null);
   };
 
   const toggleGame = (gameId) => {
     setOpenGameId((current) => (current === gameId ? null : gameId));
   };
 
-  const jumpToLetter = (letter) => {
-    if (!letterHasGames.has(letter)) return;
-    setActiveLetter(letter);
-    let neededCount = 0;
-    for (const group of alphabetGroups) {
-      neededCount += group.games.length;
-      if (group.key === letter) break;
-    }
-    if (neededCount > visibleCount) {
-      setVisibleCount(Math.ceil(neededCount / DOM_CHUNK_SIZE) * DOM_CHUNK_SIZE);
-      window.requestAnimationFrame(() => {
-        const node = document.getElementById(`catalog-letter-${letter}`);
-        if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
+  const autoOpenSignatureRef = useRef('');
+  useEffect(() => {
+    if (alphabetCatalog) return;
+    const titleActive = Boolean(String(applied.title || '').trim());
+    const publisherActive = Boolean(applied.publisher);
+    const autoKey = (publisherActive || titleActive) && grouped.length === 1 ? grouped[0].key : '';
+    const signature = `${applied.publisher}|${applied.title}|${autoKey}`;
+    if (autoKey && autoOpenSignatureRef.current !== signature) {
+      autoOpenSignatureRef.current = signature;
+      setSelectedPublisherKey(autoKey);
       return;
     }
-    const node = document.getElementById(`catalog-letter-${letter}`);
-    if (!node) return;
-    node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    autoOpenSignatureRef.current = signature;
+    setSelectedPublisherKey((current) => {
+      if (!current) return current;
+      return grouped.some((group) => group.key === current) ? current : null;
+    });
+  }, [alphabetCatalog, applied.title, applied.publisher, grouped]);
+
+  const jumpToLetter = (letter) => {
+    if (!letterHasEntries.has(letter)) return;
+    setActiveLetter(letter);
+    const scroll = () => {
+      const node = document.getElementById(`catalog-letter-${letter}`);
+      if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    if (alphabetCatalog) {
+      let neededCount = 0;
+      for (const group of alphabetGroups) {
+        neededCount += group.games.length;
+        if (group.key === letter) break;
+      }
+      if (neededCount > visibleCount) {
+        setVisibleCount(Math.ceil(neededCount / DOM_CHUNK_SIZE) * DOM_CHUNK_SIZE);
+        window.requestAnimationFrame(scroll);
+        return;
+      }
+    }
+    scroll();
   };
 
   useEffect(() => {
-    if (!alphabetCatalog || alphabetGroups.length === 0) return undefined;
+    const source = alphabetCatalog ? alphabetGroups : publisherLetterGroups;
+    if (source.length === 0) return undefined;
 
-    const nodes = alphabetGroups
+    const nodes = source
       .map((group) => document.getElementById(`catalog-letter-${group.key}`))
       .filter(Boolean);
     if (nodes.length === 0) return undefined;
@@ -522,14 +770,13 @@ function QuickwinsPage({
     );
     nodes.forEach((node) => observer.observe(node));
     return () => observer.disconnect();
-  }, [alphabetCatalog, alphabetGroups]);
+  }, [alphabetCatalog, alphabetGroups, publisherLetterGroups]);
 
-  const renderAlphabetCatalog = () => (
-    <>
+  const renderAlphabetNav = () => (
       <nav className="catalog-alpha" aria-label="Alphabet">
         <div className="catalog-alpha-track">
           {QUICKWIN_ALPHABET.map((letter) => {
-            const enabled = letterHasGames.has(letter);
+            const enabled = letterHasEntries.has(letter);
             return (
               <button
                 key={letter}
@@ -544,7 +791,7 @@ function QuickwinsPage({
               </button>
             );
           })}
-          {letterHasGames.has('#') ? (
+          {letterHasEntries.has('#') ? (
             <button
               type="button"
               className={`catalog-alpha-btn${activeLetter === '#' ? ' is-active' : ''}`}
@@ -555,6 +802,11 @@ function QuickwinsPage({
           ) : null}
         </div>
       </nav>
+  );
+
+  const renderAlphabetCatalog = () => (
+    <>
+      {renderAlphabetNav()}
 
       {loading ? (
         <p className="quickwin-card-note">{t('searchLoading')}</p>
@@ -589,78 +841,8 @@ function QuickwinsPage({
     </>
   );
 
-  const pageBlocks = visibleGrouped.map((block) => {
-    const isOpen = openPublishers.has(block.key);
-    const gameIds = new Set(block.games.map((game) => getGameUuid(game)).filter(Boolean));
-    return (
-      <section key={`publisher-${block.key || 'none'}`} className="guide-localisation">
-        <button
-          type="button"
-          className="guide-localisation__header"
-          aria-expanded={isOpen}
-          onClick={() => togglePublisher(block.key, gameIds)}
-        >
-          <span>
-            {block.label || t('quickwinsNoPublisher')}
-            <span className="guide-localisation__count">
-              ({formatQuickwinCount(
-                block.games.length,
-                t('quickwinsGameCountOne'),
-                t('quickwinsGameCount'),
-              )})
-            </span>
-          </span>
-          <span className="guide-localisation__chevron" aria-hidden>
-            {isOpen ? '▲' : '▼'}
-          </span>
-        </button>
-        {isOpen && (
-          <div className="guide-localisation__body quickwin-titles">
-            {block.games.slice(0, visibleCount).map((game) => {
-              const gameId = getGameUuid(game);
-              const titleOpen = Boolean(gameId) && openGameId === gameId;
-              return (
-                <div key={gameId || fallbackKey(game)} className="quickwin-title-block">
-                  <button
-                    type="button"
-                    className="quickwin-title"
-                    aria-expanded={titleOpen}
-                    onClick={() => toggleGame(gameId)}
-                  >
-                    <span className="quickwin-title-name">
-                      <span>{getGameTitle(game, globalLocale)}</span>
-                      {isAdmin ? (
-                        <span className="quickwin-type">
-                          {String(game.spiel_typ ?? '').trim() || '—'}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span aria-hidden>{titleOpen ? '▲' : '▼'}</span>
-                  </button>
-                  {titleOpen && (
-                    <QuickwinGameCard
-                      game={game}
-                      openGame={openGame}
-                      onRequestLogin={onRequestLogin}
-                      isAdmin={isAdmin}
-                      sessionUser={sessionUser}
-                      newerVersions={newerVersions}
-                      includeReady={includeReady}
-                      serverNotice={serverNotice}
-                      serverNoticeText={pageCopy?.notice || ''}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-    );
-  });
-
   return (
-    <div className={`quickwins-page${alphabetCatalog ? ' catalog-page' : ''}`}>
+    <div className="quickwins-page catalog-page">
       <button type="button" className="quickwins-back" onClick={onBack}>
         {t('searchBack')}
       </button>
@@ -775,6 +957,8 @@ function QuickwinsPage({
         </div>
       </form>
 
+      {!alphabetCatalog ? renderAlphabetNav() : null}
+
       {!loading && games.length > 0 && (
         <div
           className="mb-4 flex items-center justify-between rounded-xl border border-zinc-800 bg-[#161718] px-3.5 py-2 text-xs font-mono text-zinc-300"
@@ -803,21 +987,34 @@ function QuickwinsPage({
           {hasMore || loadingMore ? t('searchLoading') : t('searchNoResults')}
         </p>
       ) : (
-        <div className="quickwins-list">
-          {pageBlocks}
-          {hasMoreGroupedDom ? (
-            <div ref={loadMoreRef} className="catalog-load-more">
-              <span className="catalog-load-more-spacer" />
-            </div>
-          ) : null}
+        <div className="catalog-list">
+            {publisherLetterGroups.map((section) => (
+              <PublisherLetterSection
+                key={section.key}
+                letter={section.key}
+                publishers={section.publishers}
+                selectedPublisherKey={selectedPublisherKey}
+                onSelectPublisher={selectPublisher}
+                onClosePublisher={() => {
+                  setSelectedPublisherKey(null);
+                  setOpenGameId(null);
+                }}
+                openGameId={openGameId}
+                onToggleGame={toggleGame}
+                openGame={openGame}
+                onRequestLogin={onRequestLogin}
+                isAdmin={isAdmin}
+                sessionUser={sessionUser}
+                includeReady={includeReady}
+                newerVersions={newerVersions}
+                serverNotice={serverNotice}
+                serverNoticeText={pageCopy?.notice || ''}
+              />
+            ))}
         </div>
       )}
     </div>
   );
-}
-
-function fallbackKey(game) {
-  return String(game?.id ?? game?.slug ?? '');
 }
 
 export default QuickwinsPage;
