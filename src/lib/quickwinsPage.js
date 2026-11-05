@@ -9,13 +9,13 @@ export const QUICKWINS_PAGE = {
   de: {
     slug: 'quickwins',
     title: 'Quickwins',
-    lead: 'Übersicht von Spielen für schnelle Platin-Trophäen und kurze Spieldauern.',
+    lead: 'Schnelle PlayStation Platin-Trophäen (PS4 & PS5 Quickwins) und kurze Spieldauern im PSN.',
     notice: '',
   },
   en: {
     slug: 'quickwins',
     title: 'Quickwins',
-    lead: 'Overview of games for quick platinum trophies and short playtimes.',
+    lead: 'Fast PlayStation platinum trophies (PS4 & PS5 quickwins) and short playtimes on PSN.',
     notice: '',
   },
   fr: {

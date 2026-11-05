@@ -5,7 +5,7 @@ import { getGameCover, getGameDescription, getGameTitle } from './gameModel.js';
 import { formatLocalizedHomeTags } from './homeTagDefs.js';
 import { buildPrettyGamePath, hardwareLabel, hardwareToUrlSegment } from './gameSlug.js';
 import { contentLocalesForGame } from './contentLocales.js';
-import { guideDescriptionFallback } from './gameOverviewCopy.js';
+import { expandPlayStationSeoTerms } from './seoUtils.js';
 
 export const SITE_NAME = 'TrophyBase.app';
 export const HOME_META_TITLE = 'TrophyBase.app – Trophäen-Guides für PlayStation';
@@ -342,6 +342,55 @@ function buildGameFaq(game, title, canonicalLocale) {
   return questions;
 }
 
+function buildPlayStationPageTitle(title, terms, locale) {
+  const name = String(title ?? '').trim() || 'TrophyBase';
+  const short = terms?.short || 'PSN';
+  const lang = String(locale || 'de').toLowerCase();
+  if (lang === 'de') {
+    return `${name} (${short}) – PlayStation Trophäen Guide, Platin & Roadmap | TrophyBase`;
+  }
+  if (lang === 'es') {
+    return `${name} (${short}) – Guía de trofeos PlayStation, platino y roadmap | TrophyBase`;
+  }
+  if (lang === 'pt') {
+    return `${name} (${short}) – Guia de troféus PlayStation, platina e roadmap | TrophyBase`;
+  }
+  if (lang === 'fr') {
+    return `${name} (${short}) – Guide des trophées PlayStation, platine et roadmap | TrophyBase`;
+  }
+  if (lang === 'it') {
+    return `${name} (${short}) – Guida ai trofei PlayStation, platino e roadmap | TrophyBase`;
+  }
+  return `${name} (${short}) – PlayStation Trophy Guide, Platinum & Roadmap | TrophyBase`;
+}
+
+function buildPlayStationMetaDescription(title, terms, locale, ownDescription) {
+  const name = String(title ?? '').trim() || 'TrophyBase';
+  const combined = terms?.combined || 'PlayStation (PSN)';
+  const lang = String(locale || 'de').toLowerCase();
+  const fallback = lang === 'de'
+    ? `Vollständiger ${combined} Trophäen-Leitfaden für ${name}: Alle PSN-Trophäen, Platin-Guide, Sammelobjekte & Video-Walkthroughs.`
+    : lang === 'es'
+      ? `Guía completa de trofeos ${combined} para ${name}: todos los trofeos PSN, platino, coleccionables y walkthroughs en vídeo.`
+      : lang === 'pt'
+        ? `Guia completo de troféus ${combined} para ${name}: todos os troféus PSN, platina, colecionáveis e walkthroughs em vídeo.`
+        : lang === 'fr'
+          ? `Guide complet des trophées ${combined} pour ${name} : tous les trophées PSN, platine, objets à collectionner et walkthroughs vidéo.`
+          : lang === 'it'
+            ? `Guida completa ai trofei ${combined} per ${name}: tutti i trofei PSN, platino, collezionabili e walkthrough video.`
+            : `Complete ${combined} trophy guide for ${name}: all PSN trophies, platinum guide, collectibles and video walkthroughs.`;
+
+  const own = String(ownDescription ?? '').replace(/\s+/g, ' ').trim();
+  if (!own) return clipMetaText(fallback, 320);
+  const short = String(terms?.short ?? '').trim();
+  const hasBrand = /playstation/i.test(own);
+  const hasShort = short
+    ? new RegExp(short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(own)
+    : false;
+  if (hasBrand && hasShort) return clipMetaText(own, 320);
+  return clipMetaText(`${combined}: ${own}`, 320);
+}
+
 /**
  * Titel, Canonical, Open Graph und JSON-LD für eine Guide-Seite.
  */
@@ -358,10 +407,9 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
   const base = String(origin || '').replace(/\/$/, '');
   const canonical = path ? `${base}${path}` : '';
   const title = getGameTitle(game, canonicalLocale) || gameSlug || SITE_NAME;
-  const rawDescription =
-    getGameDescription(game, canonicalLocale) ||
-    guideDescriptionFallback(title, canonicalLocale);
-  const description = clipMetaText(rawDescription);
+  const seoTerms = expandPlayStationSeoTerms(game?.hardware || hardware, game?.ecosystem);
+  const ownDescription = getGameDescription(game, canonicalLocale);
+  const description = buildPlayStationMetaDescription(title, seoTerms, canonicalLocale, ownDescription);
   const cover = absoluteUrl(base, getGameCover(game, canonicalLocale));
   const year = game?.[GAME_STRUCT.releaseYear] ? String(game[GAME_STRUCT.releaseYear]) : '';
   const credits = publicStudioCredits(game);
@@ -370,8 +418,8 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
     canonicalLocale,
     '',
   );
-  const platform = hardwareLabel(game?.hardware || hw);
-  const pageTitle = `${title} – TrophyBase`;
+  const platform = seoTerms.full || hardwareLabel(game?.hardware || hw);
+  const pageTitle = buildPlayStationPageTitle(title, seoTerms, canonicalLocale);
 
   const videoGame = {
     '@type': 'VideoGame',
@@ -380,7 +428,8 @@ export function buildGameSeo({ origin, locale, hardware, slug, game, locales } =
     description: description || undefined,
     image: cover || undefined,
     inLanguage: hreflangOf(canonicalLocale),
-    gamePlatform: platform || undefined,
+    gamePlatform: seoTerms.schemaPlatforms,
+    operatingSystem: seoTerms.full,
     genre: genre || undefined,
     developer: credits.studio ? { '@type': 'Organization', name: credits.studio } : undefined,
     publisher: credits.publisher

@@ -9,13 +9,13 @@ export const EASY_PLATINS_PAGE = {
   de: {
     slug: 'easy-platins',
     title: 'Easy Platins',
-    lead: 'Kurze Guides für schnelle Platins – Visual Novels, Hidden-Object und ähnlich kurze Titel.',
+    lead: 'Leichte PlayStation Platin-Trophäen & entspannte PS4/PS5 Trophy-Guides.',
     notice: '',
   },
   en: {
     slug: 'easy-platins',
     title: 'Easy platinums',
-    lead: 'Short guides for quick platinums – visual novels, hidden-object games and similarly short titles.',
+    lead: 'Easy PlayStation platinum trophies and relaxed PS4/PS5 trophy guides.',
     notice: '',
   },
   fr: {

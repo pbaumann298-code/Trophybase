@@ -1,5 +1,5 @@
 import { useLocale } from '../context/LocaleContext';
-import { hardwareLabel } from '../lib/gameSlug';
+import { expandPlayStationSeoTerms } from '../lib/seoUtils';
 import { GAME_FIELDS, GAME_STRUCT } from '../lib/gameSchema';
 import { formatLocalizedHomeTags, getLocalizedHomeTagItems } from '../lib/homeTagDefs';
 import { buildAdvancedSearchPath, navigateToAdvancedSearch, navigateToHome } from '../lib/routeUtils';
@@ -14,7 +14,9 @@ function CrumbSep() {
 
 function GuideBreadcrumb({ game, title, onHome }) {
   const { t, globalLocale } = useLocale();
-  const platform = hardwareLabel(game?.hardware);
+  const platform = String(game?.hardware ?? '').trim()
+    ? expandPlayStationSeoTerms(game?.hardware, game?.ecosystem).combined
+    : '';
   const homeTagItems = getLocalizedHomeTagItems(game?.[GAME_STRUCT.homeTags], globalLocale);
   const firstTag = homeTagItems[0] || null;
   const genre = String(

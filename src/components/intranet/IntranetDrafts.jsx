@@ -155,6 +155,7 @@ function DraftInlineInput({
   onCommit,
   className = '',
   onKeyDown,
+  readOnly = false,
   ...rest
 }) {
   const [localValue, setLocalValue] = useState(value ?? '');
@@ -168,10 +169,24 @@ function DraftInlineInput({
   return (
     <input
       {...rest}
+      readOnly={readOnly}
+      inputMode={readOnly ? 'none' : rest.inputMode}
+      tabIndex={readOnly ? -1 : rest.tabIndex}
       value={localValue}
-      className={className}
-      onClick={(event) => event.stopPropagation()}
-      onFocus={() => setFocused(true)}
+      className={`${className}${readOnly ? ' pointer-events-none' : ''}`}
+      onClick={(event) => {
+        if (!readOnly) event.stopPropagation();
+      }}
+      onPointerDown={(event) => {
+        if (readOnly) event.preventDefault();
+      }}
+      onFocus={(event) => {
+        if (readOnly) {
+          event.currentTarget.blur();
+          return;
+        }
+        setFocused(true);
+      }}
       onChange={(event) => setLocalValue(event.target.value)}
       onBlur={() => {
         setFocused(false);
@@ -1493,6 +1508,7 @@ export default function IntranetDrafts({
   const [selectByTermQuery, setSelectByTermQuery] = useState('');
   const [selectByTermField, setSelectByTermField] = useState('item_name');
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
+  const [batchDrawerExpanded, setBatchDrawerExpanded] = useState(false);
 
   // 3. Trophäen-Schnell-Picker & Auto-Matcher ("Just Do It") State
   const [showTrophyMatcher, setShowTrophyMatcher] = useState(false);
@@ -1962,7 +1978,16 @@ export default function IntranetDrafts({
     setVideoScrapeDropDraft(false);
     setVideoScrapeMode('single');
     setVideoScrapeDropPlaceholders(true);
+    setBatchDrawerExpanded(false);
   }, [selectedGameId, selectedCreatorName, activeDataSource]);
+
+  useEffect(() => {
+    if (selectedRowIds.size === 0) {
+      setBatchDrawerExpanded(false);
+      setBatchCustomField(null);
+      setConfirmBatchDelete(false);
+    }
+  }, [selectedRowIds.size]);
 
   // Current game's rows
   const currentGameRows = useMemo(() => {
@@ -9020,7 +9045,13 @@ export default function IntranetDrafts({
                     </div>
                   )}
 
-                  <div className="overflow-x-auto">
+                  <div
+                    className={`overflow-x-auto ${
+                      selectedRowIds.size > 0
+                        ? 'pb-28 [@media(orientation:landscape)_and_(max-height:540px)]:pb-2 [@media(orientation:landscape)_and_(max-height:540px)]:pl-72'
+                        : ''
+                    }`}
+                  >
                     <table className="w-max min-w-full text-left text-[11px] font-mono border-collapse">
                       <thead>
                         <tr className="border-b border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider select-none">
@@ -9163,7 +9194,13 @@ export default function IntranetDrafts({
                           return (
                             <tr
                               key={row.id}
-                              onClick={() => setActiveRowId(row.id)}
+                              onClick={() => {
+                                if (selectedRowIds.size > 0) {
+                                  handleToggleSelectRow(row.id);
+                                  return;
+                                }
+                                setActiveRowId(row.id);
+                              }}
                               className={`transition cursor-pointer ${
                                 isSelected
                                   ? 'bg-emerald-500/15 hover:bg-emerald-500/20'
@@ -9187,6 +9224,7 @@ export default function IntranetDrafts({
                               {/* guide_id */}
                               <td className="py-1 px-1 w-10 sm:w-12">
                                 <DraftInlineInput
+                                  readOnly={selectedRowIds.size > 0}
                                   type="text"
                                   value={row.guide_id ?? ''}
                                   onCommit={(next) => handleUpdateRowField(row.id, 'guide_id', next)}
@@ -9211,6 +9249,7 @@ export default function IntranetDrafts({
                               {/* item_name */}
                               <td className="py-1 px-1 min-w-[14rem] sm:min-w-[18rem]">
                                 <DraftInlineInput
+                                  readOnly={selectedRowIds.size > 0}
                                   type="text"
                                   value={itemNameStr}
                                   onCommit={(next) => handleUpdateRowField(row.id, 'item_name', next)}
@@ -9221,6 +9260,7 @@ export default function IntranetDrafts({
                               {/* chronological_group */}
                               <td className="py-1 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem]">
                                 <DraftInlineInput
+                                  readOnly={selectedRowIds.size > 0}
                                   type="text"
                                   value={chronoStr}
                                   placeholder="—"
@@ -9232,6 +9272,7 @@ export default function IntranetDrafts({
                               {/* category_group */}
                               <td className="py-1 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem]">
                                 <DraftInlineInput
+                                  readOnly={selectedRowIds.size > 0}
                                   type="text"
                                   value={categoryStr}
                                   placeholder="—"
@@ -9243,6 +9284,7 @@ export default function IntranetDrafts({
                               {/* boss_group */}
                               <td className="py-1 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem]">
                                 <DraftInlineInput
+                                  readOnly={selectedRowIds.size > 0}
                                   type="text"
                                   value={bossStr}
                                   placeholder="—"
@@ -9254,6 +9296,7 @@ export default function IntranetDrafts({
                               {/* prod_note (🎬 Take / Rohdatei) */}
                               <td className="py-1 px-1">
                                 <DraftInlineInput
+                                  readOnly={selectedRowIds.size > 0}
                                   type="text"
                                   value={row.prod_note ?? ''}
                                   placeholder="z. B. 03_Erde"
@@ -9268,6 +9311,7 @@ export default function IntranetDrafts({
                                   <button
                                     type="button"
                                     onClick={(e) => {
+                                      if (selectedRowIds.size > 0) return;
                                       e.stopPropagation();
                                       setActiveRowId(row.id);
                                       if (row.video_url) setActiveVideoUrl(row.video_url);
@@ -9279,6 +9323,7 @@ export default function IntranetDrafts({
                                     ▶
                                   </button>
                                   <DraftInlineInput
+                                  readOnly={selectedRowIds.size > 0}
                                     type="text"
                                     value={row.timestamp ?? ''}
                                     placeholder="0:00"
@@ -9291,6 +9336,7 @@ export default function IntranetDrafts({
                               {/* video_chapter */}
                               <td
                                 onClick={(e) => {
+                                  if (selectedRowIds.size > 0) return;
                                   e.stopPropagation();
                                   setActiveRowId(row.id);
                                   if (row.video_url) setActiveVideoUrl(row.video_url);
@@ -9307,6 +9353,7 @@ export default function IntranetDrafts({
                               {/* trophy_id */}
                               <td className="py-1 px-1">
                                 <DraftInlineInput
+                                  readOnly={selectedRowIds.size > 0}
                                   type="text"
                                   placeholder="—"
                                   value={row.trophy_id ?? ''}
@@ -9374,336 +9421,377 @@ export default function IntranetDrafts({
                 {/* ==================== 2. FLOATING BATCH-BAR (WENN ZEILEN AUSGEWÄHLT SIND) ==================== */}
                 {selectedRowIds.size > 0 && (
                   <div
-                    className={`fixed left-3 right-3 z-50 rounded-2xl border-2 border-[#00ff66] bg-[#101412]/95 backdrop-blur-md p-3 shadow-2xl shadow-black/80 flex flex-col gap-2 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[820px] ${
-                      batchCustomField
-                        ? 'top-[12vh] bottom-auto sm:top-auto sm:bottom-4'
-                        : 'bottom-4'
-                    }`}
+                    className="fixed bottom-0 left-0 right-0 z-50 border-t-2 border-[#00ff66] bg-[#0e1210]/98 px-3 py-2 shadow-[0_-10px_30px_rgba(0,0,0,0.85)] backdrop-blur-md [@media(orientation:landscape)_and_(max-height:540px)]:bottom-0 [@media(orientation:landscape)_and_(max-height:540px)]:left-0 [@media(orientation:landscape)_and_(max-height:540px)]:right-auto [@media(orientation:landscape)_and_(max-height:540px)]:top-14 [@media(orientation:landscape)_and_(max-height:540px)]:w-72 [@media(orientation:landscape)_and_(max-height:540px)]:overflow-y-auto [@media(orientation:landscape)_and_(max-height:540px)]:border-t-0 [@media(orientation:landscape)_and_(max-height:540px)]:border-r-2 [@media(orientation:landscape)_and_(max-height:540px)]:p-2.5 [@media(orientation:landscape)_and_(max-height:540px)]:shadow-none"
                   >
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[10px] font-mono text-zinc-400">
-                        🔍 Auswahl auf Begriff eingrenzen / markieren:
-                      </span>
-                      <input
-                        type="text"
-                        value={selectByTermQuery}
-                        onChange={(e) => setSelectByTermQuery(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleSelectOnlyTermMatches();
-                          }
-                        }}
-                        placeholder="Begriff markieren (z.B. Memo, Turm)..."
-                        className="min-w-[10rem] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-100 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        disabled={!selectByTermQuery.trim()}
-                        onClick={handleSelectOnlyTermMatches}
-                        className="rounded-lg border border-[#00ff66]/50 bg-[#00ff66]/15 px-2.5 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40"
-                      >
-                        🎯 Nur &quot;{selectByTermQuery || '...'}&quot; ({matchingTermRowIds.length}) markiert lassen
-                      </button>
-                    </div>
-
-                    {batchCustomField ? (
-                      <DraftBatchCustomInput
-                        key={batchCustomField}
-                        field={batchCustomField}
-                        selectedCount={selectedRowIds.size}
-                        disabled={actionBusy}
-                        onApply={(next) => handleBatchOverwriteSelected(batchCustomField, next)}
-                        onCancel={() => {
-                          setBatchCustomField(null);
-                        }}
-                      />
-                    ) : null}
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center rounded-lg bg-[#00ff66] px-2.5 py-1 text-xs font-mono font-bold text-black">
-                          ☑️ {selectedRowIds.size} Zeilen markiert
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleToggleSelectAllVisible}
-                          className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-[10px] font-mono text-zinc-200 hover:border-[#00ff66]/50"
-                        >
-                          {allVisibleSelected
-                            ? 'Sichtbare abwählen'
-                            : `Alle sichtbaren (${visibleCreatorRows.length})`}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedRowIds(new Set())}
-                          className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] font-mono text-zinc-400 hover:text-white"
-                        >
-                          ✕ Auswahl aufheben
-                        </button>
-                        <button
-                          type="button"
-                          disabled={actionBusy}
-                          onClick={() =>
-                            handleSplitRowsByComma(
-                              currentCreatorRows.filter((row) => selectedRowIds.has(row.id)),
-                            )
-                          }
-                          title="Markierte Multi-Item-Zeilen am Komma in Einzelzeilen zerlegen"
-                          className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[10px] font-mono font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40"
-                        >
-                          ✂️ Am Komma zerlegen
-                        </button>
-                        <button
-                          type="button"
-                          disabled={actionBusy}
-                          onClick={() => setConfirmBatchDelete(true)}
-                          className="rounded-lg border border-red-500/50 bg-red-500/15 px-2.5 py-1 text-[10px] font-mono font-bold text-red-300 hover:bg-red-500/25"
-                        >
-                          🗑️ {selectedRowIds.size} löschen
-                        </button>
-                      </div>
-
-                      <span className="text-[10px] font-mono text-zinc-400">
-                        1-Klick Batch-Überschreiben:
-                      </span>
-                    </div>
-
-                    {confirmBatchDelete && (
-                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-500 bg-red-950/90 px-3 py-2 text-xs font-mono text-red-200">
-                        <span>
-                          ⚠️ Wirklich <strong>{selectedRowIds.size} markierte Zeilen</strong> unwiderruflich löschen?
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
+                    {(batchDrawerExpanded || batchCustomField || confirmBatchDelete) && (
+                      <div className="mb-2 flex max-h-[55vh] flex-col gap-2.5 overflow-y-auto border-b border-zinc-800 pb-2.5">
+                        {batchCustomField ? (
+                          <DraftBatchCustomInput
+                            key={batchCustomField}
+                            field={batchCustomField}
+                            selectedCount={selectedRowIds.size}
                             disabled={actionBusy}
-                            onClick={() => setConfirmBatchDelete(false)}
-                            className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[11px] text-zinc-300 hover:text-white"
-                          >
-                            Abbrechen
-                          </button>
-                          <button
-                            type="button"
-                            disabled={actionBusy}
-                            onClick={handleBatchDeleteSelectedRows}
-                            className="rounded-lg bg-red-500 px-3 py-1 text-[11px] font-bold text-black hover:bg-red-400 disabled:opacity-50"
-                          >
-                            {actionBusy ? 'Löscht…' : `🗑️ Ja, ${selectedRowIds.size} Zeilen endgültig löschen`}
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                            onApply={(next) => {
+                              setBatchDrawerExpanded(false);
+                              handleBatchOverwriteSelected(batchCustomField, next);
+                            }}
+                            onCancel={() => setBatchCustomField(null)}
+                          />
+                        ) : null}
 
-                    <div className="grid grid-cols-3 gap-2">
-                      {/* 1-Klick Dropdown: chronological_group */}
-                      <select
-                        value=""
-                        disabled={actionBusy}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (!val) return;
-                          if (val === '__CUSTOM__') {
-                            setBatchCustomField('chronological_group');
-                          } else if (val === '__CLEAR__') {
-                            handleBatchOverwriteSelected('chronological_group', '');
-                          } else {
-                            handleBatchOverwriteSelected('chronological_group', val);
-                          }
-                        }}
-                        className="rounded-xl border border-cyan-500/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-cyan-200 focus:border-[#00ff66] focus:outline-none"
-                      >
-                        <option value="">⏱️ Chrono</option>
-                        <option value="__CUSTOM__">✏️ + Neue Chrono-Group eingeben…</option>
-                        <option value="__CLEAR__">🗑️ (Chrono-Group leeren)</option>
-                        {groupStats.chronoPills
-                          .filter((p) => !p.isEmpty)
-                          .map((p) => (
-                            <option key={p.key} value={p.rawValue}>
-                              {p.label} ({p.count})
-                            </option>
-                          ))}
-                      </select>
-
-                      {/* 1-Klick Dropdown: category_group */}
-                      <select
-                        value=""
-                        disabled={actionBusy}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (!val) return;
-                          if (val === '__CUSTOM__') {
-                            setBatchCustomField('category_group');
-                          } else if (val === '__CLEAR__') {
-                            handleBatchOverwriteSelected('category_group', '');
-                          } else {
-                            handleBatchOverwriteSelected('category_group', val);
-                          }
-                        }}
-                        className="rounded-xl border border-purple-500/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-purple-200 focus:border-[#00ff66] focus:outline-none"
-                      >
-                        <option value="">🗂️ Collect</option>
-                        <option value="__CUSTOM__">✏️ + Neue Category-Group eingeben…</option>
-                        <option value="__CLEAR__">🗑️ (Category-Group leeren)</option>
-                        {groupStats.categoryPills
-                          .filter((p) => !p.isEmpty)
-                          .map((p) => (
-                            <option key={p.key} value={p.rawValue}>
-                              {p.label} ({p.count})
-                            </option>
-                          ))}
-                      </select>
-
-                      {/* 1-Klick Dropdown: boss_group */}
-                      <select
-                        value=""
-                        disabled={actionBusy}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (!val) return;
-                          if (val === '__CUSTOM__') {
-                            setBatchCustomField('boss_group');
-                          } else if (val === '__CLEAR__') {
-                            handleBatchOverwriteSelected('boss_group', '');
-                          } else {
-                            handleBatchOverwriteSelected('boss_group', val);
-                          }
-                        }}
-                        className="rounded-xl border border-amber-500/40 bg-zinc-900 px-2.5 py-1.5 text-xs font-mono text-amber-200 focus:border-[#00ff66] focus:outline-none"
-                      >
-                        <option value="">⚔️ Boss</option>
-                        <option value="__CUSTOM__">✏️ + Neue Boss-Group eingeben…</option>
-                        <option value="__CLEAR__">🗑️ (Boss-Group leeren)</option>
-                        {groupStats.bossPills
-                          .filter((p) => !p.isEmpty)
-                          .map((p) => (
-                            <option key={p.key} value={p.rawValue}>
-                              {p.label} ({p.count})
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-
-                    {/* 1-Klick: Bereinigten Video-Namen aus Chapter in Spalte übernehmen */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800/80 pt-2">
-                      <span className="text-[10px] font-mono text-zinc-300">
-                        🎬 Bereinigten Chapter-Namen in Spalte übernehmen ({selectedRowIds.size} markiert):
-                      </span>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {CHAPTER_TARGET_COLUMNS.map((col) => (
-                          <button
-                            key={col.value}
-                            type="button"
-                            disabled={actionBusy}
-                            onClick={() => handleApplyCleanedChapterToColumn(col.value, 'selected')}
-                            title={`Bereinigten Video-Namen aus Chapter für die ${selectedRowIds.size} markierten Zeilen in ${col.label} übernehmen`}
-                            className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[10px] font-mono font-bold text-zinc-200 hover:border-[#00ff66]/50 hover:text-[#00ff66] disabled:opacity-40 transition"
-                          >
-                            → {col.shortLabel}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {creatorTabs.length > 1 && (
-                      <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800/80 pt-2">
-                        <span className="text-[10px] font-mono text-zinc-300">🔗 Mit Creator zusammenführen:</span>
-                        <select
-                          value=""
-                          disabled={actionBusy}
-                          onChange={(e) => {
-                            const next = e.target.value;
-                            if (next) handleMergeCreatorIntoTarget(next);
-                          }}
-                          title="Markierte Zeilen in den gewählten Creator-Tab dieses Spiels übernehmen"
-                          className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
-                        >
-                          <option value="">wählen…</option>
-                          {creatorTabs
-                            .filter((tab) => tab.creatorName !== selectedCreatorName)
-                            .map((tab) => (
-                              <option key={tab.creatorName} value={tab.creatorName}>
-                                {tab.creatorName} ({tab.rowCount})
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-                    )}
-
-                    <div className="flex flex-col gap-2 border-t border-zinc-800/80 pt-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-mono text-zinc-300">
-                          📦 Markierte Zeilen ({selectedRowIds.size}) auf anderes Spiel:
-                        </span>
-                        <button
-                          type="button"
-                          disabled={actionBusy}
-                          onClick={() => setBatchTransferMode((prev) => (prev === 'move' ? null : 'move'))}
-                          className={`rounded-lg border px-2 py-1 text-[10px] font-mono font-bold transition disabled:opacity-40 ${
-                            batchTransferMode === 'move'
-                              ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
-                              : 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-[#00ff66]/40'
-                          }`}
-                        >
-                          ➡️ Verschieben
-                        </button>
-                        <button
-                          type="button"
-                          disabled={actionBusy}
-                          onClick={() =>
-                            setBatchTransferMode((prev) => (prev === 'duplicate' ? null : 'duplicate'))
-                          }
-                          className={`rounded-lg border px-2 py-1 text-[10px] font-mono font-bold transition disabled:opacity-40 ${
-                            batchTransferMode === 'duplicate'
-                              ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
-                              : 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-[#00ff66]/40'
-                          }`}
-                        >
-                          📋 Duplizieren
-                        </button>
-                      </div>
-
-                      {batchTransferMode && (
-                        <form onSubmit={handleSearchBatchTransferGames} className="flex flex-col gap-1.5">
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              type="text"
-                              value={batchTransferQuery}
-                              onChange={(e) => setBatchTransferQuery(e.target.value)}
-                              placeholder="Zielspiel suchen (Titel oder NPWR)..."
-                              className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] font-mono text-zinc-100 placeholder:text-zinc-500 focus:border-[#00ff66] focus:outline-none"
-                            />
-                            <button
-                              type="submit"
-                              disabled={actionBusy || batchTransferSearching || !batchTransferQuery.trim()}
-                              className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40"
-                            >
-                              {batchTransferSearching ? '…' : 'Suchen'}
-                            </button>
-                          </div>
-                          <div className="max-h-36 overflow-y-auto flex flex-col gap-1">
-                            {batchTransferResults.map((game) => (
-                              <div
-                                key={game.id}
-                                className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950/80 px-2 py-1"
+                        {confirmBatchDelete && (
+                          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-500 bg-red-950/90 px-3 py-2 text-xs font-mono text-red-200">
+                            <span>
+                              ⚠️ Wirklich <strong>{selectedRowIds.size} markierte Zeilen</strong> unwiderruflich löschen?
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={actionBusy}
+                                onClick={() => setConfirmBatchDelete(false)}
+                                className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[11px] text-zinc-300 hover:text-white"
                               >
-                                <span className="min-w-0 truncate text-[10px] font-mono text-zinc-200">
-                                  {getLocalizedTitle(game.spieltitel)} · {resolveDraftPlatformGameId(game)} · {game.hardware || '—'}
+                                Abbrechen
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actionBusy}
+                                onClick={() => {
+                                  setBatchDrawerExpanded(false);
+                                  handleBatchDeleteSelectedRows();
+                                }}
+                                className="rounded-lg bg-red-500 px-3 py-1 text-[11px] font-bold text-black hover:bg-red-400 disabled:opacity-50"
+                              >
+                                {actionBusy ? 'Löscht…' : `🗑️ Ja, ${selectedRowIds.size} Zeilen endgültig löschen`}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {batchDrawerExpanded && (
+                          <>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] font-mono text-zinc-400">
+                                🔍 Auswahl auf Begriff eingrenzen / markieren
+                              </span>
+                              <input
+                                type="text"
+                                value={selectByTermQuery}
+                                onChange={(e) => setSelectByTermQuery(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSelectOnlyTermMatches();
+                                    setBatchDrawerExpanded(false);
+                                  }
+                                }}
+                                placeholder="Begriff markieren (z.B. Memo, Turm)..."
+                                className="min-w-[10rem] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-100 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                              />
+                              <button
+                                type="button"
+                                disabled={!selectByTermQuery.trim()}
+                                onClick={() => {
+                                  handleSelectOnlyTermMatches();
+                                  setBatchDrawerExpanded(false);
+                                }}
+                                className="rounded-lg border border-[#00ff66]/50 bg-[#00ff66]/15 px-2.5 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40"
+                              >
+                                🎯 Nur Treffer markiert lassen
+                              </button>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleToggleSelectAllVisible();
+                                  setBatchDrawerExpanded(false);
+                                }}
+                                className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-[10px] font-mono text-zinc-200 hover:border-[#00ff66]/50"
+                              >
+                                {allVisibleSelected
+                                  ? 'Sichtbare abwählen'
+                                  : `Alle sichtbaren (${visibleCreatorRows.length})`}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actionBusy}
+                                onClick={() => {
+                                  setBatchDrawerExpanded(false);
+                                  handleSplitRowsByComma(
+                                    currentCreatorRows.filter((row) => selectedRowIds.has(row.id)),
+                                  );
+                                }}
+                                title="Markierte Multi-Item-Zeilen am Komma in Einzelzeilen zerlegen"
+                                className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[10px] font-mono font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40"
+                              >
+                                ✂️ Am Komma zerlegen
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actionBusy}
+                                onClick={() => {
+                                  setBatchDrawerExpanded(false);
+                                  setConfirmBatchDelete(true);
+                                }}
+                                className="rounded-lg border border-red-500/50 bg-red-500/15 px-2.5 py-1 text-[10px] font-mono font-bold text-red-300 hover:bg-red-500/25"
+                              >
+                                🗑️ {selectedRowIds.size} Zeilen löschen
+                              </button>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[10px] font-mono text-zinc-300">
+                                🎬 Bereinigten Chapter-Namen in Spalte übernehmen
+                              </span>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {CHAPTER_TARGET_COLUMNS.map((col) => {
+                                  const dockLabel =
+                                    col.value === 'chronological_group'
+                                      ? 'Chrono'
+                                      : col.value === 'category_group'
+                                        ? 'Collect'
+                                        : col.value === 'boss_group'
+                                          ? 'Boss'
+                                          : 'Item';
+                                  return (
+                                    <button
+                                      key={col.value}
+                                      type="button"
+                                      disabled={actionBusy}
+                                      onClick={() => {
+                                        setBatchDrawerExpanded(false);
+                                        handleApplyCleanedChapterToColumn(col.value, 'selected');
+                                      }}
+                                      title={`Bereinigten Video-Namen aus Chapter für die ${selectedRowIds.size} markierten Zeilen in ${col.label} übernehmen`}
+                                      className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[10px] font-mono font-bold text-zinc-200 hover:border-[#00ff66]/50 hover:text-[#00ff66] disabled:opacity-40 transition"
+                                    >
+                                      → {dockLabel}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {creatorTabs.length > 1 && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-[10px] font-mono text-zinc-300">🔗 Mit Creator zusammenführen</span>
+                                <select
+                                  value=""
+                                  disabled={actionBusy}
+                                  onChange={(e) => {
+                                    const next = e.target.value;
+                                    if (!next) return;
+                                    setBatchDrawerExpanded(false);
+                                    handleMergeCreatorIntoTarget(next);
+                                  }}
+                                  title="Markierte Zeilen in den gewählten Creator-Tab dieses Spiels übernehmen"
+                                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
+                                >
+                                  <option value="">wählen…</option>
+                                  {creatorTabs
+                                    .filter((tab) => tab.creatorName !== selectedCreatorName)
+                                    .map((tab) => (
+                                      <option key={tab.creatorName} value={tab.creatorName}>
+                                        {tab.creatorName} ({tab.rowCount})
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
+                            )}
+
+                            <div className="flex flex-col gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-[10px] font-mono text-zinc-300">
+                                  📦 Markierte Zeilen auf anderes Spiel:
                                 </span>
                                 <button
                                   type="button"
                                   disabled={actionBusy}
-                                  onClick={() => handleBatchTransferRowsToGame(game, batchTransferMode)}
-                                  className="shrink-0 rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-2 py-0.5 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/20 disabled:opacity-40"
+                                  onClick={() => setBatchTransferMode((prev) => (prev === 'move' ? null : 'move'))}
+                                  className={`rounded-lg border px-2 py-1 text-[10px] font-mono font-bold transition disabled:opacity-40 ${
+                                    batchTransferMode === 'move'
+                                      ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
+                                      : 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-[#00ff66]/40'
+                                  }`}
                                 >
-                                  {batchTransferMode === 'move' ? '➡️ Hierhin verschieben' : '📋 Hierhin duplizieren'}
+                                  ➡️ Verschieben
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={actionBusy}
+                                  onClick={() =>
+                                    setBatchTransferMode((prev) => (prev === 'duplicate' ? null : 'duplicate'))
+                                  }
+                                  className={`rounded-lg border px-2 py-1 text-[10px] font-mono font-bold transition disabled:opacity-40 ${
+                                    batchTransferMode === 'duplicate'
+                                      ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
+                                      : 'border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-[#00ff66]/40'
+                                  }`}
+                                >
+                                  📋 Duplizieren
                                 </button>
                               </div>
-                            ))}
-                          </div>
-                        </form>
-                      )}
-                    </div>
 
+                              {batchTransferMode && (
+                                <form onSubmit={handleSearchBatchTransferGames} className="flex flex-col gap-1.5">
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="text"
+                                      value={batchTransferQuery}
+                                      onChange={(e) => setBatchTransferQuery(e.target.value)}
+                                      placeholder="Zielspiel suchen (Titel oder NPWR)..."
+                                      className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] font-mono text-zinc-100 placeholder:text-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                                    />
+                                    <button
+                                      type="submit"
+                                      disabled={actionBusy || batchTransferSearching || !batchTransferQuery.trim()}
+                                      className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40"
+                                    >
+                                      {batchTransferSearching ? '…' : 'Suchen'}
+                                    </button>
+                                  </div>
+                                  <div className="flex max-h-36 flex-col gap-1 overflow-y-auto">
+                                    {batchTransferResults.map((game) => (
+                                      <div
+                                        key={game.id}
+                                        className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950/80 px-2 py-1"
+                                      >
+                                        <span className="min-w-0 truncate text-[10px] font-mono text-zinc-200">
+                                          {getLocalizedTitle(game.spieltitel)} · {resolveDraftPlatformGameId(game)} · {game.hardware || '—'}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          disabled={actionBusy}
+                                          onClick={() => {
+                                            setBatchDrawerExpanded(false);
+                                            handleBatchTransferRowsToGame(game, batchTransferMode);
+                                          }}
+                                          className="shrink-0 rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-2 py-0.5 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/20 disabled:opacity-40"
+                                        >
+                                          {batchTransferMode === 'move' ? '➡️ Hierhin verschieben' : '📋 Hierhin duplizieren'}
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </form>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-1.5 [@media(orientation:landscape)_and_(max-height:540px)]:flex-col [@media(orientation:landscape)_and_(max-height:540px)]:items-stretch">
+                      <div className="flex shrink-0 items-center gap-1">
+                        <span className="inline-flex items-center rounded-lg bg-[#00ff66] px-2 py-1 text-xs font-mono font-bold text-black">
+                          ☑️ {selectedRowIds.size}
+                        </span>
+                        <button
+                          type="button"
+                          title="Auswahl aufheben"
+                          onClick={() => setSelectedRowIds(new Set())}
+                          className="rounded-lg border border-zinc-700 bg-zinc-900 px-1.5 py-1 text-[11px] font-mono text-zinc-300 hover:text-white"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <div className="grid min-w-0 flex-1 grid-cols-3 gap-1.5">
+                        <select
+                          value=""
+                          disabled={actionBusy}
+                          aria-label="Chrono"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            if (val === '__CUSTOM__') setBatchCustomField('chronological_group');
+                            else if (val === '__CLEAR__') handleBatchOverwriteSelected('chronological_group', '');
+                            else handleBatchOverwriteSelected('chronological_group', val);
+                          }}
+                          className="min-w-0 rounded-lg border border-cyan-500/40 bg-zinc-900 px-1 py-1 text-[10px] font-mono text-cyan-200 focus:border-[#00ff66] focus:outline-none"
+                        >
+                          <option value="">⏱️ Chrono</option>
+                          <option value="__CUSTOM__">✏️ + Neue Chrono-Group eingeben…</option>
+                          <option value="__CLEAR__">🗑️ (Chrono-Group leeren)</option>
+                          {groupStats.chronoPills
+                            .filter((p) => !p.isEmpty)
+                            .map((p) => (
+                              <option key={p.key} value={p.rawValue}>
+                                {p.label} ({p.count})
+                              </option>
+                            ))}
+                        </select>
+                        <select
+                          value=""
+                          disabled={actionBusy}
+                          aria-label="Collect"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            if (val === '__CUSTOM__') setBatchCustomField('category_group');
+                            else if (val === '__CLEAR__') handleBatchOverwriteSelected('category_group', '');
+                            else handleBatchOverwriteSelected('category_group', val);
+                          }}
+                          className="min-w-0 rounded-lg border border-purple-500/40 bg-zinc-900 px-1 py-1 text-[10px] font-mono text-purple-200 focus:border-[#00ff66] focus:outline-none"
+                        >
+                          <option value="">🗂️ Collect</option>
+                          <option value="__CUSTOM__">✏️ + Neue Category-Group eingeben…</option>
+                          <option value="__CLEAR__">🗑️ (Category-Group leeren)</option>
+                          {groupStats.categoryPills
+                            .filter((p) => !p.isEmpty)
+                            .map((p) => (
+                              <option key={p.key} value={p.rawValue}>
+                                {p.label} ({p.count})
+                              </option>
+                            ))}
+                        </select>
+                        <select
+                          value=""
+                          disabled={actionBusy}
+                          aria-label="Boss"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            if (val === '__CUSTOM__') setBatchCustomField('boss_group');
+                            else if (val === '__CLEAR__') handleBatchOverwriteSelected('boss_group', '');
+                            else handleBatchOverwriteSelected('boss_group', val);
+                          }}
+                          className="min-w-0 rounded-lg border border-amber-500/40 bg-zinc-900 px-1 py-1 text-[10px] font-mono text-amber-200 focus:border-[#00ff66] focus:outline-none"
+                        >
+                          <option value="">⚔️ Boss</option>
+                          <option value="__CUSTOM__">✏️ + Neue Boss-Group eingeben…</option>
+                          <option value="__CLEAR__">🗑️ (Boss-Group leeren)</option>
+                          {groupStats.bossPills
+                            .filter((p) => !p.isEmpty)
+                            .map((p) => (
+                              <option key={p.key} value={p.rawValue}>
+                                {p.label} ({p.count})
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setBatchDrawerExpanded((prev) => !prev)}
+                          className="rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-1 text-[10px] font-mono font-bold text-zinc-100 hover:border-[#00ff66]/50"
+                        >
+                          🛠️ Werkzeuge {batchDrawerExpanded ? '▾' : '▴'}
+                        </button>
+                        <button
+                          type="button"
+                          title={`${selectedRowIds.size} Zeilen löschen`}
+                          disabled={actionBusy}
+                          onClick={() => setConfirmBatchDelete(true)}
+                          className="rounded-lg border border-red-500/50 bg-red-500/15 px-2 py-1 text-sm text-red-300 hover:bg-red-500/25 disabled:opacity-40"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 

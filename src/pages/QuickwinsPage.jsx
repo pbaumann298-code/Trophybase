@@ -309,10 +309,33 @@ function QuickwinsPage({
   const loadMoreRef = useRef(null);
 
   useEffect(() => {
+    const heading = pageCopy?.title || t(titleKey);
+    const lead = pageCopy?.lead || '';
     const previous = document.title;
-    document.title = `${pageCopy?.title || t(titleKey)} · TrophyBase.app`;
+    const title = `${heading} – PlayStation | TrophyBase`;
+    document.title = title;
+
+    const nodes = [];
+    const addMeta = (attrs) => {
+      const el = document.createElement('meta');
+      el.setAttribute('data-tb-hub-seo', 'true');
+      for (const [key, value] of Object.entries(attrs)) {
+        if (value) el.setAttribute(key, value);
+      }
+      document.head.appendChild(el);
+      nodes.push(el);
+    };
+    if (lead) {
+      addMeta({ name: 'description', content: lead });
+      addMeta({ property: 'og:title', content: title });
+      addMeta({ property: 'og:description', content: lead });
+      addMeta({ name: 'twitter:title', content: title });
+      addMeta({ name: 'twitter:description', content: lead });
+    }
+
     return () => {
       document.title = previous;
+      nodes.forEach((el) => el.remove());
     };
   }, [t, titleKey, pageCopy]);
 

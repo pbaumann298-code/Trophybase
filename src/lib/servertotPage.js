@@ -9,13 +9,13 @@ export const SERVERTOT_PAGE = {
   de: {
     slug: 'unerreichbare-platins',
     title: 'Unerreichbare Platins',
-    lead: 'Übersicht von Spielen, deren Platin-Trophäe durch abgeschaltete Server nicht mehr erspielbar ist.',
+    lead: 'Unerreichbare PlayStation Platin-Trophäen (PS3, PS4, PS5 & PS Vita Server-Abschaltungen).',
     notice: 'Wegen Abschaltung der Server ist die Platin nicht mehr regulär erspielbar.',
   },
   en: {
     slug: 'unobtainable-platins',
     title: 'Unobtainable platins',
-    lead: 'Games whose platinum trophy can no longer be earned because the servers were shut down.',
+    lead: 'Unobtainable PlayStation platinum trophies (PS3, PS4, PS5 & PS Vita server shutdowns).',
     notice: 'Because the servers have been shut down, the platinum can no longer be earned through regular play.',
   },
   fr: {
