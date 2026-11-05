@@ -641,6 +641,13 @@ function SplitScreenGuideKacheln({
 
   const localisationSections = buildGuideGroupTree(prodFilteredItems, groupByField);
   const hasSingleLocalisation = localisationSections.length === 1;
+  const isSingleVideoGuide =
+    prodFilteredItems.length === 1 && isPublicVideoUrl(prodFilteredItems[0]?.video_url);
+  const singleItem = isSingleVideoGuide ? prodFilteredItems[0] : null;
+  const singleGroupKey = '__single_video_guide__';
+  const singleVideoHidden = Boolean(
+    isSingleVideoGuide && effectiveHideCompleted && isItemCompleted(singleItem),
+  );
 
   const isLocalisationExpanded = (localisation) =>
     isProdFilterActive || (expandedLocalisations[localisation] ?? hasSingleLocalisation);
@@ -1125,6 +1132,108 @@ function SplitScreenGuideKacheln({
     );
   };
 
+  const renderSingleVideoGuide = () => {
+    if (!singleItem) return null;
+    const isCompleted = isItemCompleted(singleItem);
+    const rowDimmed = isCompleted && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM;
+    const displayName = getDisplayName(singleItem);
+    const reportKey = String(singleItem.guide_sequence ?? singleItem.sort_order ?? '');
+    const activeVideo = activeVideos[singleGroupKey];
+    const embedUrl = activeVideo?.embedUrl ?? null;
+    const previewVideoId = getYouTubeVideoId(singleItem.video_url);
+    const groupTipNode = renderGroupDetail ? renderGroupDetail([singleItem]) : null;
+    const rowTipCtx = { sharedGroupTip: Boolean(groupTipNode) };
+    const nameNode =
+      gameId && reportKey ? (
+        <Reportable
+          as="span"
+          source={gameId}
+          type={reportEntityType}
+          reportKey={reportKey}
+          field="name"
+        >
+          {displayName}
+        </Reportable>
+      ) : (
+        displayName
+      );
+
+    return (
+      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-[#121314]">
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-[#121314] px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            {typeof toggleCompleted === 'function' ? (
+              <input
+                type="checkbox"
+                checked={isCompleted}
+                onChange={() => toggleCompleted(guideProgressKey(singleItem))}
+                className="h-4 w-4 shrink-0 cursor-pointer accent-[#00ff66]"
+                aria-label={isCompleted ? 'Als offen markieren' : 'Als erledigt markieren'}
+              />
+            ) : null}
+            <button
+              type="button"
+              onClick={() => selectItemVideo(singleGroupKey, singleItem)}
+              className={`min-w-0 text-left text-sm font-bold text-white sm:text-base ${
+                isCompleted ? 'line-through' : ''
+              } ${rowDimmed ? 'opacity-45' : ''}`}
+            >
+              {nameNode}
+            </button>
+            {renderNameAddon ? renderNameAddon(singleItem, rowDimmed) : null}
+            {renderRowAction ? renderRowAction(singleItem, rowDimmed, rowTipCtx) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {showProdTools ? (
+              <ProductionInlineRowEditor
+                item={singleItem}
+                prodNote={singleItem.prod_note}
+                videoUrl={singleItem.video_url}
+                onSave={handleSaveProductionMeta}
+              />
+            ) : null}
+            {typeof onDeleteStep === 'function' ? (
+              <button
+                type="button"
+                onClick={() => onDeleteStep(singleItem)}
+                className="shrink-0 px-0.5 text-base leading-none text-zinc-500 hover:text-zinc-200"
+                aria-label="Schritt löschen"
+                title="Schritt löschen"
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+        </div>
+        {groupTipNode}
+        {renderRowDetail ? renderRowDetail(singleItem, rowDimmed, rowTipCtx) : null}
+        <div className="mx-auto w-full max-w-4xl bg-[#121314] p-3 sm:p-4">
+          <div className="single-video-stage relative aspect-video w-full overflow-hidden rounded-xl border border-zinc-800 bg-black">
+            {embedUrl ? (
+              <YouTubeEmbed
+                key={`${singleGroupKey}-${singleItem.id}-${embedUrl}-${activeVideo?.seekKey || 0}`}
+                src={embedUrl}
+                title={displayName}
+              />
+            ) : (
+              <button
+                type="button"
+                className="youtube-poster"
+                onClick={() => selectItemVideo(singleGroupKey, singleItem)}
+              >
+                <YouTubeThumb videoId={previewVideoId} alt="" className="youtube-poster__thumb" />
+                <span className="youtube-poster__play">
+                  <YoutubePlayIcon />
+                </span>
+                <span className="youtube-poster__hint">{t('videoPosterHintPreview')}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className={`collectibles-tab guide-landscape-root ${embedInAccordion ? '' : ''}`} style={{ padding: '0px', color: '#fff' }}>
       <div
@@ -1191,7 +1300,7 @@ function SplitScreenGuideKacheln({
                   🎬 Produktions-Modus {productionMode ? 'AN' : 'AUS'}
                 </button>
               )}
-              {renderVideoSideToggleButton()}
+              {!isSingleVideoGuide ? renderVideoSideToggleButton() : null}
               {typeof setHideCompleted === 'function' && (
                 <label
                   style={{
@@ -1263,7 +1372,7 @@ function SplitScreenGuideKacheln({
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-              {renderVideoSideToggleButton()}
+              {!isSingleVideoGuide ? renderVideoSideToggleButton() : null}
               {typeof setHideCompleted === 'function' && (
                 <label
                   style={{
@@ -1482,7 +1591,11 @@ function SplitScreenGuideKacheln({
 
       </div>
 
-      {localisationSections.map(renderLocalisationSection)}
+      {isSingleVideoGuide
+        ? singleVideoHidden
+          ? null
+          : renderSingleVideoGuide()
+        : localisationSections.map(renderLocalisationSection)}
     </div>
   );
 }

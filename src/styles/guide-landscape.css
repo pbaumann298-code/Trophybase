@@ -240,6 +240,16 @@
   filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
 }
 
+/* Ein-Video-Reiter: Player füllt die 16:9-Bühne, nicht den 60%-Splitscreen. */
+.single-video-stage .youtube-poster,
+.single-video-stage .youtube-embed,
+.single-video-stage .youtube-consent-gate {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .guide-split__table {
   width: 100%;
   border-collapse: collapse;

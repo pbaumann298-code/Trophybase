@@ -18,6 +18,9 @@ import {
   saveTrophyGuideTip,
   clearGameGuideTips,
   removeIntranetStatusKey,
+  setIntranetIgdbCover,
+  markGameCoverValid,
+  enqueueTrophyVideoForTimestampScrape,
 } from '../../lib/intranetGameEdits';
 import { intranetGameHref } from '../../lib/intranetQueries';
 import { listPipelineStatusEntries } from '../../lib/gamePipelineStatus';
@@ -33,7 +36,7 @@ import { getGameSupabaseDeepLinks } from '../../lib/supabaseDeepLink';
 const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
 const MAX_VISIBLE_QUEUE_GAMES = 10;
 const GAMES_QUEUE_SELECT_COLS =
-  'id, platform_game_id, slug, status, publishing_status, published_locales, fortschritt, is_guide_locked, guide_typ, spieltitel, cover_url, cover_status, publisher, entwickler, spiel_typ, anzahl_trophaeen';
+  'id, platform_game_id, slug, status, publishing_status, published_locales, fortschritt, is_guide_locked, guide_typ, spieltitel, cover_url, cover_status, publisher, entwickler, spiel_typ, anzahl_trophaeen, hardware';
 
 function isGameAlreadyPublishedOrLocked(game) {
   if (!game) return false;
@@ -622,6 +625,20 @@ function resolveDraftPlatformGameId(game) {
   return String(picked ?? game.id ?? '').trim();
 }
 
+function stripDraftVideoUrl(url) {
+  return String(url ?? '').split('&t=')[0].split('?t=')[0].trim();
+}
+
+const SCRAPE_TARGET_GROUP_OPTIONS = [
+  { id: 'chronological_group', label: 'Walkthrough (chronological_group)', groupName: 'Walkthrough' },
+  { id: 'category_group', label: 'Sammelobjekte (category_group)', groupName: 'Sammelobjekte' },
+  { id: 'boss_group', label: 'Bosse (boss_group)', groupName: 'Bosse' },
+];
+
+function scrapeGroupNameForCol(col) {
+  return SCRAPE_TARGET_GROUP_OPTIONS.find((option) => option.id === col)?.groupName || 'Walkthrough';
+}
+
 function getLocalizedCover(coverUrl) {
   if (!coverUrl) return '';
   if (typeof coverUrl === 'string') return coverUrl;
@@ -934,7 +951,16 @@ function AdminGameStatusDropdown({ game, onStatusUpdated }) {
   );
 }
 
-function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuideTip }) {
+function TrophyDraftItem({
+  trophy,
+  activeRowId,
+  trophyLang,
+  onAssign,
+  onSaveGuideTip,
+  gameId,
+  platformGameId,
+  defaultVideoUrl,
+}) {
   const trophyId = trophy.platform_achievement_id || trophy.id;
   const nameStr = getLocalizedTrophyName(trophy.trophy_name, trophyLang);
   const descStr = getLocalizedTrophyDesc(trophy.trophy_desc ?? trophy.trophy_description, trophyLang);
@@ -943,10 +969,47 @@ function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuid
   const [isEditingTip, setIsEditingTip] = useState(false);
   const [tipDraft, setTipDraft] = useState(tipStr);
   const [savingTip, setSavingTip] = useState(false);
+  const [scrapeOpen, setScrapeOpen] = useState(false);
+  const [scrapeUrl, setScrapeUrl] = useState('');
+  const [scrapeGroupName, setScrapeGroupName] = useState(nameStr || '');
+  const [scrapeTargetCol, setScrapeTargetCol] = useState('category_group');
+  const [scrapeBusy, setScrapeBusy] = useState(false);
+  const [scrapeHint, setScrapeHint] = useState('');
+  const [scrapeError, setScrapeError] = useState(false);
 
   useEffect(() => {
     setTipDraft(tipStr);
   }, [tipStr]);
+
+  useEffect(() => {
+    setScrapeGroupName(nameStr || '');
+  }, [nameStr]);
+
+  const handleEnqueueTrophyScrape = async () => {
+    if (scrapeBusy || !scrapeUrl.trim()) return;
+    setScrapeBusy(true);
+    setScrapeHint('');
+    setScrapeError(false);
+    const numericTrophyId = extractNumericTrophyId(trophyId);
+    const { error } = await enqueueTrophyVideoForTimestampScrape(supabase, {
+      gameId,
+      platformGameId,
+      trophyId: numericTrophyId,
+      trophyName: nameStr,
+      videoUrl: scrapeUrl,
+      targetGroupCol: scrapeTargetCol,
+      customGroupName: scrapeGroupName,
+    });
+    setScrapeBusy(false);
+    if (error) {
+      setScrapeError(true);
+      setScrapeHint(error.message || 'Konnte nicht in die Queue gelegt werden.');
+      return;
+    }
+    setScrapeError(false);
+    setScrapeHint(`✓ In Queue gelegt (Trophy #${numericTrophyId})`);
+    setScrapeOpen(false);
+  };
 
   const handleCommit = async () => {
     if (tipDraft.trim() === tipStr.trim()) {
@@ -1110,6 +1173,93 @@ function TrophyDraftItem({ trophy, activeRowId, trophyLang, onAssign, onSaveGuid
           </p>
         )}
       </div>
+
+      {scrapeOpen ? (
+        <div className="rounded-lg border border-zinc-700 bg-zinc-950/90 p-2.5 flex flex-col gap-2 mt-1">
+          <label>
+            <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+              YouTube-Video / Playlist-URL
+            </span>
+            <input
+              type="url"
+              value={scrapeUrl}
+              disabled={scrapeBusy}
+              placeholder="https://www.youtube.com/watch?v=… oder Playlist-URL"
+              onChange={(event) => setScrapeUrl(event.target.value)}
+              className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66]/40 focus:outline-none"
+            />
+          </label>
+          <label>
+            <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+              Gruppenname (optional)
+            </span>
+            <input
+              type="text"
+              value={scrapeGroupName}
+              disabled={scrapeBusy}
+              placeholder={nameStr || 'Gruppenname…'}
+              onChange={(event) => setScrapeGroupName(event.target.value)}
+              className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66]/40 focus:outline-none"
+            />
+          </label>
+          <label>
+            <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+              Ziel-Reiter
+            </span>
+            <select
+              value={scrapeTargetCol}
+              disabled={scrapeBusy}
+              onChange={(event) => setScrapeTargetCol(event.target.value)}
+              className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 focus:border-[#00ff66]/40 focus:outline-none"
+            >
+              <option value="category_group">Sammelobjekte (category_group)</option>
+              <option value="chronological_group">Walkthrough (chronological_group)</option>
+              <option value="boss_group">Bosse (boss_group)</option>
+            </select>
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={scrapeBusy || !scrapeUrl.trim()}
+              onClick={handleEnqueueTrophyScrape}
+              className="rounded-md border border-[#00ff66]/40 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66] hover:border-[#00ff66]/60 disabled:opacity-30"
+            >
+              {scrapeBusy ? '…' : 'In Scraper-Queue legen'}
+            </button>
+            <button
+              type="button"
+              disabled={scrapeBusy}
+              onClick={() => setScrapeOpen(false)}
+              className="rounded-md border border-zinc-700 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+            >
+              Schließen
+            </button>
+          </div>
+          {scrapeHint ? (
+            <span className={`text-[10px] font-mono ${scrapeError ? 'text-red-400' : 'text-[#00ff66]'}`}>
+              {scrapeHint}
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <div>
+          <button
+            type="button"
+            onClick={() => {
+              if (!scrapeUrl && defaultVideoUrl) setScrapeUrl(defaultVideoUrl.split('&t=')[0].split('?t=')[0]);
+              setScrapeOpen(true);
+            }}
+            className="w-full mt-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900/90 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-300 hover:border-[#00ff66]/50 hover:text-[#00ff66] transition"
+          >
+            📥 Timestamps als Guide-Schritte ziehen
+          </button>
+          {scrapeHint ? (
+            <span className={`mt-1 block text-[10px] font-mono ${scrapeError ? 'text-red-400' : 'text-[#00ff66]'}`}>
+              {scrapeHint}
+            </span>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -1156,6 +1306,14 @@ export default function IntranetDrafts({
   // Video Player state
   const [activeVideoUrl, setActiveVideoUrl] = useState('');
   const [activeTimestamp, setActiveTimestamp] = useState('');
+  const [videoScrapeOpen, setVideoScrapeOpen] = useState(false);
+  const [videoScrapeUrl, setVideoScrapeUrl] = useState('');
+  const [videoScrapeGroupName, setVideoScrapeGroupName] = useState('Walkthrough');
+  const [videoScrapeTargetCol, setVideoScrapeTargetCol] = useState('chronological_group');
+  const [videoScrapeDropDraft, setVideoScrapeDropDraft] = useState(false);
+  const [videoScrapeBusy, setVideoScrapeBusy] = useState(false);
+  const [videoScrapeHint, setVideoScrapeHint] = useState('');
+  const [videoScrapeError, setVideoScrapeError] = useState(false);
 
   // Parallel Trophies
   const [gameTrophies, setGameTrophies] = useState([]);
@@ -1172,6 +1330,9 @@ export default function IntranetDrafts({
   const [selectedGameTypes, setSelectedGameTypes] = useState([]);
   const [includeAllRohBatchesOnApprove, setIncludeAllRohBatchesOnApprove] = useState(true);
   const [discardOtherCreators, setDiscardOtherCreators] = useState(true);
+  const [approveCoverUrlInput, setApproveCoverUrlInput] = useState('');
+  const [approveMarkCoverValid, setApproveMarkCoverValid] = useState(false);
+  const [approveCoverSaving, setApproveCoverSaving] = useState(false);
 
   // Vorabprüfung (Conflict Detection: Bereits Published oder Guide-Daten in game_guides)
   const [showConflictModal, setShowConflictModal] = useState(false);
@@ -1820,6 +1981,10 @@ export default function IntranetDrafts({
     setMatcherTrophySearch('');
     setAutoMatchedBannerCount(0);
     setDbCopiedTable('');
+    setVideoScrapeOpen(false);
+    setVideoScrapeHint('');
+    setVideoScrapeError(false);
+    setVideoScrapeDropDraft(false);
   }, [selectedGameId, selectedCreatorName, activeDataSource]);
 
   // Current game's rows
@@ -3032,6 +3197,28 @@ export default function IntranetDrafts({
     }
   };
 
+  const resetApproveCoverDraft = () => {
+    setApproveCoverUrlInput('');
+    setApproveMarkCoverValid(Boolean(getLocalizedCover(selectedGame?.cover_url)));
+    setApproveCoverSaving(false);
+  };
+
+  const patchDraftGame = (gameId, patch) => {
+    const updateGameMap = (prev) => {
+      const next = new Map(prev);
+      const current = next.get(gameId);
+      if (current) next.set(gameId, { ...current, ...patch });
+      return next;
+    };
+    setGamesMap(updateGameMap);
+    setRohGamesMap(updateGameMap);
+    setRohmaterialGames((prev) =>
+      prev.map((item) =>
+        item.gameId === gameId && item.game ? { ...item, game: { ...item.game, ...patch } } : item,
+      ),
+    );
+  };
+
   // Vorabprüfung: Modal gezielt öffnen
   const handleOpenConflictModal = () => {
     if (!selectedGameId || actionBusy) return;
@@ -3039,6 +3226,7 @@ export default function IntranetDrafts({
     setSelectedGameTypes(parseGameTypes(selectedGame?.spiel_typ));
     setIncludeAllRohBatchesOnApprove(true);
     setDiscardOtherCreators(true);
+    resetApproveCoverDraft();
     setShowConflictModal(true);
   };
 
@@ -3198,7 +3386,30 @@ export default function IntranetDrafts({
     setSelectedGameTypes(parseGameTypes(selectedGame?.spiel_typ));
     setIncludeAllRohBatchesOnApprove(true);
     setDiscardOtherCreators(true);
+    resetApproveCoverDraft();
     setShowApproveModal(true);
+  };
+
+  const handleApplyCoverInApproveModal = async () => {
+    const url = approveCoverUrlInput.trim();
+    if (!selectedGameId || !url || approveCoverSaving || actionBusy) return;
+    setApproveCoverSaving(true);
+    setError('');
+    const applied = await setIntranetIgdbCover(supabase, selectedGameId, url);
+    setApproveCoverSaving(false);
+    if (applied.error) {
+      setError(applied.error.message || 'Cover konnte nicht gesetzt werden.');
+      return;
+    }
+    patchDraftGame(selectedGameId, {
+      cover_url: applied.coverMap,
+      cover_status: 'valid',
+      cover_notes: null,
+      ...(applied.status ? { status: applied.status } : {}),
+    });
+    setApproveCoverUrlInput('');
+    setApproveMarkCoverValid(true);
+    setNotice('Cover gesetzt und als valid markiert.');
   };
 
   // 3. Creator freigeben (Zentraler Freigabe-Prozess über RPC approve_staging_guide bzw. Rohmaterial-Pipeline)
@@ -3294,6 +3505,38 @@ export default function IntranetDrafts({
 
     try {
       let restoredStagingRows = [];
+
+      const coverInput = approveCoverUrlInput.trim();
+      const existingCoverUrl = getLocalizedCover(selectedGame?.cover_url);
+      if (coverInput) {
+        const applied = await setIntranetIgdbCover(supabase, selectedGameId, coverInput);
+        if (applied.error) {
+          setActionBusy(false);
+          setError(applied.error.message || 'Cover konnte nicht gesetzt werden.');
+          return;
+        }
+        patchDraftGame(selectedGameId, {
+          cover_url: applied.coverMap,
+          cover_status: 'valid',
+          cover_notes: null,
+          ...(applied.status ? { status: applied.status } : {}),
+        });
+        setApproveCoverUrlInput('');
+        setApproveMarkCoverValid(true);
+      } else if (
+        existingCoverUrl &&
+        approveMarkCoverValid &&
+        selectedGame?.cover_status !== 'valid'
+      ) {
+        const marked = await markGameCoverValid(supabase, selectedGameId);
+        if (marked.error) {
+          setActionBusy(false);
+          setError(marked.error.message || 'Cover-Status konnte nicht gesetzt werden.');
+          return;
+        }
+        patchDraftGame(selectedGameId, { cover_status: 'valid', cover_notes: null });
+      }
+
       // 1. Spieltyp speichern, falls gewählt/geändert
       const { error: typeErr } = await setIntranetGameType(
         supabase,
@@ -4537,7 +4780,7 @@ export default function IntranetDrafts({
       const npwr = npwrMatch[0].toUpperCase();
       const { data: npwrRows, error: npwrErr } = await supabase
         .from(TABLES.games)
-        .select(`${GAMES_QUEUE_SELECT_COLS}, hardware`)
+        .select(GAMES_QUEUE_SELECT_COLS)
         .contains('platform_game_id', JSON.stringify([npwr]))
         .limit(15);
       if (npwrErr) throw new Error(npwrErr.message);
@@ -6230,11 +6473,203 @@ export default function IntranetDrafts({
     }
   };
 
+  const handleEnqueueWholeVideoScrape = async () => {
+    if (videoScrapeBusy || !selectedGameId) return;
+    const url = videoScrapeUrl.trim();
+    if (!url) return;
+
+    setVideoScrapeBusy(true);
+    setVideoScrapeHint('');
+    setVideoScrapeError(false);
+
+    const { error } = await enqueueTrophyVideoForTimestampScrape(supabase, {
+      gameId: selectedGameId,
+      platformGameId: resolveDraftPlatformGameId(selectedGame),
+      trophyId: '0',
+      trophyName: videoScrapeGroupName.trim() || getLocalizedTitle(selectedGame?.spieltitel),
+      videoUrl: url,
+      targetGroupCol: videoScrapeTargetCol,
+      customGroupName: videoScrapeGroupName,
+    });
+
+    if (error) {
+      setVideoScrapeBusy(false);
+      setVideoScrapeError(true);
+      setVideoScrapeHint(error.message || 'Konnte nicht in die Queue gelegt werden.');
+      return;
+    }
+
+    if (!videoScrapeDropDraft) {
+      setVideoScrapeBusy(false);
+      setVideoScrapeError(false);
+      setVideoScrapeHint('✓ In Queue gelegt (Trophy #0)');
+      return;
+    }
+
+    const gameId = selectedGameId;
+    const creatorName = selectedCreatorName;
+    const removed = stagingRows.filter(
+      (row) => row.game_id === gameId && creatorKeyOfRow(row) === creatorName,
+    );
+    const realCreatorName =
+      creatorName &&
+      creatorName !== 'Unbekannter Creator' &&
+      !String(creatorName).startsWith('Batch:');
+
+    try {
+      if (realCreatorName) {
+        const { error: delErr } = await supabase
+          .from('staging_game_guides')
+          .delete()
+          .eq('game_id', gameId)
+          .eq('creator_name', creatorName);
+        if (delErr) throw new Error(delErr.message);
+      } else {
+        for (const chunkIds of chunkList(removed.map((row) => row.id), 100)) {
+          const { error: delErr } = await supabase
+            .from('staging_game_guides')
+            .delete()
+            .in('id', chunkIds);
+          if (delErr) throw new Error(delErr.message);
+        }
+      }
+    } catch (err) {
+      setVideoScrapeBusy(false);
+      setVideoScrapeError(true);
+      setVideoScrapeHint(`In Queue gelegt, Staging-Entwurf konnte nicht gelöscht werden: ${err.message || err}`);
+      return;
+    }
+
+    if (removed.length === 0) {
+      setVideoScrapeBusy(false);
+      setVideoScrapeError(false);
+      setVideoScrapeHint('✓ In Queue gelegt (Trophy #0). Kein Staging-Entwurf für diesen Creator.');
+      return;
+    }
+
+    const removedIds = new Set(removed.map((row) => row.id));
+    setStagingRows((prev) => prev.filter((row) => !removedIds.has(row.id)));
+    const overrides = loadStagingLocalOverrides();
+    let overridesChanged = false;
+    for (const id of removedIds) {
+      const key = String(id);
+      if (Object.prototype.hasOwnProperty.call(overrides, id) || Object.prototype.hasOwnProperty.call(overrides, key)) {
+        delete overrides[id];
+        delete overrides[key];
+        overridesChanged = true;
+      }
+    }
+    if (overridesChanged) saveStagingLocalOverrides(overrides);
+    setTotalStagingCountsMap((prev) => {
+      const next = new Map(prev);
+      const left = (next.get(gameId) || 0) - removed.length;
+      if (left > 0) next.set(gameId, left);
+      else next.delete(gameId);
+      return next;
+    });
+    setTotalStagingCreatorsMap((prev) => {
+      const next = new Map(prev);
+      const left = (next.get(gameId) || 1) - 1;
+      if (left > 0) next.set(gameId, left);
+      else next.delete(gameId);
+      return next;
+    });
+    setSelectedRowIds(new Set());
+    setVideoScrapeBusy(false);
+    setVideoScrapeOpen(false);
+    setNotice(`📥 Video in die Scraper-Queue (07.0) gelegt und ${removed.length} Staging-Zeilen von "${creatorName}" entfernt.`);
+    jumpToNextGame(gameId);
+  };
+
   // Video embed URL
   const currentEmbedUrl = useMemo(() => {
     if (!activeVideoUrl) return null;
     return getYouTubeEmbedUrl(activeVideoUrl, activeTimestamp, { autoplay: false });
   }, [activeVideoUrl, activeTimestamp]);
+
+  const renderApproveCoverCheck = () => {
+    const currentCoverUrl = getLocalizedCover(selectedGame?.cover_url);
+    const isCoverAlreadyValid = selectedGame?.cover_status === 'valid' && Boolean(currentCoverUrl);
+    const googleCoverSearchUrl = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(
+      `${getLocalizedTitle(selectedGame?.spieltitel)} ${selectedGame?.hardware || ''} cover igdb`.trim(),
+    )}`;
+
+    return (
+      <div className="flex flex-col gap-2 border-t border-zinc-800 pt-3">
+        <span className="text-xs font-bold text-zinc-300">
+          3. Cover-Check (Optional – Freigabe auch ohne Cover möglich)
+        </span>
+        <div className="flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-950/50 p-2.5">
+          {currentCoverUrl ? (
+            <img
+              src={currentCoverUrl}
+              alt=""
+              className="h-20 w-16 flex-none rounded-lg border border-zinc-700 object-cover"
+            />
+          ) : (
+            <div className="flex h-20 w-16 flex-none items-center justify-center rounded-lg border border-dashed border-zinc-700 bg-zinc-950 px-1 text-center font-mono text-[9px] uppercase leading-tight text-zinc-500">
+              Kein Cover
+            </div>
+          )}
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            {isCoverAlreadyValid ? (
+              <span className="font-mono text-[11px] font-bold text-[#00ff66]">
+                ✓ Cover ist bereits als valid verifiziert
+              </span>
+            ) : currentCoverUrl ? (
+              <div>
+                <span className="text-xs font-bold text-amber-300">🖼️ Vorhandenes Cover gültig (valid)?</span>
+                <label className="mt-1 flex cursor-pointer items-center gap-2 text-xs text-zinc-200">
+                  <input
+                    type="checkbox"
+                    checked={approveMarkCoverValid}
+                    onChange={(e) => setApproveMarkCoverValid(e.target.checked)}
+                    className="h-4 w-4 rounded accent-[#00ff66]"
+                  />
+                  <span>
+                    Bei Freigabe automatisch auf <code className="text-[#00ff66]">cover_status = valid</code> setzen
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <span className="text-xs font-bold text-amber-300">
+                ⚠️ Kein Cover vorhanden – direkt setzen oder ohne Cover freigeben:
+              </span>
+            )}
+            <a
+              href={googleCoverSearchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-fit items-center gap-1 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 font-mono text-[11px] font-bold text-sky-200 hover:bg-sky-500/20"
+            >
+              🔍 Bild suchen (Google / IGDB)
+            </a>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={approveCoverUrlInput}
+                onChange={(e) => setApproveCoverUrlInput(e.target.value)}
+                placeholder={
+                  currentCoverUrl
+                    ? 'Oder neuen IGDB-/Bild-Link zum Ersetzen einfügen…'
+                    : 'IGDB- oder Bild-URL hier einfügen…'
+                }
+                className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-100 focus:border-[#00ff66] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleApplyCoverInApproveModal}
+                disabled={!approveCoverUrlInput.trim() || approveCoverSaving || actionBusy}
+                className="shrink-0 rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-2.5 py-1.5 font-mono text-[11px] font-bold text-[#00ff66] hover:bg-[#00ff66]/20 disabled:opacity-40"
+              >
+                {approveCoverSaving ? '…' : '💾 Setzen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-4 text-zinc-200">
@@ -7231,6 +7666,28 @@ export default function IntranetDrafts({
                       </button>
                       <button
                         type="button"
+                        disabled={videoScrapeBusy || !selectedGameId}
+                        onClick={() => {
+                          if (videoScrapeOpen) {
+                            setVideoScrapeOpen(false);
+                            return;
+                          }
+                          const raw = activeVideoUrl || currentCreatorRows[0]?.video_url || '';
+                          setVideoScrapeUrl(stripDraftVideoUrl(raw));
+                          setVideoScrapeTargetCol('chronological_group');
+                          setVideoScrapeGroupName('Walkthrough');
+                          setVideoScrapeDropDraft(false);
+                          setVideoScrapeHint('');
+                          setVideoScrapeError(false);
+                          setVideoScrapeOpen(true);
+                        }}
+                        title="Gesamtes Entwurfs-Video in die trophy_video_scrape_queue für den 07.0-Scraper legen"
+                        className="inline-flex items-center gap-1.5 rounded bg-zinc-800 px-2.5 py-1 text-[11px] font-mono font-bold text-zinc-200 hover:border-[#00ff66]/50 hover:text-[#00ff66] border border-zinc-700 transition disabled:opacity-50"
+                      >
+                        📥 Video-Timestamps per Scraper nachziehen
+                      </button>
+                      <button
+                        type="button"
                         disabled={actionBusy}
                         onClick={handleAddSingleDraftRow}
                         title="Neue Zeile am Ende des aktuellen Entwurfs einfügen"
@@ -7307,6 +7764,97 @@ export default function IntranetDrafts({
                       )}
                     </div>
                   </div>
+
+                  {videoScrapeOpen && (
+                    <div className="rounded-lg border border-zinc-700 bg-zinc-950/90 p-2.5 flex flex-col gap-2">
+                      <label>
+                        <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                          YouTube-Video / Playlist-URL
+                        </span>
+                        <input
+                          type="url"
+                          value={videoScrapeUrl}
+                          disabled={videoScrapeBusy}
+                          placeholder="https://www.youtube.com/watch?v=… oder Playlist-URL"
+                          onChange={(event) => setVideoScrapeUrl(event.target.value)}
+                          className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66]/40 focus:outline-none"
+                        />
+                      </label>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label>
+                          <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                            Gruppenname
+                          </span>
+                          <input
+                            type="text"
+                            value={videoScrapeGroupName}
+                            disabled={videoScrapeBusy}
+                            placeholder={scrapeGroupNameForCol(videoScrapeTargetCol)}
+                            onChange={(event) => setVideoScrapeGroupName(event.target.value)}
+                            className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-[#00ff66]/40 focus:outline-none"
+                          />
+                        </label>
+                        <label>
+                          <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                            Ziel-Reiter
+                          </span>
+                          <select
+                            value={videoScrapeTargetCol}
+                            disabled={videoScrapeBusy}
+                            onChange={(event) => {
+                              const next = event.target.value;
+                              setVideoScrapeTargetCol(next);
+                              setVideoScrapeGroupName((prev) => {
+                                const defaults = new Set(SCRAPE_TARGET_GROUP_OPTIONS.map((option) => option.groupName));
+                                if (!prev.trim() || defaults.has(prev.trim())) return scrapeGroupNameForCol(next);
+                                return prev;
+                              });
+                            }}
+                            className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 focus:border-[#00ff66]/40 focus:outline-none"
+                          >
+                            {SCRAPE_TARGET_GROUP_OPTIONS.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <label className="flex items-center gap-2 text-[11px] font-mono text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={videoScrapeDropDraft}
+                          disabled={videoScrapeBusy}
+                          onChange={(event) => setVideoScrapeDropDraft(event.target.checked)}
+                          className="accent-[#00ff66]"
+                        />
+                        ☑️ Aktuellen unfertigen Creator-Entwurf nach dem Einreihen aus Staging entfernen
+                      </label>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={videoScrapeBusy || !videoScrapeUrl.trim()}
+                          onClick={handleEnqueueWholeVideoScrape}
+                          className="rounded-md border border-[#00ff66]/40 px-2.5 py-1.5 font-mono text-[10px] font-bold text-[#00ff66] hover:border-[#00ff66]/60 disabled:opacity-30"
+                        >
+                          {videoScrapeBusy ? '…' : '📥 In Scraper-Queue (07.0) legen'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={videoScrapeBusy}
+                          onClick={() => setVideoScrapeOpen(false)}
+                          className="rounded-md border border-zinc-700 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+                        >
+                          Schließen
+                        </button>
+                      </div>
+                      {videoScrapeHint ? (
+                        <span className={`text-[10px] font-mono ${videoScrapeError ? 'text-red-400' : 'text-[#00ff66]'}`}>
+                          {videoScrapeHint}
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
 
                   {/* ==================== 3. SPLITSCREEN TROPHÄEN-SCHNELL-PICKER ("JUST DO IT" UI) ==================== */}
                   {showTrophyMatcher && (
@@ -9090,6 +9638,9 @@ export default function IntranetDrafts({
                     trophy={trophy}
                     activeRowId={activeRowId}
                     trophyLang={trophyLang}
+                    gameId={selectedGameId}
+                    platformGameId={resolveDraftPlatformGameId(selectedGame)}
+                    defaultVideoUrl={activeVideoUrl}
                     onAssign={handleAssignTrophyToActiveRow}
                     onSaveGuideTip={handleSaveTrophyGuideTip}
                   />
@@ -9103,8 +9654,8 @@ export default function IntranetDrafts({
 
       {/* Guide-Freigabe Bestätigen Modal */}
       {showApproveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-zinc-700 bg-[#16181a] p-5 shadow-2xl flex flex-col gap-4 text-zinc-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-sm">
+          <div className="my-auto flex max-h-[92vh] w-full max-w-lg flex-col gap-4 overflow-y-auto rounded-2xl border border-zinc-700 bg-[#16181a] p-5 text-zinc-200 shadow-2xl">
             <div className="flex items-start justify-between gap-2 border-b border-zinc-800 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider">
@@ -9268,6 +9819,8 @@ export default function IntranetDrafts({
               </div>
             )}
 
+            {renderApproveCoverCheck()}
+
             {/* Actions */}
             <div className="flex items-center justify-end gap-2 border-t border-zinc-800 pt-3 mt-1">
               <button
@@ -9280,7 +9833,7 @@ export default function IntranetDrafts({
 
               <button
                 type="button"
-                disabled={actionBusy || !approveLocale || selectedGameTypes.length === 0}
+                disabled={actionBusy || approveCoverSaving || !approveLocale || selectedGameTypes.length === 0}
                 onClick={() => handleApproveCreatorConfirm(null)}
                 className="flex items-center gap-1.5 rounded-xl bg-[#00ff66] px-4 py-2 text-xs font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-40 transition shadow-lg shadow-[#00ff66]/10"
               >
@@ -9521,6 +10074,8 @@ export default function IntranetDrafts({
                 })}
               </div>
 
+              {renderApproveCoverCheck()}
+
               {activeDataSource === 'rohmaterial' && (
                 <label className="flex items-start gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-2.5 text-[11px] text-zinc-200 cursor-pointer">
                   <input
@@ -9616,7 +10171,7 @@ export default function IntranetDrafts({
                 {/* Entscheidung B: Alte Daten weg, Entwurf übernimmt (Ersetzen) */}
                 <button
                   type="button"
-                  disabled={actionBusy || selectedGameTypes.length === 0}
+                  disabled={actionBusy || approveCoverSaving || selectedGameTypes.length === 0}
                   onClick={() => handleApproveCreatorConfirm('replace')}
                   className="flex flex-col items-start gap-1 rounded-xl border border-amber-500/50 bg-amber-500/15 p-3 text-left hover:bg-amber-500/25 hover:border-amber-400 disabled:opacity-40 transition"
                 >
@@ -9632,7 +10187,7 @@ export default function IntranetDrafts({
                 {/* Entscheidung C: Beide behalten */}
                 <button
                   type="button"
-                  disabled={actionBusy || selectedGameTypes.length === 0}
+                  disabled={actionBusy || approveCoverSaving || selectedGameTypes.length === 0}
                   onClick={() => handleApproveCreatorConfirm('keep_both')}
                   className="flex flex-col items-start gap-1 rounded-xl border border-[#00ff66]/50 bg-[#00ff66]/15 p-3 text-left hover:bg-[#00ff66]/25 hover:border-[#00ff66] disabled:opacity-40 transition"
                 >

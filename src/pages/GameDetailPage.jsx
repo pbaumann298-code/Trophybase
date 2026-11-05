@@ -1223,8 +1223,12 @@ function GamePageContent({
             <CollapsibleSectionCard
               sectionId="guide-walkthrough"
               title={t('fullGameplay')}
-              subtitle={t('walkthroughByAreas')}
-              badge={t('entriesCount').replaceAll('{count}', String(chronologicalGuideData.length))}
+              subtitle={chronologicalGuideData.length === 1 ? null : t('walkthroughByAreas')}
+              badge={
+                chronologicalGuideData.length === 1
+                  ? null
+                  : t('entriesCount').replaceAll('{count}', String(chronologicalGuideData.length))
+              }
               defaultOpen
               accent="green"
             >
@@ -1274,8 +1278,12 @@ function GamePageContent({
             <CollapsibleSectionCard
               sectionId="guide-collectibles"
               title={t('completion')}
-              subtitle={t('collectiblesByCategory')}
-              badge={t('entriesCount').replaceAll('{count}', String(byTypeGuideData.length))}
+              subtitle={byTypeGuideData.length === 1 ? null : t('collectiblesByCategory')}
+              badge={
+                byTypeGuideData.length === 1
+                  ? null
+                  : t('entriesCount').replaceAll('{count}', String(byTypeGuideData.length))
+              }
               defaultOpen
               accent="amber"
             >
@@ -1325,8 +1333,12 @@ function GamePageContent({
             <CollapsibleSectionCard
               sectionId="guide-bosses"
               title={t('bosses')}
-              subtitle={t('bossesByAreas')}
-              badge={t('bossesCount').replaceAll('{count}', String(bossOverviewData.length))}
+              subtitle={bossOverviewData.length === 1 ? null : t('bossesByAreas')}
+              badge={
+                bossOverviewData.length === 1
+                  ? null
+                  : t('bossesCount').replaceAll('{count}', String(bossOverviewData.length))
+              }
               defaultOpen
               accent="purple"
             >

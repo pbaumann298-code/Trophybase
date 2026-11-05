@@ -124,7 +124,11 @@ const GAME_COVER_REVIEW_COLUMNS = [
   'cover_url',
   'cover_status',
   'cover_notes',
+  'published_locales',
+  'status',
 ].join(', ');
+
+const PUBLISH_LOOKUP_CHUNK = 500;
 
 const SICKBAY_TABS = [
   { id: 'servertot', label: 'Servertot', icon: '💀' },
@@ -396,6 +400,52 @@ async function fetchAchievements(gameId) {
   return { rows, error: null };
 }
 
+/** Bereits live: guide_<lang> = PUBLISHED oder published_locales nicht leer. */
+function isRowPublished(row) {
+  if (hasPublishedGuide(row)) return true;
+  return Array.isArray(row?.published_locales) && row.published_locales.length > 0;
+}
+
+/**
+ * v_sickbay_covers führt published_locales/status nicht. Fehlende Felder kommen
+ * in 500er-Chunks aus public.games (unter dem PostgREST-1000er-Limit).
+ */
+async function mergePublishFieldsOntoCoverRows(rows) {
+  if (!rows.length || !rows.some((row) => row?.published_locales === undefined)) {
+    return { error: null };
+  }
+
+  const ids = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const id = row?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+
+  const byId = new Map();
+  for (let index = 0; index < ids.length; index += PUBLISH_LOOKUP_CHUNK) {
+    const chunk = ids.slice(index, index + PUBLISH_LOOKUP_CHUNK);
+    const { data, error } = await supabase
+      .from(TABLES.games)
+      .select(`${GAME_PK}, published_locales, status`)
+      .in(GAME_PK, chunk);
+    if (error) return { error };
+    for (const game of data ?? []) byId.set(game[GAME_PK], game);
+  }
+
+  for (const row of rows) {
+    const extra = byId.get(row.id);
+    if (!extra) continue;
+    if (row.published_locales === undefined) {
+      row.published_locales = Array.isArray(extra.published_locales) ? extra.published_locales : [];
+    }
+    if (row.status === undefined) row.status = extra.status ?? null;
+  }
+  return { error: null };
+}
+
 /**
  * Lädt paginiert alle Zeilen aus der View `v_sickbay_covers` (PostgREST 1.000-Zeilen-Limit).
  */
@@ -410,17 +460,20 @@ async function fetchSickbayCovers() {
     rows.push(...(data ?? []));
     if ((data ?? []).length < PAGE) break;
   }
+  const merged = await mergePublishFieldsOntoCoverRows(rows);
   sortCoverRows(rows);
-  return { rows, error: null };
+  return { rows, error: merged.error };
 }
 
 function sortCoverRows(rows) {
-  rows.sort((a, b) =>
-    collator.compare(
+  rows.sort((a, b) => {
+    const publishedDelta = Number(isRowPublished(b)) - Number(isRowPublished(a));
+    if (publishedDelta !== 0) return publishedDelta;
+    return collator.compare(
       String(a.display_title || pickText(a.spieltitel) || ''),
       String(b.display_title || pickText(b.spieltitel) || ''),
-    ),
-  );
+    );
+  });
   return rows;
 }
 
@@ -437,6 +490,8 @@ function mapGameToSickbayCoverRow(game, computedErrorReason) {
     cover_url: game?.cover_url ?? null,
     cover_status: game?.cover_status ?? null,
     cover_notes: game?.cover_notes ?? null,
+    published_locales: game?.published_locales,
+    status: game?.status ?? null,
     computed_error_reason: computedErrorReason,
   };
 }
@@ -1002,11 +1057,12 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
         fetchCoverReviewCount('unverified'),
         fetchCoverReviewCount('valid'),
       ]);
+      if (coversRes.rows?.length || !coversRes.error) {
+        setCoverRows(coversRes.rows);
+      }
       if (coversRes.error) {
         console.error('Krankenstation Cover-Fehler:', coversRes.error);
         setError((prev) => prev || coversRes.error.message || 'Cover-Fehler konnten nicht geladen werden.');
-      } else {
-        setCoverRows(coversRes.rows);
       }
       if (unverifiedCountRes.error) {
         console.error('Krankenstation Ungeprüft-Anzahl:', unverifiedCountRes.error);
@@ -1585,11 +1641,20 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
   const coverCounts = useMemo(() => {
     let invalid = 0;
     let missing = 0;
+    let publishedMissing = 0;
     for (const row of coverRows) {
       if (row.cover_status === 'invalid') invalid += 1;
       else missing += 1;
+      if (isRowPublished(row)) publishedMissing += 1;
     }
-    return { all: coverRows.length, invalid, missing, unverified: unverifiedTotal, valid: validTotal };
+    return {
+      all: coverRows.length,
+      invalid,
+      missing,
+      publishedMissing,
+      unverified: unverifiedTotal,
+      valid: validTotal,
+    };
   }, [coverRows, unverifiedTotal, validTotal]);
 
   const coverSourceRows = coverFilter === 'unverified' || coverFilter === 'valid' ? reviewCoverRows : coverRows;
@@ -1598,6 +1663,7 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
   const filteredCovers = useMemo(() => {
     const needle = coverSearch.trim().toLowerCase();
     return coverSourceRows.filter((row) => {
+      if (coverFilter === 'published_missing' && !isRowPublished(row)) return false;
       if (coverFilter === 'invalid' && row.cover_status !== 'invalid') return false;
       if (coverFilter === 'missing' && row.cover_status === 'invalid') return false;
       if (!needle) return true;
@@ -1748,6 +1814,14 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <Pill
+                active={coverFilter === 'published_missing'}
+                onClick={() => setCoverFilter('published_missing')}
+                count={coverCounts.publishedMissing}
+                title="Bereits veröffentlichte Live-Spiele (PUBLISHED) ohne gültiges Cover – höchste Priorität!"
+              >
+                🔥 Published ohne Cover
+              </Pill>
+              <Pill
                 active={coverFilter === 'all'}
                 onClick={() => setCoverFilter('all')}
                 count={coverCounts.all}
@@ -1860,6 +1934,15 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                               {type}
                             </span>
                           ))}
+                          {isRowPublished(row) ? (
+                            <span className="rounded border border-[#00ff66]/50 bg-[#00ff66]/15 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase text-[#00ff66]">
+                              🟢 LIVE (
+                              {Array.isArray(row.published_locales) && row.published_locales.length
+                                ? row.published_locales.join(',').toUpperCase()
+                                : 'PUBLISHED'}
+                              )
+                            </span>
+                          ) : null}
                         </div>
 
                         <div className="mt-1.5 flex flex-wrap items-center gap-2">
