@@ -225,7 +225,7 @@ def process_queue():
         supabase.table("trophy_video_scrape_queue")
         .select("*")
         .eq("status", "PENDING")
-        .order("created_at")
+        .order("id")  # WICHTIG: Exakte Reihenfolge (Kapitel 1 -> 17) beibehalten!
         .execute()
     )
     jobs = res.data or []
@@ -234,7 +234,7 @@ def process_queue():
         return
 
     print(
-        f"🚀 Verarbeite {len(jobs)} Trophäen-Video-Aufträge -> Direkt in Multi-Tab (game_guides_rohmaterial)...\n"
+        f"🚀 Verarbeite {len(jobs)} Video-Aufträge -> Direkt in Multi-Tab (game_guides_rohmaterial)...\n"
     )
 
     ydl_opts = {
@@ -248,16 +248,26 @@ def process_queue():
         "extractor_args": {"youtube": {"player_skip": ["configs", "js"]}},
     }
 
+    # Gemeinsamer Batch-Key pro (game_id, creator), damit 17 Kapitel-Videos in 1 gemeinsamen Tab landen!
+    session_ts = int(time.time())
+    batch_key_by_game_creator: Dict[Tuple[str, str], str] = {}
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         for job in jobs:
             job_id = job["id"]
             game_id = job["game_id"]
             video_url = str(job["video_url"]).strip()
-            raw_tid = job["trophy_id"]
+            raw_tid = job.get("trophy_id")
             str_tid = extract_numeric_trophy_id(raw_tid)
-            trophy_name = str(job.get("trophy_name") or f"Trophäe #{raw_tid}").strip()
-            group_name = str(job.get("custom_group_name") or trophy_name).strip()
-            target_col = job.get("target_group_col") or "category_group"
+            # "0" bedeutet: Allgemeines Walkthrough-/Kapitel-Video ohne feste Einzel-Trophäe!
+            if str_tid == "0":
+                str_tid = None
+
+            trophy_name = str(job.get("trophy_name") or "").strip()
+            group_name = str(
+                job.get("custom_group_name") or trophy_name or "Walkthrough"
+            ).strip()
+            target_col = job.get("target_group_col") or "chronological_group"
 
             g_res = (
                 supabase.table("games")
@@ -277,7 +287,8 @@ def process_queue():
                     else str(raw_p or game_id)
                 )
 
-            print(f"📺 [{trophy_name} | Trophy #{str_tid}] Scanne: {video_url}")
+            label_info = f"Trophy #{str_tid}" if str_tid else f"Gruppe '{group_name}'"
+            print(f"📺 [{label_info}] Scanne: {video_url}")
             supabase.table("trophy_video_scrape_queue").update(
                 {"status": "PROCESSING"}
             ).eq("id", job_id).execute()
@@ -302,11 +313,21 @@ def process_queue():
                 sheet_type_arr = resolve_sheet_type_for_col(target_col)
                 next_gid = get_next_guide_id_offset(game_id) + 1
 
-                first_creator = items[0]["creator_name"]
+                # Falls im Job (trophy_name) ein Creator-Name mitgegeben wurde, bevorzugen, sonst aus YouTube
+                first_creator = (
+                    trophy_name
+                    if (not str_tid and trophy_name)
+                    else items[0]["creator_name"]
+                )
                 safe_creator = re.sub(r"[^a-zA-Z0-9_-]", "_", first_creator)[:20]
-                batch_key = f"tvq_{str(game_id)[:8]}_t{str_tid or '0'}_{safe_creator}_{int(time.time())}"
 
-                # Mehrsprachiges Gruppen-JSONB (de + erkannte Video-Sprache setzen, damit im DE-Editor sofort sichtbar)
+                b_key_tuple = (str(game_id), safe_creator)
+                if b_key_tuple not in batch_key_by_game_creator:
+                    batch_key_by_game_creator[b_key_tuple] = (
+                        f"tvq_{str(game_id)[:8]}_{safe_creator}_{session_ts}"
+                    )
+                batch_key = batch_key_by_game_creator[b_key_tuple]
+
                 group_jsonb = {"de": group_name, src_lang: group_name}
 
                 roh_rows = []
@@ -320,7 +341,7 @@ def process_queue():
                             "batch_status": "OPEN",
                             "game_id": game_id,
                             "platform_game_id": npwr,
-                            "creator_name": it["creator_name"],
+                            "creator_name": first_creator,
                             "playlist_url": video_url,
                             "guide_id": str(next_gid),
                             "sheet_type": sheet_type_arr,
@@ -340,7 +361,7 @@ def process_queue():
                             "timestamp": it["timestamp"],
                             "video_url": f"{it['base_video_url']}&t={it['seconds']}s",
                             "trophy_id": str_tid,
-                            "is_trophy_relevant": "Ja",
+                            "is_trophy_relevant": "Ja" if str_tid else "Nein",
                         }
                     )
                     next_gid += 1
@@ -350,7 +371,6 @@ def process_queue():
                         roh_rows[i : i + 500]
                     ).execute()
 
-                # Spiel-Status auf PENDING_MULTI_TAB heben, damit es sofort in der Multi-Tab-Queue als offen auftaucht
                 status_obj = (
                     dict(g_row.get("status") or {})
                     if isinstance(g_row.get("status"), dict)
@@ -371,9 +391,10 @@ def process_queue():
                 ).eq("id", job_id).execute()
 
                 print(
-                    f"   ✅ {len(roh_rows)} Schritte (Trophy #{str_tid} | Gruppe '{group_name}' | Tab {sheet_type_arr}) "
+                    f"   ✅ {len(roh_rows)} Schritte (Gruppe '{group_name}' | Tab {sheet_type_arr}) "
                     f"direkt in Multi-Tab (game_guides_rohmaterial) geladen!"
                 )
+                time.sleep(1.2)
             except Exception as e:
                 supabase.table("trophy_video_scrape_queue").update(
                     {

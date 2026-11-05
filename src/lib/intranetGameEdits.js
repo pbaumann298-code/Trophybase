@@ -344,6 +344,48 @@ export async function enqueueTrophyVideoForTimestampScrape(
 }
 
 /**
+ * Legt mehrere Kapitel-/Walkthrough-Videos eines Creators auf einmal in
+ * trophy_video_scrape_queue. trophy_id '0' markiert ein allgemeines Video;
+ * trophy_name bündelt sie über den Creator-Namen.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{
+ *   gameId: string,
+ *   platformGameId?: string|null,
+ *   creatorName?: string|null,
+ *   items?: Array<{ videoUrl?: string, targetGroupCol?: string, groupName?: string }>,
+ * }} params
+ */
+export async function enqueueMultipleVideosForTimestampScrape(
+  supabase,
+  { gameId, platformGameId, creatorName, items = [] } = {},
+) {
+  const game = String(gameId ?? '').trim();
+  if (!game) return { count: 0, error: new Error('Kein Spiel ausgewählt.') };
+  if (!Array.isArray(items) || items.length === 0) {
+    return { count: 0, error: new Error('Keine gültigen Videos zum Einreihen gefunden.') };
+  }
+
+  const rows = items.map((it) => ({
+    game_id: game,
+    platform_game_id: String(platformGameId ?? '').trim() || null,
+    // '0' signalisiert 07.0_Trophy_Video_Queue_Worker.py: Allgemeines Kapitel-/Walkthrough-Video (trophy_id bleibt null),
+    // trophy_name übergibt den Creator-Namen, damit alle Videos im selben Creator-Tab gebündelt werden!
+    trophy_id: '0',
+    trophy_name: String(creatorName ?? '').trim() || null,
+    video_url: String(it.videoUrl ?? '').trim(),
+    target_group_col: VALID_SCRAPE_GROUP_COLS.has(it.targetGroupCol)
+      ? it.targetGroupCol
+      : 'chronological_group',
+    custom_group_name: String(it.groupName ?? '').trim() || 'Walkthrough',
+    status: 'PENDING',
+  }));
+
+  const { error } = await supabase.from('trophy_video_scrape_queue').insert(rows);
+  return { count: error ? 0 : rows.length, error: error ?? null };
+}
+
+/**
  * Schreibt den kurzen Guide-Tipp einer Trophäe in der aktuellen Sprache.
  * Leerer Text löscht nur guide_tip in dieser Sprache – Guide-Tip-lang bleibt.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase

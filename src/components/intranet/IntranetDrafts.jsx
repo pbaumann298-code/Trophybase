@@ -21,6 +21,7 @@ import {
   setIntranetIgdbCover,
   markGameCoverValid,
   enqueueTrophyVideoForTimestampScrape,
+  enqueueMultipleVideosForTimestampScrape,
 } from '../../lib/intranetGameEdits';
 import { intranetGameHref } from '../../lib/intranetQueries';
 import { listPipelineStatusEntries } from '../../lib/gamePipelineStatus';
@@ -636,6 +637,35 @@ function resolveDraftPlatformGameId(game) {
 
 function stripDraftVideoUrl(url) {
   return String(url ?? '').split('&t=')[0].split('?t=')[0].trim();
+}
+
+function shortenDraftVideoUrl(url) {
+  const text = String(url ?? '').trim();
+  if (text.length <= 52) return text;
+  return `…${text.slice(-46)}`;
+}
+
+/** Gruppenname je Video: gesetzte Chrono-Spalte, sonst bereinigter Chapter- oder Item-Name. */
+function resolveCreatorVideoGroups(row, game) {
+  const chronoColumn = getLocalizedItemName(row?.chronological_group).trim();
+  const catName = getLocalizedItemName(row?.category_group).trim();
+  const bossName = getLocalizedItemName(row?.boss_group).trim();
+  const itemName = getLocalizedItemName(row?.item_name).trim();
+  const videoChapter = getLocalizedItemName(row?.video_chapter).trim();
+  const chronoIsGeneric = !chronoColumn || chronoColumn.toLowerCase() === 'walkthrough';
+  const chapterFallback = cleanVideoChapterName(row?.video_chapter, game);
+  const chronoName = chronoIsGeneric
+    ? chapterFallback || itemName || chronoColumn || 'Walkthrough'
+    : chronoColumn;
+  return {
+    chronoColumn,
+    chronoName,
+    catName,
+    bossName,
+    itemName,
+    videoChapter,
+    chronoIsGeneric,
+  };
 }
 
 const SCRAPE_TARGET_GROUP_OPTIONS = [
@@ -1306,6 +1336,8 @@ export default function IntranetDrafts({
   const [videoScrapeGroupName, setVideoScrapeGroupName] = useState('Walkthrough');
   const [videoScrapeTargetCol, setVideoScrapeTargetCol] = useState('chronological_group');
   const [videoScrapeDropDraft, setVideoScrapeDropDraft] = useState(false);
+  const [videoScrapeMode, setVideoScrapeMode] = useState('single');
+  const [videoScrapeDropPlaceholders, setVideoScrapeDropPlaceholders] = useState(true);
   const [videoScrapeBusy, setVideoScrapeBusy] = useState(false);
   const [videoScrapeHint, setVideoScrapeHint] = useState('');
   const [videoScrapeError, setVideoScrapeError] = useState(false);
@@ -1928,6 +1960,8 @@ export default function IntranetDrafts({
     setVideoScrapeHint('');
     setVideoScrapeError(false);
     setVideoScrapeDropDraft(false);
+    setVideoScrapeMode('single');
+    setVideoScrapeDropPlaceholders(true);
   }, [selectedGameId, selectedCreatorName, activeDataSource]);
 
   // Current game's rows
@@ -2228,6 +2262,26 @@ export default function IntranetDrafts({
       null
     );
   }, [selectedGameId, gamesMap, rohGamesMap, rohmaterialGames]);
+
+  const uniqueCreatorVideos = useMemo(() => {
+    const seen = new Set();
+    const videos = [];
+    for (const row of currentCreatorRows) {
+      const cleanUrl = stripDraftVideoUrl(row.video_url);
+      if (!cleanUrl || seen.has(cleanUrl)) continue;
+      seen.add(cleanUrl);
+      const groups = resolveCreatorVideoGroups(row, selectedGame);
+      videos.push({
+        rowId: row.id,
+        videoUrl: cleanUrl,
+        ...groups,
+      });
+    }
+    return videos;
+  }, [currentCreatorRows, selectedGame]);
+
+  const creatorChronoStillGeneric =
+    uniqueCreatorVideos.length > 0 && uniqueCreatorVideos.every((video) => video.chronoIsGeneric);
 
   // Batch-check existing game_guides counts for visible queue games so sidebar badges show conflicts immediately
   useEffect(() => {
@@ -6530,6 +6584,130 @@ export default function IntranetDrafts({
     jumpToNextGame(gameId);
   };
 
+  const scrapeGroupNameForVideo = (video, targetCol) => {
+    if (targetCol === 'category_group') return video.catName || 'Sammelobjekte';
+    if (targetCol === 'boss_group') return video.bossName || 'Bosse';
+    return video.chronoName || 'Walkthrough';
+  };
+
+  const handleEnqueueAllCreatorVideos = async () => {
+    if (videoScrapeBusy || !selectedGameId || uniqueCreatorVideos.length === 0) return;
+
+    setVideoScrapeBusy(true);
+    setVideoScrapeHint('');
+    setVideoScrapeError(false);
+
+    const items = uniqueCreatorVideos.map((video) => ({
+      videoUrl: video.videoUrl,
+      targetGroupCol: videoScrapeTargetCol,
+      groupName: scrapeGroupNameForVideo(video, videoScrapeTargetCol),
+    }));
+
+    const { error } = await enqueueMultipleVideosForTimestampScrape(supabase, {
+      gameId: selectedGameId,
+      platformGameId: resolveDraftPlatformGameId(selectedGame),
+      creatorName: selectedCreatorName,
+      items,
+    });
+
+    if (error) {
+      setVideoScrapeBusy(false);
+      setVideoScrapeError(true);
+      setVideoScrapeHint(error.message || 'Konnte nicht in die Queue gelegt werden.');
+      return;
+    }
+
+    if (!videoScrapeDropPlaceholders) {
+      setVideoScrapeBusy(false);
+      setVideoScrapeError(false);
+      setVideoScrapeHint(`✓ ${uniqueCreatorVideos.length} Videos in Queue gelegt`);
+      return;
+    }
+
+    const gameId = selectedGameId;
+    const creatorName = selectedCreatorName;
+    const isRoh = activeDataSource === 'rohmaterial';
+    const targetTable = isRoh ? TABLES.guidesRohmaterial : 'staging_game_guides';
+    const rowsToDelete = currentCreatorRows.filter(
+      (row) => (row._sourceTable || 'staging_game_guides') === targetTable,
+    );
+    const realCreatorName =
+      creatorName &&
+      creatorName !== 'Unbekannter Creator' &&
+      !String(creatorName).startsWith('Batch:');
+
+    try {
+      if (realCreatorName) {
+        const { error: delErr } = await supabase
+          .from(targetTable)
+          .delete()
+          .eq('game_id', gameId)
+          .eq('creator_name', creatorName);
+        if (delErr) throw new Error(delErr.message);
+      } else {
+        for (const chunkIds of chunkList(rowsToDelete.map((row) => row.id), 100)) {
+          const { error: delErr } = await supabase.from(targetTable).delete().in('id', chunkIds);
+          if (delErr) throw new Error(delErr.message);
+        }
+      }
+    } catch (err) {
+      setVideoScrapeBusy(false);
+      setVideoScrapeError(true);
+      setVideoScrapeHint(
+        `In Queue gelegt, Platzhalter konnten nicht gelöscht werden: ${err.message || err}`,
+      );
+      return;
+    }
+
+    const removedIds = new Set(rowsToDelete.map((row) => row.id));
+    const dropRow = (row) =>
+      realCreatorName
+        ? !(row.game_id === gameId && row.creator_name === creatorName)
+        : !removedIds.has(row.id);
+    if (isRoh) {
+      setRohmaterialRows((prev) => prev.filter(dropRow));
+      fetchRohmaterialSummary();
+    } else {
+      setStagingRows((prev) => prev.filter(dropRow));
+      const overrides = loadStagingLocalOverrides();
+      let overridesChanged = false;
+      for (const id of removedIds) {
+        const key = String(id);
+        if (
+          Object.prototype.hasOwnProperty.call(overrides, id) ||
+          Object.prototype.hasOwnProperty.call(overrides, key)
+        ) {
+          delete overrides[id];
+          delete overrides[key];
+          overridesChanged = true;
+        }
+      }
+      if (overridesChanged) saveStagingLocalOverrides(overrides);
+      setTotalStagingCountsMap((prev) => {
+        const next = new Map(prev);
+        const left = (next.get(gameId) || 0) - rowsToDelete.length;
+        if (left > 0) next.set(gameId, left);
+        else next.delete(gameId);
+        return next;
+      });
+      setTotalStagingCreatorsMap((prev) => {
+        const next = new Map(prev);
+        const left = (next.get(gameId) || 1) - 1;
+        if (left > 0) next.set(gameId, left);
+        else next.delete(gameId);
+        return next;
+      });
+    }
+
+    setSelectedRowIds(new Set());
+    setVideoScrapeBusy(false);
+    setVideoScrapeOpen(false);
+    setNotice(
+      `📥 ${uniqueCreatorVideos.length} Videos von "${creatorName}" mit ihren Chrono-Gruppen in die Scraper-Queue (07.0) gelegt!`,
+    );
+    jumpToNextGame(gameId);
+  };
+
   // Video embed URL
   const currentEmbedUrl = useMemo(() => {
     if (!activeVideoUrl) return null;
@@ -7626,6 +7804,8 @@ export default function IntranetDrafts({
                           setVideoScrapeTargetCol('chronological_group');
                           setVideoScrapeGroupName('Walkthrough');
                           setVideoScrapeDropDraft(false);
+                          setVideoScrapeMode(uniqueCreatorVideos.length > 1 ? 'all' : 'single');
+                          setVideoScrapeDropPlaceholders(true);
                           setVideoScrapeHint('');
                           setVideoScrapeError(false);
                           setVideoScrapeOpen(true);
@@ -7716,6 +7896,113 @@ export default function IntranetDrafts({
 
                   {videoScrapeOpen && (
                     <div className="rounded-lg border border-zinc-700 bg-zinc-950/90 p-2.5 flex flex-col gap-2">
+                      {uniqueCreatorVideos.length > 1 ? (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={videoScrapeBusy}
+                            onClick={() => setVideoScrapeMode('all')}
+                            className={`rounded-lg border px-2.5 py-1.5 text-left font-mono text-[11px] font-bold transition ${
+                              videoScrapeMode === 'all'
+                                ? 'border-[#00ff66]/60 bg-[#00ff66]/15 text-[#00ff66]'
+                                : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500'
+                            }`}
+                          >
+                            📚 Alle {uniqueCreatorVideos.length} Videos dieses Creators (jeweils unter ihrer Chrono-Gruppe)
+                          </button>
+                          <button
+                            type="button"
+                            disabled={videoScrapeBusy}
+                            onClick={() => setVideoScrapeMode('single')}
+                            className={`rounded-lg border px-2.5 py-1.5 font-mono text-[11px] font-bold transition ${
+                              videoScrapeMode === 'single'
+                                ? 'border-[#00ff66]/60 bg-[#00ff66]/15 text-[#00ff66]'
+                                : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500'
+                            }`}
+                          >
+                            🎬 Nur einzelnes Video / Playlist-URL
+                          </button>
+                        </div>
+                      ) : null}
+                      {uniqueCreatorVideos.length > 1 && videoScrapeMode === 'all' ? (
+                        <>
+                          {creatorChronoStillGeneric ? (
+                            <button
+                              type="button"
+                              disabled={actionBusy || videoScrapeBusy}
+                              onClick={() => handleApplyCleanedChapterToColumn('chronological_group', 'all')}
+                              className="w-fit rounded-lg border border-amber-400/50 bg-amber-500/15 px-2.5 py-1.5 font-mono text-[11px] font-bold text-amber-200 hover:bg-amber-500/25 disabled:opacity-40"
+                            >
+                              🪄 Erst noch bereinigte Video-Titel in Chrono-Spalte übernehmen
+                            </button>
+                          ) : null}
+                          <ul className="max-h-48 overflow-y-auto rounded-lg border border-zinc-800 bg-[#121314]">
+                            {uniqueCreatorVideos.map((video, index) => (
+                              <li
+                                key={video.videoUrl}
+                                className="flex items-center gap-2 border-b border-zinc-800/80 px-2 py-1.5 font-mono text-[11px] last:border-b-0"
+                              >
+                                <span className="w-8 shrink-0 font-bold text-zinc-500">#{index + 1}</span>
+                                <span
+                                  className="min-w-0 flex-1 truncate text-zinc-100"
+                                  title={scrapeGroupNameForVideo(video, videoScrapeTargetCol)}
+                                >
+                                  {scrapeGroupNameForVideo(video, videoScrapeTargetCol)}
+                                </span>
+                                <span className="max-w-[14rem] shrink-0 truncate text-zinc-500" title={video.videoUrl}>
+                                  {shortenDraftVideoUrl(video.videoUrl)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                          <label>
+                            <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                              Ziel-Spalte
+                            </span>
+                            <select
+                              value={videoScrapeTargetCol}
+                              disabled={videoScrapeBusy}
+                              onChange={(event) => setVideoScrapeTargetCol(event.target.value)}
+                              className="w-full rounded-md border border-zinc-700 bg-[#121314] px-2 py-1.5 text-xs text-zinc-200 focus:border-[#00ff66]/40 focus:outline-none"
+                            >
+                              <option value="chronological_group">Chrono / Walkthrough (chronological_group)</option>
+                              <option value="category_group">Collect (category_group)</option>
+                              <option value="boss_group">Boss (boss_group)</option>
+                            </select>
+                          </label>
+                          <label className="flex items-center gap-2 text-[11px] font-mono text-zinc-300">
+                            <input
+                              type="checkbox"
+                              checked={videoScrapeDropPlaceholders}
+                              disabled={videoScrapeBusy}
+                              onChange={(event) => setVideoScrapeDropPlaceholders(event.target.checked)}
+                              className="accent-[#00ff66]"
+                            />
+                            ☑️ Alte {currentCreatorRows.length} Platzhalter-Zeilen (00:00) dieses Creators nach dem Einreihen sofort löschen
+                          </label>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={videoScrapeBusy || uniqueCreatorVideos.length === 0}
+                              onClick={handleEnqueueAllCreatorVideos}
+                              className="rounded-md border border-[#00ff66]/40 px-2.5 py-1.5 font-mono text-[10px] font-bold text-[#00ff66] hover:border-[#00ff66]/60 disabled:opacity-30"
+                            >
+                              {videoScrapeBusy
+                                ? '…'
+                                : `📥 Alle ${uniqueCreatorVideos.length} Videos jetzt in Scraper-Queue (07.0) legen`}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={videoScrapeBusy}
+                              onClick={() => setVideoScrapeOpen(false)}
+                              className="rounded-md border border-zinc-700 px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+                            >
+                              Schließen
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
                       <label>
                         <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">
                           YouTube-Video / Playlist-URL
@@ -7797,6 +8084,8 @@ export default function IntranetDrafts({
                           Schließen
                         </button>
                       </div>
+                        </>
+                      )}
                       {videoScrapeHint ? (
                         <span className={`text-[10px] font-mono ${videoScrapeError ? 'text-red-400' : 'text-[#00ff66]'}`}>
                           {videoScrapeHint}

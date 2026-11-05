@@ -3,8 +3,6 @@ import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
 import { CATALOG_FETCH_PAGE, fetchGamesByType } from '../lib/gameQueries';
 import { GAME_TYPE } from '../lib/gameSchema';
-import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
-import { GAME_FIELDS } from '../lib/gameSchema';
 import { translateHomeTag } from '../lib/homeTagDefs';
 import {
   QUICKWIN_ALPHABET,
@@ -23,10 +21,8 @@ import {
   navigateToQuickwins,
   parseQuickwinsParams,
 } from '../lib/routeUtils';
-import QuickwinGameCard, { formatQuickwinCount } from '../components/QuickwinGameCard';
 import CatalogLetterSection from '../components/CatalogLetterSection';
 import PublisherTile from '../components/PublisherTile';
-import WatchlistButton from '../components/WatchlistButton';
 import { normalizeLocale } from '../lib/locale';
 import '../styles/home.css';
 import '../styles/quickwins.css';
@@ -129,7 +125,6 @@ function PublisherLetterSection({
   serverNotice,
   serverNoticeText,
 }) {
-  const { t, globalLocale } = useLocale();
   const trackRef = useRef(null);
   const [expanded, setExpanded] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -243,91 +238,21 @@ function PublisherLetterSection({
 
       {selectedGroup ? (
         <div className="catalog-detail catalog-detail--below-row publisher-detail">
-          <div className="publisher-detail-head">
-            <div className="min-w-0">
-              <h3 className="text-sm font-bold text-white truncate">{selectedGroup.label}</h3>
-              <p className="text-[11px] font-mono text-zinc-400">
-                {formatQuickwinCount(
-                  selectedGroup.games.length,
-                  t('quickwinsGameCountOne'),
-                  t('quickwinsGameCount'),
-                )}
-              </p>
-            </div>
-            <button type="button" className="publisher-detail-close" onClick={onClosePublisher}>
-              ✕ {t('reportClose')}
-            </button>
-          </div>
-          <div className="catalog-expanded-list">
-            {selectedGroup.games.map((game) => {
-              const gameId = getGameUuid(game);
-              const title = getGameTitle(game, globalLocale);
-              const cover = getGameCover(game, globalLocale);
-              const consoleLabel = game[GAME_FIELDS.console] ?? '';
-              const year = game[GAME_FIELDS.year];
-              const yearLabel = year ? String(year) : '';
-              const isOpen = Boolean(gameId) && openGameId === gameId;
-              return (
-                <div key={gameId || title} className="catalog-list-row">
-                  <div className="publisher-game-row">
-                    <button
-                      type="button"
-                      className="catalog-list-row-btn"
-                      aria-expanded={isOpen}
-                      onClick={() => onToggleGame(gameId)}
-                    >
-                      <span className="catalog-list-row-cover-wrap">
-                        {cover ? (
-                          <img src={cover} className="catalog-list-row-cover" alt="" loading="lazy" />
-                        ) : (
-                          <div className="catalog-list-row-cover catalog-list-row-cover--empty">🎮</div>
-                        )}
-                      </span>
-                      <span className="catalog-list-row-meta">
-                        <span className="catalog-list-row-title">
-                          {title}
-                          {selectedGroup.key === OTHER_PUBLISHER_KEY ? (
-                            <span className="ml-2 inline-flex align-middle rounded-full border border-zinc-700 bg-black/50 px-1.5 py-0.5 text-[10px] font-mono font-semibold normal-case tracking-normal text-zinc-300">
-                              {quickwinPublisherKey(game) || '—'}
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="catalog-list-row-console">
-                          {[consoleLabel, yearLabel].filter(Boolean).join(' · ') || '—'}
-                        </span>
-                        {isAdmin ? (
-                          <span className="quickwin-type">
-                            {String(game.spiel_typ ?? '').trim() || '—'}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="catalog-list-row-chevron" aria-hidden>
-                        {isOpen ? '▲' : '▼'}
-                      </span>
-                    </button>
-                    <div className="publisher-game-watchlist">
-                      <WatchlistButton gameId={gameId} size="sm" />
-                    </div>
-                  </div>
-                  {isOpen ? (
-                    <div className="catalog-detail">
-                      <QuickwinGameCard
-                        game={game}
-                        openGame={openGame}
-                        onRequestLogin={onRequestLogin}
-                        isAdmin={isAdmin}
-                        sessionUser={sessionUser}
-                        newerVersions={newerVersions}
-                        includeReady={includeReady}
-                        serverNotice={serverNotice}
-                        serverNoticeText={serverNoticeText}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
+          <CatalogLetterSection
+            letter={`${selectedGroup.label} (${selectedGroup.games.length})`}
+            games={selectedGroup.games}
+            openGameId={openGameId}
+            onToggleGame={onToggleGame}
+            openGame={openGame}
+            onRequestLogin={onRequestLogin}
+            isAdmin={isAdmin}
+            sessionUser={sessionUser}
+            includeReady={includeReady}
+            newerVersions={newerVersions}
+            serverNotice={serverNotice}
+            serverNoticeText={serverNoticeText}
+            onClose={onClosePublisher}
+          />
         </div>
       ) : null}
     </section>
@@ -1039,6 +964,30 @@ function QuickwinsPage({
         <p className="quickwin-card-note">
           {hasMore || loadingMore ? t('searchLoading') : t('searchNoResults')}
         </p>
+      ) : Boolean(applied.title.trim()) || Boolean(applied.publisher) ? (
+        <div className="catalog-list">
+          {publisherLetterGroups.map((section) => (
+            <div key={section.key} id={`catalog-letter-${section.key}`} className="catalog-list">
+              {section.publishers.map((group) => (
+                <CatalogLetterSection
+                  key={group.key}
+                  letter={`${group.label} (${group.games.length})`}
+                  games={group.games}
+                  openGameId={openGameId}
+                  onToggleGame={toggleGame}
+                  openGame={openGame}
+                  onRequestLogin={onRequestLogin}
+                  isAdmin={isAdmin}
+                  sessionUser={sessionUser}
+                  includeReady={includeReady}
+                  newerVersions={newerVersions}
+                  serverNotice={serverNotice}
+                  serverNoticeText={pageCopy?.notice || ''}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="catalog-list">
             {publisherLetterGroups.map((section) => (

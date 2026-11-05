@@ -1,21 +1,47 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
-import { GAME_FIELDS } from '../lib/gameSchema';
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { getGameUuid } from '../lib/gameModel';
 import { useLocale } from '../context/LocaleContext';
 import { usePlatinumStatus } from '../context/PlatinumStatusContext';
 import { useUserPreferences } from '../lib/userPreferences';
 import QuickwinGameCard from './QuickwinGameCard';
-import GameTile, { GameCoverOverlays } from './GameTile';
+import GameTile from './GameTile';
 
 export const CATALOG_ROW_PREVIEW = 10;
 const EXPANDED_CHUNK_SIZE = 60;
 
 const TILE_SHELL_CLASS =
   'catalog-tile-shell catalog-tile-shell--carousel flex-shrink-0 snap-start w-[9.25rem] sm:w-[10.5rem] lg:w-[11.25rem] max-w-[11.25rem]';
+const GRID_TILE_SHELL_CLASS = 'catalog-tile-shell min-w-0 w-full';
+
+const GRID_COLUMN_QUERIES = [
+  ['(min-width: 1024px)', 6],
+  ['(min-width: 768px)', 5],
+  ['(min-width: 640px)', 4],
+];
+
+function catalogSectionDomId(letter) {
+  const slug = String(letter ?? '')
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'section';
+}
+
+function readGridColumns() {
+  if (typeof window === 'undefined') return 2;
+  const match = GRID_COLUMN_QUERIES.find(([query]) => window.matchMedia(query).matches);
+  return match ? match[1] : 2;
+}
+
+function subscribeGridColumns(onChange) {
+  const medias = GRID_COLUMN_QUERIES.map(([query]) => window.matchMedia(query));
+  medias.forEach((media) => media.addEventListener('change', onChange));
+  return () => medias.forEach((media) => media.removeEventListener('change', onChange));
+}
 
 /**
- * Ein Buchstaben-Block: horizontale Reihe (max. ~10), bei mehr Titeln „Alle anzeigen“
- * als vertikale Liste wie Suchergebnisse.
+ * Ein Buchstaben-Block: horizontale Reihe (max. ~10). „Alle anzeigen“ zeigt
+ * dieselben 3:4-Kacheln nebeneinander im Grid.
  */
 function CatalogLetterSection({
   letter,
@@ -31,8 +57,9 @@ function CatalogLetterSection({
   serverNotice = false,
   serverNoticeText = '',
   tileAccent = '#00ff66',
+  onClose = null,
 }) {
-  const { t, globalLocale } = useLocale();
+  const { t } = useLocale();
   const { isPlatinum } = usePlatinumStatus();
   const { hidePlatinumedGames } = useUserPreferences();
   const trackRef = useRef(null);
@@ -41,6 +68,7 @@ function CatalogLetterSection({
   const [visibleCount, setVisibleCount] = useState(EXPANDED_CHUNK_SIZE);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const gridColumns = useSyncExternalStore(subscribeGridColumns, readGridColumns, () => 2);
 
   const filteredGames = hidePlatinumedGames
     ? games.filter((game) => {
@@ -101,12 +129,22 @@ function CatalogLetterSection({
   const openCarouselGame = !expanded
     ? previewGames.find((game) => getGameUuid(game) === openGameId) || null
     : null;
+  const openGridGame = expanded
+    ? expandedGames.find((game) => getGameUuid(game) === openGameId) || null
+    : null;
+  const openGridIndex = openGridGame
+    ? expandedGames.findIndex((game) => getGameUuid(game) === openGameId)
+    : -1;
+  const openGridInsertAt = openGridIndex >= 0
+    ? Math.min(expandedGames.length, (Math.floor(openGridIndex / gridColumns) + 1) * gridColumns)
+    : -1;
+  const sectionDomId = catalogSectionDomId(letter);
 
-  const renderTile = (game, index) => {
+  const renderTile = (game, index, shellClass = TILE_SHELL_CLASS) => {
     const gameId = getGameUuid(game);
     const isOpen = Boolean(gameId) && openGameId === gameId;
     return (
-      <div key={gameId || `${letter}-${index}`} className={TILE_SHELL_CLASS}>
+      <div key={gameId || `${letter}-${index}`} className={shellClass}>
         <GameTile
           game={game}
           as="button"
@@ -121,73 +159,32 @@ function CatalogLetterSection({
     );
   };
 
-  const renderListRow = (game, index) => {
-    const gameId = getGameUuid(game);
-    const title = getGameTitle(game, globalLocale);
-    const cover = getGameCover(game, globalLocale);
-    const consoleLabel = game[GAME_FIELDS.console] ?? '';
-    const isOpen = Boolean(gameId) && openGameId === gameId;
-    return (
-      <div key={gameId || `${letter}-list-${index}`} className="catalog-list-row">
-        <button
-          type="button"
-          className="catalog-list-row-btn"
-          aria-expanded={isOpen}
-          onClick={() => onToggleGame(gameId)}
-        >
-          <span className="catalog-list-row-cover-wrap relative group">
-            {cover ? (
-              <img src={cover} className="catalog-list-row-cover" alt="" loading="lazy" />
-            ) : (
-              <div className="catalog-list-row-cover catalog-list-row-cover--empty">🎮</div>
-            )}
-            <GameCoverOverlays
-              gameId={gameId}
-              game={game}
-              isAdmin={isAdmin}
-              size="sm"
-              onRequestLogin={onRequestLogin}
-            />
-          </span>
-          <span className="catalog-list-row-meta">
-            <span className="catalog-list-row-title">{title}</span>
-            {consoleLabel ? <span className="catalog-list-row-console">{consoleLabel}</span> : null}
-          </span>
-          <span className="catalog-list-row-chevron" aria-hidden>
-            {isOpen ? '▲' : '▼'}
-          </span>
-        </button>
-        {isOpen ? (
-          <div className="catalog-detail">
-            <QuickwinGameCard
-              game={game}
-              openGame={openGame}
-              onRequestLogin={onRequestLogin}
-              isAdmin={isAdmin}
-              sessionUser={sessionUser}
-              newerVersions={newerVersions}
-              includeReady={includeReady}
-              serverNotice={serverNotice}
-              serverNoticeText={serverNoticeText}
-            />
-          </div>
-        ) : null}
-      </div>
-    );
-  };
+  const renderOpenCard = (game) => (
+    <QuickwinGameCard
+      game={game}
+      openGame={openGame}
+      onRequestLogin={onRequestLogin}
+      isAdmin={isAdmin}
+      sessionUser={sessionUser}
+      newerVersions={newerVersions}
+      includeReady={includeReady}
+      serverNotice={serverNotice}
+      serverNoticeText={serverNoticeText}
+    />
+  );
 
   return (
     <section
-      id={`catalog-letter-${letter}`}
+      id={`catalog-letter-${sectionDomId}`}
       className="catalog-letter-section home-category w-full min-w-0 max-w-full"
-      aria-labelledby={`catalog-letter-title-${letter}`}
+      aria-labelledby={`catalog-letter-title-${sectionDomId}`}
     >
       <header className="home-category-header">
         <div className="home-category-heading min-w-0">
           {hasOverflow ? (
             <button
               type="button"
-              id={`catalog-letter-title-${letter}`}
+              id={`catalog-letter-title-${sectionDomId}`}
               className="home-category-title home-category-title--clickable"
               onClick={() => setExpanded((prev) => !prev)}
               title={expanded ? t('catalogShowLess') : t('catalogShowAll')}
@@ -202,40 +199,56 @@ function CatalogLetterSection({
               </span>
             </button>
           ) : (
-            <h2 id={`catalog-letter-title-${letter}`} className="home-category-title">
+            <h2 id={`catalog-letter-title-${sectionDomId}`} className="home-category-title">
               {letter}
             </h2>
           )}
         </div>
-        {!expanded ? (
-          <div className="home-category-nav flex-shrink-0">
-            <button
-              type="button"
-              className="home-scroll-btn"
-              aria-label={`${letter} nach links`}
-              disabled={!canScrollLeft}
-              onClick={() => scrollByTiles(-1)}
-            >
-              ‹
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {onClose ? (
+            <button type="button" className="publisher-detail-close" onClick={onClose}>
+              ✕ {t('reportClose')}
             </button>
-            <button
-              type="button"
-              className="home-scroll-btn"
-              aria-label={`${letter} nach rechts`}
-              disabled={!canScrollRight}
-              onClick={() => scrollByTiles(1)}
-            >
-              ›
-            </button>
-          </div>
-        ) : null}
+          ) : null}
+          {!expanded ? (
+            <div className="home-category-nav flex-shrink-0">
+              <button
+                type="button"
+                className="home-scroll-btn"
+                aria-label={`${letter} nach links`}
+                disabled={!canScrollLeft}
+                onClick={() => scrollByTiles(-1)}
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                className="home-scroll-btn"
+                aria-label={`${letter} nach rechts`}
+                disabled={!canScrollRight}
+                onClick={() => scrollByTiles(1)}
+              >
+                ›
+              </button>
+            </div>
+          ) : null}
+        </div>
       </header>
 
       {expanded ? (
-        <div className="catalog-expanded-list">
-          {expandedGames.map(renderListRow)}
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
+          {expandedGames.map((game, index) => (
+            <Fragment key={getGameUuid(game) || `${letter}-grid-${index}`}>
+              {renderTile(game, index, GRID_TILE_SHELL_CLASS)}
+              {openGridGame && index + 1 === openGridInsertAt ? (
+                <div className="col-span-full catalog-detail catalog-detail--below-row">
+                  {renderOpenCard(openGridGame)}
+                </div>
+              ) : null}
+            </Fragment>
+          ))}
           {hasMoreExpanded ? (
-            <div ref={expandedMoreRef} className="catalog-load-more">
+            <div ref={expandedMoreRef} className="col-span-full catalog-load-more">
               <span className="catalog-load-more-spacer" />
             </div>
           ) : null}
@@ -253,17 +266,7 @@ function CatalogLetterSection({
           </div>
           {openCarouselGame ? (
             <div className="catalog-detail catalog-detail--below-row">
-              <QuickwinGameCard
-                game={openCarouselGame}
-                openGame={openGame}
-                onRequestLogin={onRequestLogin}
-                isAdmin={isAdmin}
-                sessionUser={sessionUser}
-                newerVersions={newerVersions}
-                includeReady={includeReady}
-                serverNotice={serverNotice}
-                serverNoticeText={serverNoticeText}
-              />
+              {renderOpenCard(openCarouselGame)}
             </div>
           ) : null}
         </>
