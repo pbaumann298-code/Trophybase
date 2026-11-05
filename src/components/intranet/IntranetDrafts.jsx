@@ -735,6 +735,35 @@ function getLocalizedItemName(itemName) {
   return itemName.de || itemName.en || Object.values(itemName)[0] || '';
 }
 
+const SELECT_BY_TERM_FIELDS = [
+  { id: 'item_name', label: 'Item' },
+  { id: 'chronological_group', label: 'Chrono' },
+  { id: 'category_group', label: 'Collect' },
+  { id: 'boss_group', label: 'Boss' },
+  { id: 'video_chapter', label: 'Chapter' },
+  { id: 'all', label: 'Alle' },
+];
+
+const SELECT_BY_TERM_TEXT_FIELDS = [
+  'item_name',
+  'chronological_group',
+  'category_group',
+  'boss_group',
+  'video_chapter',
+];
+
+/** Flacher Text oder alle Sprach-Strings eines jsonb-Feldes, für die Begriffs-Markierung. */
+function fieldTextForTermMatch(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    return Object.values(value)
+      .filter((entry) => typeof entry === 'string')
+      .join('\n');
+  }
+  return String(value);
+}
+
 function pickLocalizedTrophyText(value, lang = 'de') {
   if (!value) return '';
   if (typeof value === 'string') return value;
@@ -1273,6 +1302,9 @@ export default function IntranetDrafts({
   const [selectedRowIds, setSelectedRowIds] = useState(() => new Set());
   const [batchCustomField, setBatchCustomField] = useState(null); // 'chronological_group' | 'category_group' | null
   const [chapterCopyTargetField, setChapterCopyTargetField] = useState('chronological_group');
+  const [selectByTermQuery, setSelectByTermQuery] = useState('');
+  const [selectByTermField, setSelectByTermField] = useState('item_name');
+  const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
 
   // 3. Trophäen-Schnell-Picker & Auto-Matcher ("Just Do It") State
   const [showTrophyMatcher, setShowTrophyMatcher] = useState(false);
@@ -2758,6 +2790,45 @@ export default function IntranetDrafts({
     });
   };
 
+  const matchingTermRowIds = useMemo(() => {
+    const needle = selectByTermQuery.trim().toLowerCase();
+    if (!needle) return [];
+    const fields = selectByTermField === 'all' ? SELECT_BY_TERM_TEXT_FIELDS : [selectByTermField];
+    const ids = [];
+    for (const row of visibleCreatorRows) {
+      const hit = fields.some((field) => fieldTextForTermMatch(row[field]).toLowerCase().includes(needle));
+      if (hit) ids.push(row.id);
+    }
+    return ids;
+  }, [visibleCreatorRows, selectByTermQuery, selectByTermField]);
+
+  const handleSelectOnlyTermMatches = () => {
+    if (!selectByTermQuery.trim()) return;
+    setSelectedRowIds(new Set(matchingTermRowIds));
+  };
+
+  const handleAddTermMatchesToSelection = () => {
+    if (matchingTermRowIds.length === 0) return;
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      for (const id of matchingTermRowIds) next.add(id);
+      return next;
+    });
+  };
+
+  const handleRemoveTermMatchesFromSelection = () => {
+    if (matchingTermRowIds.length === 0) return;
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      for (const id of matchingTermRowIds) next.delete(id);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    setConfirmBatchDelete(false);
+  }, [selectedRowIds]);
+
   const handleSelectFromRowDownwards = (startRowId) => {
     const startIndex = visibleCreatorRows.findIndex((r) => r.id === startRowId);
     if (startIndex === -1) return;
@@ -3687,6 +3758,96 @@ export default function IntranetDrafts({
       setActionBusy(false);
       setError(`Unerwarteter Fehler bei der Freigabe: ${err.message}`);
     }
+  };
+
+  const handleBatchDeleteSelectedRows = async () => {
+    if (actionBusy || selectedRowIds.size === 0) return;
+    const rowsToDelete = currentCreatorRows.filter((row) => selectedRowIds.has(row.id));
+    if (rowsToDelete.length === 0) {
+      setConfirmBatchDelete(false);
+      return;
+    }
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+
+    const idsByTable = new Map();
+    for (const row of rowsToDelete) {
+      const tableName = row._sourceTable || 'staging_game_guides';
+      const list = idsByTable.get(tableName);
+      if (list) list.push(row.id);
+      else idsByTable.set(tableName, [row.id]);
+    }
+
+    const deletedIds = new Set();
+    try {
+      for (const [tableName, ids] of idsByTable) {
+        for (const chunkIds of chunkList(ids, 100)) {
+          const { error: delErr } = await supabase.from(tableName).delete().in('id', chunkIds);
+          if (delErr) throw new Error(`${tableName}: ${delErr.message}`);
+          for (const id of chunkIds) deletedIds.add(id);
+        }
+      }
+    } catch (err) {
+      setError(`Batch-Löschen fehlgeschlagen: ${err.message}`);
+    }
+
+    if (deletedIds.size > 0) {
+      setStagingRows((prev) => prev.filter((row) => !deletedIds.has(row.id)));
+      setRohmaterialRows((prev) => prev.filter((row) => !deletedIds.has(row.id)));
+      setProductiveRohRows((prev) => prev.filter((row) => !deletedIds.has(row.id)));
+      const overrides = loadStagingLocalOverrides();
+      let overridesChanged = false;
+      for (const id of deletedIds) {
+        const key = String(id);
+        if (Object.prototype.hasOwnProperty.call(overrides, id) || Object.prototype.hasOwnProperty.call(overrides, key)) {
+          delete overrides[id];
+          delete overrides[key];
+          overridesChanged = true;
+        }
+      }
+      if (overridesChanged) saveStagingLocalOverrides(overrides);
+    }
+
+    if (deletedIds.size === rowsToDelete.length) {
+      try {
+        const remaining = currentCreatorRows.filter((row) => !deletedIds.has(row.id));
+        const renumberById = new Map();
+        const rowsToRenumber = [];
+        remaining.forEach((row, index) => {
+          const newGuideId = index + 1;
+          if (String(row.guide_id) !== String(newGuideId)) {
+            rowsToRenumber.push(row);
+            renumberById.set(row.id, newGuideId);
+          }
+        });
+        if (rowsToRenumber.length > 0) {
+          rowsToRenumber.sort(
+            (a, b) => renumberById.get(a.id) - renumberById.get(b.id),
+          );
+          await persistRowPatchesToSupabase(rowsToRenumber, (row) => ({
+            guide_id: formatFieldValueForTable(row, 'guide_id', renumberById.get(row.id)),
+          }));
+        }
+        setSortField('guide_id');
+        setSortDirection('asc');
+        setSelectedRowIds(new Set());
+        setConfirmBatchDelete(false);
+        setNotice(`🗑️ ${rowsToDelete.length} markierte Zeilen wurden gelöscht. Verbleibende Guide-IDs neu von 1 bis ${remaining.length} nummeriert.`);
+      } catch (err) {
+        setError(`Neu-Nummerierung nach dem Löschen fehlgeschlagen: ${err.message || err}`);
+        setSelectedRowIds(new Set());
+        setConfirmBatchDelete(false);
+      }
+    } else {
+      setSelectedRowIds((prev) => {
+        const next = new Set(prev);
+        for (const id of deletedIds) next.delete(id);
+        return next;
+      });
+    }
+    setActionBusy(false);
   };
 
   // 4. Einzelne Zeile löschen
@@ -4981,127 +5142,160 @@ export default function IntranetDrafts({
   };
 
   // Multi-Item-Zeile am Komma in Einzelzeilen direkt unter dem Original zerlegen.
+  // Reihenfolge und guide_id 1..N stehen fest, bevor irgendetwas geschrieben wird.
   const handleSplitRowsByComma = async (targetRows) => {
     if (actionBusy) return;
-    const plans = [];
-    for (const row of targetRows || []) {
+
+    const targetIdSet = new Set((targetRows ?? []).map((row) => row.id));
+    const orderedRows = [...currentCreatorRows];
+    const expandedPlan = [];
+
+    for (const row of orderedRows) {
+      if (!targetIdSet.has(row.id)) {
+        expandedPlan.push({
+          kind: 'existing',
+          row,
+          newItemName: getLocalizedItemName(row.item_name).trim(),
+        });
+        continue;
+      }
+
       const tableName = row._sourceTable || 'staging_game_guides';
-      if (!isEditableDraftTable(tableName)) continue;
-      const parts = getLocalizedItemName(row.item_name)
-        .split(',')
-        .map((part) => part.trim())
-        .filter(Boolean);
-      if (parts.length < 2) continue;
-      plans.push({ row, parts });
+      const rawName = getLocalizedItemName(row.item_name);
+      const parts = rawName.split(',').map((part) => part.trim()).filter(Boolean);
+      if (parts.length < 2 || !isEditableDraftTable(tableName)) {
+        expandedPlan.push({
+          kind: 'existing',
+          row,
+          newItemName: rawName.trim(),
+        });
+        continue;
+      }
+
+      expandedPlan.push({
+        kind: 'existing',
+        row,
+        newItemName: parts[0],
+        itemChanged: true,
+      });
+      for (const part of parts.slice(1)) {
+        expandedPlan.push({
+          kind: 'insert',
+          templateRow: row,
+          newItemName: part,
+        });
+      }
     }
-    if (plans.length === 0) {
+
+    const insertEntries = expandedPlan.filter((entry) => entry.kind === 'insert');
+    if (insertEntries.length === 0) {
       setNotice('Keine der Zeilen enthält mehrere Komma-getrennte Items.');
       return;
     }
 
+    expandedPlan.forEach((entry, index) => {
+      entry.newGuideId = index + 1;
+    });
+
     setActionBusy(true);
     setError('');
-    setNotice('');
+    setNotice('Zerlege Komma-Zeilen…');
 
     try {
-      const planById = new Map(plans.map((plan) => [plan.row.id, plan]));
-      let tempGuideId = 1000000;
-      for (const row of currentGameRows) {
-        tempGuideId = Math.max(tempGuideId, parseGuideIdNumber(row.guide_id) + 100000);
+      const insertsByTable = new Map();
+      for (const entry of insertEntries) {
+        const tableName = entry.templateRow._sourceTable || 'staging_game_guides';
+        const payload = buildGuideRowClonePayload(entry.templateRow, {
+          gameId: entry.templateRow.game_id,
+          platformGameId: entry.templateRow.platform_game_id,
+          guideId: entry.newGuideId,
+          itemName: entry.newItemName,
+        });
+        payload.item_name = formatFieldValueForTable(entry.templateRow, 'item_name', entry.newItemName);
+        payload.guide_id = formatFieldValueForTable(entry.templateRow, 'guide_id', entry.newGuideId);
+        const list = insertsByTable.get(tableName) || [];
+        list.push(payload);
+        insertsByTable.set(tableName, list);
       }
 
-      const insertedByOriginal = new Map();
-      for (const plan of plans) {
-        const tableName = plan.row._sourceTable || 'staging_game_guides';
-        const payloads = plan.parts.slice(1).map((part) => {
-          tempGuideId += 1;
-          return buildGuideRowClonePayload(plan.row, {
-            gameId: plan.row.game_id,
-            platformGameId: plan.row.platform_game_id,
-            guideId: tempGuideId,
-            itemName: part,
-          });
-        });
+      const insertedRows = [];
+      for (const [tableName, payloads] of insertsByTable.entries()) {
         const inserted = await insertGuideRows(tableName, payloads);
-        const pool = [...inserted];
-        const orderedParts = plan.parts.slice(1).map((part) => {
-          const idx = pool.findIndex((row) => getLocalizedItemName(row.item_name).trim() === part);
-          if (idx < 0) return pool.shift() || null;
-          return pool.splice(idx, 1)[0];
-        }).filter(Boolean);
-        insertedByOriginal.set(plan.row.id, orderedParts);
-      }
-
-      await persistRowPatchesToSupabase(
-        plans.map((plan) => plan.row),
-        (row) => ({
-          item_name: formatFieldValueForTable(row, 'item_name', planById.get(row.id).parts[0]),
-        }),
-      );
-
-      const ordered = [];
-      for (const row of currentCreatorRows) {
-        const plan = planById.get(row.id);
-        if (!plan) {
-          ordered.push(row);
-          continue;
+        const consumed = new Set();
+        for (const payload of payloads) {
+          const matchIndex = inserted.findIndex((row, index) => (
+            !consumed.has(index) && String(row.guide_id) === String(payload.guide_id)
+          ));
+          if (matchIndex < 0) {
+            throw new Error(`Neue Zeile mit guide_id ${payload.guide_id} wurde nicht zurückgegeben.`);
+          }
+          consumed.add(matchIndex);
+          insertedRows.push({ ...inserted[matchIndex], _sourceTable: tableName });
         }
-        ordered.push({
-          ...row,
-          item_name: formatFieldValueForTable(row, 'item_name', plan.parts[0]),
-        });
-        ordered.push(...(insertedByOriginal.get(row.id) || []));
       }
 
-      const indexById = new Map();
-      const withGuideIds = ordered.map((row, index) => {
-        const nextId = index + 1;
-        indexById.set(row.id, nextId);
-        return {
-          ...row,
-          guide_id: formatFieldValueForTable(row, 'guide_id', nextId),
-        };
-      });
-      const insertedIds = new Set(
-        [...insertedByOriginal.values()].flat().map((row) => row.id),
-      );
-      const newRows = withGuideIds.filter((row) => insertedIds.has(row.id));
-      const newStaging = newRows.filter((row) => (row._sourceTable || 'staging_game_guides') === 'staging_game_guides');
-      const newRoh = newRows.filter((row) => row._sourceTable === TABLES.guidesRohmaterial);
-      if (newStaging.length > 0) {
-        setStagingRows((prev) => prev.concat(newStaging));
+      const existingToPatch = expandedPlan.filter((entry) => (
+        entry.kind === 'existing'
+        && (
+          entry.itemChanged
+          || String(entry.row.guide_id) !== String(entry.newGuideId)
+        )
+      ));
+      if (existingToPatch.length > 0) {
+        const patchById = new Map(existingToPatch.map((entry) => [entry.row.id, entry]));
+        // Höhere neue IDs zuerst, damit nachrückende Zeilen keine belegte guide_id überschreiben.
+        const orderedPatches = [...existingToPatch].sort((a, b) => b.newGuideId - a.newGuideId);
+        await persistRowPatchesToSupabase(
+          orderedPatches.map((entry) => entry.row),
+          (row) => {
+            const entry = patchById.get(row.id);
+            if (!entry) return {};
+            const patch = {};
+            if (entry.itemChanged) {
+              patch.item_name = formatFieldValueForTable(row, 'item_name', entry.newItemName);
+            }
+            if (String(row.guide_id) !== String(entry.newGuideId)) {
+              patch.guide_id = formatFieldValueForTable(row, 'guide_id', entry.newGuideId);
+            }
+            return patch;
+          },
+        );
+      }
+
+      const stagingInserted = insertedRows.filter((row) => row._sourceTable === 'staging_game_guides');
+      const rohInserted = insertedRows.filter((row) => row._sourceTable === TABLES.guidesRohmaterial);
+      if (stagingInserted.length > 0) {
+        setStagingRows((prev) => prev.concat(stagingInserted));
         if (selectedGameId) {
           setTotalStagingCountsMap((prev) => {
             const next = new Map(prev);
-            next.set(selectedGameId, (next.get(selectedGameId) || 0) + newStaging.length);
+            next.set(selectedGameId, (next.get(selectedGameId) || 0) + stagingInserted.length);
             return next;
           });
         }
       }
-      if (newRoh.length > 0) {
-        setRohmaterialRows((prev) => prev.concat(newRoh));
+      if (rohInserted.length > 0) {
+        setRohmaterialRows((prev) => prev.concat(rohInserted));
         if (selectedGameId) {
           setRohmaterialGames((prev) =>
             prev.map((item) =>
               item.gameId === selectedGameId
-                ? { ...item, rowCount: (item.rowCount || 0) + newRoh.length }
+                ? { ...item, rowCount: (item.rowCount || 0) + rohInserted.length }
                 : item,
             ),
           );
         }
       }
 
-      await persistRowPatchesToSupabase(withGuideIds, (row) => ({
-        guide_id: formatFieldValueForTable(row, 'guide_id', indexById.get(row.id)),
-      }));
-
-      const created = insertedIds.size;
+      const splitSourceCount = expandedPlan.filter((entry) => entry.kind === 'existing' && entry.itemChanged).length;
       setSortField('guide_id');
       setSortDirection('asc');
       setSelectedRowIds(new Set());
-      setNotice(`✂️ ${plans.length} Zeile(n) in ${plans.length + created} Einzelzeilen zerlegt.`);
+      setNotice(`✂️ ${splitSourceCount} Zeile(n) in ${splitSourceCount + insertedRows.length} Einzelzeilen zerlegt. Guide-IDs neu von 1 bis ${expandedPlan.length}.`);
     } catch (err) {
-      setError(`Zerlegen am Komma fehlgeschlagen: ${err.message}`);
+      console.error(err);
+      setError(`Zerlegen am Komma fehlgeschlagen: ${err.message || err}`);
+      setNotice('');
     } finally {
       setActionBusy(false);
     }
@@ -7768,6 +7962,21 @@ export default function IntranetDrafts({
                       🔄 In {searchReplacePreview.matchCount} Treffern ersetzen
                     </button>
 
+                    <button
+                      type="button"
+                      disabled={
+                        !searchQuery ||
+                        searchReplacePreview.matchCount === 0 ||
+                        Boolean(searchReplacePreview.regexError)
+                      }
+                      onClick={() =>
+                        setSelectedRowIds(new Set(searchReplacePreview.matchedRows.map((m) => m.id)))
+                      }
+                      className="inline-flex items-center gap-1 rounded-lg border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[11px] font-mono font-bold text-zinc-100 hover:border-[#00ff66]/50 hover:text-white disabled:opacity-40 transition shrink-0"
+                    >
+                      ☑️ {searchReplacePreview.matchCount} Treffer markieren
+                    </button>
+
                     {/* Schnell-Filter nach Sheet-Type ([1], [2], [3]) */}
                     <div className="inline-flex items-center gap-1 ml-auto border-l border-zinc-800 pl-2">
                       <span className="text-[10px] font-mono text-zinc-500">Tab:</span>
@@ -7845,7 +8054,61 @@ export default function IntranetDrafts({
                   )}
 
                   {/* Multi-Select Schnell-Leiste + Bereinigten Video-Namen aus Chapter übernehmen */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800/80 bg-zinc-900/50 px-2.5 py-1.5 text-[10px] font-mono text-zinc-400">
+                  <div className="flex flex-col gap-2 rounded-xl border border-zinc-800/80 bg-zinc-900/50 px-2.5 py-1.5 text-[10px] font-mono text-zinc-400">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={selectByTermQuery}
+                        onChange={(e) => setSelectByTermQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSelectOnlyTermMatches();
+                          }
+                        }}
+                        placeholder="Begriff markieren (z.B. Memo, Turm)..."
+                        className="min-w-[14rem] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] text-zinc-200 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                      />
+                      <select
+                        value={selectByTermField}
+                        onChange={(e) => setSelectByTermField(e.target.value)}
+                        aria-label="Spalte für die Begriffs-Markierung"
+                        className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
+                      >
+                        {SELECT_BY_TERM_FIELDS.map((field) => (
+                          <option key={field.id} value={field.id}>
+                            {field.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={!selectByTermQuery.trim()}
+                        onClick={handleSelectOnlyTermMatches}
+                        className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2.5 py-1 text-[11px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40"
+                      >
+                        🎯 {matchingTermRowIds.length} Treffer markieren
+                      </button>
+                      <button
+                        type="button"
+                        title="Treffer zur bestehenden Auswahl hinzufügen"
+                        disabled={!selectByTermQuery.trim()}
+                        onClick={handleAddTermMatchesToSelection}
+                        className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] font-bold text-zinc-200 hover:text-white disabled:opacity-40"
+                      >
+                        ➕
+                      </button>
+                      <button
+                        type="button"
+                        title="Treffer aus bestehender Auswahl abwählen"
+                        disabled={!selectByTermQuery.trim()}
+                        onClick={handleRemoveTermMatchesFromSelection}
+                        className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] font-bold text-zinc-200 hover:text-white disabled:opacity-40"
+                      >
+                        ➖
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-zinc-300 hover:text-white">
                         <input
@@ -7913,6 +8176,7 @@ export default function IntranetDrafts({
                       >
                         ⚡ Alle Zeilen ({visibleCreatorRows.length})
                       </button>
+                    </div>
                     </div>
                   </div>
 
@@ -8330,6 +8594,33 @@ export default function IntranetDrafts({
                         : 'bottom-4'
                     }`}
                   >
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-mono text-zinc-400">
+                        🔍 Auswahl auf Begriff eingrenzen / markieren:
+                      </span>
+                      <input
+                        type="text"
+                        value={selectByTermQuery}
+                        onChange={(e) => setSelectByTermQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSelectOnlyTermMatches();
+                          }
+                        }}
+                        placeholder="Begriff markieren (z.B. Memo, Turm)..."
+                        className="min-w-[10rem] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-100 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={!selectByTermQuery.trim()}
+                        onClick={handleSelectOnlyTermMatches}
+                        className="rounded-lg border border-[#00ff66]/50 bg-[#00ff66]/15 px-2.5 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40"
+                      >
+                        🎯 Nur &quot;{selectByTermQuery || '...'}&quot; ({matchingTermRowIds.length}) markiert lassen
+                      </button>
+                    </div>
+
                     {batchCustomField ? (
                       <DraftBatchCustomInput
                         key={batchCustomField}
@@ -8376,12 +8667,46 @@ export default function IntranetDrafts({
                         >
                           ✂️ Am Komma zerlegen
                         </button>
+                        <button
+                          type="button"
+                          disabled={actionBusy}
+                          onClick={() => setConfirmBatchDelete(true)}
+                          className="rounded-lg border border-red-500/50 bg-red-500/15 px-2.5 py-1 text-[10px] font-mono font-bold text-red-300 hover:bg-red-500/25"
+                        >
+                          🗑️ {selectedRowIds.size} löschen
+                        </button>
                       </div>
 
                       <span className="text-[10px] font-mono text-zinc-400">
                         1-Klick Batch-Überschreiben:
                       </span>
                     </div>
+
+                    {confirmBatchDelete && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-500 bg-red-950/90 px-3 py-2 text-xs font-mono text-red-200">
+                        <span>
+                          ⚠️ Wirklich <strong>{selectedRowIds.size} markierte Zeilen</strong> unwiderruflich löschen?
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => setConfirmBatchDelete(false)}
+                            className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[11px] text-zinc-300 hover:text-white"
+                          >
+                            Abbrechen
+                          </button>
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={handleBatchDeleteSelectedRows}
+                            className="rounded-lg bg-red-500 px-3 py-1 text-[11px] font-bold text-black hover:bg-red-400 disabled:opacity-50"
+                          >
+                            {actionBusy ? 'Löscht…' : `🗑️ Ja, ${selectedRowIds.size} Zeilen endgültig löschen`}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-3 gap-2">
                       {/* 1-Klick Dropdown: chronological_group */}

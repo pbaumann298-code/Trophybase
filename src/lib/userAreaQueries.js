@@ -7,6 +7,16 @@ import { saveLocalPlatinumFlag } from './localUserProgress';
 import { scanLocalPlatinumGameIds } from './platinumGames';
 import { setPreferredLocales, sanitizePreferredLocales } from './userPreferences';
 
+/** Gruppierungsfelder aus der games-Zeile, flach auf dem Watchlist-Item. */
+export function watchlistGameMeta(game) {
+  return {
+    releaseYear: game?.release_jahr ?? null,
+    homeTags: Array.isArray(game?.home_tags) ? game.home_tags : [],
+    hardware: game?.hardware ?? null,
+    spielTyp: game?.spiel_typ ?? null,
+  };
+}
+
 function isMissingTableError(error) {
   if (!error) return false;
   const msg = String(error.message ?? '').toLowerCase();
@@ -68,7 +78,7 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
   }
 
   const gamesJoinSelect =
-    'id, platform_game_id, hardware, slug, slugs, spieltitel, cover_url, anzahl_trophaeen, spielzeit_komplettierer, schwierigkeit_highscore, status, publishing_status, published_locales';
+    'id, platform_game_id, hardware, slug, slugs, spieltitel, cover_url, anzahl_trophaeen, spielzeit_komplettierer, schwierigkeit_highscore, status, publishing_status, published_locales, release_jahr, home_tags, spiel_typ, entwickler, publisher';
 
   const [profileRes, watchlistJoinRes, ratingsRes, progressRes] = await Promise.all([
     fetchProfile(supabase, userId),
@@ -227,6 +237,7 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
       totalTrophies: game?.anzahl_trophaeen ?? null,
       guideCompletionTime: game?.spielzeit_komplettierer ?? null,
       rating: ratingsByGame[gameId] ?? null,
+      ...watchlistGameMeta(game),
     };
   });
 
@@ -255,6 +266,7 @@ export async function fetchUserCockpitBundle(supabase, userId, locale = getLocal
       totalTrophies: game?.anzahl_trophaeen ?? null,
       guideCompletionTime: game?.spielzeit_komplettierer ?? null,
       rating: ratingsByGame[platGameId] ?? null,
+      ...watchlistGameMeta(game),
     });
   }
 
