@@ -13,7 +13,7 @@ export function quickwinPublisherKey(game) {
   return publicStudioCredits(game).studio || '';
 }
 
-/** Userseite: Publisher unter dieser Anzahl bleiben unsichtbar. */
+/** Historische Schwelle. Die Quickwins-Seite bündelt Publisher unter 30 Spielen in einer Sammel-Kachel. */
 export const QUICKWIN_PUBLISHER_MIN = 10;
 
 const BRAND_SUFFIXES = [

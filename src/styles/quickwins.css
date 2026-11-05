@@ -610,6 +610,12 @@ p.quickwin-card-title:hover {
   white-space: nowrap;
 }
 
+.quickwin-card-meta strong.quickwin-card-meta-links {
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+}
+
 .quickwin-card-folds {
   display: flex;
   flex-direction: column;

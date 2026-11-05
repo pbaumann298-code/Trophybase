@@ -617,6 +617,15 @@ function getLocalizedTitle(spieltitel) {
   return spieltitel.de || spieltitel.en || Object.values(spieltitel)[0] || 'Unbenanntes Spiel';
 }
 
+function formatQueueRowCount(value) {
+  return Number(value || 0).toLocaleString('de-DE');
+}
+
+function unwrapRpcSummary(data) {
+  if (Array.isArray(data)) return data[0] || {};
+  return data && typeof data === 'object' ? data : {};
+}
+
 /** Erste NPWR aus games.platform_game_id (JSONB-Array oder Text), sonst die Spiel-ID. */
 function resolveDraftPlatformGameId(game) {
   if (!game) return '';
@@ -713,22 +722,6 @@ async function loadGamesByIds(ids) {
     for (const game of data ?? []) map.set(game.id, game);
   }
   return map;
-}
-
-async function loadGuideRowsByGameIds(table, gameIds) {
-  if (!gameIds.length) return [];
-  const { data, error } = await fetchPages((from, to) =>
-    supabase
-      .from(table)
-      .select('*')
-      .in('game_id', gameIds)
-      .order('id', { ascending: true })
-      .range(from, to),
-  );
-  if (error) {
-    throw new Error(`Fehler beim Laden von ${table}: ${error.message}`);
-  }
-  return data;
 }
 
 async function loadGuideRowsForGame(table, gameId) {
@@ -1279,6 +1272,8 @@ export default function IntranetDrafts({
   const [gamesMap, setGamesMap] = useState(new Map());
   const [totalStagingCountsMap, setTotalStagingCountsMap] = useState(() => new Map());
   const [totalStagingCreatorsMap, setTotalStagingCreatorsMap] = useState(() => new Map());
+  const [totalStagingRows, setTotalStagingRows] = useState(0);
+  const [totalRohmaterialRows, setTotalRohmaterialRows] = useState(0);
   const [stagingWorkflowByGame, setStagingWorkflowByGame] = useState(() => new Map());
   const stagingRowsRef = useRef(stagingRows);
   stagingRowsRef.current = stagingRows;
@@ -1490,106 +1485,62 @@ export default function IntranetDrafts({
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [activePillPopover]);
 
-  // Gesamt-Index aller offenen Rohmaterial-Spiele. Volle Guide-Zeilen nur für die
-  // ersten MAX_VISIBLE_QUEUE_GAMES plus das aktuell ausgewählte Spiel.
+  // Queue-Index über tb_get_rohmaterial_queue_summary. Volle Zeilen nur für ein Spiel.
   const fetchRohmaterialSummary = useCallback(async (preferredGameId = null) => {
     setLoadingRohmaterial(true);
     try {
-      const pendingIds = [];
-      let idFrom = 0;
-      const idPage = 1000;
-      while (true) {
-        const { data: idChunk, error: idErr } = await supabase
-          .from(TABLES.games)
-          .select('id')
-          .eq('status->>rohmaterial', 'PENDING_MULTI_TAB')
-          .order('id', { ascending: true })
-          .range(idFrom, idFrom + idPage - 1);
-
-        if (idErr) {
-          throw new Error(`Fehler beim Laden der Rohmaterial-Spiele: ${idErr.message}`);
-        }
-
-        const ids = (idChunk ?? []).map((game) => game.id).filter(Boolean);
-        pendingIds.push(...ids);
-        if (ids.length < idPage) break;
-        idFrom += idPage;
+      const { data: summaryData, error: rpcErr } = await supabase.rpc('tb_get_rohmaterial_queue_summary');
+      if (rpcErr) {
+        throw new Error(`Fehler beim Laden der Rohmaterial-Übersicht: ${rpcErr.message}`);
       }
 
-      const { data: slimRows, error: slimErr } = await fetchPages((from, to) =>
-        supabase
-          .from(TABLES.guidesRohmaterial)
-          .select('game_id, creator_name, batch_key')
-          .order('id', { ascending: true })
-          .range(from, to),
-      );
-      if (slimErr) {
-        throw new Error(`Fehler beim Laden von game_guides_rohmaterial: ${slimErr.message}`);
-      }
-
-      const counts = new Map();
-      const creators = new Map();
-      const batches = new Map();
-      const allIds = new Set(pendingIds.filter(Boolean));
-
-      for (const row of slimRows ?? []) {
-        const gameId = row.game_id;
-        if (!gameId) continue;
-        allIds.add(gameId);
-        counts.set(gameId, (counts.get(gameId) || 0) + 1);
-        if (!creators.has(gameId)) creators.set(gameId, new Set());
-        creators.get(gameId).add(row.creator_name || 'Unbekannt');
-        if (row.batch_key) {
-          if (!batches.has(gameId)) batches.set(gameId, new Set());
-          batches.get(gameId).add(row.batch_key);
-        }
-      }
-
-      const sortedIds = [...allIds].sort(
-        (a, b) => getGameRandomWeight(a) - getGameRandomWeight(b),
-      );
-      const gamesById = await loadGamesByIds(sortedIds);
-
-      const pinnedId = preferredGameId || selectedGameIdRef.current || initialGameId;
-      let detailIds = sortedIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
-      if (pinnedId && allIds.has(pinnedId) && !detailIds.includes(pinnedId)) {
-        detailIds = [...detailIds, pinnedId];
-      }
-
-      const fullRows = (await loadGuideRowsByGameIds(TABLES.guidesRohmaterial, detailIds)).map(
-        (row) => ({
-          ...row,
-          _sourceTable: TABLES.guidesRohmaterial,
-        }),
+      const summary = unwrapRpcSummary(summaryData);
+      const totalRohmaterialRowsCount = Number(summary?.total_rows || 0);
+      setTotalRohmaterialRows(totalRohmaterialRowsCount);
+      const summaryItems = Array.isArray(summary?.items) ? summary.items : [];
+      const rohGamesMap = await loadGamesByIds(
+        summaryItems.map((item) => item?.game_id).filter(Boolean),
       );
 
       const summaryList = [];
-      for (const gameId of sortedIds) {
-        const game = gamesById.get(gameId);
-        const rowCount = counts.get(gameId) || 0;
-        const isPending = String(game?.status?.rohmaterial ?? '') === 'PENDING_MULTI_TAB';
-        if (!isPending && rowCount === 0) continue;
-        const creatorSet = creators.get(gameId) || new Set();
-        const batchSet = batches.get(gameId) || new Set();
+      for (const item of summaryItems) {
+        const gameId = item?.game_id;
+        if (!gameId) continue;
+        const game = rohGamesMap.get(gameId);
+        const creators = Array.isArray(item.creators) ? item.creators.filter(Boolean) : [];
+        const batches = Array.isArray(item.batches) ? item.batches.filter(Boolean) : [];
+        const rowCount = Number(item.row_count) || 0;
+        const platformFromGame = Array.isArray(game?.platform_game_id)
+          ? game.platform_game_id[0]
+          : game?.platform_game_id;
         summaryList.push({
           gameId,
           game: game || { id: gameId },
           title: game ? getLocalizedTitle(game.spieltitel) : 'Unbekanntes Spiel',
-          platformGameId:
-            game?.platform_game_id ||
-            (Array.isArray(game?.platform_game_id) ? game.platform_game_id[0] : '—'),
+          platformGameId: item.sample_platform_id || platformFromGame || '—',
           coverUrl: game ? getLocalizedCover(game.cover_url) : '',
-          creators: creatorSet,
-          batches: batchSet,
+          creatorCount: Math.max(creators.length, 1),
+          creatorList: creators,
+          batchList: batches,
           rowCount,
-          creatorCount: Math.max(creatorSet.size, 1),
-          creatorList: [...creatorSet],
-          batchList: [...batchSet],
           statusRohmaterial: game?.status?.rohmaterial || (rowCount > 0 ? 'ROHMATERIAL' : null),
         });
       }
 
-      setRohGamesMap(gamesById);
+      const activeTargetId =
+        preferredGameId ||
+        selectedGameIdRef.current ||
+        initialGameId ||
+        summaryItems[0]?.game_id ||
+        null;
+      const fullRows = activeTargetId
+        ? (await loadGuideRowsForGame(TABLES.guidesRohmaterial, activeTargetId)).map((row) => ({
+            ...row,
+            _sourceTable: TABLES.guidesRohmaterial,
+          }))
+        : [];
+
+      setRohGamesMap(rohGamesMap);
       setRohmaterialRows(fullRows);
       setRohmaterialGames(summaryList);
     } catch (err) {
@@ -1598,82 +1549,70 @@ export default function IntranetDrafts({
     } finally {
       setLoadingRohmaterial(false);
     }
-  }, [getGameRandomWeight, initialGameId]);
+  }, [initialGameId]);
 
-  // Gesamt-Index aller Staging-Entwürfe. Volle Guide-Zeilen nur für die ersten
-  // MAX_VISIBLE_QUEUE_GAMES plus das aktuell ausgewählte Spiel.
+  // Queue-Index über tb_get_staging_queue_summary. Volle Zeilen nur für ein Spiel.
   const fetchQueue = useCallback(async (preferredGameId = null) => {
     setLoading(true);
     setError('');
     try {
-      let includeWorkflow = true;
-      const slimRows = [];
-      let from = 0;
-      const pageSize = 1000;
-      while (true) {
-        const columns = includeWorkflow
-          ? 'game_id, creator_id, creator_name, workflow_status'
-          : 'game_id, creator_id, creator_name';
-        const { data, error: slimError } = await supabase
-          .from('staging_game_guides')
-          .select(columns)
-          .order('id', { ascending: true })
-          .range(from, from + pageSize - 1);
-
-        if (slimError && includeWorkflow) {
-          includeWorkflow = false;
-          continue;
-        }
-        if (slimError) {
-          throw new Error(`Fehler beim Laden von staging_game_guides: ${slimError.message}`);
-        }
-
-        const chunk = data ?? [];
-        slimRows.push(...chunk);
-        if (chunk.length < pageSize) break;
-        from += pageSize;
+      const { data: stagingSummary, error: sRpcErr } = await supabase.rpc('tb_get_staging_queue_summary', {
+        p_creator_id: isCreatorMode ? creatorProfile?.id || null : null,
+        p_creator_name: isCreatorMode ? creatorProfile?.channel_name || null : null,
+      });
+      if (sRpcErr) {
+        throw new Error(`Fehler beim Laden der Staging-Übersicht: ${sRpcErr.message}`);
       }
 
-      const slimFiltered = filterRowsForCreator(slimRows, isCreatorMode, creatorProfile);
-      const countsMap = new Map();
-      const creatorsMap = new Map();
-      const workflowMap = new Map();
-
-      for (const row of slimFiltered) {
-        const gameId = row.game_id;
+      const summary = unwrapRpcSummary(stagingSummary);
+      setTotalStagingRows(Number(summary?.total_rows || 0));
+      const summaryItems = Array.isArray(summary?.items) ? summary.items : [];
+      const stagingSummaryByGameId = new Map();
+      for (const item of summaryItems) {
+        const gameId = item?.game_id;
         if (!gameId) continue;
-        countsMap.set(gameId, (countsMap.get(gameId) || 0) + 1);
-        if (!creatorsMap.has(gameId)) creatorsMap.set(gameId, new Set());
-        creatorsMap.get(gameId).add(row.creator_name || 'Unbekannt');
-        if (!workflowMap.has(gameId)) workflowMap.set(gameId, new Set());
-        workflowMap
-          .get(gameId)
-          .add(String(row.workflow_status ?? 'CREATOR_RECORDING').trim().toUpperCase());
+        const creators = Array.isArray(item.creators) ? item.creators.filter(Boolean) : [];
+        stagingSummaryByGameId.set(gameId, {
+          rowCount: Number(item.row_count) || 0,
+          creatorCount: Number(item.creator_count) || creators.length,
+          creators,
+        });
       }
 
+      const countsMap = new Map();
       const creatorCountMap = new Map();
-      for (const [gameId, names] of creatorsMap) creatorCountMap.set(gameId, names.size);
+      for (const [gameId, entry] of stagingSummaryByGameId) {
+        countsMap.set(gameId, entry.rowCount);
+        creatorCountMap.set(gameId, entry.creatorCount);
+      }
+      const nextGamesMap = await loadGamesByIds([...stagingSummaryByGameId.keys()]);
+
+      const targetGameId =
+        preferredGameId ||
+        selectedGameIdRef.current ||
+        initialGameId ||
+        summaryItems[0]?.game_id ||
+        null;
+      const detailRows = targetGameId
+        ? filterRowsForCreator(
+            await loadGuideRowsForGame('staging_game_guides', targetGameId),
+            isCreatorMode,
+            creatorProfile,
+          )
+        : [];
       const workflowResolved = new Map();
-      for (const [gameId, statuses] of workflowMap) {
-        workflowResolved.set(gameId, resolveQueueWorkflowStatus(statuses));
+      if (targetGameId && detailRows.length > 0) {
+        workflowResolved.set(
+          targetGameId,
+          resolveQueueWorkflowStatus(
+            new Set(
+              detailRows.map((row) =>
+                String(row.workflow_status ?? 'CREATOR_RECORDING').trim().toUpperCase(),
+              ),
+            ),
+          ),
+        );
       }
-
-      const candidateGameIds = [...countsMap.keys()].sort(
-        (a, b) => getGameRandomWeight(a) - getGameRandomWeight(b),
-      );
-      const nextGamesMap = await loadGamesByIds(candidateGameIds);
-
-      const pinnedId = preferredGameId || selectedGameIdRef.current || initialGameId;
-      let detailIds = candidateGameIds.slice(0, MAX_VISIBLE_QUEUE_GAMES);
-      if (pinnedId && countsMap.has(pinnedId) && !detailIds.includes(pinnedId)) {
-        detailIds = [...detailIds, pinnedId];
-      }
-
-      const detailRows = filterRowsForCreator(
-        await loadGuideRowsByGameIds('staging_game_guides', detailIds),
-        isCreatorMode,
-        creatorProfile,
-      );
 
       setTotalStagingCountsMap(countsMap);
       setTotalStagingCreatorsMap(creatorCountMap);
@@ -1687,7 +1626,7 @@ export default function IntranetDrafts({
     } finally {
       setLoading(false);
     }
-  }, [getGameRandomWeight, isCreatorMode, creatorProfile, initialGameId]);
+  }, [isCreatorMode, creatorProfile, initialGameId]);
 
   useEffect(() => {
     fetchQueue();
@@ -1696,7 +1635,7 @@ export default function IntranetDrafts({
     }
   }, [fetchQueue, fetchRohmaterialSummary, isCreatorMode]);
 
-  // Volle Guide-Zeilen nur nachladen, wenn das gewählte Spiel nicht in den ersten 10 steckt.
+  // Volle Guide-Zeilen nur für das gerade gewählte Spiel, gefiltert auf diese game_id.
   useEffect(() => {
     if (!selectedGameId) return undefined;
     let cancelled = false;
@@ -1722,7 +1661,8 @@ export default function IntranetDrafts({
         }
 
         if (stagingRowsRef.current.some((row) => row.game_id === selectedGameId)) return;
-        if (!totalStagingCountsRef.current.has(selectedGameId)) return;
+        const knownCount = totalStagingCountsRef.current.get(selectedGameId);
+        if (knownCount === 0) return;
         const rows = filterRowsForCreator(
           await loadGuideRowsForGame('staging_game_guides', selectedGameId),
           creatorModeRef.current,
@@ -1733,6 +1673,20 @@ export default function IntranetDrafts({
         setStagingRows((prev) => {
           if (prev.some((row) => row.game_id === selectedGameId)) return prev;
           return prev.concat(shaped);
+        });
+        setStagingWorkflowByGame((prev) => {
+          const next = new Map(prev);
+          next.set(
+            selectedGameId,
+            resolveQueueWorkflowStatus(
+              new Set(
+                shaped.map((row) =>
+                  String(row.workflow_status ?? 'CREATOR_RECORDING').trim().toUpperCase(),
+                ),
+              ),
+            ),
+          );
+          return next;
         });
       } catch (err) {
         console.error('Guide-Zeilen für das ausgewählte Spiel konnten nicht geladen werden:', err);
@@ -1904,17 +1858,6 @@ export default function IntranetDrafts({
     }
     return top;
   }, [filteredQueueList, selectedGameId]);
-
-  const totalStagingRowCount = useMemo(() => {
-    let sum = 0;
-    for (const count of totalStagingCountsMap.values()) sum += Number(count) || 0;
-    return sum;
-  }, [totalStagingCountsMap]);
-
-  const totalRohmaterialRowCount = useMemo(
-    () => rohmaterialGames.reduce((sum, item) => sum + (Number(item.rowCount) || 0), 0),
-    [rohmaterialGames],
-  );
 
   // Randomize queue order & select new top game
   const handleRandomizeQueue = useCallback(() => {
@@ -3149,6 +3092,12 @@ export default function IntranetDrafts({
           (r) => r.game_id !== gameId && r.platform_game_id !== gameId && r.batch_key !== gameId
         )
       );
+      const removedCount = Number(
+        rohmaterialGames.find((game) => game.gameId === gameId)?.rowCount || 0,
+      );
+      if (removedCount > 0) {
+        setTotalRohmaterialRows((total) => Math.max(0, total - removedCount));
+      }
       setRohmaterialGames((prev) => prev.filter((g) => g.gameId !== gameId));
     } else {
       setStagingRows((prev) => prev.filter((r) => r.game_id !== gameId));
@@ -6745,7 +6694,7 @@ export default function IntranetDrafts({
                 <span>{showRohmaterialView ? '▲' : '▼'}</span>
               </button>
               <span className="text-[11px] font-mono text-zinc-500">
-                Staging: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({totalStagingRowCount} Zeilen) · Rohmaterial: <strong className="text-purple-300">{rohmaterialGames.length} Spiele</strong> ({totalRohmaterialRowCount} Zeilen)
+                Staging: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({formatQueueRowCount(totalStagingRows)} Zeilen) · Rohmaterial: <strong className="text-purple-300">{rohmaterialGames.length} Spiele</strong> ({formatQueueRowCount(totalRohmaterialRows)} Zeilen)
               </span>
             </>
           ) : (
@@ -6754,7 +6703,7 @@ export default function IntranetDrafts({
               <strong className="text-[#00ff66]">
                 {creatorProfile?.channel_name || 'Creator'}
               </strong>{' '}
-              · <strong className="text-zinc-200">{queueGamesList.length} Projekte</strong> ({totalStagingRowCount} Zeilen)
+              · <strong className="text-zinc-200">{queueGamesList.length} Projekte</strong> ({formatQueueRowCount(totalStagingRows)} Zeilen)
             </span>
           )}
         </div>
@@ -6965,7 +6914,7 @@ export default function IntranetDrafts({
                   {activeDataSource === 'rohmaterial' ? '📦 Multi-Tab Queue' : '📝 Spiele-Queue'}
                 </h3>
                 <p className="text-[10px] text-zinc-500 font-mono">
-                  {visibleQueueList.length} / {filteredQueueList.length} Spiele ({activeDataSource === 'rohmaterial' ? totalRohmaterialRowCount : totalStagingRowCount} Zeilen)
+                  {visibleQueueList.length} / {filteredQueueList.length} Spiele ({formatQueueRowCount(activeDataSource === 'rohmaterial' ? totalRohmaterialRows : totalStagingRows)} Zeilen)
                 </p>
               </div>
               <div className="flex items-center gap-1">

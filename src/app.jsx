@@ -23,6 +23,9 @@ import {
 } from './lib/trophyBaseAuth';
 import {
   getGameIdFromPath,
+  appRouteKey,
+  buildAdvancedSearchPath,
+  buildSimpleSearchPath,
   getViewFromPath,
   navigateToGame,
   navigateToHome,
@@ -44,6 +47,7 @@ import {
   EASY_PLATINS_PATH,
   WATCHLIST_PATH,
   PROFILE_PATH,
+  PLATFORM_TROPHIES_PATH,
   parseSimpleSearchParams,
   parseExcludeQuickwins,
   parseIncludeTrophiesOnly,
@@ -148,6 +152,37 @@ import GuideNotFound from './components/GuideNotFound';
 import { LegalNoticePage, PrivacyPage } from './pages/LegalPages';
 import HowToPage from './pages/HowToPage';
 
+function backLabelForView(view, t) {
+  switch (view) {
+    case 'servertot':
+      return t('servertotBack');
+    case 'easyplatins':
+      return t('easyPlatinsBack');
+    case 'quickwins':
+      return t('quickwinsBack');
+    case 'watchlist':
+      return t('watchlistBack');
+    case 'search-results':
+    case 'advanced-search':
+      return t('backToSearch');
+    case 'profile':
+      return '← Zurück zum Cockpit';
+    case 'game_info':
+      return '← Zurück zum vorherigen Guide';
+    default:
+      return t('backDashboard');
+  }
+}
+
+function restoreWindowScroll(scrollY) {
+  const top = Number(scrollY) || 0;
+  const apply = () => window.scrollTo({ top, behavior: 'instant' });
+  window.requestAnimationFrame(() => {
+    window.setTimeout(apply, 40);
+  });
+  window.setTimeout(apply, 320);
+}
+
 function App() {
   const { globalLocale, t } = useLocale();
   const { youtube, revokeYoutube } = useMediaConsent();
@@ -163,6 +198,26 @@ function App() {
     if (pathView) return pathView;
     return 'home';
   });
+  const historyStackRef = useRef([]);
+  const currentRouteRef = useRef({
+    href: window.location.pathname + window.location.search,
+    view: currentView,
+  });
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [prevHistoryView, setPrevHistoryView] = useState(null);
+  const backInProgressRef = useRef(null);
+  const applyHistoryEntryRef = useRef(async () => {});
+  const bumpHistory = useCallback(() => {
+    setPrevHistoryView(historyStackRef.current[historyStackRef.current.length - 1]?.view ?? null);
+    setHistoryVersion((v) => v + 1);
+  }, []);
+
+  useEffect(() => {
+    currentRouteRef.current = {
+      href: `${window.location.pathname}${window.location.search}`,
+      view: currentView,
+    };
+  }, [currentView]);
 
   // Öffentliche Website: keine Baustelle. Admin loggt sich über /admin oder /intranet ein.
   const isMaintenanceMode = false;
@@ -178,7 +233,6 @@ function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [searchPage, setSearchPage] = useState(() => parseSimpleSearchParams().page);
   const [loading, setLoading] = useState(false);
-  const [guideReturnView, setGuideReturnView] = useState(null);
   const [guideLoadError, setGuideLoadError] = useState(null);
   const lastSearchQueryRef = useRef('');
   const trophyLoadRef = useRef(0);
@@ -428,60 +482,75 @@ function App() {
     setSelectedGame((prev) => (prev ? { ...prev, ...partial } : prev));
   }, []);
 
+  const pushCurrentRouteToStack = useCallback((nextHref) => {
+    const here = `${window.location.pathname}${window.location.search}`;
+    if (nextHref && appRouteKey(nextHref) === appRouteKey(here)) return;
+    const scrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+    const entry = {
+      href: here,
+      view: currentRouteRef.current.view || 'home',
+      scrollY,
+    };
+    const stack = historyStackRef.current;
+    const top = stack[stack.length - 1];
+    if (top && appRouteKey(top.href) === appRouteKey(entry.href) && top.view === entry.view) {
+      top.scrollY = scrollY;
+      return;
+    }
+    stack.push(entry);
+    bumpHistory();
+  }, [bumpHistory]);
+
   useEffect(() => {
     const onPopState = () => {
-      const path = window.location.pathname;
-      const pathView = getViewFromPath(path, window.location.search);
-      setGuideReturnView(null);
+      const landed = `${window.location.pathname}${window.location.search}`;
+      const pending = backInProgressRef.current;
+      if (pending) {
+        backInProgressRef.current = null;
+        if (appRouteKey(pending.href) === appRouteKey(landed)) {
+          void applyHistoryEntryRef.current(pending);
+          return;
+        }
+        historyStackRef.current.push(pending);
+        bumpHistory();
+      }
 
+      const stack = historyStackRef.current;
+      const top = stack[stack.length - 1];
+      if (top && appRouteKey(top.href) === appRouteKey(landed)) {
+        stack.pop();
+        bumpHistory();
+        void applyHistoryEntryRef.current(top);
+        return;
+      }
+
+      const prev = currentRouteRef.current;
+      if (prev?.href && appRouteKey(prev.href) !== appRouteKey(landed)) {
+        stack.push({
+          href: prev.href,
+          view: prev.view || 'home',
+          scrollY: window.scrollY || 0,
+        });
+        bumpHistory();
+      }
+
+      const pathView = getViewFromPath(window.location.pathname, window.location.search) || 'home';
+      currentRouteRef.current = { href: landed, view: pathView };
       if (pathView === 'game_info') {
         setCurrentView('game_info');
-        loadGameFromUrl(path);
+        loadGameFromUrl(window.location.pathname);
         return;
       }
-
       if (pathView === 'search-results') {
-        const {
-          q,
-          page,
-          excludeQuickwins: exclude,
-          includeTrophiesOnly: trophiesOnly,
-        } = parseSimpleSearchParams(window.location.search);
-        const allowTrophies = Boolean(sessionUser) && trophiesOnly;
-        const signature = `${q}\n${exclude ? '1' : '0'}\n${allowTrophies ? '1' : '0'}`;
-        setSelectedGame(null);
-        setCurrentView('search-results');
-        setSearchQuery(q);
-        setSearchPage(page);
-        setExcludeQuickwins(exclude);
-        setIncludeTrophiesOnly(allowTrophies);
-        if (q && lastSearchQueryRef.current !== signature) {
-          setLoading(true);
-          searchGames(supabase, q, {
-            excludeQuickwins: exclude,
-            includeTrophiesOnly: allowTrophies,
-          }).then(({ data, error }) => {
-            if (error) console.error('Suche:', error.message);
-            lastSearchQueryRef.current = signature;
-            setSearchResults(data || []);
-            setLoading(false);
-          });
-        }
+        void applyHistoryEntryRef.current({ href: landed, view: 'search-results', scrollY: 0 });
         return;
       }
-
-      if (pathView) {
-        setCurrentView(pathView);
-        setSelectedGame(null);
-        return;
-      }
-
-      setCurrentView('home');
+      setCurrentView(pathView);
       setSelectedGame(null);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [loadGameFromUrl, sessionUser]);
+  }, [bumpHistory, loadGameFromUrl]);
 
   // Aktiver Guide-Reiter in der URL, damit Reload und geteilte Links ihn behalten.
   useEffect(() => {
@@ -572,11 +641,15 @@ function App() {
       replace = false,
       exclude = excludeQuickwins,
       trophiesOnly = includeTrophiesOnly,
+      keepScroll = false,
     } = {},
   ) => {
     const q = (typeof queryOverride === 'string' ? queryOverride : searchQuery).trim();
     if (!q) return;
     const allowTrophies = Boolean(sessionUser) && trophiesOnly;
+    if (updateUrl) {
+      pushCurrentRouteToStack(buildSimpleSearchPath(q, page, exclude, allowTrophies));
+    }
     if (typeof queryOverride === 'string') setSearchQuery(queryOverride);
     setSearchPage(page > 1 ? page : 1);
     setLoading(true);
@@ -600,8 +673,52 @@ function App() {
     setSearchResults(data || []);
     lastSearchQueryRef.current = `${q}\n${exclude ? '1' : '0'}\n${allowTrophies ? '1' : '0'}`;
     setLoading(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (!keepScroll) window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  useEffect(() => {
+    applyHistoryEntryRef.current = async (entry) => {
+    const href = entry?.href || `${window.location.pathname}${window.location.search}`;
+    const view = entry?.view || getViewFromPath(href.split('?')[0], href.includes('?') ? href.slice(href.indexOf('?')) : '') || 'home';
+    const path = href.split('?')[0];
+    const search = href.includes('?') ? href.slice(href.indexOf('?')) : '';
+    currentRouteRef.current = { href, view };
+
+    if (view === 'game_info') {
+      setCurrentView('game_info');
+      await loadGameFromUrl(path);
+      restoreWindowScroll(entry?.scrollY);
+      return;
+    }
+
+    if (view === 'search-results') {
+      const parsed = parseSimpleSearchParams(search);
+      const allowTrophies = Boolean(sessionUser) && parsed.includeTrophiesOnly;
+      const signature = `${parsed.q}\n${parsed.excludeQuickwins ? '1' : '0'}\n${allowTrophies ? '1' : '0'}`;
+      setSelectedGame(null);
+      setCurrentView('search-results');
+      setSearchQuery(parsed.q);
+      setSearchPage(parsed.page);
+      setExcludeQuickwins(parsed.excludeQuickwins);
+      setIncludeTrophiesOnly(allowTrophies);
+      if (parsed.q && lastSearchQueryRef.current !== signature) {
+        await runSearch(parsed.q, {
+          updateUrl: false,
+          page: parsed.page,
+          exclude: parsed.excludeQuickwins,
+          trophiesOnly: parsed.includeTrophiesOnly,
+          keepScroll: true,
+        });
+      }
+      restoreWindowScroll(entry?.scrollY);
+      return;
+    }
+
+    setCurrentView(view);
+    setSelectedGame(null);
+    restoreWindowScroll(entry?.scrollY);
+    };
+  });
 
   useEffect(() => {
     if (authLoading || sessionUser) return undefined;
@@ -645,7 +762,7 @@ function App() {
       options?.preferGuideTab || (isAdmin && isGameDraftMode(game)),
     );
 
-    setGuideReturnView(currentView);
+    pushCurrentRouteToStack(gameGuidePath(game, globalLocale));
     setSelectedGame(game);
     setCurrentView('game_info');
     window.scrollTo(0, 0);
@@ -864,100 +981,118 @@ function App() {
   }, [currentView, selectedGame, globalLocale, trophiesOnlyView]);
 
   const goHome = useCallback(() => {
+    historyStackRef.current = [];
+    bumpHistory();
+    currentRouteRef.current = { href: '/', view: 'home' };
     setCurrentView('home');
     setSelectedGame(null);
-    setGuideReturnView(null);
     navigateToHome();
-  }, []);
+    window.scrollTo(0, 0);
+  }, [bumpHistory]);
 
-  const goBackFromGuide = useCallback(() => {
-    if (guideReturnView) {
-      setGuideReturnView(null);
+  const goBack = useCallback(() => {
+    const stack = historyStackRef.current;
+    const lastEntry = stack.length > 0 ? stack.pop() : null;
+    if (lastEntry) {
+      bumpHistory();
+      backInProgressRef.current = lastEntry;
+      if (window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+      writeAppPath(lastEntry.href, { replace: false });
+      void applyHistoryEntryRef.current(lastEntry);
+      return;
+    }
+    if (window.history.length > 1 && String(document.referrer || '').includes(window.location.host)) {
       window.history.back();
       return;
     }
     goHome();
-  }, [guideReturnView, goHome]);
+  }, [bumpHistory, goHome]);
 
   const openImpressum = useCallback(() => {
+    pushCurrentRouteToStack('/impressum');
     setCurrentView('impressum');
     setSelectedGame(null);
     navigateToImpressum();
     window.scrollTo(0, 0);
-  }, []);
+  }, [pushCurrentRouteToStack]);
 
   const openPrivacy = useCallback(() => {
+    pushCurrentRouteToStack('/datenschutz');
     setCurrentView('datenschutz');
     setSelectedGame(null);
     navigateToPrivacy();
     window.scrollTo(0, 0);
-  }, []);
+  }, [pushCurrentRouteToStack]);
 
   const openGuideHelp = useCallback((section = '') => {
+    pushCurrentRouteToStack(section ? `/kurz-erklaert#${section}` : '/kurz-erklaert');
     setCurrentView('guide-help');
     navigateToGuideHelp(section);
     window.scrollTo(0, 0);
-  }, []);
-
-  const backFromHelp = useCallback(() => {
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-    goHome();
-  }, [goHome]);
+  }, [pushCurrentRouteToStack]);
 
   const openAdvancedSearch = useCallback(() => {
+    const trophiesOnly = Boolean(sessionUser) && includeTrophiesOnly;
+    pushCurrentRouteToStack(buildAdvancedSearchPath({}, 1, excludeQuickwins, trophiesOnly));
     setCurrentView('advanced-search');
     setSelectedGame(null);
     navigateToAdvancedSearch({}, {
       excludeQuickwins,
-      includeTrophiesOnly: Boolean(sessionUser) && includeTrophiesOnly,
+      includeTrophiesOnly: trophiesOnly,
     });
     window.scrollTo(0, 0);
-  }, [excludeQuickwins, includeTrophiesOnly, sessionUser]);
+  }, [excludeQuickwins, includeTrophiesOnly, pushCurrentRouteToStack, sessionUser]);
 
   const openQuickwins = useCallback(() => {
+    pushCurrentRouteToStack(quickwinsPublicPath(globalLocale));
     setCurrentView('quickwins');
     setSelectedGame(null);
     navigateToQuickwins({}, { path: quickwinsPublicPath(globalLocale) });
     window.scrollTo(0, 0);
-  }, [globalLocale]);
+  }, [globalLocale, pushCurrentRouteToStack]);
 
   const openServertot = useCallback(() => {
+    pushCurrentRouteToStack(servertotPublicPath(globalLocale));
     setCurrentView('servertot');
     setSelectedGame(null);
     navigateToQuickwins({}, { path: servertotPublicPath(globalLocale) });
     window.scrollTo(0, 0);
-  }, [globalLocale]);
+  }, [globalLocale, pushCurrentRouteToStack]);
 
   const openEasyPlatins = useCallback(() => {
+    pushCurrentRouteToStack(easyPlatinsPublicPath(globalLocale));
     setCurrentView('easyplatins');
     setSelectedGame(null);
     navigateToQuickwins({}, { path: easyPlatinsPublicPath(globalLocale) });
     window.scrollTo(0, 0);
-  }, [globalLocale]);
+  }, [globalLocale, pushCurrentRouteToStack]);
 
   const openWatchlist = useCallback(() => {
+    pushCurrentRouteToStack(WATCHLIST_PATH);
     setCurrentView('watchlist');
     setSelectedGame(null);
     navigateToWatchlist();
     window.scrollTo(0, 0);
-  }, []);
+  }, [pushCurrentRouteToStack]);
 
   const openProfile = useCallback(() => {
+    pushCurrentRouteToStack(PROFILE_PATH);
     setCurrentView('profile');
     setSelectedGame(null);
     navigateToProfile();
     window.scrollTo(0, 0);
-  }, []);
+  }, [pushCurrentRouteToStack]);
 
   const openPlatformTrophies = useCallback(() => {
+    pushCurrentRouteToStack(PLATFORM_TROPHIES_PATH);
     setCurrentView('platform-trophies');
     setSelectedGame(null);
     navigateToPlatformTrophies();
     window.scrollTo(0, 0);
-  }, []);
+  }, [pushCurrentRouteToStack]);
 
   const maintenanceBypass = hasMaintenanceBypass(sessionUser);
   const isQaAdminView = currentView === 'qa_admin';
@@ -990,12 +1125,12 @@ function App() {
       return <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />;
     }
     if (currentView === 'impressum') {
-      return <LegalNoticePage onBack={goHome} />;
+      return <LegalNoticePage onBack={goBack} />;
     }
     if (currentView === 'datenschutz') {
       return (
         <PrivacyPage
-          onBack={goHome}
+          onBack={goBack}
           youtubeConsent={youtube}
           onRevokeYoutube={revokeYoutube}
         />
@@ -1044,6 +1179,7 @@ function App() {
         onOpenWatchlist={openWatchlist}
         onOpenProfile={openProfile}
         onOpenPlatformTrophies={openPlatformTrophies}
+        onGoHome={goHome}
         onCustomizeHome={() => {
           if (currentView !== 'home') {
             setCurrentView('home');
@@ -1114,7 +1250,7 @@ function App() {
             {currentView === 'watchlist' && (
               <WatchlistPage
                 openGame={openGuide}
-                onBack={goHome}
+                onBack={goBack}
                 onRequestLogin={() => setCurrentView('login')}
                 isAdmin={isAdminUser(sessionUser)}
               />
@@ -1131,6 +1267,7 @@ function App() {
                   setCurrentView={setCurrentView}
                   onRequestLogin={() => setCurrentView('login')}
                   openGame={openGuide}
+                  onBack={goBack}
                 />
               )
             )}
@@ -1141,7 +1278,7 @@ function App() {
                 openGame={openGuide}
                 loading={loading}
                 page={searchPage}
-                onBack={goHome}
+                onBack={goBack}
                 isAdmin={isAdminUser(sessionUser)}
                 onPageChange={(nextPage) => {
                   setSearchPage(nextPage);
@@ -1159,7 +1296,7 @@ function App() {
             {currentView === 'advanced-search' && (
               <AdvancedSearchPage
                 openGame={openGuide}
-                onBack={goHome}
+                onBack={goBack}
                 onOpenQuickwins={openQuickwins}
                 onOpenEasyPlatins={openEasyPlatins}
                 onOpenServertot={openServertot}
@@ -1173,7 +1310,7 @@ function App() {
             {currentView === 'quickwins' && (
               <QuickwinsPage
                 openGame={openGuide}
-                onBack={goHome}
+                onBack={goBack}
                 onRequestLogin={() => setCurrentView('login')}
                 isAdmin={isAdminUser(sessionUser)}
                 sessionUser={sessionUser}
@@ -1184,7 +1321,7 @@ function App() {
             {currentView === 'servertot' && (
               <QuickwinsPage
                 openGame={openGuide}
-                onBack={goHome}
+                onBack={goBack}
                 onRequestLogin={() => setCurrentView('login')}
                 isAdmin={isAdminUser(sessionUser)}
                 sessionUser={sessionUser}
@@ -1202,7 +1339,7 @@ function App() {
             {currentView === 'easyplatins' && (
               <QuickwinsPage
                 openGame={openGuide}
-                onBack={goHome}
+                onBack={goBack}
                 onRequestLogin={() => setCurrentView('login')}
                 isAdmin={isAdminUser(sessionUser)}
                 sessionUser={sessionUser}
@@ -1222,7 +1359,7 @@ function App() {
             )}
 
             {currentView === 'game_info' && !selectedGame && !loadingGuide && (
-              <GuideNotFound error={guideLoadError} onBack={goHome} />
+              <GuideNotFound error={guideLoadError} onBack={goBack} />
             )}
 
             {currentView === 'game_info' && selectedGame && (
@@ -1246,7 +1383,7 @@ function App() {
                 guideItems={guideItems}
                 chapterItems={chapterItems}
                 bossItems={bossItems}
-                onNavigateHome={goBackFromGuide}
+                onNavigateHome={goBack}
                 onGoHome={goHome}
                 openGame={openGuide}
                 onOpenHelp={openGuideHelp}
@@ -1255,37 +1392,27 @@ function App() {
                 onGameChange={patchSelectedGame}
                 startTrophyLoad={startTrophyLoad}
                 fromSearch={
-                  guideReturnView === 'search-results' || guideReturnView === 'advanced-search'
+                  prevHistoryView === 'search-results' || prevHistoryView === 'advanced-search'
                 }
                 trophiesOnly={trophiesOnlyView && !isAdminUser(sessionUser)}
-                backLabel={
-                  guideReturnView === 'quickwins'
-                    ? t('quickwinsBack')
-                    : guideReturnView === 'servertot'
-                      ? t('servertotBack')
-                      : guideReturnView === 'easyplatins'
-                        ? t('easyPlatinsBack')
-                        : guideReturnView === 'watchlist'
-                          ? t('watchlistBack')
-                      : ''
-                }
+                backLabel={historyVersion >= 0 ? backLabelForView(prevHistoryView, t) : t('backDashboard')}
               />
             )}
 
             {currentView === 'platform-trophies' && (
               <PlatformTrophiesPage
-                onBack={goHome}
+                onBack={goBack}
                 sessionUser={sessionUser}
               />
             )}
 
             {currentView === 'login' && <LoginPage onLogin={handleLogin} />}
             {currentView === 'tester-setup' && <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />}
-            {currentView === 'impressum' && <LegalNoticePage onBack={goHome} />}
-            {currentView === 'guide-help' && <HowToPage onBack={backFromHelp} />}
+            {currentView === 'impressum' && <LegalNoticePage onBack={goBack} />}
+            {currentView === 'guide-help' && <HowToPage onBack={goBack} />}
             {currentView === 'datenschutz' && (
               <PrivacyPage
-                onBack={goHome}
+                onBack={goBack}
                 youtubeConsent={youtube}
                 onRevokeYoutube={revokeYoutube}
               />

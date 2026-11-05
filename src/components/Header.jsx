@@ -19,6 +19,7 @@ function Header({
   onOpenProfile,
   onOpenPlatformTrophies,
   onCustomizeHome,
+  onGoHome,
 }) {
   const staffOrPreview = isStaffOrPreviewContext();
   const [draftReturnCtx] = useState(() =>
@@ -47,6 +48,10 @@ function Header({
 
   const handleHomeClick = (event) => {
     event.preventDefault();
+    if (onGoHome) {
+      onGoHome();
+      return;
+    }
     setCurrentView('home');
     navigateToHome();
   };

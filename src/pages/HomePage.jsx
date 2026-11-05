@@ -19,7 +19,7 @@ import GameTile from '../components/GameTile';
 import WatchlistButton from '../components/WatchlistButton';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
-import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
+import { gameGuidePath } from '../lib/routeUtils';
 import '../styles/home.css';
 
 const HOME_FEATURE_KEYS = [
@@ -64,7 +64,6 @@ function HomePosterGrid({ games, openGame, loading, onRequestLogin, isAdmin }) {
             isAdmin={isAdmin}
             onRequestLogin={onRequestLogin}
             onOpen={() => {
-              navigateToGame(game, { locale: globalLocale });
               openGame(game);
             }}
           />
@@ -126,7 +125,6 @@ function HomeGamesTable({ games, openGame, loading }) {
                     className="home-data-cover-link"
                     onClick={(event) => {
                       event.preventDefault();
-                      navigateToGame(game, { locale: globalLocale });
                       openGame(game);
                     }}
                   >
@@ -143,7 +141,6 @@ function HomeGamesTable({ games, openGame, loading }) {
                     className="home-data-title"
                     onClick={(event) => {
                       event.preventDefault();
-                      navigateToGame(game, { locale: globalLocale });
                       openGame(game);
                     }}
                   >

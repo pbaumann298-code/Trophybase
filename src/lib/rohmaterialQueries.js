@@ -326,45 +326,40 @@ export async function promoteRohmaterialBatchToGuide(
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  */
 export async function fetchAllRohmaterialOverview(supabase) {
-  const { data, error } = await supabase
-    .from(TABLES.guidesRohmaterial)
-    .select(
-      [
-        'batch_key',
-        'batch_status',
-        'creator_name',
-        'creator_id',
-        'created_at',
-        GAME_FK,
-        GUIDE_STRUCT.platformGameId,
-      ].join(', '),
-    )
-    .order('created_at', { ascending: false, nullsFirst: false });
-
+  const { data, error } = await supabase.rpc('tb_get_rohmaterial_queue_summary');
   if (error) return { data: [], error };
 
-  const grouped = groupRowsByBatchKey(data);
+  const summary = Array.isArray(data) ? data[0] || {} : data || {};
+  const items = Array.isArray(summary.items) ? summary.items : [];
   const overview = [];
 
-  for (const [batchKey, rows] of grouped) {
-    const meta = batchMetaFromRows(batchKey, rows);
-    overview.push({
-      batchKey: meta.batchKey,
-      batchStatus: meta.batchStatus,
-      creatorName: meta.creatorName,
-      creatorId: meta.creatorId,
-      createdAt: meta.createdAt,
-      gameId: meta.gameId,
-      platformGameId: meta.platformGameId,
-      totalRows: meta.totalRows,
-    });
+  for (const item of items) {
+    const gameId = item?.game_id ?? null;
+    const rowCount = Number(item?.row_count) || 0;
+    const creators = Array.isArray(item?.creators) ? item.creators.filter(Boolean) : [];
+    const batches = Array.isArray(item?.batches) ? item.batches.filter(Boolean) : [];
+    const batchKeys = batches.length > 0
+      ? batches
+      : [gameId || item?.sample_platform_id || 'ohne-batch'];
+    const rowsAreGameTotal = batchKeys.length > 1;
+    for (const batchKey of batchKeys) {
+      overview.push({
+        batchKey: String(batchKey),
+        batchStatus: String(item?.batch_status ?? item?.status ?? '').trim() || 'OPEN',
+        creatorName: creators.join(', '),
+        creatorId: null,
+        createdAt: item?.created_at ?? null,
+        gameId,
+        platformGameId: item?.sample_platform_id ?? null,
+        totalRows: rowCount,
+        rowsAreGameTotal,
+      });
+    }
   }
 
-  overview.sort((a, b) => {
-    const ta = a.createdAt ? Date.parse(a.createdAt) : 0;
-    const tb = b.createdAt ? Date.parse(b.createdAt) : 0;
-    return tb - ta || a.batchKey.localeCompare(b.batchKey);
-  });
+  overview.sort(
+    (a, b) => b.totalRows - a.totalRows || String(a.batchKey).localeCompare(String(b.batchKey)),
+  );
 
   return { data: overview, error: null };
 }

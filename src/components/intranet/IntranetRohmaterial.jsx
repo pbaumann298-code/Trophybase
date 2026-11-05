@@ -157,14 +157,14 @@ function IntranetRohmaterial() {
             const href = previewHref(row);
             return (
               <li
-                key={row.batchKey}
+                key={`${row.gameId || 'game'}:${row.batchKey}`}
                 className="rounded-2xl border border-zinc-800 bg-[#1a1b1c] p-4"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1">
                     <p className="break-all font-mono text-sm font-bold text-white">{row.batchKey}</p>
                     <p className="text-xs text-zinc-400">
-                      {row.totalRows} Zeilen
+                      {row.totalRows} Zeilen{row.rowsAreGameTotal ? ' (Spiel gesamt)' : ''}
                       {row.creatorName ? ` · ${row.creatorName}` : ''}
                       {row.platformGameId ? ` · ${row.platformGameId}` : ''}
                       {row.gameId ? (

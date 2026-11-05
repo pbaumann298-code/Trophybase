@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabaseClient';
-import { gameGuidePath, navigateToGame, navigateToHome } from '../lib/routeUtils';
+import { gameGuidePath, navigateToHome } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
 import { SUPPORTED_LOCALES } from '../lib/locale';
 import { localeOptions } from '../lib/uiStrings';
@@ -105,7 +105,7 @@ function StatCard({ icon, label, value, sublabel, accent = false }) {
   );
 }
 
-function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) {
+function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, onBack }) {
   const { globalLocale, setGlobalLocale } = useLocale();
   const {
     preferredLocales,
@@ -422,12 +422,10 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
   const handleOpenGameGuide = (item) => {
     if (!openGame) return;
     if (item.game) {
-      navigateToGame(item.game, { locale: globalLocale });
       openGame(item.game);
       return;
     }
     if (item.gameId) {
-      navigateToGame(item.gameId, { locale: globalLocale });
       openGame({ id: item.gameId });
     }
   };
@@ -696,13 +694,10 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame }) 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
-          onClick={() => {
-            setCurrentView('home');
-            navigateToHome();
-          }}
+          onClick={() => onBack ? onBack() : (setCurrentView('home'), navigateToHome())}
           className="text-xs font-mono text-zinc-400 hover:text-[#00ff66] transition cursor-pointer"
         >
-          ← Zurück zur Startseite
+          ← Zurück
         </button>
 
         <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-500">

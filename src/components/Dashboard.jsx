@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import { fetchGameByRouteRef, fetchGamesByIds, parseRouteGameRef } from '../lib/gameQueries';
 import { GAME_PLATFORM_ID } from '../lib/gameSchema';
-import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
+import { gameGuidePath } from '../lib/routeUtils';
 import {
   getGameUuid,
   getPlatformGameIds,
@@ -165,7 +165,6 @@ function Dashboard({
       return;
     }
 
-    navigateToGame(item.routeSlug ?? item.gameUuid);
     openGame({ id: item.gameUuid, [GAME_PLATFORM_ID]: item.routeSlug });
   };
 
@@ -262,7 +261,6 @@ function Dashboard({
                 isAdmin={isAdmin}
                 className={TILE_CLASS}
                 onOpen={() => {
-                  navigateToGame(item.game, { locale: globalLocale });
                   handleOpenGame(item);
                 }}
               />

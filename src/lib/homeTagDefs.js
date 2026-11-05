@@ -492,6 +492,47 @@ export function translateHomeTag(slug, locale = 'de', fallbackLabel = '') {
 }
 
 /**
+ * @param {unknown} tags
+ * @returns {unknown[]}
+ */
+function parseHomeTagList(tags) {
+  if (Array.isArray(tags)) return tags;
+  if (typeof tags !== 'string' || !tags.trim()) return [];
+  const trimmed = tags.trim();
+  if (!trimmed.startsWith('[')) return [trimmed];
+  try {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * home_tags als klickbare Sucheinträge: Slug plus lokalisiertes Label.
+ * Unbekannte Slugs fallen weg, doppelte Slugs ebenfalls.
+ * @param {unknown} tags
+ * @param {string} [locale]
+ * @returns {{ slug: string, label: string }[]}
+ */
+export function getLocalizedHomeTagItems(tags, locale = 'de') {
+  const lang = normalizeLocale(locale);
+  const seen = new Set();
+  const items = [];
+  for (const raw of parseHomeTagList(tags)) {
+    const key = homeTagKey(raw);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const map = HOME_TAG_TRANSLATIONS[key];
+    if (!map) continue;
+    const label = map[lang] || map.en;
+    if (!label) continue;
+    items.push({ slug: key, label });
+  }
+  return items;
+}
+
+/**
  * Übersetzt ein Array von home_tags-Slugs in die aktive Sprache und verbindet sie mit ' · '.
  * Falls tags leer ist, Rückfall auf fallbackGenre (auf nicht-deutschen Seiten mit Übersetzung bekannter deutscher Genre-Begriffe).
  * @param {unknown} tags
@@ -500,38 +541,10 @@ export function translateHomeTag(slug, locale = 'de', fallbackLabel = '') {
  * @returns {string}
  */
 export function formatLocalizedHomeTags(tags, locale = 'de', fallbackGenre = '') {
-  let list = [];
-  if (Array.isArray(tags)) {
-    list = tags;
-  } else if (typeof tags === 'string' && tags.trim()) {
-    const trimmed = tags.trim();
-    if (trimmed.startsWith('[')) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) list = parsed;
-      } catch {
-        // ignore
-      }
-    } else {
-      list = [trimmed];
-    }
-  }
-
   const lang = normalizeLocale(locale);
-  const seen = new Set();
   const translated = [];
-
-  for (const raw of list) {
-    const key = homeTagKey(raw);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    const map = HOME_TAG_TRANSLATIONS[key];
-    if (map) {
-      const label = map[lang] || map.en;
-      if (label && !translated.includes(label)) {
-        translated.push(label);
-      }
-    }
+  for (const item of getLocalizedHomeTagItems(tags, locale)) {
+    if (item.label && !translated.includes(item.label)) translated.push(item.label);
   }
 
   if (translated.length > 0) {

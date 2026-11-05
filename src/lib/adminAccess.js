@@ -168,9 +168,9 @@ export function isStaffOrPreviewContext() {
     if (sessionStorage.getItem(ADMIN_RETURN_STORAGE_KEY) === '1') {
       return true;
     }
-    return sessionStorage.getItem(LAB_MODE_STORAGE_KEY) !== '0';
+    return sessionStorage.getItem(LAB_MODE_STORAGE_KEY) === '1';
   } catch {
-    return true;
+    return false;
   }
 }
 

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { GAME_FIELDS } from '../lib/gameSchema';
+import { GAME_FIELDS, GAME_STRUCT } from '../lib/gameSchema';
 import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
 import { isGameDraftMode } from '../lib/guidePublication';
 import { publicStudioCredits } from '../lib/studioCredits';
+import { DeveloperSearchLink, HomeTagSearchLinks } from '../components/SearchFacetLink';
 import { paginateItems } from '../lib/gameSearch';
 import { gameGuidePath } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
@@ -188,16 +189,26 @@ function SearchResultRow({
             <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
               {t('searchGenre')}
             </span>
-            <span className="text-zinc-300 font-medium truncate block">
-              {game[GAME_FIELDS.genre] || '—'}
+            <span className="text-zinc-300 font-medium block">
+              <HomeTagSearchLinks
+                tags={effectiveGame[GAME_STRUCT.homeTags]}
+                locale={globalLocale}
+                fallback={effectiveGame[GAME_FIELDS.genre] || '—'}
+              />
             </span>
           </div>
           <div>
             <span className="block text-zinc-500 text-[10px] uppercase tracking-wider font-mono mb-0.5">
               {t('studioLabel')}
             </span>
-            <span className="text-zinc-300 font-medium truncate block">
-              {credits.studio || '—'}
+            <span className="text-zinc-300 font-medium block">
+              {credits.studio ? <DeveloperSearchLink name={credits.studio} /> : '—'}
+              {credits.publisher ? (
+                <>
+                  <span className="text-zinc-600"> · </span>
+                  <DeveloperSearchLink name={credits.publisher} />
+                </>
+              ) : null}
             </span>
           </div>
         </div>

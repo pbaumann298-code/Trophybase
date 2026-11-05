@@ -8,15 +8,12 @@ import { GAME_FIELDS } from '../lib/gameSchema';
 import { translateHomeTag } from '../lib/homeTagDefs';
 import {
   QUICKWIN_ALPHABET,
-  QUICKWIN_PUBLISHER_MIN,
   buildQuickwinPublisherCanon,
   filterQuickwins,
   groupQuickwinsByAlphabet,
-  groupQuickwinsByPublisher,
   quickwinBrandCore,
   quickwinPublisherIdentity,
   quickwinPublisherKey,
-  quickwinPublisherOptions,
   sortQuickwins,
   titleAlphabetKey,
 } from '../lib/quickwinCatalog';
@@ -89,6 +86,31 @@ const PUBLISHER_ROW_PREVIEW = 6;
 
 const TILE_SHELL_CLASS =
   'catalog-tile-shell catalog-tile-shell--carousel flex-shrink-0 snap-start w-[9.25rem] sm:w-[10.5rem] lg:w-[11.25rem] max-w-[11.25rem]';
+
+const OTHER_PUBLISHER_KEY = '__other_publishers__';
+const OWN_PUBLISHER_MIN = 30;
+
+function otherPublisherLabel(locale) {
+  return locale === 'de' ? 'Weitere Publisher (< 30 Spiele)' : 'Other Publishers (< 30 Games)';
+}
+
+function publisherGameCounts(source, canon) {
+  const counts = new Map();
+  for (const game of source || []) {
+    const identity = quickwinPublisherIdentity(game, canon);
+    if (!identity.key) continue;
+    counts.set(identity.key, (counts.get(identity.key) || 0) + 1);
+  }
+  return counts;
+}
+
+/** Eigene Kachel: explizit veröffentlicht, oder unbekannt und mindestens 30 Spiele. */
+function ownsPublisherTile(identity, count) {
+  if (!identity?.key) return false;
+  if (identity.published === true) return true;
+  if (identity.published === false) return false;
+  return count >= OWN_PUBLISHER_MIN;
+}
 
 function PublisherLetterSection({
   letter,
@@ -262,7 +284,14 @@ function PublisherLetterSection({
                         )}
                       </span>
                       <span className="catalog-list-row-meta">
-                        <span className="catalog-list-row-title">{title}</span>
+                        <span className="catalog-list-row-title">
+                          {title}
+                          {selectedGroup.key === OTHER_PUBLISHER_KEY ? (
+                            <span className="ml-2 inline-flex align-middle rounded-full border border-zinc-700 bg-black/50 px-1.5 py-0.5 text-[10px] font-mono font-semibold normal-case tracking-normal text-zinc-300">
+                              {quickwinPublisherKey(game) || '—'}
+                            </span>
+                          ) : null}
+                        </span>
                         <span className="catalog-list-row-console">
                           {[consoleLabel, yearLabel].filter(Boolean).join(' · ') || '—'}
                         </span>
@@ -317,7 +346,6 @@ function QuickwinsPage({
   titleKey = 'quickwinsTitle',
   newerVersions = false,
   serverNotice = false,
-  publisherMin = QUICKWIN_PUBLISHER_MIN,
   /** A–Z-Kacheln, sticky Alphabet, keine Publisher, keine Vollseite */
   alphabetCatalog = false,
   /** @type {LocalizedCatalog|null} */
@@ -519,35 +547,19 @@ function QuickwinsPage({
     return buildQuickwinPublisherCanon(games);
   }, [games, isAdmin, alphabetCatalog, defMap]);
 
-  const visibleGames = useMemo(() => {
-    if (alphabetCatalog) return games;
-    if (defMap) {
-      return games.filter((game) => {
-        const rawKey = quickwinPublisherKey(game);
-        if (!rawKey) return false;
-        const identity = quickwinPublisherIdentity(game, canon);
-        if (!identity || !identity.key) return false;
-        if (!isAdmin && identity.published !== true) return false;
-        return true;
-      });
-    }
-    if (isAdmin) return games;
-    const counts = new Map();
+  const visibleGames = games;
+
+  const publishers = useMemo(() => {
+    if (alphabetCatalog) return [];
+    const counts = publisherGameCounts(games, canon);
+    const names = new Set();
     for (const game of games) {
       const identity = quickwinPublisherIdentity(game, canon);
-      if (!identity.key) continue;
-      counts.set(identity.key, (counts.get(identity.key) || 0) + 1);
+      const count = identity.key ? (counts.get(identity.key) || 0) : 0;
+      if (ownsPublisherTile(identity, count) && identity.label) names.add(identity.label);
     }
-    return games.filter((game) => {
-      const identity = quickwinPublisherIdentity(game, canon);
-      return identity.key && (counts.get(identity.key) || 0) >= publisherMin;
-    });
-  }, [games, canon, isAdmin, publisherMin, alphabetCatalog, defMap]);
-
-  const publishers = useMemo(
-    () => (alphabetCatalog ? [] : quickwinPublisherOptions(visibleGames, canon)),
-    [visibleGames, canon, alphabetCatalog],
-  );
+    return [...names].sort((a, b) => a.localeCompare(b, globalLocale || 'de', { sensitivity: 'base' }));
+  }, [alphabetCatalog, games, canon, globalLocale]);
 
   const filteredGames = useMemo(() => {
     let filtered = filterQuickwins(
@@ -594,23 +606,64 @@ function QuickwinsPage({
 
   const grouped = useMemo(() => {
     if (alphabetCatalog) return [];
-    return groupQuickwinsByPublisher(filteredGames, globalLocale, t('quickwinsNoPublisher'), canon).map((group) => ({
+    const counts = publisherGameCounts(games, canon);
+    const buckets = new Map();
+    const otherGames = [];
+    for (const game of filteredGames) {
+      const identity = quickwinPublisherIdentity(game, canon);
+      const count = identity.key ? (counts.get(identity.key) || 0) : 0;
+      if (!ownsPublisherTile(identity, count)) {
+        otherGames.push(game);
+        continue;
+      }
+      const existing = buckets.get(identity.key);
+      if (existing) existing.games.push(game);
+      else {
+        buckets.set(identity.key, {
+          key: identity.key,
+          label: identity.label || t('quickwinsNoPublisher'),
+          sortPos: identity.sortPos,
+          games: [game],
+        });
+      }
+    }
+    const groups = [...buckets.values()].map((group) => ({
       ...group,
       games: sortQuickwins(group.games, applied.sort, globalLocale),
     }));
-  }, [alphabetCatalog, filteredGames, globalLocale, t, canon, applied.sort]);
+    groups.sort((a, b) => {
+      const posA = Number.isFinite(Number(a.sortPos)) ? Number(a.sortPos) : null;
+      const posB = Number.isFinite(Number(b.sortPos)) ? Number(b.sortPos) : null;
+      if (posA !== null && posB !== null && posA !== posB) return posA - posB;
+      if (posA !== null && posB === null) return -1;
+      if (posA === null && posB !== null) return 1;
+      return a.label.localeCompare(b.label, globalLocale || 'de', { sensitivity: 'base' });
+    });
+    if (otherGames.length > 0) {
+      groups.push({
+        key: OTHER_PUBLISHER_KEY,
+        label: otherPublisherLabel(globalLocale),
+        games: sortQuickwins(otherGames, applied.sort, globalLocale),
+      });
+    }
+    return groups;
+  }, [alphabetCatalog, games, filteredGames, globalLocale, t, canon, applied.sort]);
 
   const publisherLetterGroups = useMemo(() => {
     if (alphabetCatalog) return [];
     const buckets = new Map();
     for (const group of grouped) {
-      const key = titleAlphabetKey(group.label, globalLocale);
+      const key = group.key === OTHER_PUBLISHER_KEY ? '#' : titleAlphabetKey(group.label, globalLocale);
       const list = buckets.get(key);
       if (list) list.push(group);
       else buckets.set(key, [group]);
     }
     for (const list of buckets.values()) {
-      list.sort((a, b) => a.label.localeCompare(b.label, globalLocale || 'de', { sensitivity: 'base' }));
+      list.sort((a, b) => {
+        if (a.key === OTHER_PUBLISHER_KEY) return 1;
+        if (b.key === OTHER_PUBLISHER_KEY) return -1;
+        return a.label.localeCompare(b.label, globalLocale || 'de', { sensitivity: 'base' });
+      });
     }
     return [...QUICKWIN_ALPHABET, '#']
       .filter((key) => buckets.has(key))

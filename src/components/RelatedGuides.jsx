@@ -1,5 +1,5 @@
 import { getGameUuid, getRouteSlug } from '../lib/gameModel';
-import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
+import { gameGuidePath } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
 import GameTile from './GameTile';
 import '../styles/home.css';
@@ -15,7 +15,6 @@ function RelatedTile({ game, openGame }) {
       href={gameGuidePath(game, globalLocale)}
       className={TILE_CLASS}
       onOpen={() => {
-        navigateToGame(game, { locale: globalLocale });
         openGame?.(game);
       }}
     />

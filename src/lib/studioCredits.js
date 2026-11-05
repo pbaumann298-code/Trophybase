@@ -82,3 +82,64 @@ export function publicStudioCredits(game) {
     publisher: publisher && !same && publisher !== studio ? publisher : '',
   };
 }
+
+/** Bekannte Dachmarken. Längere Namen zuerst, damit „Bandai Namco“ vor kürzeren Präfixen greift. */
+const SEARCHABLE_STUDIO_ROOTS = [
+  'Electronic Arts',
+  'Bandai Namco',
+  'Artifex Mundi',
+  'EastAsiaSoft',
+  'FromSoftware',
+  'Square Enix',
+  'Warner Bros',
+  'Koei Tecmo',
+  'Naughty Dog',
+  'Codemasters',
+  'PlayStation',
+  'Activision',
+  'Annapurna',
+  'Bethesda',
+  'Blizzard',
+  'Devolver',
+  'Insomniac',
+  'Lightwood',
+  'Ratalaika',
+  'Rockstar',
+  'Team17',
+  'ThiGames',
+  'Ubisoft',
+  'Capcom',
+  'Focus',
+  'Konami',
+  'Powgi',
+  'Sony',
+  'Sega',
+  'THQ',
+  '2K',
+];
+
+const STUDIO_ROOT_PATTERNS = [...SEARCHABLE_STUDIO_ROOTS]
+  .sort((a, b) => b.length - a.length)
+  .map((root) => ({
+    root,
+    pattern: new RegExp(`^${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'),
+  }));
+
+const STUDIO_SUFFIX_PATTERN = /\s+(?:studios?|games?|entertainment|interactive|software|digital|productions?|publishing|gmbh|inc\.?|ltd\.?|llc|corp\.?|co\.?|plc|s\.?a\.?|s\.?r\.?o\.?|montreal|toronto|tokyo|london|austin|bucharest|shanghai|kyiv|paris|milan|sofia|osaka|vancouver|san diego|japan|america|europe|uk|us|de)\b.*$/i;
+
+/**
+ * Suchbarer Markenkern: bekannte Dachmarke, sonst ohne Rechtsform- und Standort-Suffix.
+ * „Ubisoft Montreal“ → „Ubisoft“, „Rockstar North“ → „Rockstar“.
+ * @param {unknown} rawName
+ * @returns {string}
+ */
+export function extractSearchableStudioRoot(rawName) {
+  const name = String(rawName ?? '').trim();
+  if (!name) return '';
+  for (const { root, pattern } of STUDIO_ROOT_PATTERNS) {
+    if (pattern.test(name)) return root;
+  }
+  const stripped = name.replace(STUDIO_SUFFIX_PATTERN, '').trim();
+  if (stripped.length >= 3) return stripped;
+  return name;
+}

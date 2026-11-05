@@ -154,6 +154,19 @@ export function writeAppPath(path, { replace = false } = {}) {
   }
 }
 
+/** Gleicher Ort ohne Guide-Reiter: ?tab= erzeugt keinen eigenen Zurück-Schritt. */
+export function appRouteKey(href) {
+  const raw = String(href ?? '');
+  const hashIndex = raw.indexOf('#');
+  const withoutHash = hashIndex === -1 ? raw : raw.slice(0, hashIndex);
+  const qIndex = withoutHash.indexOf('?');
+  const path = normalizePath(qIndex === -1 ? withoutHash : withoutHash.slice(0, qIndex));
+  const params = new URLSearchParams(qIndex === -1 ? '' : withoutHash.slice(qIndex + 1));
+  params.delete('tab');
+  const qs = params.toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
 export function navigateToHome() {
   writeAppPath('/');
 }

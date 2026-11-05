@@ -8,7 +8,7 @@ import GameSeoInfobox from './GameSeoInfobox';
 import { BossKacheln, CollectibleKacheln } from '../pages/CollectibleKacheln';
 import { GuideVideoProvider } from '../context/GuideVideoContext';
 import { useLocale } from '../context/LocaleContext';
-import { GAME_FIELDS } from '../lib/gameSchema';
+import { GAME_FIELDS, GAME_STRUCT } from '../lib/gameSchema';
 import {
   getGameCover,
   getGameDescription,
@@ -17,6 +17,7 @@ import {
   getPlatformGameId,
 } from '../lib/gameModel';
 import { publicStudioCredits } from '../lib/studioCredits';
+import { DeveloperSearchLink, HomeTagSearchLinks } from './SearchFacetLink';
 import { gameGuidePath } from '../lib/routeUtils';
 import { fetchGameGuideBundle } from '../lib/guideQueries';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
@@ -60,7 +61,7 @@ import {
   saveHiddenTrophyMode,
 } from '../lib/hiddenTrophyPreference';
 import { supabase } from '../pages/supabaseClient';
-import { fetchGameByRouteRef } from '../lib/gameQueries';
+import { fetchGameByRouteRef, incrementGameViews } from '../lib/gameQueries';
 import { fetchNewerVersions } from '../lib/newerVersions';
 import { RelatedBlock } from './RelatedGuides';
 
@@ -196,6 +197,12 @@ function QuickwinGameCard({
   useEffect(() => {
     setDetailGame(game);
   }, [game]);
+
+  useEffect(() => {
+    if (!gameUuid || isAdmin) return undefined;
+    incrementGameViews(supabase, gameUuid, sessionUser);
+    return undefined;
+  }, [gameUuid, isAdmin, sessionUser]);
 
   useEffect(() => {
     let cancelled = false;
@@ -565,11 +572,19 @@ function QuickwinGameCard({
               </div>
               <div>
                 <span>{t('searchGenre')}</span>
-                <strong>{detailGame[GAME_FIELDS.genre] || '—'}</strong>
+                <strong className="quickwin-card-meta-links">
+                  <HomeTagSearchLinks
+                    tags={detailGame[GAME_STRUCT.homeTags]}
+                    locale={globalLocale}
+                    fallback={detailGame[GAME_FIELDS.genre] || '—'}
+                  />
+                </strong>
               </div>
               <div>
                 <span>{t('studioLabel')}</span>
-                <strong>{credits.studio || '—'}</strong>
+                <strong className="quickwin-card-meta-links">
+                  {credits.studio ? <DeveloperSearchLink name={credits.studio} /> : '—'}
+                </strong>
               </div>
             </div>
           </div>

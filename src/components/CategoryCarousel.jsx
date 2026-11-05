@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getGameUuid, getRouteSlug } from '../lib/gameModel';
-import { gameGuidePath, navigateToGame } from '../lib/routeUtils';
+import { gameGuidePath } from '../lib/routeUtils';
 import { getHomeCategoryTitle } from '../lib/homeCategories';
 import { useLocale } from '../context/LocaleContext';
 import GameTile from './GameTile';
@@ -61,7 +61,6 @@ function CategoryCarousel({
         isAdmin={isAdmin}
         onRequestLogin={onRequestLogin}
         onOpen={() => {
-          navigateToGame(g, { locale: globalLocale });
           openGame(g);
         }}
       />

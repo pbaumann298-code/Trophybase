@@ -28,6 +28,7 @@ import { useTabScrollMemory } from '../hooks/useTabScrollMemory';
 import { GuideVideoProvider, useGuideVideo } from '../context/GuideVideoContext';
 import { GAME_FIELDS, GAME_STRUCT, GUIDE_SHEET_TYPE } from '../lib/gameSchema';
 import { publicStudioCredits } from '../lib/studioCredits';
+import { DeveloperSearchLink, HomeTagSearchLinks } from '../components/SearchFacetLink';
 import {
   buildBossOverviewData,
   buildByTypeGuideData,
@@ -1627,21 +1628,27 @@ function GamePageContent({
                     </div>
                     <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2 sm:col-span-1">
                       <span className="text-zinc-500 font-mono text-xs uppercase">{t('searchGenre')}</span>
-                      <span className="text-zinc-200 font-medium">
-                        {selectedGame[GAME_FIELDS.genre] || '—'}
+                      <span className="text-zinc-200 font-medium text-right">
+                        <HomeTagSearchLinks
+                          tags={gameForPublication?.[GAME_STRUCT.homeTags]}
+                          locale={globalLocale}
+                          fallback={selectedGame[GAME_FIELDS.genre] || '—'}
+                        />
                       </span>
                     </div>
                     <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
                       <span className="text-zinc-500 font-mono text-xs uppercase">{t('studioLabel')}</span>
-                      <span className="text-zinc-200 font-medium">
-                        {studioCredits.studio || '—'}
+                      <span className="text-zinc-200 font-medium text-right">
+                        {studioCredits.studio ? (
+                          <DeveloperSearchLink name={studioCredits.studio} />
+                        ) : '—'}
                       </span>
                     </div>
                     {studioCredits.publisher ? (
                       <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
                         <span className="text-zinc-500 font-mono text-xs uppercase">{t('publisherLabel')}</span>
-                        <span className="text-zinc-200 font-medium">
-                          {studioCredits.publisher}
+                        <span className="text-zinc-200 font-medium text-right">
+                          <DeveloperSearchLink name={studioCredits.publisher} />
                         </span>
                       </div>
                     ) : null}

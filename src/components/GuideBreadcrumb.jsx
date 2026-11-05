@@ -1,8 +1,8 @@
 import { useLocale } from '../context/LocaleContext';
 import { hardwareLabel } from '../lib/gameSlug';
 import { GAME_FIELDS, GAME_STRUCT } from '../lib/gameSchema';
-import { formatLocalizedHomeTags } from '../lib/homeTagDefs';
-import { navigateToHome } from '../lib/routeUtils';
+import { formatLocalizedHomeTags, getLocalizedHomeTagItems } from '../lib/homeTagDefs';
+import { buildAdvancedSearchPath, navigateToAdvancedSearch, navigateToHome } from '../lib/routeUtils';
 
 function CrumbSep() {
   return (
@@ -15,11 +15,20 @@ function CrumbSep() {
 function GuideBreadcrumb({ game, title, onHome }) {
   const { t, globalLocale } = useLocale();
   const platform = hardwareLabel(game?.hardware);
+  const homeTagItems = getLocalizedHomeTagItems(game?.[GAME_STRUCT.homeTags], globalLocale);
+  const firstTag = homeTagItems[0] || null;
   const genre = String(
     formatLocalizedHomeTags(game?.[GAME_STRUCT.homeTags], globalLocale, '') ||
       game?.[GAME_FIELDS.genre] ||
       '',
   ).trim();
+
+  const openGenreSearch = (event) => {
+    if (!firstTag) return;
+    event.preventDefault();
+    navigateToAdvancedSearch({ tag: firstTag.slug }, { excludeQuickwins: false });
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
 
   const goHome = (event) => {
     event.preventDefault();
@@ -49,7 +58,15 @@ function GuideBreadcrumb({ game, title, onHome }) {
           <>
             <CrumbSep />
             <li className="normal-case tracking-normal truncate max-w-[10rem] sm:max-w-[16rem]">
-              {genre}
+              {firstTag ? (
+                <a
+                  href={buildAdvancedSearchPath({ tag: firstTag.slug }, 1, false)}
+                  onClick={openGenreSearch}
+                  className="hover:text-[#00ff66] hover:underline transition cursor-pointer"
+                >
+                  {genre}
+                </a>
+              ) : genre}
             </li>
           </>
         ) : null}
