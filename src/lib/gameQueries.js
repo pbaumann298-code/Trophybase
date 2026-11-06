@@ -50,6 +50,7 @@ export const GAME_SELECT = [
   GAME_I18N.statusExplanation,
   'spielzeit_hauptstory',
   'spielzeit_komplettierer',
+  'steam_app_id',
   GAME_STRUCT.radarProfile,
 ].join(', ');
 

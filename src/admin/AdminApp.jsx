@@ -16,6 +16,7 @@ import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetDrafts from '../components/intranet/IntranetDrafts';
 import IntranetRadarAndServertot from '../components/intranet/IntranetRadarAndServertot';
 import IntranetRoadmap from '../components/intranet/IntranetRoadmap';
+import IntranetPlatformCatalog from '../components/intranet/IntranetPlatformCatalog';
 
 const TABS = [
   { id: 'website', label: 'Website', icon: '🌐' },
@@ -26,6 +27,7 @@ const TABS = [
   { id: 'roadmap', label: 'Roadmap & Ideen', icon: '🗺️' },
   { id: 'reports', label: 'Community Reports', icon: '⚑' },
   { id: 'scripts', label: 'Skripte', icon: '⚙️' },
+  { id: 'platforms', label: 'Steam & Xbox', icon: '🕹️' },
 ];
 
 const TAB_IDS = new Set(TABS.map((tab) => tab.id));
@@ -265,6 +267,7 @@ function AdminApp() {
         {activeTab === 'roadmap' && <IntranetRoadmap />}
         {activeTab === 'reports' && <CommunityReportsPanel />}
         {activeTab === 'scripts' && <ScriptsPanel />}
+        {activeTab === 'platforms' && <IntranetPlatformCatalog />}
       </main>
     </div>
   );

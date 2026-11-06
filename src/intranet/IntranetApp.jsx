@@ -14,6 +14,7 @@ import IntranetRohmaterial from '../components/intranet/IntranetRohmaterial';
 import IntranetDrafts from '../components/intranet/IntranetDrafts';
 import IntranetRadarAndServertot from '../components/intranet/IntranetRadarAndServertot';
 import IntranetRoadmap from '../components/intranet/IntranetRoadmap';
+import IntranetPlatformCatalog from '../components/intranet/IntranetPlatformCatalog';
 import { useAdminFollowups } from '../hooks/useAdminFollowups';
 
 class IntranetErrorBoundary extends Component {
@@ -47,6 +48,7 @@ const TABS = [
   { id: 'followups', label: 'Wiedervorlage', icon: '⚑' },
   { id: 'creators', label: 'Creator', icon: '▶' },
   { id: 'rohmaterial', label: 'Rohmaterial', icon: '🧪' },
+  { id: 'platforms', label: 'Steam & Xbox', icon: '🕹️' },
 ];
 
 function IntranetApp() {
@@ -80,6 +82,14 @@ function IntranetApp() {
       pathname.includes('/roadmap')
     ) {
       return 'roadmap';
+    }
+    if (
+      hash === 'platforms' ||
+      hash === 'steam' ||
+      searchTab === 'platforms' ||
+      searchTab === 'steam'
+    ) {
+      return 'platforms';
     }
     return 'games';
   });
@@ -420,6 +430,7 @@ function IntranetApp() {
               )}
               {activeTab === 'creators' && <IntranetCreatorSearch />}
               {activeTab === 'rohmaterial' && <IntranetRohmaterial />}
+              {activeTab === 'platforms' && <IntranetPlatformCatalog />}
             </>
           )}
         </IntranetErrorBoundary>

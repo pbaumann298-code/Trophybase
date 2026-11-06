@@ -68,6 +68,11 @@ import {
 import { gameGuidePath, withGuideTabParam, writeAppPath } from '../lib/routeUtils';
 import { getTrophyIdKey } from '../lib/trophyQueries';
 import { isPlatinumUnlocked } from '../lib/trophyTypes';
+import {
+  fetchLinkedPlatformStacks,
+  fetchSteamAchievementsAsTrophies,
+  fetchXboxAchievementsAsTrophies,
+} from '../lib/platformCatalogAdapter';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
   getGameCover,
@@ -94,6 +99,76 @@ const TAB_META = {
   reiter2: { icon: '📦', labelKey: 'completion' },
   reiter3: { icon: '⚔️', labelKey: 'bosses' },
 };
+
+function matchStatusDotClass(status) {
+  if (status === 'VERIFIED') return 'bg-[#00ff66]';
+  if (status === 'AUTO_CANDIDATE') return 'bg-amber-400';
+  if (status === 'SEPARATE_STACK') return 'bg-red-400';
+  return 'bg-zinc-500';
+}
+
+function AdminPlatformSwitcher({
+  activePlatform,
+  onChange,
+  psnCount,
+  steamStack,
+  xboxStack,
+}) {
+  const chips = [
+    {
+      id: 'psn',
+      label: `💙 PlayStation (${psnCount})`,
+      enabled: true,
+      status: null,
+    },
+    {
+      id: 'steam',
+      label: `🖥️ Steam (${steamStack ? (steamStack.achievement_count ?? 0) : '—'})`,
+      enabled: Boolean(steamStack),
+      status: steamStack?.match_status ?? null,
+    },
+    {
+      id: 'xbox',
+      label: `💚 Xbox (${xboxStack ? (xboxStack.achievement_count ?? 0) : '—'})`,
+      enabled: Boolean(xboxStack),
+      status: xboxStack?.match_status ?? null,
+    },
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Plattform">
+      {chips.map((chip) => {
+        const active = activePlatform === chip.id;
+        return (
+          <button
+            key={chip.id}
+            type="button"
+            disabled={!chip.enabled}
+            onClick={() => {
+              if (chip.enabled) onChange(chip.id);
+            }}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-bold tracking-wide transition ${
+              active
+                ? 'border-[#00ff66]/50 bg-[#00ff66]/10 text-[#00ff66]'
+                : chip.enabled
+                  ? 'border-zinc-700 bg-[#121314] text-zinc-300 hover:border-zinc-500 cursor-pointer'
+                  : 'cursor-not-allowed border-zinc-800 bg-transparent text-zinc-600'
+            }`}
+          >
+            {chip.status ? (
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${matchStatusDotClass(chip.status)}`}
+                title={chip.status}
+                aria-hidden
+              />
+            ) : null}
+            {chip.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function GamePageContent({
   currentView,
@@ -177,6 +252,11 @@ function GamePageContent({
   const [rohReloadToken, setRohReloadToken] = useState(0);
   const [creatorProfile, setCreatorProfile] = useState(null);
   const [creatorHasGameAccess, setCreatorHasGameAccess] = useState(false);
+  const [activePlatform, setActivePlatform] = useState('psn');
+  const [platformStacks, setPlatformStacks] = useState({ steam: null, xbox: null, ready: false });
+  const [platformTrophies, setPlatformTrophies] = useState([]);
+  const [platformTrophiesLoading, setPlatformTrophiesLoading] = useState(false);
+  const [platformTrophiesError, setPlatformTrophiesError] = useState('');
   const { notifyVideoCleared } = useGuideVideo();
 
   useEffect(() => {
@@ -222,6 +302,15 @@ function GamePageContent({
     );
     setRohIndex(0);
     setRohBusy(false);
+    setActivePlatform((prev) => (prev === 'psn' ? prev : 'psn'));
+    setPlatformStacks((prev) => (
+      prev.steam == null && prev.xbox == null && !prev.ready
+        ? prev
+        : { steam: null, xbox: null, ready: false }
+    ));
+    setPlatformTrophies((prev) => (prev.length === 0 ? prev : []));
+    setPlatformTrophiesError((prev) => (prev ? '' : prev));
+    setPlatformTrophiesLoading((prev) => (prev ? false : prev));
   }, [selectedGame?.id, selectedGame?.platform_game_id]);
 
   const creatorGameId = getGameUuid(selectedGame);
@@ -348,9 +437,15 @@ function GamePageContent({
     [displayBossRows],
   );
 
+  /** Plattform-Umschalter nur für den eingeloggten Admin, nie für Gäste. */
+  const showPlatformSwitcher = isAdminUser(sessionUser, { allowPublic: true });
+  const usingPlatformStack = showPlatformSwitcher && activePlatform !== 'psn';
+
   /**
    * Nachschlagewerk für game_guides.trophy_id → Trophäe. Die Trophäen sind für
    * Reiter 0 sowieso schon geladen, es braucht also keine zweite Abfrage.
+   * Auf Steam/Xbox zeigen api_name und matched_psn_trophy_id auf dasselbe Achievement,
+   * damit Walkthrough und Sammelobjekte das Plattform-Icon erben.
    */
   const trophyById = useMemo(() => {
     const map = new Map();
@@ -358,8 +453,21 @@ function GamePageContent({
       const key = String(trophy?.platform_achievement_id ?? trophy?.trophy_id ?? '').trim();
       if (key) map.set(key, trophy);
     }
+    if (!usingPlatformStack) return map;
+    for (const trophy of platformTrophies) {
+      const keys = [
+        trophy?.platform_achievement_id,
+        trophy?.id,
+        trophy?.trophy_id,
+        trophy?._matchedPsnId,
+      ];
+      for (const raw of keys) {
+        const key = String(raw ?? '').trim();
+        if (key) map.set(key, trophy);
+      }
+    }
     return map;
-  }, [activeTrophies]);
+  }, [activeTrophies, platformTrophies, usingPlatformStack]);
 
   const watchlistGameId = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
 
@@ -518,7 +626,77 @@ function GamePageContent({
     };
   }, [selectedGame, publicationOverride, gameUuid]);
 
+  const selectPlatform = (next) => {
+    setPlatformTrophies([]);
+    setPlatformTrophiesError('');
+    setPlatformTrophiesLoading(next !== 'psn');
+    setActivePlatform(next);
+  };
+
   const isAdmin = isAdminUser(sessionUser);
+
+  useEffect(() => {
+    if (!showPlatformSwitcher || !gameUuid) return undefined;
+    let cancelled = false;
+    fetchLinkedPlatformStacks(supabase, gameUuid, selectedGame?.steam_app_id)
+      .then((stacks) => {
+        if (cancelled) return;
+        const steam = stacks?.steam ?? null;
+        const xbox = stacks?.xbox ?? null;
+        setPlatformStacks({ steam, xbox, ready: true });
+        setActivePlatform((prev) => {
+          if (prev === 'steam' && !steam) return 'psn';
+          if (prev === 'xbox' && !xbox) return 'psn';
+          return prev;
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPlatformStacks({ steam: null, xbox: null, ready: true });
+        setActivePlatform('psn');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showPlatformSwitcher, gameUuid, selectedGame?.steam_app_id]);
+
+  useEffect(() => {
+    if (!showPlatformSwitcher || activePlatform === 'psn') return undefined;
+    const steamId = platformStacks.steam?.app_id;
+    const xboxId = platformStacks.xbox?.title_id;
+    if (activePlatform === 'steam' && (steamId == null || steamId === '')) return undefined;
+    if (activePlatform === 'xbox' && !xboxId) return undefined;
+
+    let cancelled = false;
+    const request = activePlatform === 'steam'
+      ? fetchSteamAchievementsAsTrophies(supabase, steamId, effectiveGuideLang, activeTrophies)
+      : fetchXboxAchievementsAsTrophies(supabase, xboxId, effectiveGuideLang, activeTrophies);
+
+    request
+      .then((rows) => {
+        if (cancelled) return;
+        setPlatformTrophies(Array.isArray(rows) ? rows : []);
+        setPlatformTrophiesError('');
+        setPlatformTrophiesLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setPlatformTrophies([]);
+        setPlatformTrophiesError(err?.message || 'Achievements konnten nicht geladen werden.');
+        setPlatformTrophiesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showPlatformSwitcher,
+    activePlatform,
+    platformStacks.steam,
+    platformStacks.xbox,
+    effectiveGuideLang,
+    activeTrophies,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1029,8 +1207,12 @@ function GamePageContent({
     setContentCreators(creators ?? []);
   }, [gameUuid, rohBusy, effectiveGuideLang]);
 
+  const checklistTrophies = usingPlatformStack
+    ? platformTrophies
+    : (trophiesOnly || !isAdmin ? activeTrophies : trophiesWithTips);
+
   const tabCounts = {
-    reiter0: activeTrophies.length,
+    reiter0: usingPlatformStack ? platformTrophies.length : activeTrophies.length,
     reiter1: chronologicalGuideData.length,
     reiter2: byTypeGuideData.length,
     reiter3: bossOverviewData.length,
@@ -1159,18 +1341,33 @@ function GamePageContent({
             <div className="flex justify-between items-center mb-2 text-xs font-mono">
               <span className="text-zinc-400 uppercase tracking-wider">{t('overallProgress')}</span>
               <span className="text-[#00ff66] font-bold text-sm">
-                {progressPercent}% ({completedCount}/{activeTrophies.length})
+                {usingPlatformStack
+                  ? `${checklistTrophies.length} Achievements`
+                  : `${progressPercent}% (${completedCount}/${activeTrophies.length})`}
               </span>
             </div>
             <div className="relative w-full bg-zinc-800 h-2.5 rounded-full overflow-hidden">
               <div
                 className="absolute inset-y-0 start-0 bg-[#00ff66] h-full rounded-full transition-all duration-500 shadow-[0_0_8px_rgba(0,255,102,0.5)]"
-                style={{ width: `${progressPercent}%` }}
+                style={{ width: `${usingPlatformStack ? 0 : progressPercent}%` }}
               />
             </div>
           </div>
 
-          {isAdmin && !trophiesOnly ? (
+          {usingPlatformStack ? (
+            <p className="mb-3 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs leading-relaxed text-sky-100">
+              {activePlatform === 'steam'
+                ? `🖥️ Steam-Stack aktiv (AppID: ${platformStacks.steam?.app_id} · ${platformStacks.steam?.match_status ?? ''} · ${platformStacks.steam?.match_notes || ''}) – Walkthrough & Sammelobjekte nutzen weiterhin den Master-Guide.`
+                : `💚 Xbox-Stack aktiv (TitleID: ${platformStacks.xbox?.title_id} · ${platformStacks.xbox?.match_status ?? ''} · ${platformStacks.xbox?.match_notes || ''}) – Walkthrough & Sammelobjekte nutzen weiterhin den Master-Guide.`}
+            </p>
+          ) : null}
+          {usingPlatformStack && platformTrophiesLoading ? (
+            <p className="mb-3 font-mono text-xs text-zinc-500">Achievements werden geladen…</p>
+          ) : null}
+          {usingPlatformStack && platformTrophiesError ? (
+            <p className="mb-3 text-xs text-red-300">{platformTrophiesError}</p>
+          ) : null}
+          {isAdmin && !trophiesOnly && !usingPlatformStack ? (
             <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
               {tipHint ? <span className="text-[10px] text-zinc-500">{tipHint}</span> : null}
               <MarkOnlineBulkButton
@@ -1190,18 +1387,18 @@ function GamePageContent({
           ) : null}
           <TrophyGroupedChecklist
             gameId={reportSource}
-            trophies={trophiesOnly || !isAdmin ? activeTrophies : trophiesWithTips}
+            trophies={checklistTrophies}
             unlockedTrophies={unlockedTrophies}
             earnedTrophyIds={earnedTrophyIds}
             hideCompleted={hideCompleted}
             revealHidden={hiddenTrophiesRevealed(hiddenTrophyMode)}
-            onToggle={toggleTrophy}
+            onToggle={usingPlatformStack ? () => {} : toggleTrophy}
             mainGameTitle={gameTitle || t('mainGame')}
-            guideTipEditor={isAdmin && !trophiesOnly ? saveGuideTip : null}
-            guideTipLongEditor={isAdmin && !trophiesOnly ? saveGuideTipLong : null}
-            onTrophyVideo={isAdmin && !trophiesOnly ? saveGuideVideo : null}
-            onTrophyFlags={isAdmin && !trophiesOnly ? saveTrophyFlags : null}
-            onlinePickMode={onlinePickMode}
+            guideTipEditor={isAdmin && !trophiesOnly && !usingPlatformStack ? saveGuideTip : null}
+            guideTipLongEditor={isAdmin && !trophiesOnly && !usingPlatformStack ? saveGuideTipLong : null}
+            onTrophyVideo={isAdmin && !trophiesOnly && !usingPlatformStack ? saveGuideVideo : null}
+            onTrophyFlags={isAdmin && !trophiesOnly && !usingPlatformStack ? saveTrophyFlags : null}
+            onlinePickMode={usingPlatformStack ? false : onlinePickMode}
             onlinePickIds={onlinePickIds}
             onOnlinePickToggle={toggleOnlinePick}
           />
@@ -1402,6 +1599,7 @@ function GamePageContent({
 
       <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 mb-8 shadow-xl">
         {!detailsExpanded ? (
+          <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <h2 className="text-xl md:text-2xl font-extrabold text-white tracking-tight break-words m-0 flex flex-wrap items-center gap-x-3 gap-y-2">
               <span>{gameTitle}</span>
@@ -1429,6 +1627,16 @@ function GamePageContent({
             >
               Details ausklappen ▾
             </button>
+          </div>
+          {showPlatformSwitcher ? (
+            <AdminPlatformSwitcher
+              activePlatform={activePlatform}
+              onChange={selectPlatform}
+              psnCount={activeTrophies.length}
+              steamStack={platformStacks.steam}
+              xboxStack={platformStacks.xbox}
+            />
+          ) : null}
           </div>
         ) : (
           <>
@@ -1620,6 +1828,17 @@ function GamePageContent({
                         </span>
                       )}
                     </div>
+                    {showPlatformSwitcher ? (
+                      <div className="sm:col-span-2 border-b border-zinc-800/40 pb-2">
+                        <AdminPlatformSwitcher
+                          activePlatform={activePlatform}
+                          onChange={selectPlatform}
+                          psnCount={activeTrophies.length}
+                          steamStack={platformStacks.steam}
+                          xboxStack={platformStacks.xbox}
+                        />
+                      </div>
+                    ) : null}
                     <div className="flex justify-between border-b border-zinc-800/40 pb-2">
                       <span className="text-zinc-500 font-mono text-xs uppercase">{t('releaseYear')}</span>
                       <span className="text-zinc-200 font-medium">
