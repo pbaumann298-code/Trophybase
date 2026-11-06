@@ -261,7 +261,7 @@ function CatalogLetterSection({
               className="home-carousel-track scrollbar-hide"
               onScroll={updateScrollHints}
             >
-              {previewGames.map(renderTile)}
+              {previewGames.map((game, index) => renderTile(game, index))}
             </div>
           </div>
           {openCarouselGame ? (

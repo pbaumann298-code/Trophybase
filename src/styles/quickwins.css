@@ -102,12 +102,23 @@
 
 .catalog-tile-shell {
   position: relative;
+  min-width: 0;
 }
 
 .catalog-tile-shell--carousel {
-  width: 10.5rem;
-  max-width: 11.25rem;
-  flex: 0 0 auto;
+  width: 9.25rem !important;
+  min-width: 9.25rem !important;
+  max-width: 9.25rem !important;
+  flex: 0 0 9.25rem !important;
+}
+
+@media (min-width: 640px) {
+  .catalog-tile-shell--carousel {
+    width: 10.5rem !important;
+    min-width: 10.5rem !important;
+    max-width: 10.5rem !important;
+    flex: 0 0 10.5rem !important;
+  }
 }
 
 .catalog-detail--below-row {
