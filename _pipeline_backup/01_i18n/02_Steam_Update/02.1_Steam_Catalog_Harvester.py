@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-10.1_Steam_Catalog_Harvester.py (v2 - Synchron mit 16 TrophyBase-Locales & Exakt-Matching)
-  1. Katalog füllen:                 python 10.1_Steam_Catalog_Harvester.py --seed
-  2. Achievements + Fingerabdruck:   python 10.1_Steam_Catalog_Harvester.py --achievements
-  3. 16 Sprachen für Unmatched:      python 10.1_Steam_Catalog_Harvester.py --achievements --all-langs
+02.1_Steam_Catalog_Harvester.py (v2 - Synchron mit 16 TrophyBase-Locales & Exakt-Matching)
+  1. Katalog füllen:                 python 02.1_Steam_Catalog_Harvester.py --seed
+  2. Achievements + Fingerabdruck:   python 02.1_Steam_Catalog_Harvester.py --achievements
+  3. 16 Sprachen für Unmatched:      python 02.1_Steam_Catalog_Harvester.py --achievements --all-langs
 """
 
 import os
@@ -23,7 +23,9 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    sys.exit("❌ Fehler: SUPABASE_URL oder SUPABASE_SERVICE_ROLE_KEY fehlt in der .env!")
+    sys.exit(
+        "❌ Fehler: SUPABASE_URL oder SUPABASE_SERVICE_ROLE_KEY fehlt in der .env!"
+    )
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -63,13 +65,15 @@ def search_steam_store_for_title(title: str) -> list[dict]:
         r = requests.get(url, timeout=10)
         if r.status_code != 200:
             return []
-        return (r.json().get("items") or [])
+        return r.json().get("items") or []
     except Exception:
         return []
 
 
 def fetch_steam_app_details(app_id: int) -> dict | None:
-    url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&cc=DE&l=german"
+    url = (
+        f"https://store.steampowered.com/api/appdetails?appids={app_id}&cc=DE&l=german"
+    )
     try:
         r = requests.get(url, timeout=10)
         if r.status_code != 200:
@@ -85,9 +89,17 @@ def fetch_steam_app_details(app_id: int) -> dict | None:
 def step1_seed_catalog_from_games(limit_games: int = 5000):
     print("🚀 Stufe 1: Suche Steam-Katalog-Einträge für unseren Spiele-Bestand...")
 
-    existing_res = supabase.table("catalog_steam_games").select("linked_game_id, app_id").execute()
-    already_linked = {r["linked_game_id"] for r in (existing_res.data or []) if r.get("linked_game_id")}
-    known_app_ids = {int(r["app_id"]) for r in (existing_res.data or []) if r.get("app_id")}
+    existing_res = (
+        supabase.table("catalog_steam_games").select("linked_game_id, app_id").execute()
+    )
+    already_linked = {
+        r["linked_game_id"]
+        for r in (existing_res.data or [])
+        if r.get("linked_game_id")
+    }
+    known_app_ids = {
+        int(r["app_id"]) for r in (existing_res.data or []) if r.get("app_id")
+    }
 
     games_res = (
         supabase.table("games")
@@ -114,10 +126,16 @@ def step1_seed_catalog_from_games(limit_games: int = 5000):
         norm_target = normalize_compare_str(title)
         # Bevorzuge exakte Namens-Treffer!
         exact_hits = [
-            h for h in hits[:5]
-            if h.get("type") == "app" and normalize_compare_str(h.get("name")) == norm_target
+            h
+            for h in hits[:5]
+            if h.get("type") == "app"
+            and normalize_compare_str(h.get("name")) == norm_target
         ]
-        candidates = exact_hits if exact_hits else [h for h in hits[:1] if h.get("type") == "app"]
+        candidates = (
+            exact_hits
+            if exact_hits
+            else [h for h in hits[:1] if h.get("type") == "app"]
+        )
 
         linked_already_for_this_game = False
         for cand in candidates:
@@ -130,7 +148,7 @@ def step1_seed_catalog_from_games(limit_games: int = 5000):
                 continue
 
             steam_title = details.get("name") or cand.get("name") or title
-            is_exact_title = (normalize_compare_str(steam_title) == norm_target)
+            is_exact_title = normalize_compare_str(steam_title) == norm_target
 
             ach_total = int((details.get("achievements") or {}).get("total") or 0)
             rel_info = details.get("release_date") or {}
@@ -141,7 +159,10 @@ def step1_seed_catalog_from_games(limit_games: int = 5000):
 
             devs = ", ".join(details.get("developers") or [])[:200] or None
             pubs = ", ".join(details.get("publishers") or [])[:200] or None
-            cover = details.get("header_image") or f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/library_600x900.jpg"
+            cover = (
+                details.get("header_image")
+                or f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/library_600x900.jpg"
+            )
 
             # Verhindert, dass Teil 2 / Spin-offs dieselbe linked_game_id bekommen!
             should_link = is_exact_title and not linked_already_for_this_game
@@ -162,18 +183,28 @@ def step1_seed_catalog_from_games(limit_games: int = 5000):
                 "match_status": "AUTO_CANDIDATE" if should_link else "UNLINKED",
                 "crawl_status": "CATALOG_ONLY" if ach_total > 0 else "NO_ACHIEVEMENTS",
             }
-            supabase.table("catalog_steam_games").upsert(row, on_conflict="app_id").execute()
+            supabase.table("catalog_steam_games").upsert(
+                row, on_conflict="app_id"
+            ).execute()
             known_app_ids.add(app_id)
             inserted += 1
-            print(f"  [{idx}/{len(games)}] ✅ Steam AppID {app_id}: '{row['title']}' ({rel_year or '?'}) | {ach_total} Achievements")
+            print(
+                f"  [{idx}/{len(games)}] ✅ Steam AppID {app_id}: '{row['title']}' ({rel_year or '?'}) | {ach_total} Achievements"
+            )
             time.sleep(0.5)
 
-    print(f"\n🎯 Stufe 1 fertig: {inserted} Steam-Spiele sicher in 'catalog_steam_games' angelegt.")
+    print(
+        f"\n🎯 Stufe 1 fertig: {inserted} Steam-Spiele sicher in 'catalog_steam_games' angelegt."
+    )
 
 
-def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16_langs: bool = False):
+def step2_fetch_achievements_and_fingerprint(
+    limit_apps: int = 100, fetch_all_16_langs: bool = False
+):
     if not STEAM_API_KEY:
-        sys.exit("❌ Fehler: STEAM_API_KEY fehlt in der .env für Stufe 2 (--achievements)!")
+        sys.exit(
+            "❌ Fehler: STEAM_API_KEY fehlt in der .env für Stufe 2 (--achievements)!"
+        )
 
     res = (
         supabase.table("catalog_steam_games")
@@ -185,7 +216,9 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
     )
     apps = res.data or []
     langs_to_fetch = list(STEAM_LANG_MAP.keys()) if fetch_all_16_langs else ["en", "de"]
-    print(f"🏆 Stufe 2: Lade Achievements ({', '.join(langs_to_fetch)}) & prüfe Fingerabdruck für {len(apps)} Steam-Spiele...\n")
+    print(
+        f"🏆 Stufe 2: Lade Achievements ({', '.join(langs_to_fetch)}) & prüfe Fingerabdruck für {len(apps)} Steam-Spiele...\n"
+    )
 
     for app in apps:
         app_id = app["app_id"]
@@ -199,7 +232,10 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
                 timeout=10,
             )
             if r_pct.status_code == 200:
-                for p in (r_pct.json().get("achievementpercentages", {}).get("achievements") or []):
+                for p in (
+                    r_pct.json().get("achievementpercentages", {}).get("achievements")
+                    or []
+                ):
                     pct_map[p["name"]] = round(float(p.get("percent") or 0.0), 2)
         except Exception:
             pass
@@ -222,7 +258,9 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
                         .get("achievements")
                         or []
                     )
-                    schemas_by_lang[lang_code] = {a["name"]: a for a in ach_list if "name" in a}
+                    schemas_by_lang[lang_code] = {
+                        a["name"]: a for a in ach_list if "name" in a
+                    }
             except Exception:
                 pass
 
@@ -231,7 +269,9 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
         all_api_names = list(en_map.keys() or de_map.keys())
 
         if not all_api_names:
-            supabase.table("catalog_steam_games").update({"crawl_status": "NO_ACHIEVEMENTS"}).eq("app_id", app_id).execute()
+            supabase.table("catalog_steam_games").update(
+                {"crawl_status": "NO_ACHIEVEMENTS"}
+            ).eq("app_id", app_id).execute()
             continue
 
         # 3. PSN-Trophäen (inkl. aller 16 fertigen Sprachen!) zum Abgleich & Vererben laden
@@ -243,7 +283,7 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
                 .eq("game_id", linked_gid)
                 .execute()
             )
-            for pt in (psn_res.data or []):
+            for pt in psn_res.data or []:
                 if str(pt.get("rarity_label") or "").lower() == "platinum":
                     continue
                 n_obj = pt.get("name") if isinstance(pt.get("name"), dict) else {}
@@ -263,10 +303,9 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
             desc_de = str(a_de.get("description") or "").strip()
             desc_en = str(a_en.get("description") or desc_de).strip()
 
-            matched_pt = (
-                psn_by_norm_name.get(normalize_compare_str(name_en))
-                or psn_by_norm_name.get(normalize_compare_str(name_de))
-            )
+            matched_pt = psn_by_norm_name.get(
+                normalize_compare_str(name_en)
+            ) or psn_by_norm_name.get(normalize_compare_str(name_de))
 
             # Start-JSONB mit den echten Steam-Werten
             name_jsonb = {"en": name_en, "de": name_de}
@@ -290,9 +329,21 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
             if matched_pt:
                 matched_hits += 1
                 matched_tid = str(matched_pt["trophy_id"])
-                psn_names = matched_pt.get("name") if isinstance(matched_pt.get("name"), dict) else {}
-                psn_descs = matched_pt.get("trophy_desc") if isinstance(matched_pt.get("trophy_desc"), dict) else {}
-                psn_tips = matched_pt.get("guide_tip") if isinstance(matched_pt.get("guide_tip"), dict) else {}
+                psn_names = (
+                    matched_pt.get("name")
+                    if isinstance(matched_pt.get("name"), dict)
+                    else {}
+                )
+                psn_descs = (
+                    matched_pt.get("trophy_desc")
+                    if isinstance(matched_pt.get("trophy_desc"), dict)
+                    else {}
+                )
+                psn_tips = (
+                    matched_pt.get("guide_tip")
+                    if isinstance(matched_pt.get("guide_tip"), dict)
+                    else {}
+                )
                 tip_jsonb = dict(psn_tips)
                 for lc in STEAM_LANG_MAP.keys():
                     if lc not in name_jsonb and psn_names.get(lc):
@@ -306,7 +357,7 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
                     "api_name": api_name,
                     "name": name_jsonb,
                     "trophy_desc": desc_jsonb,
-                    "guide_tip": tip_jsonb
+                    "guide_tip": tip_jsonb,
                     "icon_url": a_en.get("icon") or a_de.get("icon"),
                     "icon_gray_url": a_en.get("icongray") or a_de.get("icongray"),
                     "is_hidden": bool(a_en.get("hidden")),
@@ -321,7 +372,11 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
             ).execute()
 
         confidence = round((matched_hits / max(len(ach_rows), 1)) * 100.0, 2)
-        new_match_status = "VERIFIED" if confidence >= 80.0 else ("AUTO_CANDIDATE" if confidence >= 30.0 else "SEPARATE_STACK")
+        new_match_status = (
+            "VERIFIED"
+            if confidence >= 80.0
+            else ("AUTO_CANDIDATE" if confidence >= 30.0 else "SEPARATE_STACK")
+        )
         note = f"{matched_hits}/{len(ach_rows)} Achievements stimmen namentlich mit PSN überein ({confidence}%)"
 
         supabase.table("catalog_steam_games").update(
@@ -334,7 +389,13 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
             }
         ).eq("app_id", app_id).execute()
 
-        badge = "🟢 VERIFIED" if new_match_status == "VERIFIED" else ("🟡 CHECK" if new_match_status == "AUTO_CANDIDATE" else "🔴 ABWEICHEND")
+        badge = (
+            "🟢 VERIFIED"
+            if new_match_status == "VERIFIED"
+            else (
+                "🟡 CHECK" if new_match_status == "AUTO_CANDIDATE" else "🔴 ABWEICHEND"
+            )
+        )
         print(f"  {badge} [{app['title']}] (AppID {app_id}): {note}")
         time.sleep(0.5)
 
@@ -342,6 +403,8 @@ def step2_fetch_achievements_and_fingerprint(limit_apps: int = 100, fetch_all_16
 if __name__ == "__main__":
     if "--achievements" in sys.argv:
         all_langs = "--all-langs" in sys.argv
-        step2_fetch_achievements_and_fingerprint(limit_apps=200, fetch_all_16_langs=all_langs)
+        step2_fetch_achievements_and_fingerprint(
+            limit_apps=200, fetch_all_16_langs=all_langs
+        )
     else:
         step1_seed_catalog_from_games(limit_games=500)
