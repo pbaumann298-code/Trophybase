@@ -3,7 +3,7 @@ import { normalizeLocale } from './locale.js';
 
 const HOME_TAG_DEFS = 'home_tag_defs';
 
-/** Lokalisierte Labels für alle 26 home_tags-Slugs. */
+/** Lokalisierte Labels für alle 27 home_tags-Slugs. */
 export const HOME_TAG_TRANSLATIONS = {
   soulslike: {
     de: 'Souls / Soulslike',
@@ -472,6 +472,24 @@ export const HOME_TAG_TRANSLATIONS = {
     fi: 'Psykologinen kauhu',
     sv: 'Psykologisk skräck',
     ar: 'رعب نفسي',
+  },
+  arcade_nostalgia: {
+    de: 'Arcade-Nostalgie & Retro',
+    en: 'Arcade Nostalgia & Retro',
+    es: 'Nostalgia Arcade y Retro',
+    pt: 'Nostalgia Arcade e Retrô',
+    pl: 'Nostalgia Arcade i Retro',
+    fr: 'Nostalgie Arcade & Rétro',
+    it: 'Nostalgia Arcade & Retro',
+    nl: 'Arcade-nostalgie & Retro',
+    ru: 'Аркадная ностальгия и ретро',
+    ja: 'アーケード懐古 & レトロ',
+    ko: '아케이드 향수 & 레트로',
+    'zh-hans': '街机怀旧与复古',
+    'zh-hant': '街機懷舊與復古',
+    fi: 'Arcade-nostalgia & Retro',
+    sv: 'Arkadnostalgi & Retro',
+    ar: 'نوستالجيا الأركيد والألعاب الكلاسيكية',
   },
 };
 

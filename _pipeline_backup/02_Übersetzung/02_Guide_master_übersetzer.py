@@ -272,6 +272,25 @@ def detect_source_lang(status_map: dict) -> str | None:
     return None
 
 
+def pick_field_source(val_map: dict, preferred_lang: str = "de") -> tuple[str, str]:
+    """
+    Findet für JEDES JSONB-Feld einzeln heraus, in welcher Sprache der Originaltext liegt!
+    - Bei Guide-Zeilen von spanischen/brasilianischen Creatorn findet es ('es', '...') bzw. ('pt', '...').
+    - Bei Guide-Tipps & Beschreibung aus 06.1 findet es ('de', '...') bzw. ('en', '...').
+    """
+    if not isinstance(val_map, dict):
+        return preferred_lang, ""
+    for cand in (preferred_lang, "de", "en", "es", "pt", "fr", "it", "pl", "ru", "ja"):
+        txt = str(val_map.get(cand) or "").strip()
+        if txt:
+            return cand, txt
+    for k, v in val_map.items():
+        txt = str(v or "").strip()
+        if txt:
+            return normalize_lang_key(k), txt
+    return preferred_lang, ""
+
+
 def primary_game_type(raw_spiel_typ: str) -> str:
     parts = [p.strip() for p in str(raw_spiel_typ or "").split(",") if p.strip()]
     if "Servertot" in parts:
@@ -304,7 +323,6 @@ def fetch_published_games_queue(target_langs: list[str]) -> list[dict]:
     for g in all_games:
         raw_type = str(g.get("spiel_typ") or "").strip()
         low_type = raw_type.lower()
-        # Filtert auch Kombi-Strings wie 'Standard, Quickwin' oder 'Evergreen, Unlesbar' sauber heraus
         if "quickwin" in low_type or "unlesbar" in low_type:
             continue
         status = g.get("status") if isinstance(g.get("status"), dict) else {}
@@ -312,9 +330,12 @@ def fetch_published_games_queue(target_langs: list[str]) -> list[dict]:
         if not src_lang:
             continue
 
-        check_langs = [lg for lg in target_langs if lg != src_lang]
-        needs_work = any(not is_locale_done_in_status(status, lg) for lg in check_langs)
-        if needs_work:
+        # WICHTIG: Wenn das Spiel auf ES/PT veröffentlicht wurde, muss es auch dann in die Queue,
+        # wenn DE/EN noch nicht PUBLISHED sind ODER in ES/PT noch die deutschen Guide-Tipps/Beschreibung fehlen!
+        needs_work = any(
+            not is_locale_done_in_status(status, lg) for lg in target_langs
+        )
+        if needs_work or src_lang not in ("de", "en"):
             queue.append(g)
 
     def _sort_key(x: dict):
@@ -426,9 +447,7 @@ def apply_translations_and_save(
             else {}
         )
 
-        loc_src = str(
-            loc_map.get(source_lang) or loc_map.get("de") or loc_map.get("en") or ""
-        ).strip()
+        _, loc_src = pick_field_source(loc_map, source_lang)
         if loc_src and loc_src in loc_translations:
             for raw_lg, val in (loc_translations[loc_src] or {}).items():
                 lg = normalize_lang_key(raw_lg)
@@ -437,9 +456,7 @@ def apply_translations_and_save(
                     changed = True
 
         for col_map in (chrono_map, cat_map, boss_map):
-            c_src = str(
-                col_map.get(source_lang) or col_map.get("de") or col_map.get("en") or ""
-            ).strip()
+            _, c_src = pick_field_source(col_map, source_lang)
             if c_src and c_src in group_translations:
                 for raw_lg, val in (group_translations[c_src] or {}).items():
                     lg = normalize_lang_key(raw_lg)
@@ -447,9 +464,7 @@ def apply_translations_and_save(
                         col_map[lg] = str(val).strip()
                         changed = True
 
-        item_src = str(
-            item_map.get(source_lang) or item_map.get("de") or item_map.get("en") or ""
-        ).strip()
+        _, item_src = pick_field_source(item_map, source_lang)
         if item_src:
             stem, tokens = mask_counters(item_src)
             if stem in stem_translations:
@@ -611,11 +626,19 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
     status_map = game.get("status") if isinstance(game.get("status"), dict) else {}
     source_lang = detect_source_lang(status_map) or "de"
 
-    active_targets = [
-        lg
-        for lg in wave_targets
-        if lg != source_lang and not is_locale_done_in_status(status_map, lg)
-    ]
+    # Alle Sprachen der aktuellen Welle prüfen (inkl. source_lang wie 'es', falls dort noch die DE-Tipps/Beschreibung fehlen,
+    # und inkl. 'de'/'en', falls dort noch die spanischen Guide-Zeilen fehlen!)
+    active_targets = list(
+        dict.fromkeys(
+            [lg for lg in wave_targets if not is_locale_done_in_status(status_map, lg)]
+            + ([source_lang] if source_lang in wave_targets else [])
+            + [
+                lg
+                for lg in ("de", "en")
+                if lg in wave_targets and not is_locale_done_in_status(status_map, lg)
+            ]
+        )
+    )
     if not active_targets:
         return True
 

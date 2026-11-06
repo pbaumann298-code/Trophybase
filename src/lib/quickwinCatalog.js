@@ -137,15 +137,69 @@ export function quickwinPublisherIdentity(game, canon) {
   return canon.get(exact) || { key: exact, label: exact };
 }
 
-function titleHaystack(game) {
+/** Satzzeichen, die in Titeln und Suchworten zusätzlich ignoriert werden. */
+const TITLE_PUNCT_RE = /[;:'’.\-!?]/g;
+
+function titleParts(game) {
   const raw = game?.spieltitel;
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return Object.values(raw)
-      .map((value) => String(value ?? ''))
-      .join('\n')
-      .toLowerCase();
+    return Object.values(raw).map((value) => String(value ?? ''));
   }
-  return String(getGameTitle(game) ?? '').toLowerCase();
+  return [String(getGameTitle(game) ?? '')];
+}
+
+function loosenTitle(value) {
+  return String(value ?? '').toLowerCase().replace(TITLE_PUNCT_RE, '');
+}
+
+function compactTitle(value) {
+  return loosenTitle(value).replace(/\s+/g, '');
+}
+
+function titleHaystack(game) {
+  const parts = titleParts(game);
+  const lower = parts.join('\n').toLowerCase();
+  const loose = parts.map((part) => loosenTitle(part)).join('\n');
+  const compact = parts.map((part) => compactTitle(part)).filter(Boolean).join('\n');
+  return `${lower}\n${loose}\n${compact}`;
+}
+
+function wordMatchesTitle(haystack, word) {
+  if (haystack.includes(word)) return true;
+  const loose = loosenTitle(word);
+  if (!loose) return false;
+  if (haystack.includes(loose)) return true;
+  const compact = loose.replace(/\s+/g, '');
+  return Boolean(compact) && haystack.includes(compact);
+}
+
+/**
+ * Titelvergleich ohne ; : - ' ’ . ! ?
+ * „Steins;Gate“ trifft damit „Steins;Gate“, „STEINS GATE“ und „SteinsGate“.
+ * @param {object|null|undefined} game
+ * @param {string} needle
+ * @param {{ startsWith?: boolean }} [options]
+ */
+export function gameTitleMatches(game, needle, { startsWith = false } = {}) {
+  const query = String(needle ?? '').trim().toLowerCase();
+  if (!query) return false;
+  const queryLoose = loosenTitle(query);
+  const queryCompact = queryLoose.replace(/\s+/g, '');
+  return titleParts(game).some((part) => {
+    const text = String(part ?? '').trim();
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    const loose = loosenTitle(text).trim();
+    const compact = compactTitle(text);
+    if (startsWith) {
+      if (lower.startsWith(query)) return true;
+      if (queryLoose && loose.startsWith(queryLoose)) return true;
+      return Boolean(queryCompact) && compact.startsWith(queryCompact);
+    }
+    if (lower.includes(query)) return true;
+    if (queryLoose && loose.includes(queryLoose)) return true;
+    return Boolean(queryCompact) && compact.includes(queryCompact);
+  });
 }
 
 export function filterQuickwins(games, { title = '', publisher = '' } = {}, canon = null) {
@@ -164,7 +218,7 @@ export function filterQuickwins(games, { title = '', publisher = '' } = {}, cano
     }
     if (words.length === 0) return true;
     const haystack = titleHaystack(game);
-    return words.every((word) => haystack.includes(word));
+    return words.every((word) => wordMatchesTitle(haystack, word));
   });
 }
 

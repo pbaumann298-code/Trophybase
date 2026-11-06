@@ -3,11 +3,11 @@ import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
 import { CATALOG_FETCH_PAGE, fetchGamesByType } from '../lib/gameQueries';
 import { GAME_TYPE } from '../lib/gameSchema';
-import { translateHomeTag } from '../lib/homeTagDefs';
 import {
   QUICKWIN_ALPHABET,
   buildQuickwinPublisherCanon,
   filterQuickwins,
+  gameTitleMatches,
   groupQuickwinsByAlphabet,
   quickwinBrandCore,
   quickwinPublisherIdentity,
@@ -15,6 +15,7 @@ import {
   sortQuickwins,
   titleAlphabetKey,
 } from '../lib/quickwinCatalog';
+import { splitCreditNames } from '../lib/studioCredits';
 import {
   QUICKWINS_PATH,
   getViewFromPath,
@@ -44,17 +45,54 @@ const EASY_PLATINS_SERIES = [
   { label: 'AI: The Somnium Files', title: 'Somnium Files' },
   { label: 'Collar X Malice', title: 'Collar' },
   { labelKey: 'easyPlatinsSeriesFmv', tag: 'fmv' },
+  { label: 'Agatha Christie / Poirot', title: 'Agatha Christie' },
+  { label: 'Sherlock Holmes', title: 'Sherlock' },
+  { label: 'ACA NEOGEO / Arcade', title: 'ACA NEOGEO' },
 ];
 
-const EASY_PLATINS_TAGS = [
-  { tag: 'hidden_object', icon: '🔍', keywords: ['wimmelbild', 'hidden object'] },
-  { tag: 'visual_novel', icon: '📖', keywords: ['visual novel'] },
-  { tag: 'fmv', icon: '🎬', keywords: ['fmv', 'interaktiver film', 'interactive film', 'interactive movie'] },
-  { tag: 'mystery_crime', icon: '🕵️', keywords: ['mystery', 'crime', 'detektiv', 'krimi'] },
-  { tag: 'scifi_cyberpunk', icon: '🚀', keywords: ['sci-fi', 'scifi', 'cyberpunk'] },
-  { tag: 'otome_romance', icon: '💘', keywords: ['otome', 'romance', 'romantik'] },
-  { tag: 'psych_horror', icon: '🧠', keywords: ['horror', 'psychological', 'psychologisch'] },
-  { tag: 'point_and_click', icon: '🖱️', keywords: ['point', 'click'] },
+const EASY_PLATINS_ARCHETYPES = [
+  {
+    id: 'hidden_object',
+    labelKey: 'easyPlatinsArchetypeHiddenObject',
+    icon: '🔍',
+    tags: ['hidden_object', 'point_and_click'],
+    publishers: ['Artifex Mundi', '8Floor', 'Boomzap', 'Grey Alien'],
+  },
+  {
+    id: 'mystery_crime',
+    labelKey: 'easyPlatinsArchetypeMystery',
+    icon: '🕵️‍♂️',
+    tags: ['mystery_crime'],
+    titleIncludes: ['Agatha Christie', 'Poirot', 'Sherlock', 'Murdered', 'CSI', 'Noire', 'Blacksad'],
+  },
+  {
+    id: 'fmv',
+    labelKey: 'easyPlatinsArchetypeFmv',
+    icon: '🍿',
+    tags: ['fmv'],
+    publishers: ['Wales Interactive', 'Telltale', 'Dontnod', 'Supermassive'],
+  },
+  {
+    id: 'visual_novel',
+    labelKey: 'easyPlatinsArchetypeVisualNovel',
+    icon: '📖',
+    tags: ['visual_novel', 'otome_romance'],
+    titleIncludes: ['Steins', 'Somnium', 'Collar', 'Danganronpa', 'Chaos;Child', 'Root Letter'],
+  },
+  {
+    id: 'family',
+    labelKey: 'easyPlatinsArchetypeFamily',
+    icon: '🧸',
+    tags: ['family', 'platformer', 'indie'],
+  },
+  {
+    id: 'arcade_nostalgia',
+    labelKey: 'easyPlatinsArchetypeArcade',
+    icon: '🕹️',
+    tags: ['arcade_nostalgia'],
+    publishers: ['Hamster Corporation'],
+    titleStartsWith: ['ACA NEOGEO', 'Arcade Archives'],
+  },
 ];
 
 function gameMatchesTag(game, tagSlug) {
@@ -75,6 +113,63 @@ function gameMatchesTag(game, tagSlug) {
   }
 
   return tagList.some((t) => String(t).toLowerCase() === tagSlug.toLowerCase());
+}
+
+const ARCHETYPE_STUDIO_SUFFIXES = ['corporation', 'corp', 'company'];
+
+function archetypeStudioCore(name) {
+  let key = quickwinBrandCore(name);
+  let stripped = true;
+  while (stripped && key.length > 4) {
+    stripped = false;
+    for (const suffix of ARCHETYPE_STUDIO_SUFFIXES) {
+      if (!key.endsWith(suffix)) continue;
+      const remain = key.length - suffix.length;
+      if (remain < 4) continue;
+      key = key.slice(0, remain);
+      stripped = true;
+      break;
+    }
+  }
+  return key;
+}
+
+function looseStudioName(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function gameMatchesPublisher(game, publishers) {
+  const credits = [
+    ...splitCreditNames(game?.publisher),
+    ...splitCreditNames(game?.entwickler),
+  ];
+  if (credits.length === 0 || !publishers?.length) return false;
+  return publishers.some((publisher) => {
+    const targetCore = archetypeStudioCore(publisher);
+    const targetLoose = looseStudioName(publisher);
+    if (!targetCore && !targetLoose) return false;
+    return credits.some((credit) => {
+      if (targetCore && archetypeStudioCore(credit) === targetCore) return true;
+      const creditLoose = looseStudioName(credit);
+      return Boolean(targetLoose) && targetLoose.length >= 5 && creditLoose.includes(targetLoose);
+    });
+  });
+}
+
+function gameMatchesArchetype(game, archetype) {
+  const spec = EASY_PLATINS_ARCHETYPES.find((item) => item.id === archetype);
+  if (!game || !spec) return false;
+  if ((spec.tags ?? []).some((tag) => gameMatchesTag(game, tag))) return true;
+  if (gameMatchesPublisher(game, spec.publishers)) return true;
+  if ((spec.titleIncludes ?? []).some((needle) => gameTitleMatches(game, needle))) return true;
+  if ((spec.titleStartsWith ?? []).some((needle) => gameTitleMatches(game, needle, { startsWith: true }))) {
+    return true;
+  }
+  return false;
 }
 
 const DOM_CHUNK_SIZE = 60;
@@ -295,6 +390,7 @@ function QuickwinsPage({
     alphabetCatalog ? { ...initial, publisher: '', sort: 'title-asc' } : initial
   ));
   const [selectedTag, setSelectedTag] = useState('');
+  const [selectedArchetype, setSelectedArchetype] = useState('');
   const [games, setGames] = useState([]);
   const [publisherDefs, setPublisherDefs] = useState(null);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -367,7 +463,7 @@ function QuickwinsPage({
 
   useEffect(() => {
     setVisibleCount(DOM_CHUNK_SIZE);
-  }, [applied.title, applied.publisher, applied.sort, selectedTag, gameType, globalLocale]);
+  }, [applied.title, applied.publisher, applied.sort, selectedTag, selectedArchetype, gameType, globalLocale]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -497,6 +593,25 @@ function QuickwinsPage({
 
   const visibleGames = games;
 
+  const easyPlatinsCounts = useMemo(() => {
+    if (gameType !== GAME_TYPE.EASY_PLATIN) {
+      return { archetypes: {}, series: [] };
+    }
+    const archetypes = Object.fromEntries(EASY_PLATINS_ARCHETYPES.map((item) => [item.id, 0]));
+    const series = EASY_PLATINS_SERIES.map((item) => (
+      item.tag ? 0 : filterQuickwins(visibleGames, { title: item.title }).length
+    ));
+    for (const game of visibleGames) {
+      for (const item of EASY_PLATINS_ARCHETYPES) {
+        if (gameMatchesArchetype(game, item.id)) archetypes[item.id] += 1;
+      }
+      EASY_PLATINS_SERIES.forEach((item, index) => {
+        if (item.tag && gameMatchesTag(game, item.tag)) series[index] += 1;
+      });
+    }
+    return { archetypes, series };
+  }, [gameType, visibleGames]);
+
   const publishers = useMemo(() => {
     if (alphabetCatalog) return [];
     const counts = publisherGameCounts(games, canon);
@@ -515,13 +630,15 @@ function QuickwinsPage({
       alphabetCatalog ? { title: applied.title, publisher: '' } : applied,
       canon,
     );
-    if (gameType === GAME_TYPE.EASY_PLATIN && selectedTag) {
+    if (gameType === GAME_TYPE.EASY_PLATIN && selectedArchetype) {
+      filtered = filtered.filter((game) => gameMatchesArchetype(game, selectedArchetype));
+    } else if (gameType === GAME_TYPE.EASY_PLATIN && selectedTag) {
       filtered = filtered.filter((game) => gameMatchesTag(game, selectedTag));
     }
     return alphabetCatalog
       ? sortQuickwins(filtered, 'title-asc', globalLocale)
       : filtered;
-  }, [visibleGames, applied, canon, alphabetCatalog, globalLocale, gameType, selectedTag]);
+  }, [visibleGames, applied, canon, alphabetCatalog, globalLocale, gameType, selectedTag, selectedArchetype]);
 
   const alphabetGroups = useMemo(
     () => (alphabetCatalog ? groupQuickwinsByAlphabet(filteredGames, globalLocale) : []),
@@ -654,6 +771,7 @@ function QuickwinsPage({
   };
 
   const handleSeriesClick = (item) => {
+    setSelectedArchetype('');
     if (item.tag) {
       if (selectedTag === item.tag) {
         setSelectedTag('');
@@ -676,14 +794,17 @@ function QuickwinsPage({
     }
   };
 
-  const handleTagClick = (tagSlug) => {
-    if (selectedTag === tagSlug) {
-      setSelectedTag('');
-    } else {
-      setSelectedTag(tagSlug);
-      setDraft((prev) => ({ ...prev, title: '' }));
-      setApplied((prev) => ({ ...prev, title: '' }));
+  const handleArchetypeClick = (archetypeId) => {
+    const count = easyPlatinsCounts.archetypes[archetypeId] || 0;
+    if (count === 0 && selectedArchetype !== archetypeId) return;
+    if (selectedArchetype === archetypeId) {
+      setSelectedArchetype('');
+      return;
     }
+    setSelectedArchetype(archetypeId);
+    setSelectedTag('');
+    setDraft((prev) => ({ ...prev, title: '' }));
+    setApplied((prev) => ({ ...prev, title: '' }));
   };
 
   const handleSubmit = (event) => {
@@ -693,6 +814,7 @@ function QuickwinsPage({
 
   const handleReset = () => {
     setSelectedTag('');
+    setSelectedArchetype('');
     commit({ title: '', publisher: '', sort: 'title-asc' }, { replace: true });
   };
 
@@ -857,10 +979,12 @@ function QuickwinsPage({
               {t('easyPlatinsSeriesHeading')}
             </h3>
             <div className="flex flex-wrap gap-2">
-              {EASY_PLATINS_SERIES.map((item) => {
+              {EASY_PLATINS_SERIES.map((item, index) => {
+                const count = easyPlatinsCounts.series[index] || 0;
+                if (count === 0) return null;
                 const isActive = item.tag
-                  ? selectedTag === item.tag
-                  : applied.title === item.title;
+                  ? selectedTag === item.tag && !selectedArchetype
+                  : applied.title === item.title && !selectedArchetype;
                 const displayLabel = item.labelKey ? t(item.labelKey) : item.label;
                 return (
                   <button
@@ -874,6 +998,7 @@ function QuickwinsPage({
                     }
                   >
                     {displayLabel}
+                    <span className="ml-1.5 text-[10px] font-mono tabular-nums opacity-80">({count})</span>
                   </button>
                 );
               })}
@@ -885,21 +1010,28 @@ function QuickwinsPage({
               {t('easyPlatinsSubgenresHeading')}
             </h3>
             <div className="flex flex-wrap gap-2">
-              {EASY_PLATINS_TAGS.map((item) => {
-                const isActive = selectedTag === item.tag;
-                const tagLabel = translateHomeTag(item.tag, copyLocale);
+              {EASY_PLATINS_ARCHETYPES.map((item) => {
+                const count = easyPlatinsCounts.archetypes[item.id] || 0;
+                const isActive = selectedArchetype === item.id;
+                const blocked = count === 0 && !isActive;
+                const label = t(item.labelKey);
                 return (
                   <button
-                    key={item.tag}
+                    key={item.id}
                     type="button"
-                    onClick={() => handleTagClick(item.tag)}
+                    disabled={blocked}
+                    aria-pressed={isActive}
+                    onClick={() => handleArchetypeClick(item.id)}
                     className={
-                      isActive
-                        ? 'rounded-xl border border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66] font-medium px-3 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer'
-                        : 'rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-700 hover:text-white font-medium px-3 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer'
+                      blocked
+                        ? 'rounded-xl border border-zinc-800 bg-zinc-900/40 text-zinc-600 font-medium px-3 py-1.5 text-xs sm:text-sm cursor-not-allowed'
+                        : isActive
+                          ? 'rounded-xl border border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66] font-medium px-3 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer'
+                          : 'rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-700 hover:text-white font-medium px-3 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer'
                     }
                   >
-                    {`${item.icon} ${tagLabel}`}
+                    {`${item.icon} ${label}`}
+                    <span className="ml-1.5 text-[10px] font-mono tabular-nums opacity-80">({count})</span>
                   </button>
                 );
               })}

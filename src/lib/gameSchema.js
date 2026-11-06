@@ -139,6 +139,8 @@ export const HOME_TAGS = {
   POINT_AND_CLICK: 'point_and_click',
   OTOME_ROMANCE: 'otome_romance',
   PSYCH_HORROR: 'psych_horror',
+  /** Easy-Platins-Hub. Keine Startseiten-Reihe. */
+  ARCADE_NOSTALGIA: 'arcade_nostalgia',
 };
 
 /** Tag-Slug → Startseiten-Reihe. Studios/Franchises haben keine Tags. */
