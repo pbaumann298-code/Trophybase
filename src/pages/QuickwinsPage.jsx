@@ -24,6 +24,8 @@ import {
 } from '../lib/routeUtils';
 import CatalogLetterSection from '../components/CatalogLetterSection';
 import PublisherTile from '../components/PublisherTile';
+import EasyPlatinsArchetypeTrack from './EasyPlatinsCatalogPage';
+import { PLAYER_ARCHETYPES } from '../lib/catalogTaxonomy';
 import { normalizeLocale } from '../lib/locale';
 import '../styles/home.css';
 import '../styles/quickwins.css';
@@ -48,51 +50,6 @@ const EASY_PLATINS_SERIES = [
   { label: 'Agatha Christie / Poirot', title: 'Agatha Christie' },
   { label: 'Sherlock Holmes', title: 'Sherlock' },
   { label: 'ACA NEOGEO / Arcade', title: 'ACA NEOGEO' },
-];
-
-const EASY_PLATINS_ARCHETYPES = [
-  {
-    id: 'hidden_object',
-    labelKey: 'easyPlatinsArchetypeHiddenObject',
-    icon: '🔍',
-    tags: ['hidden_object', 'point_and_click'],
-    publishers: ['Artifex Mundi', '8Floor', 'Boomzap', 'Grey Alien'],
-  },
-  {
-    id: 'mystery_crime',
-    labelKey: 'easyPlatinsArchetypeMystery',
-    icon: '🕵️‍♂️',
-    tags: ['mystery_crime'],
-    titleIncludes: ['Agatha Christie', 'Poirot', 'Sherlock', 'Murdered', 'CSI', 'Noire', 'Blacksad'],
-  },
-  {
-    id: 'fmv',
-    labelKey: 'easyPlatinsArchetypeFmv',
-    icon: '🍿',
-    tags: ['fmv'],
-    publishers: ['Wales Interactive', 'Telltale', 'Dontnod', 'Supermassive'],
-  },
-  {
-    id: 'visual_novel',
-    labelKey: 'easyPlatinsArchetypeVisualNovel',
-    icon: '📖',
-    tags: ['visual_novel', 'otome_romance'],
-    titleIncludes: ['Steins', 'Somnium', 'Collar', 'Danganronpa', 'Chaos;Child', 'Root Letter'],
-  },
-  {
-    id: 'family',
-    labelKey: 'easyPlatinsArchetypeFamily',
-    icon: '🧸',
-    tags: ['family', 'platformer', 'indie'],
-  },
-  {
-    id: 'arcade_nostalgia',
-    labelKey: 'easyPlatinsArchetypeArcade',
-    icon: '🕹️',
-    tags: ['arcade_nostalgia'],
-    publishers: ['Hamster Corporation'],
-    titleStartsWith: ['ACA NEOGEO', 'Arcade Archives'],
-  },
 ];
 
 function gameMatchesTag(game, tagSlug) {
@@ -161,7 +118,7 @@ function gameMatchesPublisher(game, publishers) {
 }
 
 function gameMatchesArchetype(game, archetype) {
-  const spec = EASY_PLATINS_ARCHETYPES.find((item) => item.id === archetype);
+  const spec = PLAYER_ARCHETYPES.find((item) => item.id === archetype);
   if (!game || !spec) return false;
   if ((spec.tags ?? []).some((tag) => gameMatchesTag(game, tag))) return true;
   if (gameMatchesPublisher(game, spec.publishers)) return true;
@@ -597,12 +554,12 @@ function QuickwinsPage({
     if (gameType !== GAME_TYPE.EASY_PLATIN) {
       return { archetypes: {}, series: [] };
     }
-    const archetypes = Object.fromEntries(EASY_PLATINS_ARCHETYPES.map((item) => [item.id, 0]));
+    const archetypes = Object.fromEntries(PLAYER_ARCHETYPES.map((item) => [item.id, 0]));
     const series = EASY_PLATINS_SERIES.map((item) => (
       item.tag ? 0 : filterQuickwins(visibleGames, { title: item.title }).length
     ));
     for (const game of visibleGames) {
-      for (const item of EASY_PLATINS_ARCHETYPES) {
+      for (const item of PLAYER_ARCHETYPES) {
         if (gameMatchesArchetype(game, item.id)) archetypes[item.id] += 1;
       }
       EASY_PLATINS_SERIES.forEach((item, index) => {
@@ -1009,33 +966,11 @@ function QuickwinsPage({
             <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-400 mb-2">
               {t('easyPlatinsSubgenresHeading')}
             </h3>
-            <div className="flex flex-wrap gap-2">
-              {EASY_PLATINS_ARCHETYPES.map((item) => {
-                const count = easyPlatinsCounts.archetypes[item.id] || 0;
-                const isActive = selectedArchetype === item.id;
-                const blocked = count === 0 && !isActive;
-                const label = t(item.labelKey);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    disabled={blocked}
-                    aria-pressed={isActive}
-                    onClick={() => handleArchetypeClick(item.id)}
-                    className={
-                      blocked
-                        ? 'rounded-xl border border-zinc-800 bg-zinc-900/40 text-zinc-600 font-medium px-3 py-1.5 text-xs sm:text-sm cursor-not-allowed'
-                        : isActive
-                          ? 'rounded-xl border border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66] font-medium px-3 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer'
-                          : 'rounded-xl border border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-zinc-700 hover:text-white font-medium px-3 py-1.5 text-xs sm:text-sm transition-colors cursor-pointer'
-                    }
-                  >
-                    {`${item.icon} ${label}`}
-                    <span className="ml-1.5 text-[10px] font-mono tabular-nums opacity-80">({count})</span>
-                  </button>
-                );
-              })}
-            </div>
+            <EasyPlatinsArchetypeTrack
+              counts={easyPlatinsCounts.archetypes}
+              selectedId={selectedArchetype}
+              onSelect={handleArchetypeClick}
+            />
           </div>
         </div>
       )}

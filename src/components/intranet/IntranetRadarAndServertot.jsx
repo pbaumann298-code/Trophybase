@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
+import IntranetKrankenstation from './IntranetKrankenstation';
 import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { getPlatformGameId, isUuid } from '../../lib/gameModel';
 import { buildSupabaseTableUrl } from '../../lib/supabaseDeepLink';
@@ -110,6 +111,7 @@ const SICKBAY_TABS = [
   { id: 'servertot', label: 'Servertot', icon: '💀' },
   { id: 'covers', label: 'Cover-Fehler', icon: '🖼️' },
   { id: 'reports', label: 'Fehlermeldungen', icon: '⚑' },
+  { id: 'denglisch', label: 'DE-Guides mit EN-Text (Denglisch-Check)', icon: '🇬🇧/🇩🇪' },
 ];
 
 /** Schwere jsonb-Felder, erst beim Auswählen eines Spiels nachgeladen. */
@@ -886,6 +888,8 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
   const isSickbayMode = mode === 'servertot';
   const config = MODES[mode] ?? MODES.d_freigabe;
   const [sickbayTab, setSickbayTab] = useState('servertot');
+  const [denglischCount, setDenglischCount] = useState(0);
+  const [denglischReload, setDenglischReload] = useState(0);
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [truncated, setTruncated] = useState(false);
@@ -1571,8 +1575,9 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
       servertot: servertotTabCount,
       covers: coverCountsState.all,
       reports: reportCounts.pending,
+      denglisch: denglischCount,
     }),
-    [servertotTabCount, coverCountsState.all, reportCounts.pending],
+    [servertotTabCount, coverCountsState.all, reportCounts.pending, denglischCount],
   );
 
   const href = activeGame ? intranetGameHref(activeGame) : '';
@@ -1606,7 +1611,13 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
           ) : null}
           <button
             type="button"
-            onClick={() => reload()}
+            onClick={() => {
+              if (isSickbayMode && sickbayTab === 'denglisch') {
+                setDenglischReload((nonce) => nonce + 1);
+                return;
+              }
+              reload();
+            }}
             disabled={loading || coversLoading || reportsLoading}
             className="rounded border border-zinc-800 px-2 py-1 font-bold uppercase tracking-wider hover:text-zinc-200 disabled:opacity-50"
           >
@@ -1615,7 +1626,7 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
         </div>
       </header>
 
-      {/* 3 Umschalt-Tabs der Krankenstation (jeweils mit Anzahl-Badge) */}
+      {/* Umschalt-Tabs der Krankenstation (jeweils mit Anzahl-Badge) */}
       {isSickbayMode ? (
         <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 pb-3">
           {SICKBAY_TABS.map((tab) => {
@@ -2096,6 +2107,14 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
             </ul>
           </div>
         </div>
+      ) : null}
+
+      {isSickbayMode && sickbayTab === 'denglisch' ? (
+        <IntranetKrankenstation
+          key={denglischReload}
+          reloadToken={denglischReload}
+          onCount={setDenglischCount}
+        />
       ) : null}
 
       {/* TAB 1: Servertot (bzw. Standard-Ansicht bei d_freigabe) */}

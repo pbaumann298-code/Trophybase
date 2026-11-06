@@ -62,23 +62,17 @@ function hasAnyFilter(filters) {
 
 function CatalogTile({ href, onClick, src, title, linked = false }) {
   const baseClassName =
-    'group flex items-center gap-3.5 p-2.5 sm:p-3 rounded-2xl bg-[#1a1b1c] border border-zinc-800 hover:border-[#00ff66]/45 hover:bg-[#202224] transition shadow-md no-underline';
+    'group flex w-[9.25rem] sm:w-[10.5rem] flex-col overflow-hidden rounded-xl border border-zinc-800 bg-[#1a1b1c] no-underline shadow-md transition hover:-translate-y-0.5 hover:border-[#00ff66]/45';
   const content = (
     <>
       <img
         src={src}
         alt=""
         loading="lazy"
-        className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover flex-shrink-0 border border-zinc-700/80"
+        className="aspect-[3/4] w-full object-cover"
       />
-      <span className="flex-1 min-w-0 text-xs sm:text-sm font-bold text-white group-hover:text-[#00ff66] transition leading-snug">
+      <span className="px-2 py-2 text-[0.7rem] font-semibold leading-snug text-zinc-300 transition group-hover:text-white">
         {title}
-      </span>
-      <span
-        className="text-zinc-500 group-hover:text-[#00ff66] group-hover:translate-x-0.5 transition flex-shrink-0"
-        aria-hidden
-      >
-        →
       </span>
     </>
   );
@@ -273,7 +267,7 @@ function AdvancedSearchPage({
 
       {!hasSearched && (
         <div
-          className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5 mb-2"
+          className="mt-5 mb-2 flex flex-wrap gap-3"
           aria-label={t('advancedSearch')}
         >
           <CatalogTile

@@ -407,4 +407,4 @@ if __name__ == "__main__":
             limit_apps=200, fetch_all_16_langs=all_langs
         )
     else:
-        step1_seed_catalog_from_games(limit_games=500)
+        step1_seed_catalog_from_games(limit_games=5000)
