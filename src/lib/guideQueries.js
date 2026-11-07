@@ -67,7 +67,11 @@ export function mergeGuideRow(row, lang, index = 0) {
   const guideUuid = row[GUIDE_STRUCT.id] ?? null;
   const guideSequence = row[GUIDE_STRUCT.guideId] ?? row.local_id ?? null;
   const itemName = localizeJsonField(row[GUIDE_I18N.itemName], lang, FALLBACK_LANGUAGE);
-  const localisation = localizeJsonField(row[GUIDE_I18N.localisation], lang, FALLBACK_LANGUAGE);
+  const localisation = localizeJsonField(
+    row[GUIDE_I18N.localisation],
+    lang,
+    FALLBACK_LANGUAGE,
+  );
   const localisationSheets = resolveSheetTypes(
     row[GUIDE_I18N.localisationSheet] ?? row.localisation_sheets,
   );

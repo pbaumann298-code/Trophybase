@@ -32,7 +32,7 @@ const ROH_SELECT = [
   GUIDE_STRUCT.guideId,
   GUIDE_I18N.sheetType,
   GUIDE_I18N.itemName,
-  GUIDE_I18N.localisation,
+  `"${GUIDE_I18N.localisation}"`,
   GUIDE_I18N.localisationSheet,
   GUIDE_I18N.chronologicalGroup,
   GUIDE_I18N.categoryGroup,

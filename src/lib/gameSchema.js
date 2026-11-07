@@ -352,8 +352,8 @@ export const GUIDE_STRUCT = {
 export const GUIDE_I18N = {
   sheetType: 'sheet_type',
   itemName: 'item_name',
-  /** Übergeordnetes Gebiet (z. B. Galaxie) – bündelt mehrere *_group-Kacheln */
-  localisation: 'localisation',
+  /** Übergeordnetes Gebiet (z. B. Galaxie). Dieselbe Spalte auf game_guides, Rohmaterial und Staging. */
+  localisation: 'Spiel_region',
   /**
    * JSONB-Array wie sheet_type: in welchen Excel-Reitern localisation gilt
    * (1 Walkthrough, 2 Sammelobjekte, 3 Bosse). Trophäen sind Reiter 0 und
