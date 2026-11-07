@@ -244,12 +244,44 @@ export default function GamingRoomDrawer({
   const labActive = isLabModeActive(sessionUser);
   const { hideSwipeHandles, setHideSwipeHandles } = useUserPreferences();
   const [open, setOpen] = useState(false);
-  const [hubFilter, setHubFilter] = useState(null);
+  const [, setHubFilter] = useState(null);
+  const [selectedPlatforms, setSelectedPlatforms] = useState(() => ['all']);
+  const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState(null);
   const [showcaseOpen, setShowcaseOpen] = useState(false);
   const touchStartRef = useRef(null);
   const rightEdgePointerRef = useRef(null);
   const leftEdgePointerRef = useRef(null);
+
+  const PLATFORM_OPTIONS = [
+    { id: 'all', label: 'Alle Plattformen', icon: '🌐' },
+    { id: 'psn', label: 'PlayStation', icon: '💙' },
+    { id: 'steam', label: 'Steam (Valve)', icon: '🖥️' },
+    { id: 'xbox', label: 'Xbox', icon: '💚' },
+  ];
+
+  const handleTogglePlatform = (id) => {
+    if (id === 'all') {
+      setSelectedPlatforms(['all']);
+      setHubFilter(null);
+      return;
+    }
+
+    let next = selectedPlatforms.filter((p) => p !== 'all');
+    if (next.includes(id)) {
+      next = next.filter((p) => p !== id);
+    } else {
+      next = [...next, id];
+    }
+
+    if (next.length === 0 || next.length === 3) {
+      setSelectedPlatforms(['all']);
+      setHubFilter(null);
+    } else {
+      setSelectedPlatforms(next);
+      setHubFilter(next[0]);
+    }
+  };
 
   const isHomeView = currentView === 'home';
   const isProfileView = currentView === 'profile';
@@ -517,7 +549,6 @@ export default function GamingRoomDrawer({
 
   if (!labActive) return null;
 
-  const activeHub = hubFilter ? HUB_FILTERS[hubFilter] : null;
   const swipeHandlesHidden =
     hideSwipeHandles ||
     (typeof window !== 'undefined' &&
@@ -649,29 +680,47 @@ export default function GamingRoomDrawer({
         </div>
       ) : null}
 
-      {isHomeView && activeHub && !open ? (
-        <div className="fixed left-3 right-3 top-[61px] z-[54] mx-auto flex max-w-4xl items-center justify-between gap-2 rounded-2xl border border-[#00ff66]/40 bg-[#101412]/95 px-3 py-2 shadow-xl shadow-black/40 backdrop-blur-md md:top-[77px]">
-          <p className="min-w-0 truncate font-mono text-xs font-bold text-white">
-            {activeHub.banner}
-          </p>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setHubFilter(null)}
-              className="rounded-lg border border-zinc-700 px-2 py-1 font-mono text-[10px] text-zinc-300 hover:text-white cursor-pointer"
-            >
-              Filter lösen
-            </button>
-            <button
-              type="button"
-              onClick={openRoom}
-              className="rounded-lg bg-[#00ff66] px-2 py-1 font-mono text-[10px] font-bold text-black cursor-pointer"
-            >
-              Zimmer öffnen
-            </button>
-          </div>
+      {isHomeView && !open && (
+        <div className="fixed start-3 top-[65px] md:top-[77px] z-[54] text-xs font-mono">
+          <button
+            type="button"
+            onClick={() => setPlatformDropdownOpen((prev) => !prev)}
+            className="flex items-center gap-2 rounded-xl border border-[#00ff66]/40 bg-[#101412]/95 px-3 py-1.5 text-zinc-200 shadow-xl backdrop-blur-md hover:border-[#00ff66]"
+          >
+            <span className="text-[#00ff66]">Plattform:</span>
+            <span className="font-bold text-white">
+              {selectedPlatforms.includes('all') || selectedPlatforms.length === 3
+                ? 'Alle'
+                : selectedPlatforms.map((p) => p.toUpperCase()).join(' + ')}
+            </span>
+            <span className="text-[10px] text-zinc-400">▾</span>
+          </button>
+
+          {platformDropdownOpen && (
+            <div className="mt-1.5 w-52 rounded-xl border border-zinc-800 bg-[#16181a] p-2 shadow-2xl backdrop-blur-md">
+              {PLATFORM_OPTIONS.map((opt) => {
+                const isChecked = selectedPlatforms.includes(opt.id);
+                return (
+                  <label
+                    key={opt.id}
+                    className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 cursor-pointer select-none"
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => handleTogglePlatform(opt.id)}
+                        className="accent-[#00ff66] rounded"
+                      />
+                      <span>{opt.icon} {opt.label}</span>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </div>
-      ) : null}
+      )}
 
       <div
         className={`fixed inset-0 z-[80] ${open ? 'pointer-events-auto' : 'pointer-events-none'}`}

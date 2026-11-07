@@ -1,6 +1,8 @@
 -- =============================================================================
 -- Startseiten-Reihen in einem Roundtrip (Netflix-Muster, kleiner Katalog)
--- Einmal in der Supabase-SQL-Konsole ausfuehren (als Postgres / SQL-Editor).
+-- Historische SQL-Fassung. Die Live-Funktion ist plpgsql (CTE base_published).
+-- Diese Datei nicht noch einmal ausführen, sonst fällt der Kombi-Filter weg.
+-- Beliebt/Neu inkl. „Evergreen, easy_platin“: home_rails_evergreen_combo.sql.
 -- =============================================================================
 --
 -- Voraussetzung: Index auf (status->>'guide_<lang>') – siehe games_views.sql /

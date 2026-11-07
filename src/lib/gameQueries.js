@@ -7,6 +7,7 @@ import {
   GAME_TYPE,
   HOME_FEATURED_GAME_TYPES,
   isQuickwinStyleType,
+  isEasyPlatinGame,
 } from './gameSchema.js';
 import { GUIDE_PUBLICATION, guideStatusKey } from './guidePublication.js';
 import { getLocale } from './locale.js';
@@ -534,7 +535,8 @@ export function applyStaffGuideScope(query, scope = 'all') {
 
 /**
  * Öffentliche Kataloge (Suche, Startseite): Servertot immer ausblenden.
- * Optional zusätzlich Quickwin / easy_platin.
+ * Optional zusätzlich nur Shovelware (`Quickwin`).
+ * `easy_platin` und Kombi-Typen (`Evergreen, easy_platin`) bleiben in der Suche.
  * Behält Spiele ohne spiel_typ.
  */
 export function applyExcludeQuickwins(query, exclude) {
@@ -543,16 +545,15 @@ export function applyExcludeQuickwins(query, exclude) {
     return query.or(`${column}.is.null,${column}.not.ilike.%${GAME_TYPE.SERVER_DEAD}%`);
   }
   return query.or(
-    `${column}.is.null,and(${column}.not.ilike.%${GAME_TYPE.QUICKWIN}%,${column}.not.ilike.%${GAME_TYPE.EASY_PLATIN}%,${column}.not.ilike.%${GAME_TYPE.SERVER_DEAD}%)`,
+    `${column}.is.null,and(${column}.not.ilike.%${GAME_TYPE.QUICKWIN}%,${column}.not.ilike.%${GAME_TYPE.SERVER_DEAD}%)`,
   );
 }
 
-/** Ähnliche Spiele und neuere Ausgaben: keine Quickwins, easy_platin oder Servertot. */
+/** Ähnliche Spiele und neuere Ausgaben: keine Quickwins oder Servertot. easy_platin bleibt. */
 export function excludeQuickwinStyleTypes(query) {
   const column = GAME_STRUCT.gameType;
   return query
     .not(column, 'ilike', `%${GAME_TYPE.QUICKWIN}%`)
-    .not(column, 'ilike', `%${GAME_TYPE.EASY_PLATIN}%`)
     .not(column, 'ilike', `%${GAME_TYPE.SERVER_DEAD}%`);
 }
 
@@ -1084,7 +1085,10 @@ export async function fetchGamesByType(supabase, gameType, locale = getLocale(),
     let query = supabase
       .from(TABLES.games)
       .select(columns)
-      .ilike(GAME_STRUCT.gameType, `%${gameType}%`);
+      .ilike(
+        GAME_STRUCT.gameType,
+        isEasyPlatinGame(gameType) ? `%${GAME_TYPE.EASY_PLATIN}%` : `%${gameType}%`,
+      );
     query = applyGuideCatalogFilter(query, catalog);
     return query
       .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })

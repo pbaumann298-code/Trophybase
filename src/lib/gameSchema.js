@@ -176,7 +176,7 @@ export const HOME_TAG_RAILS = {
 /** Werte von games.spiel_typ */
 export const GAME_TYPE = {
   QUICKWIN: 'Quickwin',
-  /** Wie Quickwin: online möglich, noindex, noch ohne eigene Übersicht. */
+  /** Vollwertiges Spiel mit eigener Hub-Seite. Bleibt in der globalen Suche. */
   EASY_PLATIN: 'easy_platin',
   EVERGREEN: 'Evergreen',
   PREMIUM: 'Premium',
@@ -255,15 +255,30 @@ export function computeIsIndexable(gameTypeInput) {
   return types.some((t) => INDEXABLE_GAME_TYPES.has(t));
 }
 
-/** Quickwin und easy_platin: in der normalen Suche ausblendbar.
- * Gibt nur dann true zurück, wenn Quickwin oder easy_platin enthalten ist
- * UND KEINER der höherwertigen Typen (Evergreen, Premium, Standard) im Array enthalten ist.
+/**
+ * Shovelware (`Quickwin`) ohne höherwertigen Typ.
+ * `easy_platin` ist ein vollwertiges Spiel und bleibt in Suche und Katalog,
+ * auch als Kombi wie `Evergreen, easy_platin`.
+ * true nur, wenn `Quickwin` enthalten ist und weder Evergreen, Premium noch Standard.
  */
 export function isQuickwinStyleType(gameType) {
   const types = parseGameTypes(gameType);
-  const hasQuickwinStyle = types.includes(GAME_TYPE.QUICKWIN) || types.includes(GAME_TYPE.EASY_PLATIN);
+  const hasQuickwin = types.includes(GAME_TYPE.QUICKWIN);
   const hasFeatured = types.some((t) => INDEXABLE_GAME_TYPES.has(t));
-  return hasQuickwinStyle && !hasFeatured;
+  return hasQuickwin && !hasFeatured;
+}
+
+/**
+ * true, sobald `easy_platin` einer der (kommagetrennten) Spieltypen ist.
+ * @param {unknown} gameOrType Spielzeile oder roher `spiel_typ`
+ */
+export function isEasyPlatinGame(gameOrType) {
+  const raw = gameOrType && typeof gameOrType === 'object'
+    ? (gameOrType.spiel_typ ?? gameOrType.gameType)
+    : gameOrType;
+  return parseGameTypes(raw).some(
+    (entry) => entry.toLowerCase() === GAME_TYPE.EASY_PLATIN,
+  );
 }
 
 /** Servertot: nur Unobtainable-Platins-Seite, nirgends sonst verlinkt. */

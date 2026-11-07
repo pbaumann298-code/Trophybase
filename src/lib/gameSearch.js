@@ -9,13 +9,13 @@ import {
 import { findHomeCategoryForQuery, searchHomeCategory } from './homeCategories';
 import { getLocale } from './locale';
 
-/** Suchreihenfolge: Evergreen, Premium, Standard, danach Quickwins (Servertot nie in der Suche). */
+/** Suchreihenfolge: Evergreen, Premium, Standard und easy_platin, danach nur Quickwins. */
 const SEARCH_TYPE_RANK = {
   [GAME_TYPE.EVERGREEN]: 0,
   [GAME_TYPE.PREMIUM]: 1,
   [GAME_TYPE.STANDARD]: 2,
+  [GAME_TYPE.EASY_PLATIN]: 2,
   [GAME_TYPE.QUICKWIN]: 3,
-  [GAME_TYPE.EASY_PLATIN]: 3,
 };
 
 function searchTypeRank(game) {

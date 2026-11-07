@@ -217,9 +217,25 @@ function GameTile({
             🎬 Video-Roadmap (Entwurf)
           </span>
         ) : null}
-        {showConsole && consoleLabel ? (
-          <span className="home-tile-badge tb-bidi-isolate" dir="ltr">{consoleLabel}</span>
-        ) : null}
+        {showConsole && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {consoleLabel ? (
+              <span className="home-tile-badge tb-bidi-isolate text-sky-400 border-sky-500/30" dir="ltr">
+                {consoleLabel}
+              </span>
+            ) : null}
+            {(effectiveGame?.steam_app_id || effectiveGame?.platforms?.includes('Steam')) ? (
+              <span className="home-tile-badge text-emerald-400 border-emerald-500/30">
+                Steam
+              </span>
+            ) : null}
+            {effectiveGame?.platforms?.includes('Xbox') ? (
+              <span className="home-tile-badge text-green-400 border-green-500/30">
+                Xbox
+              </span>
+            ) : null}
+          </div>
+        )}
       </div>
     </article>
   );

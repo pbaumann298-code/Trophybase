@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import HeaderSettingsMenu from './HeaderSettingsMenu';
 import {
   fetchMyCreatorProfile,
-  getAdminReturnUrl,
-  hasAdminReturnFlag,
   isAdminUser,
   isStaffOrPreviewContext,
   readDraftReturnContext,
@@ -25,9 +23,7 @@ function Header({
   const [draftReturnCtx] = useState(() =>
     staffOrPreview ? readDraftReturnContext() : null
   );
-  const isLoggedIn = Boolean(sessionUser);
   const isAdmin = isAdminUser(sessionUser, { allowPublic: true });
-  const showStaffReturn = isAdmin && (staffOrPreview || hasAdminReturnFlag());
   const [creatorProfile, setCreatorProfile] = useState(null);
 
   useEffect(() => {
@@ -76,18 +72,6 @@ function Header({
       </a>
 
       <div className="site-header-right relative z-20 ms-auto flex h-full min-w-0 shrink-0 items-center gap-2 pe-4 md:pe-6 ps-2">
-        {isLoggedIn ? (
-          <a
-            href={PROFILE_PATH}
-            onClick={(e) => {
-              e.preventDefault();
-              onOpenProfile?.();
-            }}
-            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-[#00ff66] bg-[#00ff66]/10 hover:bg-[#00ff66]/20 border border-[#00ff66]/40 px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline backdrop-blur-sm shadow-xs"
-          >
-            🏆 Mein Cockpit
-          </a>
-        ) : null}
         {staffOrPreview && draftReturnCtx?.gameId ? (
           <a
             href={draftReturnCtx.staffPath || '/intranet.html#entwuerfe'}
@@ -102,22 +86,6 @@ function Header({
             {draftReturnCtx.title
               ? `: ${draftReturnCtx.title.length > 20 ? `${draftReturnCtx.title.slice(0, 20)}…` : draftReturnCtx.title}`
               : ''}
-          </a>
-        ) : null}
-        {showStaffReturn ? (
-          <a
-            href={getAdminReturnUrl('/intranet.html')}
-            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 rounded-lg transition whitespace-nowrap no-underline"
-          >
-            🛠️ Intranet / Admin
-          </a>
-        ) : null}
-        {!isAdmin && creatorProfile?.id ? (
-          <a
-            href="/intranet.html"
-            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 rounded-lg transition whitespace-nowrap no-underline"
-          >
-            🎬 Creator Studio
           </a>
         ) : null}
         <HeaderSettingsMenu
