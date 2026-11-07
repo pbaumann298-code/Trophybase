@@ -209,51 +209,44 @@ function HeaderSettingsMenu({
             </>
           ) : null}
 
-          <p className="px-3 pb-1 pt-0.5 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-            {t('settingsHiddenItems')}
-          </p>
-          <button
-            type="button"
-            role="menuitemradio"
-            aria-checked={isDim}
-            className={`flex w-full items-start gap-2 px-3 py-2 text-left text-xs transition ${
-              isDim
-                ? 'bg-[#00ff66]/10 text-[#00ff66]'
-                : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-white'
-            }`}
-            onClick={() => choose(modes.DIM)}
-          >
-            <span className="mt-0.5 w-3 flex-shrink-0 font-mono" aria-hidden>
-              {isDim ? '●' : '○'}
+          <div className="px-2 py-1 flex flex-col gap-1.5">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
+              {t('settingsHiddenItems')}
             </span>
-            <span>
-              <span className="block font-semibold">{t('settingsShowHidden')}</span>
-              <span className="mt-0.5 block text-[10px] leading-snug text-zinc-500">
-                {t('settingsShowHiddenHint')}
-              </span>
-            </span>
-          </button>
-          <button
-            type="button"
-            role="menuitemradio"
-            aria-checked={!isDim}
-            className={`flex w-full items-start gap-2 px-3 py-2 text-left text-xs transition ${
-              !isDim
-                ? 'bg-[#00ff66]/10 text-[#00ff66]'
-                : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-white'
-            }`}
-            onClick={() => choose(modes.FILTER)}
-          >
-            <span className="mt-0.5 w-3 flex-shrink-0 font-mono" aria-hidden>
-              {!isDim ? '●' : '○'}
-            </span>
-            <span>
-              <span className="block font-semibold">{t('settingsHideHidden')}</span>
-              <span className="mt-0.5 block text-[10px] leading-snug text-zinc-500">
-                {t('settingsHideHiddenHint')}
-              </span>
-            </span>
-          </button>
+
+            <div className="grid grid-cols-2 gap-1 rounded-xl bg-zinc-900/90 p-1 border border-zinc-800">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isDim}
+                onClick={() => choose(modes.DIM)}
+                className={`rounded-lg py-2 px-2 font-mono text-[11px] font-extrabold uppercase tracking-wider transition cursor-pointer text-center ${
+                  isDim
+                    ? 'bg-[#00ff66] text-black shadow-sm'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                {t('settingsShowHidden')}
+              </button>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!isDim}
+                onClick={() => choose(modes.FILTER)}
+                className={`rounded-lg py-2 px-2 font-mono text-[11px] font-extrabold uppercase tracking-wider transition cursor-pointer text-center ${
+                  !isDim
+                    ? 'bg-[#00ff66] text-black shadow-sm'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                {t('settingsHideHidden')}
+              </button>
+            </div>
+
+            <p className="px-1 text-[10px] text-zinc-500 leading-snug">
+              {isDim ? t('settingsShowHiddenHint') : t('settingsHideHiddenHint')}
+            </p>
+          </div>
 
           <div className="my-1.5 border-t border-zinc-800" role="separator" />
 

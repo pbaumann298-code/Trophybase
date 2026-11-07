@@ -5412,7 +5412,8 @@ export default function IntranetDrafts({
     }
   };
 
-  // Multi-Item-Zeile am Komma in Einzelzeilen direkt unter dem Original zerlegen.
+  // Multi-Item-Zeile an Komma, Semikolon oder Zeilenumbruch in Einzelzeilen zerlegen.
+  // Ein Präfix vor dem ersten Komma (z. B. "Kapitel 1: Item A, Item B") bleibt am ersten Item.
   // Reihenfolge und guide_id 1..N stehen fest, bevor irgendetwas geschrieben wird.
   const handleSplitRowsByComma = async (targetRows) => {
     if (actionBusy) return;
@@ -5433,7 +5434,12 @@ export default function IntranetDrafts({
 
       const tableName = row._sourceTable || 'staging_game_guides';
       const rawName = getLocalizedItemName(row.item_name);
-      const parts = rawName.split(',').map((part) => part.trim()).filter(Boolean);
+
+      const parts = rawName
+        .split(/[,;\n]/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+
       if (parts.length < 2 || !isEditableDraftTable(tableName)) {
         expandedPlan.push({
           kind: 'existing',
@@ -5449,6 +5455,7 @@ export default function IntranetDrafts({
         newItemName: parts[0],
         itemChanged: true,
       });
+
       for (const part of parts.slice(1)) {
         expandedPlan.push({
           kind: 'insert',
@@ -5460,7 +5467,7 @@ export default function IntranetDrafts({
 
     const insertEntries = expandedPlan.filter((entry) => entry.kind === 'insert');
     if (insertEntries.length === 0) {
-      setNotice('Keine der Zeilen enthält mehrere Komma-getrennte Items.');
+      setNotice('Keine der Zeilen enthält mehrere trennbare Items (Komma/Semikolon).');
       return;
     }
 
@@ -5470,7 +5477,7 @@ export default function IntranetDrafts({
 
     setActionBusy(true);
     setError('');
-    setNotice('Zerlege Komma-Zeilen…');
+    setNotice('Zerlege Zeilen…');
 
     try {
       const insertsByTable = new Map();
@@ -5482,8 +5489,13 @@ export default function IntranetDrafts({
           guideId: entry.newGuideId,
           itemName: entry.newItemName,
         });
+
+        delete payload._sourceTable;
+        delete payload.id;
+
         payload.item_name = formatFieldValueForTable(entry.templateRow, 'item_name', entry.newItemName);
         payload.guide_id = formatFieldValueForTable(entry.templateRow, 'guide_id', entry.newGuideId);
+
         const list = insertsByTable.get(tableName) || [];
         list.push(payload);
         insertsByTable.set(tableName, list);
@@ -5492,29 +5504,17 @@ export default function IntranetDrafts({
       const insertedRows = [];
       for (const [tableName, payloads] of insertsByTable.entries()) {
         const inserted = await insertGuideRows(tableName, payloads);
-        const consumed = new Set();
-        for (const payload of payloads) {
-          const matchIndex = inserted.findIndex((row, index) => (
-            !consumed.has(index) && String(row.guide_id) === String(payload.guide_id)
-          ));
-          if (matchIndex < 0) {
-            throw new Error(`Neue Zeile mit guide_id ${payload.guide_id} wurde nicht zurückgegeben.`);
-          }
-          consumed.add(matchIndex);
-          insertedRows.push({ ...inserted[matchIndex], _sourceTable: tableName });
-        }
+        insertedRows.push(...inserted.map((row) => ({ ...row, _sourceTable: tableName })));
       }
 
-      const existingToPatch = expandedPlan.filter((entry) => (
-        entry.kind === 'existing'
-        && (
-          entry.itemChanged
-          || String(entry.row.guide_id) !== String(entry.newGuideId)
-        )
-      ));
+      const existingToPatch = expandedPlan.filter(
+        (entry) =>
+          entry.kind === 'existing' &&
+          (entry.itemChanged || String(entry.row.guide_id) !== String(entry.newGuideId)),
+      );
+
       if (existingToPatch.length > 0) {
         const patchById = new Map(existingToPatch.map((entry) => [entry.row.id, entry]));
-        // Höhere neue IDs zuerst, damit nachrückende Zeilen keine belegte guide_id überschreiben.
         const orderedPatches = [...existingToPatch].sort((a, b) => b.newGuideId - a.newGuideId);
         await persistRowPatchesToSupabase(
           orderedPatches.map((entry) => entry.row),
@@ -5535,6 +5535,7 @@ export default function IntranetDrafts({
 
       const stagingInserted = insertedRows.filter((row) => row._sourceTable === 'staging_game_guides');
       const rohInserted = insertedRows.filter((row) => row._sourceTable === TABLES.guidesRohmaterial);
+
       if (stagingInserted.length > 0) {
         setStagingRows((prev) => prev.concat(stagingInserted));
         if (selectedGameId) {
@@ -5562,10 +5563,10 @@ export default function IntranetDrafts({
       setSortField('guide_id');
       setSortDirection('asc');
       setSelectedRowIds(new Set());
-      setNotice(`✂️ ${splitSourceCount} Zeile(n) in ${splitSourceCount + insertedRows.length} Einzelzeilen zerlegt. Guide-IDs neu von 1 bis ${expandedPlan.length}.`);
+      setNotice(`✂️ ${splitSourceCount} Zeile(n) in ${splitSourceCount + insertedRows.length} Einzelzeilen zerlegt.`);
     } catch (err) {
-      console.error(err);
-      setError(`Zerlegen am Komma fehlgeschlagen: ${err.message || err}`);
+      console.error('Fehler bei handleSplitRowsByComma:', err);
+      setError(`Zerlegen fehlgeschlagen: ${err.message || err}`);
       setNotice('');
     } finally {
       setActionBusy(false);
