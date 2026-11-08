@@ -1,14 +1,17 @@
 import {
   GAME_FK,
   GAME_PK,
+  GAME_PLATFORM_ID,
   GAME_STRUCT,
   GUIDE_I18N,
+  GUIDE_PK,
   GUIDE_SHEET_TYPE,
   GUIDE_STRUCT,
   TABLES,
   hasSheetType,
+  resolveSheetTypes,
 } from './gameSchema';
-import { getGameUuid, getPlatformGameIds } from './gameModel';
+import { getGameUuid, getPlatformGameId, getPlatformGameIds } from './gameModel';
 import { mergeGuideRow } from './guideQueries';
 import {
   GUIDE_PUBLICATION,
@@ -363,4 +366,189 @@ export async function fetchAllRohmaterialOverview(supabase) {
   );
 
   return { data: overview, error: null };
+}
+
+const MULTI_TAB_PAGE = 1000;
+const MULTI_TAB_INSERT_CHUNK = 500;
+const MULTI_TAB_CREATOR_FALLBACK = 'Redaktion';
+
+function jsonbObjectOrNull(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return Object.keys(value).length > 0 ? value : null;
+}
+
+function statusForMultiTabMove(currentStatus) {
+  const statusMap = { ...parseStatusMap(currentStatus) };
+  for (const [key, value] of Object.entries(statusMap)) {
+    if (!key.startsWith('guide_')) continue;
+    const upper = String(value ?? '').trim().toUpperCase();
+    if (upper === GUIDE_PUBLICATION.PUBLISHED || upper === 'READY') {
+      statusMap[key] = GUIDE_PUBLICATION.DONE;
+    }
+  }
+  statusMap.publish_status = GUIDE_PUBLICATION.DONE;
+  statusMap.rohmaterial = 'PENDING_MULTI_TAB';
+  return statusMap;
+}
+
+/**
+ * Baut game_guides-Zeilen in das JSONB-Schema von game_guides_rohmaterial um.
+ * 0 Live-Zeilen ergeben eine Platzhalterzeile, damit das Spiel in der Queue erscheint.
+ * @param {{ gameId: string, game: object, guideRows: object[], creatorsById: Map<string, { channel_name?: string, youtube_url?: string }>, batchKey: string }} params
+ */
+export function buildMultiTabRows({ gameId, game, guideRows, creatorsById, batchKey }) {
+  const fallbackPlatformId = getPlatformGameId(game) || '';
+  const sourceRows = guideRows.length > 0 ? guideRows : [null];
+
+  return sourceRows.map((row, index) => {
+    const creator = row
+      ? creatorsById.get(String(row[GUIDE_STRUCT.creatorId] ?? '').trim())
+      : null;
+    const guideId = String(row?.[GUIDE_STRUCT.guideId] ?? '').trim() || String(index + 1);
+    const trophyId = String(row?.[GUIDE_STRUCT.trophyId] ?? '').trim();
+    const regionTab = resolveSheetTypes(row?.[GUIDE_I18N.spielRegionTab]);
+    const label = row ? `Schritt ${index + 1}` : 'Überarbeitung / Start';
+
+    return {
+      batch_key: batchKey,
+      batch_status: 'OPEN',
+      [GAME_FK]: gameId,
+      [GUIDE_STRUCT.platformGameId]: row?.[GUIDE_STRUCT.platformGameId] || fallbackPlatformId,
+      [GUIDE_STRUCT.creatorId]: row?.[GUIDE_STRUCT.creatorId] || null,
+      creator_name: creator?.channel_name || MULTI_TAB_CREATOR_FALLBACK,
+      playlist_url: creator?.youtube_url || row?.[GUIDE_STRUCT.videoUrl] || null,
+      [GUIDE_STRUCT.guideId]: guideId,
+      [GUIDE_I18N.sheetType]: sheetTypesOrWalkthrough(row?.[GUIDE_I18N.sheetType]),
+      [GUIDE_I18N.itemName]: jsonbObjectOrNull(row?.[GUIDE_I18N.itemName]) || { de: label },
+      [GUIDE_I18N.spielRegion]: jsonbObjectOrNull(row?.[GUIDE_I18N.spielRegion]),
+      [GUIDE_I18N.spielRegionTab]: regionTab.length > 0 ? regionTab : null,
+      [GUIDE_I18N.chronologicalGroup]: jsonbObjectOrNull(row?.[GUIDE_I18N.chronologicalGroup]),
+      [GUIDE_I18N.categoryGroup]: jsonbObjectOrNull(row?.[GUIDE_I18N.categoryGroup]),
+      [GUIDE_I18N.bossGroup]: jsonbObjectOrNull(row?.[GUIDE_I18N.bossGroup]),
+      [GUIDE_I18N.videoChapter]: jsonbObjectOrNull(row?.[GUIDE_I18N.videoChapter]),
+      [GUIDE_STRUCT.timestamp]: row?.[GUIDE_STRUCT.timestamp] || null,
+      [GUIDE_STRUCT.videoUrl]: row?.[GUIDE_STRUCT.videoUrl] || null,
+      [GUIDE_STRUCT.trophyId]: trophyId || null,
+      [GUIDE_STRUCT.isTrophyRelevant]: row?.[GUIDE_STRUCT.isTrophyRelevant] || null,
+    };
+  });
+}
+
+function sheetTypesOrWalkthrough(value) {
+  const types = resolveSheetTypes(value);
+  return types.length > 0 ? types : [GUIDE_SHEET_TYPE.WALKTHROUGH];
+}
+
+/**
+ * Schiebt ein Spiel aus public.game_guides in die Multi-Tab-Tabelle
+ * (game_guides_rohmaterial) und nimmt einen veröffentlichten Guide offline.
+ * Liegen schon Rohmaterial-Zeilen, wird nichts doppelt angelegt.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ * @returns {Promise<{ ok: boolean, alreadyThere: boolean, movedCount: number, error: Error|null }>}
+ */
+export async function moveGameToMultiTab(supabase, gameId) {
+  const id = String(gameId ?? '').trim();
+  const fail = (error) => ({ ok: false, alreadyThere: false, movedCount: 0, error });
+  if (!id) return fail(new Error('Kein Spiel ausgewählt.'));
+
+  const { count: existingCount, error: existingError } = await supabase
+    .from(TABLES.guidesRohmaterial)
+    .select('id', { count: 'exact', head: true })
+    .eq(GAME_FK, id);
+  if (existingError) return fail(existingError);
+  if ((existingCount ?? 0) > 0) {
+    return { ok: true, alreadyThere: true, movedCount: existingCount ?? 0, error: null };
+  }
+
+  const { data: game, error: gameError } = await supabase
+    .from(TABLES.games)
+    .select(
+      `${GAME_PK}, ${GAME_PLATFORM_ID}, ${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}, ${GAME_STRUCT.progress}, ${GAME_STRUCT.isGuideLocked}`,
+    )
+    .eq(GAME_PK, id)
+    .maybeSingle();
+  if (gameError) return fail(gameError);
+  if (!game) return fail(new Error('Spiel nicht gefunden.'));
+
+  const guideRows = [];
+  for (let from = 0; ; from += MULTI_TAB_PAGE) {
+    const { data, error } = await supabase
+      .from(TABLES.guides)
+      .select('*')
+      .eq(GAME_FK, id)
+      .order(GUIDE_PK, { ascending: true })
+      .range(from, from + MULTI_TAB_PAGE - 1);
+    if (error) return fail(error);
+    guideRows.push(...(data ?? []));
+    if ((data ?? []).length < MULTI_TAB_PAGE) break;
+  }
+
+  const creatorIds = [
+    ...new Set(
+      guideRows.map((row) => String(row[GUIDE_STRUCT.creatorId] ?? '').trim()).filter(Boolean),
+    ),
+  ];
+  const creatorsById = new Map();
+  if (creatorIds.length > 0) {
+    const { data: creators, error: creatorError } = await supabase
+      .from(TABLES.contentCreators)
+      .select('id, channel_name, youtube_url')
+      .in('id', creatorIds);
+    if (creatorError) return fail(creatorError);
+    for (const creator of creators ?? []) creatorsById.set(String(creator.id), creator);
+  }
+
+  const nextStatus = statusForMultiTabMove(game[GAME_STRUCT.status]);
+  const unlockPatch = {
+    [GAME_STRUCT.isGuideLocked]: false,
+    [GAME_STRUCT.status]: nextStatus,
+    [GAME_STRUCT.publishingStatus]: {},
+    [GAME_STRUCT.publishedLocales]: [],
+  };
+  if (String(game[GAME_STRUCT.progress] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.PUBLISHED) {
+    unlockPatch[GAME_STRUCT.progress] = GUIDE_PUBLICATION.DONE;
+  }
+  const { error: unlockError } = await supabase
+    .from(TABLES.games)
+    .update(unlockPatch)
+    .eq(GAME_PK, id);
+  if (unlockError) return fail(unlockError);
+
+  const batchKey = `detail_${id.slice(0, 8)}_${Date.now()}`;
+  const rohRows = buildMultiTabRows({
+    gameId: id,
+    game,
+    guideRows,
+    creatorsById,
+    batchKey,
+  });
+
+  for (let index = 0; index < rohRows.length; index += MULTI_TAB_INSERT_CHUNK) {
+    const chunk = rohRows.slice(index, index + MULTI_TAB_INSERT_CHUNK);
+    const { error: insertError } = await supabase.from(TABLES.guidesRohmaterial).insert(chunk);
+    if (insertError) {
+      await supabase.from(TABLES.guidesRohmaterial).delete().eq('batch_key', batchKey);
+      return fail(insertError);
+    }
+  }
+
+  const { count: insertedCount, error: verifyError } = await supabase
+    .from(TABLES.guidesRohmaterial)
+    .select('id', { count: 'exact', head: true })
+    .eq('batch_key', batchKey);
+  if (verifyError || !insertedCount) {
+    await supabase.from(TABLES.guidesRohmaterial).delete().eq('batch_key', batchKey);
+    return fail(verifyError || new Error('Die Multi-Tab-Tabelle hat keine Zeilen übernommen.'));
+  }
+
+  if (guideRows.length > 0) {
+    const { error: deleteError } = await supabase.from(TABLES.guides).delete().eq(GAME_FK, id);
+    if (deleteError) {
+      await supabase.from(TABLES.guidesRohmaterial).delete().eq('batch_key', batchKey);
+      return fail(deleteError);
+    }
+  }
+
+  return { ok: true, alreadyThere: false, movedCount: insertedCount, error: null };
 }

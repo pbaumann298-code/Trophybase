@@ -27,7 +27,7 @@ else:
 # WELLEN-KONFIGURATION (Hier umschalten oder per CLI übergeben: python skript.py wave2)
 # =============================================================================
 WAVES = {
-    "wave1": ["de", "en", "es", "pt"],
+    "wave1": ["de", "en", "es", "pt", "fr", "it", "nl", "pl", "ru", "sv", "fi", "ar"],
     "wave2": ["fr", "it", "nl", "pl", "ru", "sv", "fi", "ar"],
     "wave3": ["ja", "ko", "zh-hans", "zh-hant"],
     "all": [

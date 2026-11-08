@@ -12,6 +12,7 @@ import WatchlistButton from '../components/WatchlistButton';
 import ShareButton from '../components/ShareButton';
 import GuidePublishButton from '../components/GuidePublishButton';
 import AdminFollowupButton from '../components/AdminFollowupButton';
+import AdminMoveToMultiTabButton from '../components/AdminMoveToMultiTabButton';
 import AdminGameTypeSelect from '../components/AdminGameTypeSelect';
 import AdminHardwareSelect from '../components/AdminHardwareSelect';
 import GuideOnlineBadge from '../components/GuideOnlineBadge';
@@ -1375,6 +1376,7 @@ function GamePageContent({
                         }
                       />
                       <AdminFollowupButton user={sessionUser} gameId={gameUuid} />
+                      <AdminMoveToMultiTabButton user={sessionUser} gameId={gameUuid} />
                     </div>
                   </div>
 
