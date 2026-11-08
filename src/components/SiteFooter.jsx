@@ -1,4 +1,4 @@
-import { TRADEMARK_DISCLAIMER } from '../lib/legalConfig';
+import { LEGAL, TRADEMARK_DISCLAIMER } from '../lib/legalConfig';
 import { useLocale } from '../context/LocaleContext';
 
 function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy, onOpenHelp }) {
@@ -13,7 +13,7 @@ function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy, onOpenHelp }) {
         {t('fairUseNote')}
       </p>
       <div className="flex flex-col sm:flex-row flex-wrap justify-between items-start sm:items-center gap-4">
-        <nav className="flex flex-wrap gap-4 sm:gap-6 min-w-0" aria-label="Rechtliches">
+        <nav className="flex flex-wrap gap-4 sm:gap-6 min-w-0" aria-label="Rechtliches & Kontakt">
           <a
             href="/impressum"
             className="hover:text-zinc-300 transition"
@@ -44,6 +44,22 @@ function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy, onOpenHelp }) {
           >
             {t('howTo')}
           </a>
+          <a
+            href={`mailto:${LEGAL.supportEmail || LEGAL.email}`}
+            className="hover:text-[#00ff66] transition font-mono"
+            title="Support & Kontakt per E-Mail"
+          >
+            ✉ {LEGAL.supportEmail || LEGAL.email}
+          </a>
+          {LEGAL.creatorEmail ? (
+            <a
+              href={`mailto:${LEGAL.creatorEmail}`}
+              className="hover:text-[#00ff66] transition font-mono"
+              title="Anfragen für Content Creator & Video-Guides"
+            >
+              🎬 {LEGAL.creatorEmail}
+            </a>
+          ) : null}
         </nav>
         <div className="flex items-center gap-2 font-mono text-[11px] min-w-0 max-w-full">
           <span

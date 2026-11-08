@@ -39,25 +39,24 @@ export async function fetchProfile(supabase, userId) {
 }
 
 /**
- * Prüft, ob eine PSN-ID bereits einem anderen Account gehört.
+ * Prüft über die gekapselte RPC tb_is_psn_id_taken, ob eine PSN-ID bereits vergeben ist,
+ * ohne fremde Zeilen aus public.profiles für SELECT freizugeben.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} userId
  * @param {string} psnId
  */
 export async function isPsnIdTakenByOther(supabase, userId, psnId) {
+  void userId;
   const normalized = normalizePsnId(psnId);
   if (!normalized) return { taken: false, error: null };
 
-  const { data, error } = await supabase
-    .from(TABLES.profiles)
-    .select('id')
-    .ilike('psn_id', normalized)
-    .neq('id', userId)
-    .limit(1);
+  const { data, error } = await supabase.rpc('tb_is_psn_id_taken', {
+    p_psn_id: normalized,
+  });
 
   if (error) return { taken: false, error };
 
-  return { taken: (data ?? []).length > 0, error: null };
+  return { taken: Boolean(data), error: null };
 }
 
 /**

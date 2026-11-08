@@ -6,19 +6,21 @@
 export const LEGAL = {
   siteName: 'TrophyBase.app',
   siteUrl: 'https://trophybase.app',
-  lastUpdated: '2026-08-29',
+  lastUpdated: '2026-11-08',
 
   name: 'TrophyBase GmbH & Co. KG',
   street: 'Adolfstraße 1',
   zipCity: '01139 Dresden',
   country: 'Deutschland',
   email: 'info@trophybase.app',
-  phone: '0172/6050475',
+  supportEmail: 'support@trophybase.app',
+  creatorEmail: 'creator@trophybase.app',
+  phone: '', // Bewusst leer: blendet die Telefonzeile im Impressum automatisch aus
 
   legalForm: 'GmbH & Co. KG',
   registerCourt: 'Amtsgericht Dresden',
   registerNumber: 'HRA 12564',
-  vatId: '',
+  vatId: '', // Wird erst eingetragen, sobald die DE-USt-IdNr. vom BZSt vorliegt
 
   complementaryCompany: 'TrophyBase Verwaltungs GmbH',
   complementaryRegisterCourt: 'Amtsgericht Dresden',

@@ -64,17 +64,29 @@ export function LegalNoticePage({ onBack }) {
         {LEGAL.vatId ? <p>USt-IdNr.: {LEGAL.vatId}</p> : null}
       </Section>
 
-      <Section title="Kontakt">
+      <Section title="Kontakt & elektronische Kommunikation">
         <p>
-          E-Mail:{' '}
-          {isLegalPlaceholder(LEGAL.email) ? (
-            <Field value={LEGAL.email} />
-          ) : (
-            <a className="text-[#00ff66] hover:underline" href={`mailto:${LEGAL.email}`}>
-              {LEGAL.email}
-            </a>
-          )}
+          Allgemeine Anfragen &amp; Rechtliches:{' '}
+          <a className="text-[#00ff66] hover:underline font-mono" href={`mailto:${LEGAL.email}`}>
+            {LEGAL.email}
+          </a>
         </p>
+        {LEGAL.supportEmail ? (
+          <p>
+            Nutzer-Support &amp; Technik:{' '}
+            <a className="text-[#00ff66] hover:underline font-mono" href={`mailto:${LEGAL.supportEmail}`}>
+              {LEGAL.supportEmail}
+            </a>
+          </p>
+        ) : null}
+        {LEGAL.creatorEmail ? (
+          <p>
+            Content Creator &amp; Kooperationen:{' '}
+            <a className="text-[#00ff66] hover:underline font-mono" href={`mailto:${LEGAL.creatorEmail}`}>
+              {LEGAL.creatorEmail}
+            </a>
+          </p>
+        ) : null}
         {LEGAL.phone ? (
           <p>
             Telefon:{' '}
@@ -155,10 +167,12 @@ export function PrivacyPage({ onBack, youtubeConsent, onRevokeYoutube }) {
           <br />
           <Field value={LEGAL.street} />
           <br />
-          <Field value={LEGAL.zipCity} />,{' '}
-          {LEGAL.country}
+          <Field value={LEGAL.zipCity} />, {LEGAL.country}
           <br />
-          E-Mail: <Field value={LEGAL.email} />
+          E-Mail:{' '}
+          <a className="text-[#00ff66] hover:underline font-mono" href={`mailto:${LEGAL.email}`}>
+            {LEGAL.email}
+          </a>
         </p>
       </Section>
 
