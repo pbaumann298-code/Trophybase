@@ -351,17 +351,13 @@ export const GUIDE_STRUCT = {
 };
 
 /** JSONB-Spalten auf public.game_guides */
-/** JSONB-Spalten auf public.game_guides */
 export const GUIDE_I18N = {
   sheetType: 'sheet_type',
   itemName: 'item_name',
   /** Übergeordnete Spiel-Region / Welt (z. B. Galaxie, Faiths Region, Limgrave). */
   spielRegion: 'spiel_region',
-  /**
-   * JSONB-Array wie sheet_type: in welchen Reitern spiel_region angezeigt wird
-   * ([1] Walkthrough, [2] Sammelobjekte, [3] Bosse).
-   */
-  localisationType: 'localisation_type',
+  /** JSONB-Array [1], [2], [3]: steuert, in welchen Reitern spiel_region als Ober-Kachel erscheint */
+  spielRegionTab: 'spiel_region_tab',
   chronologicalGroup: 'chronological_group',
   categoryGroup: 'category_group',
   bossGroup: 'boss_group',

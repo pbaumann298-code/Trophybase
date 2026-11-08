@@ -95,7 +95,7 @@
  *   in mehreren Excel-Reitern und wurde beim Upload zusammengefasst.
  * @property {LocalizedText} [item_name]
  * @property {LocalizedText} [spiel_region] Übergeordnete Spiel-Region / Welt. Steuert die räumliche Anordnung im Guide.
- * @property {number[]} [localisation_sheet] JSONB-Array der Reiter, in denen spiel_region gilt (1/2/3)
+ * @property {number[]} [spiel_region_tab] JSONB-Array [1], [2], [3]: Reiter, in denen die Region als Ober-Kachel erscheint.
  * @property {LocalizedText} [chronological_group]
  * @property {LocalizedText} [category_group]
  * @property {LocalizedText} [video_chapter]
@@ -115,8 +115,8 @@
  * @property {1|2|3|number} sheet_type Primärer Reiter (sheet_types[0]), nur Abwärtskompatibilität
  * @property {string} [item_name]
  * @property {string} [spiel_region] Aufgelöste Spiel-Region. Leer = keine Gebiets-Ebene für diesen Eintrag
+ * @property {number[]} [spiel_region_tab] Reiter, in denen die Region als Ober-Kachel erscheint
  * @property {string} [localisation] Dieselbe Region wie spiel_region, Alias für die UI-Kacheln
- * @property {number[]} [localisation_sheets] Reiter, in denen spiel_region gilt
  * @property {string} [chronological_group]
  * @property {string} [category_group]
  * @property {string} [video_chapter]

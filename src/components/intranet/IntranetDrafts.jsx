@@ -59,6 +59,73 @@ function deriveSheetTypesFromRow(row) {
   return resolved.length > 0 ? resolved : [1];
 }
 
+/** spiel_region_tab: JSONB-Array [1], [2], [3] oder Kombinationen daraus. */
+function normalizeSpielRegionTab(value) {
+  return resolveSheetTypes(value).filter((tab) => tab === 1 || tab === 2 || tab === 3);
+}
+
+/**
+ * Nach approve_staging_guide: Region und Reiter auf game_guides nachziehen,
+ * falls die RPC die beiden Spalten noch nicht selbst kopiert hat.
+ * Zuordnung über die numerische guide_id.
+ */
+async function writeSpielRegionOntoGameGuides(gameId, sourceRows, lang) {
+  const pending = [];
+  for (const row of sourceRows || []) {
+    const name = getLocalizedItemName(row?.spiel_region).trim();
+    const explicitTabs = normalizeSpielRegionTab(row?.spiel_region_tab);
+    if (!name && explicitTabs.length === 0) continue;
+    const guideKey = String(row?.guide_id ?? '').replace(/\D/g, '');
+    if (!guideKey) continue;
+    pending.push({
+      guideKey,
+      spiel_region: name ? { [lang]: name } : null,
+      spiel_region_tab: explicitTabs.length > 0 ? explicitTabs : deriveSheetTypesFromRow(row),
+    });
+  }
+  if (pending.length === 0) return;
+
+  const liveByGuide = new Map();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from(TABLES.guides)
+      .select('id, guide_id')
+      .eq('game_id', gameId)
+      .order('id', { ascending: true })
+      .range(from, from + 999);
+    if (error) throw new Error(`spiel_region Nach-Update: ${error.message}`);
+    for (const live of data ?? []) {
+      const key = String(live.guide_id ?? '').replace(/\D/g, '');
+      if (!key) continue;
+      const list = liveByGuide.get(key) || [];
+      list.push(live.id);
+      liveByGuide.set(key, list);
+    }
+    if ((data ?? []).length < 1000) break;
+  }
+
+  const groups = new Map();
+  for (const item of pending) {
+    const ids = liveByGuide.get(item.guideKey);
+    const liveId = ids?.shift();
+    if (!liveId) continue;
+    const payload = { edit_unlocked: true };
+    if (item.spiel_region) payload.spiel_region = item.spiel_region;
+    if (item.spiel_region_tab?.length) payload.spiel_region_tab = item.spiel_region_tab;
+    const key = JSON.stringify(payload);
+    if (!groups.has(key)) groups.set(key, { payload, ids: [] });
+    groups.get(key).ids.push(liveId);
+  }
+
+  for (const { payload, ids } of groups.values()) {
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      const { error } = await supabase.from(TABLES.guides).update(payload).in('id', chunk);
+      if (error) throw new Error(`spiel_region Nach-Update: ${error.message}`);
+    }
+  }
+}
+
 function parseGuideIdNumber(value) {
   const n = Number.parseInt(String(value ?? '').replace(/\D/g, ''), 10);
   return Number.isFinite(n) ? n : 0;
@@ -216,11 +283,13 @@ function DraftBatchCustomInput({ field, selectedCount, disabled = false, onApply
   };
 
   const label =
-    field === 'category_group'
-      ? 'Neue Category-Group:'
-      : field === 'boss_group'
-        ? 'Neue Boss-Group:'
-        : 'Neue Chrono-Group:';
+    field === 'spiel_region'
+      ? 'Neue Spiel-Region (Oberkachel):'
+      : field === 'category_group'
+        ? 'Neue Category-Group:'
+        : field === 'boss_group'
+          ? 'Neue Boss-Group:'
+          : 'Neue Chrono-Group:';
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -292,6 +361,64 @@ function PillRenameInput({ initialValue = '', disabled = false, onSave }) {
   );
 }
 
+function RegionAssignBlock({ regionPills = [], disabled = false, onAssign }) {
+  const [text, setText] = useState('');
+  const named = regionPills.filter((pill) => !pill.isEmpty);
+
+  const apply = (raw) => {
+    const next = String(raw ?? '').trim();
+    if (!next) return;
+    onAssign?.(next);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
+      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-300">
+        🗺️ Ganze Gruppe einer Spiel-Region (spiel_region) zuordnen:
+      </span>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={text}
+          disabled={disabled}
+          placeholder="z. B. Faiths Region, Limgrave"
+          className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-white placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              apply(text);
+            }
+          }}
+        />
+        <button
+          type="button"
+          disabled={disabled || !text.trim()}
+          onClick={() => apply(text)}
+          className="shrink-0 rounded-lg bg-[#00ff66] px-2.5 py-1.5 text-[11px] font-mono font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50"
+        >
+          Zuordnen
+        </button>
+      </div>
+      {named.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {named.map((region) => (
+            <button
+              key={region.key}
+              type="button"
+              disabled={disabled}
+              onClick={() => apply(region.rawValue)}
+              className="rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-2 py-1 text-[10px] font-mono text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-40"
+            >
+              {region.label} ({region.count})
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function GroupPillPopover({
   field,
   pill,
@@ -302,11 +429,13 @@ function GroupPillPopover({
   setPillMergeSearch,
   actionBusy,
   pillPopoverRef,
+  regionPills = [],
   onClose,
   onToggleFilter,
   onSelectGroupRows,
   onRename,
   onMoveGroup,
+  onAssignRegion,
 }) {
   return (
     <div
@@ -316,11 +445,13 @@ function GroupPillPopover({
       <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
         <div className="min-w-0">
           <span className="block text-[9px] font-mono uppercase tracking-wider text-zinc-400">
-            {field === 'category_group'
-              ? 'Category-Group bearbeiten'
-              : field === 'boss_group'
-                ? 'Boss-Group bearbeiten'
-                : 'Chronological-Group bearbeiten'}
+            {field === 'spiel_region'
+              ? 'Spiel-Region bearbeiten'
+              : field === 'category_group'
+                ? 'Category-Group bearbeiten'
+                : field === 'boss_group'
+                  ? 'Boss-Group bearbeiten'
+                  : 'Chronological-Group bearbeiten'}
           </span>
           <p className="text-xs font-bold text-white truncate">
             {pill.label}{' '}
@@ -414,7 +545,15 @@ function GroupPillPopover({
         )}
       </div>
 
-      {!pill.isEmpty && (
+      {field !== 'spiel_region' ? (
+        <RegionAssignBlock
+          regionPills={regionPills}
+          disabled={actionBusy}
+          onAssign={(next) => onAssignRegion?.(next)}
+        />
+      ) : null}
+
+      {!pill.isEmpty && field !== 'spiel_region' && (
         <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-300">
             ⇄ Ganze Gruppe verschieben nach:
@@ -450,6 +589,7 @@ function GroupPillPopover({
 }
 
 const CHAPTER_TARGET_COLUMNS = [
+  { value: 'spiel_region', label: 'Region (spiel_region)', shortLabel: '🗺️ Region' },
   { value: 'chronological_group', label: 'Chrono (chronological_group)', shortLabel: '⏱️ Chrono' },
   { value: 'category_group', label: 'Category (category_group)', shortLabel: '🗂️ Collect' },
   { value: 'boss_group', label: 'Boss (boss_group)', shortLabel: '⚔️ Boss' },
@@ -792,6 +932,7 @@ function getLocalizedItemName(itemName) {
 
 const SELECT_BY_TERM_FIELDS = [
   { id: 'item_name', label: 'Item' },
+  { id: 'spiel_region', label: 'Region' },
   { id: 'chronological_group', label: 'Chrono' },
   { id: 'category_group', label: 'Collect' },
   { id: 'boss_group', label: 'Boss' },
@@ -801,6 +942,7 @@ const SELECT_BY_TERM_FIELDS = [
 
 const SELECT_BY_TERM_TEXT_FIELDS = [
   'item_name',
+  'spiel_region',
   'chronological_group',
   'category_group',
   'boss_group',
@@ -2086,6 +2228,10 @@ export default function IntranetDrafts({
         const strA = getLocalizedItemName(a.item_name);
         const strB = getLocalizedItemName(b.item_name);
         cmp = strA.localeCompare(strB, 'de', { numeric: true });
+      } else if (sortField === 'spiel_region') {
+        const strA = getLocalizedItemName(a.spiel_region);
+        const strB = getLocalizedItemName(b.spiel_region);
+        cmp = strA.localeCompare(strB, 'de', { numeric: true });
       } else if (sortField === 'chronological_group') {
         const strA = getLocalizedItemName(a.chronological_group);
         const strB = getLocalizedItemName(b.chronological_group);
@@ -2166,15 +2312,18 @@ export default function IntranetDrafts({
       return items;
     };
 
+    const regionPills = buildFieldStats('spiel_region');
     const categoryPills = buildFieldStats('category_group');
     const chronoPills = buildFieldStats('chronological_group');
     const bossPills = buildFieldStats('boss_group');
     const outlierCount =
+      regionPills.filter((p) => p.isOutlier).length +
       categoryPills.filter((p) => p.isOutlier).length +
       chronoPills.filter((p) => p.isOutlier).length +
       bossPills.filter((p) => p.isOutlier).length;
 
     return {
+      regionPills,
       categoryPills,
       chronoPills,
       bossPills,
@@ -2185,6 +2334,7 @@ export default function IntranetDrafts({
   const activePillMeta = useMemo(() => {
     if (!activePillPopover) return null;
     const sections = [
+      { field: 'spiel_region', pills: groupStats.regionPills },
       { field: 'category_group', pills: groupStats.categoryPills },
       { field: 'chronological_group', pills: groupStats.chronoPills },
       { field: 'boss_group', pills: groupStats.bossPills },
@@ -2697,7 +2847,13 @@ export default function IntranetDrafts({
       return str || null;
     }
 
+    if (field === 'spiel_region_tab') {
+      const tabs = normalizeSpielRegionTab(rawValue);
+      return tabs.length > 0 ? tabs : null;
+    }
+
     if (
+      field === 'spiel_region' ||
       field === 'chronological_group' ||
       field === 'category_group' ||
       field === 'boss_group' ||
@@ -2745,16 +2901,19 @@ export default function IntranetDrafts({
         if (!patchesByRowId.has(row.id)) return row;
         const patch = patchesByRowId.get(row.id);
         const sourceTable = row._sourceTable || 'staging_game_guides';
-        if (
-          sourceTable === 'staging_game_guides' &&
-          (patch.category_group !== undefined || patch.boss_group !== undefined)
-        ) {
-          localOverrides[row.id] = {
-            ...(localOverrides[row.id] || {}),
-            ...(patch.category_group !== undefined ? { category_group: patch.category_group } : {}),
-            ...(patch.boss_group !== undefined ? { boss_group: patch.boss_group } : {}),
-          };
-          localModified = true;
+        if (sourceTable === 'staging_game_guides') {
+          const cached = {};
+          if (patch.category_group !== undefined) cached.category_group = patch.category_group;
+          if (patch.boss_group !== undefined) cached.boss_group = patch.boss_group;
+          if (patch.spiel_region !== undefined) cached.spiel_region = patch.spiel_region;
+          if (patch.spiel_region_tab !== undefined) cached.spiel_region_tab = patch.spiel_region_tab;
+          if (Object.keys(cached).length > 0) {
+            localOverrides[row.id] = {
+              ...(localOverrides[row.id] || {}),
+              ...cached,
+            };
+            localModified = true;
+          }
         }
         return { ...row, ...patch };
       });
@@ -2816,6 +2975,8 @@ export default function IntranetDrafts({
               tableName === 'staging_game_guides' &&
               (msg.includes('category_group') ||
                 msg.includes('boss_group') ||
+                msg.includes('spiel_region') ||
+                msg.includes('spiel_region_tab') ||
                 msg.includes('column') ||
                 msg.includes('schema cache'));
 
@@ -3061,11 +3222,84 @@ export default function IntranetDrafts({
       } else if (field === 'chronological_group') {
         label = 'Chrono-Gruppe';
         valDisplay = valDisplay.trim() ? `"${valDisplay.trim()}"` : '(geleert)';
+      } else if (field === 'spiel_region') {
+        label = 'Spiel-Region';
+        valDisplay = valDisplay.trim() ? `"${valDisplay.trim()}"` : '(geleert)';
       }
 
       setNotice(`⚡ Batch-Update: ${label} = ${valDisplay} für ${updatedCount} markierte Zeilen gespeichert.`);
     } catch (err) {
       setError(`Batch-Update fehlgeschlagen: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleBatchSetRegionTab = async (mode) => {
+    if (selectedRowIds.size === 0 || actionBusy) return;
+    const targetRows = currentCreatorRows.filter((row) => selectedRowIds.has(row.id));
+    if (targetRows.length === 0) return;
+
+    const tabsForRow = (row) => {
+      if (mode === 'auto') return deriveSheetTypesFromRow(row);
+      if (mode === '1') return [1];
+      if (mode === '2') return [2];
+      if (mode === '3') return [3];
+      return [1, 2, 3];
+    };
+    const modeLabel =
+      mode === 'auto'
+        ? 'Auto (aus Tab)'
+        : mode === '1'
+          ? 'Nur [1] Walkthrough'
+          : mode === '2'
+            ? 'Nur [2] Collect'
+            : mode === '3'
+              ? 'Nur [3] Boss'
+              : 'Alle [1,2,3]';
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const updatedCount = await persistRowPatchesToSupabase(targetRows, (row) => ({
+        spiel_region_tab: formatFieldValueForTable(row, 'spiel_region_tab', tabsForRow(row)),
+      }));
+      setSelectedRowIds(new Set());
+      setBatchDrawerExpanded(false);
+      setNotice(`🗺️ spiel_region_tab = ${modeLabel} für ${updatedCount} markierte Zeilen gespeichert.`);
+    } catch (err) {
+      setError(`spiel_region_tab konnte nicht gesetzt werden: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleAssignRegionToGroup = async (field, groupKey, regionNameRaw) => {
+    const regionName = String(regionNameRaw ?? '').trim();
+    if (!field || !regionName || actionBusy) return;
+    const affectedRows = currentCreatorRows.filter((row) => {
+      const val = getLocalizedItemName(row[field]).trim();
+      return (val || EMPTY_GROUP_TOKEN) === groupKey;
+    });
+    if (affectedRows.length === 0) {
+      setActivePillPopover(null);
+      return;
+    }
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const updatedCount = await persistRowPatchesToSupabase(affectedRows, (row) => ({
+        spiel_region: formatFieldValueForTable(row, 'spiel_region', regionName),
+      }));
+      setActivePillPopover(null);
+      setNotice(
+        `🗺️ ${updatedCount} Zeilen der Gruppe unter „${regionName}“ gebündelt. Kategorie und Kapitel bleiben erhalten.`,
+      );
+    } catch (err) {
+      setError(`Spiel-Region konnte nicht zugeordnet werden: ${err.message}`);
     } finally {
       setActionBusy(false);
     }
@@ -3628,6 +3862,25 @@ export default function IntranetDrafts({
             trophy_id: formatFieldValueForTable(row, 'trophy_id', row.trophy_id),
             is_trophy_relevant: row.is_trophy_relevant || null,
           }));
+          const regionTargets = stagingTargets.filter(
+            (row) =>
+              Boolean(getLocalizedItemName(row.spiel_region).trim()) ||
+              normalizeSpielRegionTab(row.spiel_region_tab).length > 0,
+          );
+          if (regionTargets.length > 0) {
+            await persistRowPatchesToSupabase(regionTargets, (row) => ({
+              spiel_region: formatFieldValueForTable(
+                row,
+                'spiel_region',
+                getLocalizedItemName(row.spiel_region),
+              ),
+              spiel_region_tab: formatFieldValueForTable(
+                row,
+                'spiel_region_tab',
+                row.spiel_region_tab,
+              ),
+            }));
+          }
         }
 
         // 3. Zentrale Supabase-RPC aufrufen (inkl. Vorabprüfungs-Entscheidung p_conflict_mode)
@@ -3663,6 +3916,8 @@ export default function IntranetDrafts({
             'Sicherheits-Stopp: Ziel-Tabelle enthält noch 0 Zeilen für dieses Spiel! Quell-Daten wurden NICHT gelöscht.'
           );
         }
+
+        await writeSpielRegionOntoGameGuides(selectedGameId, stagingTargets, selectedLanguage);
 
         restoredStagingRows = await deleteDraftRowsAfterApprove();
       } else {
@@ -3832,9 +4087,14 @@ export default function IntranetDrafts({
               category_group: toLocalized(r.category_group),
               boss_group: toLocalized(r.boss_group),
               video_chapter: toLocalized(r.video_chapter),
-              ...(r.spiel_region
+              ...(toLocalized(r.spiel_region)
                 ? { spiel_region: toLocalized(r.spiel_region) }
                 : {}),
+              ...(normalizeSpielRegionTab(r.spiel_region_tab).length > 0
+                ? { spiel_region_tab: normalizeSpielRegionTab(r.spiel_region_tab) }
+                : toLocalized(r.spiel_region)
+                  ? { spiel_region_tab: deriveSheetTypesFromRow(r) }
+                  : {}),
               timestamp: r.timestamp || null,
               video_url: r.video_url || null,
               trophy_id: parseDigitStr(r.trophy_id, 0),
@@ -4727,7 +4987,7 @@ export default function IntranetDrafts({
 
     const targetFields =
       searchTargetField === 'all'
-        ? ['item_name', 'chronological_group', 'category_group', 'boss_group', 'video_chapter', 'prod_note']
+        ? ['item_name', 'spiel_region', 'chronological_group', 'category_group', 'boss_group', 'video_chapter', 'prod_note']
         : [searchTargetField];
 
     const matchedRows = [];
@@ -4926,6 +5186,12 @@ export default function IntranetDrafts({
         sheet_type: Array.isArray(row.sheet_type) ? row.sheet_type : deriveSheetTypesFromRow(row),
         guide_id: String(guideId),
         item_name: nextItem ?? null,
+        spiel_region: formatFieldValueForTable(
+          { ...row, _sourceTable: TABLES.guidesRohmaterial },
+          'spiel_region',
+          getLocalizedItemName(row.spiel_region),
+        ),
+        spiel_region_tab: formatFieldValueForTable(row, 'spiel_region_tab', row.spiel_region_tab),
         chronological_group: row.chronological_group ?? null,
         category_group: row.category_group ?? null,
         boss_group: row.boss_group ?? null,
@@ -4959,6 +5225,12 @@ export default function IntranetDrafts({
         'boss_group',
         getLocalizedItemName(row.boss_group),
       ),
+      spiel_region: formatFieldValueForTable(
+        row,
+        'spiel_region',
+        getLocalizedItemName(row.spiel_region),
+      ),
+      spiel_region_tab: formatFieldValueForTable(row, 'spiel_region_tab', row.spiel_region_tab),
       video_chapter: formatFieldValueForTable(
         row,
         'video_chapter',
@@ -5664,6 +5936,8 @@ export default function IntranetDrafts({
         (r) =>
           Boolean(getLocalizedItemName(r.category_group).trim()) ||
           Boolean(getLocalizedItemName(r.boss_group).trim()) ||
+          Boolean(getLocalizedItemName(r.spiel_region).trim()) ||
+          normalizeSpielRegionTab(r.spiel_region_tab).length > 0 ||
           deriveSheetTypesFromRow(r).join(',') !== '1'
       );
 
@@ -5726,6 +6000,11 @@ export default function IntranetDrafts({
           guide_id: String(parseNum(r.guide_id) ?? idx + 1),
           sheet_type: deriveSheetTypesFromRow(r),
           item_name: toJsonb(r.item_name),
+          spiel_region: toJsonb(r.spiel_region),
+          spiel_region_tab:
+            normalizeSpielRegionTab(r.spiel_region_tab).length > 0
+              ? normalizeSpielRegionTab(r.spiel_region_tab)
+              : null,
           chronological_group: toJsonb(r.chronological_group),
           category_group: toJsonb(r.category_group),
           boss_group: toJsonb(r.boss_group),
@@ -5928,9 +6207,11 @@ export default function IntranetDrafts({
           guide_id: String(parsedId),
           sheet_type: resolvedSheets.length > 0 ? resolvedSheets : deriveSheetTypesFromRow(r),
           item_name: toJsonb(r.item_name),
-          ...(r.spiel_region
-            ? { spiel_region: toJsonb(r.spiel_region) }
-            : {}),
+          spiel_region: toJsonb(r.spiel_region),
+          spiel_region_tab:
+            normalizeSpielRegionTab(r.spiel_region_tab).length > 0
+              ? normalizeSpielRegionTab(r.spiel_region_tab)
+              : null,
           chronological_group: toJsonb(r.chronological_group),
           category_group: toJsonb(r.category_group),
           boss_group: toJsonb(r.boss_group),
@@ -5962,6 +6243,11 @@ export default function IntranetDrafts({
           guide_id: String(nextGuideId),
           sheet_type: deriveSheetTypesFromRow(r),
           item_name: toJsonb(r.item_name),
+          spiel_region: toJsonb(r.spiel_region),
+          spiel_region_tab:
+            normalizeSpielRegionTab(r.spiel_region_tab).length > 0
+              ? normalizeSpielRegionTab(r.spiel_region_tab)
+              : null,
           chronological_group: toJsonb(r.chronological_group),
           category_group: toJsonb(r.category_group),
           boss_group: toJsonb(r.boss_group),
@@ -8505,11 +8791,13 @@ export default function IntranetDrafts({
                             <span className="font-bold text-[#00ff66]">🔍 Aktiver Tabellen-Filter:</span>
                             {activeGroupFilter && (
                               <span className="rounded bg-zinc-900 px-2 py-0.5 text-white border border-zinc-700">
-                                {activeGroupFilter.field === 'category_group'
-                                  ? 'Category'
-                                  : activeGroupFilter.field === 'boss_group'
-                                    ? 'Boss'
-                                    : 'Chrono'}
+                                {activeGroupFilter.field === 'spiel_region'
+                                  ? 'Region'
+                                  : activeGroupFilter.field === 'category_group'
+                                    ? 'Category'
+                                    : activeGroupFilter.field === 'boss_group'
+                                      ? 'Boss'
+                                      : 'Chrono'}
                                 :{' '}
                                 <strong className="text-[#00ff66]">
                                   {activeGroupFilter.value === EMPTY_GROUP_TOKEN
@@ -8540,8 +8828,13 @@ export default function IntranetDrafts({
                         </div>
                       )}
 
-                      {/* Drei Zeilen: 1) category_group Pills, 2) chronological_group Pills, 3) boss_group Pills */}
                       {[
+                        {
+                          field: 'spiel_region',
+                          title: '🗺️ Spiel-Region (Übergeordnete Oberkachel / Welt)',
+                          pills: groupStats.regionPills,
+                          accent: 'emerald',
+                        },
                         {
                           field: 'category_group',
                           title: '🗂️ Category-Group (Sammelobjekt-Kategorien)',
@@ -8653,6 +8946,7 @@ export default function IntranetDrafts({
                           setPillMergeSearch={setPillMergeSearch}
                           actionBusy={actionBusy}
                           pillPopoverRef={pillPopoverRef}
+                          regionPills={groupStats.regionPills}
                           onClose={() => setActivePillPopover(null)}
                           onToggleFilter={() => {
                             if (
@@ -8696,6 +8990,13 @@ export default function IntranetDrafts({
                               targetField
                             )
                           }
+                          onAssignRegion={(next) =>
+                            handleAssignRegionToGroup(
+                              activePillMeta.field,
+                              activePillMeta.pill.key,
+                              next
+                            )
+                          }
                         />
                       ) : null}
                     </div>
@@ -8711,6 +9012,7 @@ export default function IntranetDrafts({
                     >
                       <option value="all">Alle Textfelder</option>
                       <option value="item_name">Item / Bezeichnung (item_name)</option>
+                      <option value="spiel_region">Region (spiel_region)</option>
                       <option value="chronological_group">Chrono-Gruppe (chronological_group)</option>
                       <option value="category_group">Category-Gruppe (category_group)</option>
                       <option value="boss_group">Boss-Gruppe (boss_group)</option>
@@ -9100,6 +9402,18 @@ export default function IntranetDrafts({
                             </span>
                           </th>
                           <th
+                            onClick={() => handleToggleSort('spiel_region')}
+                            className="py-2 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem] cursor-pointer hover:text-white transition"
+                            title="Nach Spiel-Region sortieren"
+                          >
+                            <span className="inline-flex items-center gap-1 text-emerald-300">
+                              <span>Region</span>
+                              {sortField === 'spiel_region' && (
+                                <span className="text-[#00ff66]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                          </th>
+                          <th
                             onClick={() => handleToggleSort('chronological_group')}
                             className="py-2 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem] cursor-pointer hover:text-white transition"
                             title="Nach Chronological-Group sortieren"
@@ -9191,6 +9505,7 @@ export default function IntranetDrafts({
                           const isActive = row.id === activeRowId;
                           const isSelected = selectedRowIds.has(row.id);
                           const itemNameStr = getLocalizedItemName(row.item_name);
+                          const regionStr = getLocalizedItemName(row.spiel_region);
                           const chronoStr = getLocalizedItemName(row.chronological_group);
                           const categoryStr = getLocalizedItemName(row.category_group);
                           const bossStr = getLocalizedItemName(row.boss_group);
@@ -9259,6 +9574,18 @@ export default function IntranetDrafts({
                                   value={itemNameStr}
                                   onCommit={(next) => handleUpdateRowField(row.id, 'item_name', next)}
                                   className="w-full min-w-[14rem] sm:min-w-[18rem] rounded border border-transparent bg-transparent px-1 py-0.5 font-sans text-xs font-medium text-white hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                />
+                              </td>
+
+                              {/* spiel_region */}
+                              <td className="py-1 px-1 w-36 min-w-[9rem] sm:min-w-[10.5rem]">
+                                <DraftInlineInput
+                                  readOnly={selectedRowIds.size > 0}
+                                  type="text"
+                                  value={regionStr}
+                                  placeholder="—"
+                                  onCommit={(next) => handleUpdateRowField(row.id, 'spiel_region', next)}
+                                  className="w-full min-w-[9rem] sm:min-w-[10.5rem] rounded border border-transparent bg-transparent px-1 py-0.5 text-emerald-200 placeholder-zinc-600 hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
                                 />
                               </td>
 
@@ -9546,6 +9873,29 @@ export default function IntranetDrafts({
                               </button>
                             </div>
 
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] font-mono text-emerald-300">
+                                🗺️ spiel_region_tab
+                              </span>
+                              {[
+                                { mode: 'auto', label: 'Auto (aus Tab)' },
+                                { mode: '1', label: 'Nur [1] Walkthrough' },
+                                { mode: '2', label: 'Nur [2] Collect' },
+                                { mode: '3', label: 'Nur [3] Boss' },
+                                { mode: 'all', label: 'Alle [1,2,3]' },
+                              ].map((choice) => (
+                                <button
+                                  key={choice.mode}
+                                  type="button"
+                                  disabled={actionBusy}
+                                  onClick={() => handleBatchSetRegionTab(choice.mode)}
+                                  className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-mono font-bold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-40"
+                                >
+                                  {choice.label}
+                                </button>
+                              ))}
+                            </div>
+
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <span className="text-[10px] font-mono text-zinc-300">
                                 🎬 Bereinigten Chapter-Namen in Spalte übernehmen
@@ -9553,13 +9903,15 @@ export default function IntranetDrafts({
                               <div className="flex flex-wrap items-center gap-1.5">
                                 {CHAPTER_TARGET_COLUMNS.map((col) => {
                                   const dockLabel =
-                                    col.value === 'chronological_group'
-                                      ? 'Chrono'
-                                      : col.value === 'category_group'
-                                        ? 'Collect'
-                                        : col.value === 'boss_group'
-                                          ? 'Boss'
-                                          : 'Item';
+                                    col.value === 'spiel_region'
+                                      ? 'Region'
+                                      : col.value === 'chronological_group'
+                                        ? 'Chrono'
+                                        : col.value === 'category_group'
+                                          ? 'Collect'
+                                          : col.value === 'boss_group'
+                                            ? 'Boss'
+                                            : 'Item';
                                   return (
                                     <button
                                       key={col.value}
@@ -9703,7 +10055,7 @@ export default function IntranetDrafts({
                         </button>
                       </div>
 
-                      <div className="grid min-w-0 flex-1 grid-cols-3 gap-1.5">
+                      <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5 min-[1100px]:grid-cols-4">
                         <select
                           value=""
                           disabled={actionBusy}
@@ -9769,6 +10121,30 @@ export default function IntranetDrafts({
                           <option value="__CUSTOM__">✏️ + Neue Boss-Group eingeben…</option>
                           <option value="__CLEAR__">🗑️ (Boss-Group leeren)</option>
                           {groupStats.bossPills
+                            .filter((p) => !p.isEmpty)
+                            .map((p) => (
+                              <option key={p.key} value={p.rawValue}>
+                                {p.label} ({p.count})
+                              </option>
+                            ))}
+                        </select>
+                        <select
+                          value=""
+                          disabled={actionBusy}
+                          aria-label="Region"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            if (val === '__CUSTOM__') setBatchCustomField('spiel_region');
+                            else if (val === '__CLEAR__') handleBatchOverwriteSelected('spiel_region', '');
+                            else handleBatchOverwriteSelected('spiel_region', val);
+                          }}
+                          className="min-w-0 rounded-lg border border-emerald-500/40 bg-zinc-900 px-1 py-1 text-[10px] font-mono text-emerald-200 focus:border-[#00ff66] focus:outline-none"
+                        >
+                          <option value="">🗺️ Region</option>
+                          <option value="__CUSTOM__">✏️ + Neue Spiel-Region eingeben…</option>
+                          <option value="__CLEAR__">🗑️ (Spiel-Region leeren)</option>
+                          {groupStats.regionPills
                             .filter((p) => !p.isEmpty)
                             .map((p) => (
                               <option key={p.key} value={p.rawValue}>

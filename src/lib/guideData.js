@@ -18,6 +18,7 @@ export function normalizeGuideEntryRow(row) {
   const guideId = row.guide_id ?? row.id ?? null;
   const itemName = String(row.item_name ?? row.boss_name ?? row.name ?? '').trim();
   const sheetTypes = resolveSheetTypes(row.sheet_types ?? row.sheet_type);
+  const regionText = String(row.spiel_region ?? row.localisation ?? '').trim();
   const { video_url: safeVideoUrl, prod_note: safeProdNote } = resolveProductionVideoAndNote(
     row.video_url,
     row.prod_note,
@@ -37,10 +38,9 @@ export function normalizeGuideEntryRow(row) {
     video_url: safeVideoUrl,
     prod_note: safeProdNote,
     video_chapter: String(row.video_chapter ?? '').trim(),
-    localisation: String(row.localisation ?? '').trim(),
-    localisation_sheets: resolveSheetTypes(
-      row.localisation_sheets ?? row.localisation_sheet,
-    ),
+    spiel_region: regionText,
+    spiel_region_tab: resolveSheetTypes(row.spiel_region_tab),
+    localisation: regionText,
     chronological_group: String(row.chronological_group ?? row.area ?? '').trim(),
     category_group: String(row.category_group ?? row.type ?? '').trim(),
     boss_group: String(row.boss_group ?? '').trim(),
@@ -70,22 +70,19 @@ export function guideLocalisationKey(row) {
 
 /**
  * Prüft, ob spiel_region in diesem Reiter (1=Walkthrough, 2=Sammelobjekte, 3=Bosse) gilt.
- * - Ist localisation_type ([1], [2], [3]) gepflegt, entscheidet dieses Array.
- * - Ist localisation_type leer, wird spiel_region nur dann in Tab 2 (Sammelobjekte)
- *   unterdrückt, wenn die Zeile gleichzeitig ein Walkthrough-Eintrag [1, 2] ist (Astro-Bot-Fall).
- *   Reine Sammelobjekte ([2], Far Cry 5) und Bosse ([3], Elden Ring) zeigen ihre Region immer!
+ * - Hat spiel_region_tab Werte ([1], [2], [3], [1, 2, 3]), entscheidet dieses Array.
+ * - Ist spiel_region_tab leer, wird die Region in Tab 2 nur unterdrückt, wenn die Zeile
+ *   gleichzeitig ein Walkthrough-Eintrag [1, 2] ist.
  */
 export function localisationForSheet(row, sheetType) {
   const text = guideLocalisationKey(row);
   if (!text) return '';
 
   const wanted = Number(sheetType);
-  const sheets = Array.isArray(row?.localisation_sheets)
-    ? row.localisation_sheets
-    : resolveSheetTypes(row?.localisation_type ?? row?.localisation_sheet);
+  const tabs = resolveSheetTypes(row?.spiel_region_tab);
 
-  if (sheets.length > 0) {
-    return sheets.includes(wanted) ? text : '';
+  if (tabs.length > 0) {
+    return tabs.includes(wanted) ? text : '';
   }
 
   const rowTypes = resolveSheetTypes(row?.sheet_types ?? row?.sheet_type);
@@ -99,10 +96,14 @@ export function localisationForSheet(row, sheetType) {
 }
 
 function applyLocalisationForSheet(rows, sheetType) {
-  return (rows || []).map((row) => ({
-    ...row,
-    localisation: localisationForSheet(row, sheetType),
-  }));
+  return (rows || []).map((row) => {
+    const region = localisationForSheet(row, sheetType);
+    return {
+      ...row,
+      spiel_region: region,
+      localisation: region,
+    };
+  });
 }
 
 /** Trenner für zusammengesetzte Gruppenschlüssel – in Gruppennamen unmöglich. */
@@ -345,7 +346,7 @@ export function buildChronologicalGuideData(chapterRows) {
 /**
  * Sammelobjekte (sheet_type 2): group by category_group, Sortierung nach
  * game_guides.guide_id (über sort_order). spiel_region nur, wenn
- * localisation_type den Reiter 2 enthält oder die Zeile kein Walkthrough ist.
+ * spiel_region_tab den Reiter 2 enthält oder die Zeile kein Walkthrough ist.
  */
 export function buildByTypeGuideData(guideRows) {
   const mapped = applyLocalisationForSheet(
