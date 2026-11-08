@@ -109,6 +109,8 @@ export const GAME_STRUCT = {
   coverStatus: 'cover_status',
   /** Fehlerhinweis aus der Cover-Prüfung (z. B. Qwen-VL) */
   coverNotes: 'cover_notes',
+  /** Altersfreigabe (USK/FSK), z. B. 0, 6, 12, 16, 18 */
+  fsk: 'fsk',
 };
 
 /** Allowlist-Slugs für games.home_tags (muss mit home_tag_defs übereinstimmen). */
@@ -352,10 +354,12 @@ export const GUIDE_STRUCT = {
 export const GUIDE_I18N = {
   sheetType: 'sheet_type',
   itemName: 'item_name',
-  /** Übergeordnetes Gebiet (z. B. Galaxie). Dieselbe Spalte auf game_guides, Rohmaterial und Staging. */
-  localisation: 'Spiel_region',
+  /** Übergeordnete Spiel-Region / Welt (z. B. Galaxie). Steuert die äußere Anordnung im Guide. */
+  spielRegion: 'spiel_region',
+  /** @deprecated Alias für Abwärtskompatibilität im Frontend – zeigt auf 'spiel_region' */
+  localisation: 'spiel_region',
   /**
-   * JSONB-Array wie sheet_type: in welchen Excel-Reitern localisation gilt
+   * JSONB-Array wie sheet_type: in welchen Excel-Reitern spiel_region gilt
    * (1 Walkthrough, 2 Sammelobjekte, 3 Bosse). Trophäen sind Reiter 0 und
    * stehen in game_achievements, nicht hier.
    */
@@ -473,6 +477,7 @@ export const GAME_FIELDS = {
   statusExplanation: 'status_explanation',
   platformGameId: 'platform_game_id',
   radarProfile: 'radar_profile',
+  fsk: 'fsk',
 };
 
 export const ACTIVE_WATCHLIST_STATUSES = ['active', 'aktiv', 'playing'];

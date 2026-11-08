@@ -587,6 +587,17 @@ function QuickwinGameCard({
                 </strong>
               </div>
             </div>
+            {description ? (
+              <div className="mt-4 space-y-2 text-sm leading-relaxed text-zinc-300">
+                {description
+                  .split(/\n{2,}/)
+                  .map((paragraph) => paragraph.trim())
+                  .filter(Boolean)
+                  .map((paragraph, index) => (
+                    <p key={index}>{paragraph}</p>
+                  ))}
+              </div>
+            ) : null}
           </div>
         </div>
       </article>
@@ -605,7 +616,12 @@ function QuickwinGameCard({
             canGoNext={tabIndex >= 0 && tabIndex < tabs.length - 1}
           />
 
-          <GameSeoInfobox title={title} description={description} creators={creators} />
+          <GameSeoInfobox
+            title={title}
+            description={description}
+            creators={creators}
+            showDescription={false}
+          />
 
           {activeTab === 'reiter0' && (
             <div className="quickwin-tab">

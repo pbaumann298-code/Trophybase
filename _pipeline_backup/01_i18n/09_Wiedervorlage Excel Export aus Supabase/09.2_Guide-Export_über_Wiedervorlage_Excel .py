@@ -15,16 +15,22 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 from typing import Any, Dict, List
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from supabase import Client, create_client
 
 # --- SETUP ---
-load_dotenv()
+_ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV, override=True)
+else:
+    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
@@ -46,7 +52,6 @@ COLS_SHEET_0 = [
     "game_id",
     "platform_game_id",
     "platform_achievement_id",
-    "trophy_id",
     "trophy_name",
     "trophy_desc",
     "trophy_type",
@@ -62,7 +67,7 @@ COLS_SHEET_1_2 = [
     "platform_game_id",
     "game_id",
     "guide_id",
-    "localisation",
+    "Spiel_region",
     "chronological_group",
     "category_group",
     "boss_group",
@@ -79,7 +84,7 @@ COLS_SHEET_3 = [
     "platform_game_id",
     "game_id",
     "boss_id",
-    "localisation",
+    "Spiel_region",
     "chronological_group",
     "category_group",
     "boss_group",
@@ -279,6 +284,14 @@ def load_uuids_from_excel(file_path: str) -> List[str]:
     return list(dict.fromkeys(uuids))
 
 
+def with_spiel_region(row: Dict) -> Dict:
+    """game_guides liefert Spiel_region, Rohmaterial/Staging noch localisation."""
+    item = dict(row)
+    if "Spiel_region" not in item and "localisation" in item:
+        item["Spiel_region"] = item.get("localisation")
+    return item
+
+
 def ensure_columns(df: pd.DataFrame, expected_cols: List[str]) -> pd.DataFrame:
     for col in expected_cols:
         if col not in df.columns:
@@ -423,10 +436,10 @@ def split_guides_and_bosses(
         has_walk_or_coll = (1 in st) or (2 in st)
 
         if has_walk_or_coll or not has_boss:
-            sheet_1_rows.append(dict(r))
+            sheet_1_rows.append(with_spiel_region(r))
 
         if has_boss:
-            boss_copy = dict(r)
+            boss_copy = with_spiel_region(r)
             boss_copy["boss_id"] = r.get("guide_id")
             boss_copy["boss_name"] = r.get("item_name")
             sheet_3_rows.append(boss_copy)
@@ -450,7 +463,6 @@ def process_data_for_lang(
         else pd.DataFrame(columns=COLS_SHEET_0)
     )
     if not df_tab_0.empty:
-        df_tab_0["trophy_id"] = df_tab_0["platform_achievement_id"]
         df_tab_0 = clean_dataframe_jsonb(df_tab_0, lang=lang)
         # DLC-Gruppennamen in spielname erhalten! Nur wenn leer, auf Spieltitel zurückfallen:
         df_tab_0["spielname"] = df_tab_0["spielname"].apply(

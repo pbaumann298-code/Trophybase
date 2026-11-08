@@ -839,6 +839,21 @@
   border-color: rgb(34 197 94 / 0.3);
 }
 
+.home-tile-badge.text-zinc-200 {
+  color: #e4e4e7;
+  border-color: rgb(113 113 122 / 0.4);
+}
+
+.home-tile-badge.text-amber-300 {
+  color: #fcd34d;
+  border-color: rgb(251 191 36 / 0.4);
+}
+
+.home-tile-badge.text-rose-400 {
+  color: #fb7185;
+  border-color: rgb(244 63 94 / 0.4);
+}
+
 .home-tile-skeleton {
   aspect-ratio: 3 / 4.35;
   border-radius: 0.75rem;

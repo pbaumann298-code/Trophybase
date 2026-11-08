@@ -1,14 +1,20 @@
 import os
 import json
 import time
+from pathlib import Path
 from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from supabase import create_client, Client
 from google import genai
 from google.genai import types
 
-load_dotenv()
+_ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV, override=True)
+else:
+    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")

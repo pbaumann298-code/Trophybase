@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '../../pages/supabaseClient';
-import { TABLES, GAME_FK, GAME_PK, GAME_STRUCT, GAME_TYPE, GUIDE_I18N, parseGameTypes, resolveSheetTypes } from '../../lib/gameSchema';
+import { TABLES, GAME_FK, GAME_PK, GAME_STRUCT, GAME_TYPE, parseGameTypes, resolveSheetTypes } from '../../lib/gameSchema';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import AdminCoverInspector from '../AdminCoverInspector';
 import { getYouTubeEmbedUrl, parseTimecodeToSeconds, buildVideoUrlWithTimestamp } from '../../utils/videoUrl';
@@ -3832,8 +3832,8 @@ export default function IntranetDrafts({
               category_group: toLocalized(r.category_group),
               boss_group: toLocalized(r.boss_group),
               video_chapter: toLocalized(r.video_chapter),
-              ...(r[GUIDE_I18N.localisation]
-                ? { [GUIDE_I18N.localisation]: toLocalized(r[GUIDE_I18N.localisation]) }
+              ...(r.spiel_region
+                ? { spiel_region: toLocalized(r.spiel_region) }
                 : {}),
               timestamp: r.timestamp || null,
               video_url: r.video_url || null,
@@ -5928,8 +5928,8 @@ export default function IntranetDrafts({
           guide_id: String(parsedId),
           sheet_type: resolvedSheets.length > 0 ? resolvedSheets : deriveSheetTypesFromRow(r),
           item_name: toJsonb(r.item_name),
-          ...(r[GUIDE_I18N.localisation]
-            ? { [GUIDE_I18N.localisation]: toJsonb(r[GUIDE_I18N.localisation]) }
+          ...(r.spiel_region
+            ? { spiel_region: toJsonb(r.spiel_region) }
             : {}),
           chronological_group: toJsonb(r.chronological_group),
           category_group: toJsonb(r.category_group),

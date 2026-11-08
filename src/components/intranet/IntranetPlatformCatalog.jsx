@@ -300,6 +300,7 @@ function IntranetPlatformCatalog() {
                     {game.release_year || '—'}
                     {' · '}
                     {game.achievement_count ?? 0} Achievements
+                    {platform === 'steam' && game.fsk != null ? ` · FSK ${game.fsk}` : ''}
                     {game.max_gamerscore != null ? ` · ${game.max_gamerscore} GS` : ''}
                     {' · '}
                     Match {formatConfidence(game.match_confidence)}

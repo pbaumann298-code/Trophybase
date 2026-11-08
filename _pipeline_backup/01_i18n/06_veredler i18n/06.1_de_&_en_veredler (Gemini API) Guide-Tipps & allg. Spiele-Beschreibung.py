@@ -14,13 +14,19 @@ import json
 import re
 import sys
 import time
+from pathlib import Path
 from typing import Any, Optional
 from google import genai
 from google.genai import types
 from supabase import create_client, Client
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+_ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV, override=True)
+else:
+    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 PAGE_LIMIT = 200
@@ -101,12 +107,13 @@ AUSGABE-FORMAT (SPARSE JSON):
   "desc_en": "Punchy, idiomatic English game description (3-5 sentences on genre, core loop, platinum structure) or null",
   "servertot": false,
   "t": {
-    "<trophy_id>": [["<tag_code>", ...], "<guide_tip_de_oder_null>", "<guide_tip_en_oder_null>"]
+    "<id>": [["<tag_code>", ...], "<guide_tip_de_oder_null>", "<guide_tip_en_oder_null>"]
   }
 }
 
 KRITISCHE SPARSE-REGEL FÜR "t":
-- Nimm eine <trophy_id> NUR DANN in "t" auf, wenn sie mindestens einen Tag-Code ODER einen echten Tipp hat!
+- Der Schlüssel ist das Feld `id` aus der Eingabe (platform_achievement_id).
+- Nimm eine id NUR DANN in "t" auf, wenn sie mindestens einen Tag-Code ODER einen echten Tipp hat!
 - Hat eine Trophäe KEINE Tags und KEINEN Mehrwert-Tipp, LASS SIE KOMPLETT WEG!
 
 TAG-CODES (Array an Index 0):
@@ -161,7 +168,7 @@ def bulk_update_achievements(rows_to_update: list[dict]):
                         "guide_tip": r["guide_tip"],
                     }
                 ).eq("game_id", r["game_id"]).eq(
-                    "platform_achievement_id", r["platform_achievement_id"]
+                    "platform_achievement_id", str(r["platform_achievement_id"])
                 ).execute()
 
 
@@ -466,7 +473,7 @@ def run_refinement_pipeline():
                     bulk_ach_updates.append(
                         {
                             "game_id": game_id,
-                            "platform_achievement_id": t["platform_achievement_id"],
+                            "platform_achievement_id": str(t["platform_achievement_id"]),
                             "is_story_related": is_story,
                             "is_missable": is_miss,
                             "is_online": is_onl,

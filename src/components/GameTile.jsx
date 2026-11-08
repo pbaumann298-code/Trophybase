@@ -1,16 +1,37 @@
-import { useState } from 'react';
-import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
+import { useRef, useState } from 'react';
+import { getGameCover, getGameDescription, getGameTitle, getGameUuid } from '../lib/gameModel';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { isGameDraftMode } from '../lib/guidePublication';
 import { useLocale } from '../context/LocaleContext';
 import { useVisibility } from '../context/VisibilityContext';
 import { usePlatinumStatus } from '../context/PlatinumStatusContext';
-import { useUserPreferences } from '../lib/userPreferences';
+import { TILE_DESCRIPTION_SLIDE, useUserPreferences } from '../lib/userPreferences';
 import { pushGameHiddenToCloud } from '../lib/gameHiddenCloudBridge';
 import { trophyTypeIcon, TROPHY_TYPE } from '../lib/trophyTypes';
+import { supabase } from '../pages/supabaseClient';
 import WatchlistButton from './WatchlistButton';
 import GuideOnlineBadge from './GuideOnlineBadge';
 import AdminCoverInspector from './AdminCoverInspector';
+
+/** Einmaliger Nachlade-Cache für Kachel-Beschreibungen (Startseiten-Rails laden `beschreibung` nicht mit). */
+const tileDescriptionCache = new Map();
+
+const FSK_BADGE_CLASS = {
+  0: 'text-zinc-200 border-zinc-500/40',
+  6: 'text-amber-300 border-amber-400/40',
+  12: 'text-emerald-400 border-emerald-500/40',
+  16: 'text-sky-400 border-sky-500/40',
+  18: 'text-rose-400 border-rose-500/40',
+};
+
+function fskBadgeClass(fsk) {
+  const key = Number(fsk);
+  return FSK_BADGE_CLASS[key] || 'text-zinc-200 border-zinc-500/40';
+}
+
+function hasFskValue(fsk) {
+  return fsk !== null && fsk !== undefined && fsk !== '';
+}
 
 const FADE_MS = 280;
 
@@ -145,9 +166,14 @@ function GameTile({
   const { globalLocale } = useLocale();
   const { getEntryState, gameKey } = useVisibility();
   const { isPlatinum } = usePlatinumStatus();
-  const { hidePlatinumedGames } = useUserPreferences();
+  const { hidePlatinumedGames, tileDescriptionSlide } = useUserPreferences();
   const gameId = getGameUuid(game);
   const [localGamePatch, setLocalGamePatch] = useState(null);
+  const [descMounted, setDescMounted] = useState(false);
+  const [descOpen, setDescOpen] = useState(false);
+  const [descText, setDescText] = useState('');
+  const [descLoading, setDescLoading] = useState(false);
+  const descIntent = useRef(0);
   const effectiveGame = localGamePatch ? { ...game, ...localGamePatch } : game;
   const title = getGameTitle(effectiveGame, globalLocale);
   const cover = getGameCover(effectiveGame, globalLocale);
@@ -167,6 +193,71 @@ function GameTile({
       setExiting(false);
       setDismissed(true);
     }, FADE_MS);
+  };
+
+  const fromRight = tileDescriptionSlide !== TILE_DESCRIPTION_SLIDE.LEFT;
+  const fsk = effectiveGame?.fsk ?? null;
+  const showFsk = hasFskValue(fsk);
+
+  const applyFetchedRow = (row) => {
+    if (!row) return '';
+    tileDescriptionCache.set(gameId, row);
+    if (hasFskValue(row.fsk)) {
+      setLocalGamePatch((prev) => ({ ...(prev || {}), fsk: row.fsk }));
+    }
+    return getGameDescription(
+      { ...effectiveGame, beschreibung: row.beschreibung },
+      globalLocale,
+      { exact: false },
+    );
+  };
+
+  const toggleDescription = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (descOpen) {
+      descIntent.current += 1;
+      setDescOpen(false);
+      return;
+    }
+    const intent = descIntent.current + 1;
+    descIntent.current = intent;
+    setDescMounted(true);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (descIntent.current === intent) setDescOpen(true);
+      });
+    });
+
+    let text = getGameDescription(effectiveGame, globalLocale, { exact: false });
+    if (text) {
+      setDescText(text);
+      return;
+    }
+    if (!gameId) {
+      setDescText('');
+      return;
+    }
+    const cached = tileDescriptionCache.get(gameId);
+    if (cached) {
+      setDescText(applyFetchedRow(cached));
+      return;
+    }
+    setDescLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('games')
+        .select('beschreibung, fsk')
+        .eq('id', gameId)
+        .maybeSingle();
+      if (error || !data) {
+        setDescText('');
+        return;
+      }
+      setDescText(applyFetchedRow(data));
+    } finally {
+      setDescLoading(false);
+    }
   };
 
   const shellClass = [
@@ -193,6 +284,37 @@ function GameTile({
             onRequestLogin={onRequestLogin}
             onHideStart={handleHideStart}
           />
+        ) : null}
+        <button
+          type="button"
+          className={`absolute top-1/2 z-30 flex h-8 w-5 -translate-y-1/2 items-center justify-center rounded-sm border border-white/20 bg-black/70 text-sm font-bold leading-none text-zinc-100 backdrop-blur-sm ${
+            fromRight ? 'right-1' : 'left-1'
+          }`}
+          aria-expanded={descOpen}
+          aria-label={descOpen ? 'Beschreibung schließen' : 'Spielbeschreibung einblenden'}
+          onClick={toggleDescription}
+        >
+          {fromRight ? (descOpen ? '›' : '‹') : (descOpen ? '‹' : '›')}
+        </button>
+        {descMounted ? (
+          <div
+            className={`absolute inset-0 z-20 bg-[#121314]/95 backdrop-blur-md p-2.5 overflow-y-auto transition-transform duration-200 ${
+              descOpen
+                ? 'translate-x-0'
+                : `pointer-events-none ${fromRight ? 'translate-x-full' : '-translate-x-full'}`
+            }`}
+            aria-hidden={!descOpen}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <p className="text-[11px] leading-relaxed text-zinc-200">
+              {descLoading
+                ? '…'
+                : descText || 'Keine Beschreibung vorhanden.'}
+            </p>
+          </div>
         ) : null}
         <div className="home-tile-shine" aria-hidden />
       </div>
@@ -222,6 +344,11 @@ function GameTile({
             {consoleLabel ? (
               <span className="home-tile-badge tb-bidi-isolate text-sky-400 border-sky-500/30" dir="ltr">
                 {consoleLabel}
+              </span>
+            ) : null}
+            {showFsk ? (
+              <span className={`home-tile-badge ${fskBadgeClass(fsk)}`}>
+                {`FSK ${fsk}`}
               </span>
             ) : null}
             {(effectiveGame?.steam_app_id || effectiveGame?.platforms?.includes('Steam')) ? (

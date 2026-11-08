@@ -16,12 +16,18 @@ import re
 import shutil
 import sys
 import time
+from pathlib import Path
 import pandas as pd
 import requests
 from supabase import create_client, Client
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+_ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV, override=True)
+else:
+    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -118,6 +124,14 @@ def merge_jsonb(existing_val, lang: str, new_val) -> dict:
     if s:
         result[lang] = s
     return result
+
+
+def excel_region(record: dict):
+    """Excel-Header werden kleingeschrieben. Alte Mappen heißen noch localisation."""
+    for key in ("spiel_region", "localisation"):
+        if key in record and pd.notna(record.get(key)):
+            return record.get(key)
+    return None
 
 
 def resolve_creator_id_from_url(video_url: str | None) -> str | None:
@@ -405,7 +419,9 @@ def upload_all_excels():
             .execute()
         )
         existing_achs = {
-            str(r["platform_achievement_id"]): r for r in (achs_res.data or [])
+            str(r.get("platform_achievement_id")): r
+            for r in (achs_res.data or [])
+            if r.get("platform_achievement_id") is not None
         }
 
         all_db_guides = fetch_all_game_guides(game_uuid)
@@ -604,8 +620,8 @@ def upload_all_excels():
                         "video_chapter": merge_jsonb(
                             existing.get("video_chapter"), lang, r.get("video_chapter")
                         ),
-                        "localisation": merge_jsonb(
-                            existing.get("localisation"), lang, r.get("localisation")
+                        "Spiel_region": merge_jsonb(
+                            existing.get("Spiel_region"), lang, excel_region(r)
                         ),
                         "creator_id": existing.get("creator_id"),
                     }
@@ -661,8 +677,8 @@ def upload_all_excels():
                         item["video_chapter"] = merge_jsonb(
                             item["video_chapter"], lang, r.get("video_chapter")
                         )
-                        item["localisation"] = merge_jsonb(
-                            item["localisation"], lang, r.get("localisation")
+                        item["Spiel_region"] = merge_jsonb(
+                            item["Spiel_region"], lang, excel_region(r)
                         )
 
                         if pd.notna(r.get("video_url")) and not item["video_url"]:
@@ -729,10 +745,10 @@ def upload_all_excels():
                                 lang,
                                 r.get("video_chapter"),
                             ),
-                            "localisation": merge_jsonb(
-                                existing.get("localisation"),
+                            "Spiel_region": merge_jsonb(
+                                existing.get("Spiel_region"),
                                 lang,
-                                r.get("localisation"),
+                                excel_region(r),
                             ),
                             "creator_id": existing.get("creator_id"),
                         }

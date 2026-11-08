@@ -12,13 +12,19 @@ import os
 import re
 import sys
 import json
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 import yt_dlp
 import pandas as pd
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from supabase import Client, create_client
 
-load_dotenv()
+_ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV, override=True)
+else:
+    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")

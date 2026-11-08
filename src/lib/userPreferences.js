@@ -12,6 +12,7 @@ export const COMPLETED_TROPHY_STYLE_KEY = 'tb_completed_trophy_style';
 export const HIDE_SWIPE_HANDLES_KEY = 'tb_hide_swipe_handles';
 export const GUIDE_ROW_ORDER_KEY = 'tb_guide_row_order';
 export const PREFERRED_LOCALES_KEY = 'preferred_locales';
+export const TILE_DESCRIPTION_SLIDE_KEY = 'tb_tile_desc_slide';
 
 export const VIDEO_TIMESTAMP_LAYOUT = {
   VIDEO_LEFT: 'video-left',
@@ -28,6 +29,11 @@ export const GUIDE_ROW_ORDER = {
   DEFAULT: 'default',
   CHECKBOX_RIGHT: 'checkbox-right',
   TIMESTAMP_RIGHT: 'timestamp-right',
+};
+
+export const TILE_DESCRIPTION_SLIDE = {
+  RIGHT: 'right',
+  LEFT: 'left',
 };
 
 export const HOME_LAYOUT_MODE = {
@@ -111,6 +117,10 @@ export function sanitizeUserPreferences(raw) {
       ? raw.guideRowOrder
       : GUIDE_ROW_ORDER.DEFAULT;
   const preferredLocales = sanitizePreferredLocales(raw?.preferredLocales);
+  const tileDescriptionSlide =
+    raw?.tileDescriptionSlide === TILE_DESCRIPTION_SLIDE.LEFT
+      ? TILE_DESCRIPTION_SLIDE.LEFT
+      : TILE_DESCRIPTION_SLIDE.RIGHT;
 
   return {
     homeLayoutMode: mode,
@@ -123,6 +133,7 @@ export function sanitizeUserPreferences(raw) {
     hideSwipeHandles: Boolean(raw?.hideSwipeHandles),
     guideRowOrder,
     preferredLocales,
+    tileDescriptionSlide,
   };
 }
 
@@ -136,6 +147,7 @@ export function getDefaultUserPreferences() {
     hideSwipeHandles: false,
     guideRowOrder: GUIDE_ROW_ORDER.DEFAULT,
     preferredLocales: ['de', 'en'],
+    tileDescriptionSlide: TILE_DESCRIPTION_SLIDE.RIGHT,
   };
 }
 
@@ -163,6 +175,11 @@ function loadPreferences() {
       guideRowOrderRaw === GUIDE_ROW_ORDER.TIMESTAMP_RIGHT
         ? guideRowOrderRaw
         : parsed?.guideRowOrder;
+    const tileSlideRaw = localStorage.getItem(TILE_DESCRIPTION_SLIDE_KEY);
+    const tileDescriptionSlide =
+      tileSlideRaw === TILE_DESCRIPTION_SLIDE.LEFT
+        ? TILE_DESCRIPTION_SLIDE.LEFT
+        : parsed?.tileDescriptionSlide;
     let preferredLocales = parsed?.preferredLocales;
     const rawPreferred = localStorage.getItem(PREFERRED_LOCALES_KEY);
     if (rawPreferred) {
@@ -181,6 +198,7 @@ function loadPreferences() {
       hideSwipeHandles,
       guideRowOrder,
       preferredLocales,
+      tileDescriptionSlide,
     });
   } catch {
     return getDefaultUserPreferences();
@@ -202,6 +220,7 @@ function persistPreferences(prefs) {
     localStorage.setItem(COMPLETED_TROPHY_STYLE_KEY, prefs.completedTrophyStyle);
     localStorage.setItem(HIDE_SWIPE_HANDLES_KEY, prefs.hideSwipeHandles ? '1' : '0');
     localStorage.setItem(GUIDE_ROW_ORDER_KEY, prefs.guideRowOrder);
+    localStorage.setItem(TILE_DESCRIPTION_SLIDE_KEY, prefs.tileDescriptionSlide);
     localStorage.setItem(PREFERRED_LOCALES_KEY, JSON.stringify(prefs.preferredLocales));
   } catch {
     /* Speicher voll oder nicht verfügbar */
@@ -239,6 +258,7 @@ if (typeof window !== 'undefined') {
       event.key !== COMPLETED_TROPHY_STYLE_KEY &&
       event.key !== HIDE_SWIPE_HANDLES_KEY &&
       event.key !== GUIDE_ROW_ORDER_KEY &&
+      event.key !== TILE_DESCRIPTION_SLIDE_KEY &&
       event.key !== PREFERRED_LOCALES_KEY
     ) {
       return;
@@ -282,6 +302,14 @@ export function setCompletedTrophyStyle(style) {
 
 export function setHideSwipeHandles(hide) {
   commit({ ...snapshot, hideSwipeHandles: Boolean(hide) });
+}
+
+export function setTileDescriptionSlide(slide) {
+  const next =
+    slide === TILE_DESCRIPTION_SLIDE.LEFT
+      ? TILE_DESCRIPTION_SLIDE.LEFT
+      : TILE_DESCRIPTION_SLIDE.RIGHT;
+  commit({ ...snapshot, tileDescriptionSlide: next });
 }
 
 export function setGuideRowOrder(order) {
@@ -406,6 +434,7 @@ export function useUserPreferences() {
     hideSwipeHandles: prefs.hideSwipeHandles,
     guideRowOrder: prefs.guideRowOrder,
     preferredLocales: prefs.preferredLocales,
+    tileDescriptionSlide: prefs.tileDescriptionSlide,
     setHomeLayoutMode,
     setOrderedHomeCategories,
     setVideoTimestampLayout,
@@ -413,6 +442,7 @@ export function useUserPreferences() {
     setCompletedTrophyStyle,
     setHideSwipeHandles,
     setGuideRowOrder,
+    setTileDescriptionSlide,
     setPreferredLocales,
     togglePreferredLocale,
     toggleHomeCategory,

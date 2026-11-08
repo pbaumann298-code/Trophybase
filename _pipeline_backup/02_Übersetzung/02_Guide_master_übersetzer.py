@@ -12,10 +12,16 @@ import json
 import time
 import requests
 from datetime import datetime, timezone, timedelta
-from dotenv import load_dotenv
+from pathlib import Path
+from dotenv import load_dotenv, find_dotenv
 from supabase import create_client, Client
 
-load_dotenv()
+_ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV, override=True)
+else:
+    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 
 # =============================================================================
 # WELLEN-KONFIGURATION (Hier umschalten oder per CLI übergeben: python skript.py wave2)
@@ -396,7 +402,7 @@ def bulk_save_guide_rows(rows_to_update: list[dict]):
                     supabase.table("game_guides")
                     .update(
                         {
-                            "localisation": r["localisation"],
+                            "Spiel_region": r["Spiel_region"],
                             "chronological_group": r["chronological_group"],
                             "category_group": r["category_group"],
                             "boss_group": r["boss_group"],
@@ -422,8 +428,8 @@ def apply_translations_and_save(
     for row in guide_rows:
         changed = False
         loc_map = (
-            dict(row.get("localisation") or {})
-            if isinstance(row.get("localisation"), dict)
+            dict(row.get("Spiel_region") or {})
+            if isinstance(row.get("Spiel_region"), dict)
             else {}
         )
         chrono_map = (
@@ -484,7 +490,7 @@ def apply_translations_and_save(
         }
 
         if changed:
-            row["localisation"] = loc_map if loc_map else None
+            row["Spiel_region"] = loc_map if loc_map else None
             row["chronological_group"] = chrono_map if chrono_map else None
             row["category_group"] = cat_map if cat_map else None
             row["boss_group"] = boss_map if boss_map else None
@@ -493,7 +499,7 @@ def apply_translations_and_save(
             rows_to_save.append(
                 {
                     "id": row["id"],
-                    "localisation": row["localisation"],
+                    "Spiel_region": row["Spiel_region"],
                     "chronological_group": row["chronological_group"],
                     "category_group": row["category_group"],
                     "boss_group": row["boss_group"],
@@ -621,7 +627,19 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
     titles = game.get("spieltitel") if isinstance(game.get("spieltitel"), dict) else {}
     game_title = titles.get("de") or titles.get("en") or game_id
     g_type = primary_game_type(game.get("spiel_typ"))
-    use_drip_feed = g_type in DRIP_FEED_TYPES and bool(game.get("is_indexable", True))
+    pub_locs = (
+        game.get("published_locales")
+        if isinstance(game.get("published_locales"), list)
+        else []
+    )
+    # Drip-Feed (READY) NUR für neue Spiele (<= 1 Sprache live, z.B. frisch auf DE freigegeben).
+    # Ist das Spiel bereits mehrsprachig live (>= 2 Sprachen in published_locales), gehen Nachzügler-Sprachen (wie sv/fi) sofort auf PUBLISHED!
+    already_international = len(pub_locs) >= 2
+    use_drip_feed = (
+        (g_type in DRIP_FEED_TYPES)
+        and bool(game.get("is_indexable", True))
+        and (not already_international)
+    )
 
     status_map = game.get("status") if isinstance(game.get("status"), dict) else {}
     source_lang = detect_source_lang(status_map) or "de"
@@ -656,7 +674,9 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
         supabase.table("game_achievements").select("*").eq("game_id", game_id)
     )
     achievements = ach_res.data or []
-    ach_by_id = {str(a.get("platform_achievement_id")).strip(): a for a in achievements}
+    ach_by_id = {
+        str(a.get("platform_achievement_id")).strip(): a for a in achievements
+    }
 
     try:
         s1 = execute_with_retry(
@@ -683,8 +703,8 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
 
         for row in guide_rows:
             loc_map = (
-                row.get("localisation")
-                if isinstance(row.get("localisation"), dict)
+                row.get("Spiel_region")
+                if isinstance(row.get("Spiel_region"), dict)
                 else {}
             )
             loc_src = str(
@@ -734,6 +754,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                 "1. Input has `locations` and `categories` as JSON objects with numeric string keys ('0', '1', ...).\n"
                 "2. Use 100% official in-game localization terms of '{game_title}' (use exact target_langs keys like 'pt', 'zh-hans', 'zh-hant').\n"
                 "3. Return strictly JSON with keys `locations` and `categories`, mapping each numeric key ('0', '1', ...) to `{lang: translated_string}`."
+                "4. For German ('de'), keep established gaming terms natural: keep 'Walkthrough', 'Playthrough', 'Speedrun', 'Level', 'Boss', 'Quest', 'Gameplay', 'Cutscene', 'Checkpoint', 'DLC', 'New Game+', and translate 'Trophy/Achievement Guide' as 'Trophäen-Guide' / 'Achievement-Guide'.\n"
             )
 
             for lang_slice in chunk_langs(active_targets):
@@ -913,6 +934,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
                         "2. Use the 100% official in-game localization of '{game_title}'.\n"
                         "3. Keep placeholders like `{0}` or `{1}` in their exact position. Do NOT add extra brackets.\n"
                         "4. Return strictly a JSON object with the EXACT same keys ('0', '1', ...), where each value is `{lang: translated_string}` using the exact requested language codes."
+                        "5. For German ('de'), keep established gaming terms natural: keep 'Walkthrough', 'Playthrough', 'Speedrun', 'Level', 'Boss', 'Quest', 'Gameplay', 'Cutscene', 'Checkpoint', 'DLC', 'New Game+', and translate 'Trophy/Achievement Guide' as 'Trophäen-Guide' / 'Achievement-Guide'.\n"
                     )
                     chunk_res = call_gemini_json(sys_prompt_items, payload_items)
                     if isinstance(chunk_res, dict):

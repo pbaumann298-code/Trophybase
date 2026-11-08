@@ -57,7 +57,7 @@ const GUIDE_SELECT = [
   GUIDE_STRUCT.guideId,
   GUIDE_I18N.sheetType,
   GUIDE_I18N.itemName,
-  `"${GUIDE_I18N.localisation}"`,
+  GUIDE_I18N.spielRegion,
   GUIDE_I18N.chronologicalGroup,
   GUIDE_I18N.categoryGroup,
   GUIDE_I18N.bossGroup,
@@ -362,7 +362,7 @@ function renderHtml({
     const item = {
       name: localizeJsonField(row[GUIDE_I18N.itemName], locale),
       detail: [
-        localizeJsonField(row[GUIDE_I18N.localisation], locale),
+        localizeJsonField(row[GUIDE_I18N.spielRegion], locale),
         localizeJsonField(row[GUIDE_I18N.chronologicalGroup], locale),
         localizeJsonField(row[GUIDE_I18N.categoryGroup], locale),
         localizeJsonField(row[GUIDE_I18N.bossGroup], locale),

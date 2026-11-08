@@ -67,8 +67,8 @@ export function mergeGuideRow(row, lang, index = 0) {
   const guideUuid = row[GUIDE_STRUCT.id] ?? null;
   const guideSequence = row[GUIDE_STRUCT.guideId] ?? row.local_id ?? null;
   const itemName = localizeJsonField(row[GUIDE_I18N.itemName], lang, FALLBACK_LANGUAGE);
-  const localisation = localizeJsonField(
-    row[GUIDE_I18N.localisation],
+  const spielRegion = localizeJsonField(
+    row[GUIDE_I18N.spielRegion] ?? row.spiel_region,
     lang,
     FALLBACK_LANGUAGE,
   );
@@ -107,7 +107,8 @@ export function mergeGuideRow(row, lang, index = 0) {
     // da ein Eintrag in mehreren Reitern stehen kann (z. B. [1, 2]).
     sheet_type: sheetTypes[0] ?? 0,
     item_name: itemName,
-    localisation,
+    spiel_region: spielRegion,
+    localisation: spielRegion,
     localisation_sheets: localisationSheets,
     chronological_group: chronologicalGroup,
     category_group: categoryGroup,

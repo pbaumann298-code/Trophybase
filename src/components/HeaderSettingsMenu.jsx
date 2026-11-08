@@ -8,6 +8,7 @@ import {
   COMPLETED_TROPHY_STYLE,
   GUIDE_ROW_ORDER,
   HOME_LAYOUT_MODE,
+  TILE_DESCRIPTION_SLIDE,
   VIDEO_TIMESTAMP_LAYOUT,
   useUserPreferences,
 } from '../lib/userPreferences';
@@ -50,12 +51,14 @@ function HeaderSettingsMenu({
     completedTrophyStyle,
     hideSwipeHandles,
     guideRowOrder,
+    tileDescriptionSlide,
     setHomeLayoutMode,
     setVideoTimestampLayout,
     setHidePlatinumedGames,
     setCompletedTrophyStyle,
     setHideSwipeHandles,
     setGuideRowOrder,
+    setTileDescriptionSlide,
   } = useUserPreferences();
   const [open, setOpen] = useState(false);
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
@@ -510,6 +513,44 @@ function HeaderSettingsMenu({
                             role="menuitemradio"
                             aria-checked={active}
                             onClick={() => setGuideRowOrder(opt.id)}
+                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition cursor-pointer ${
+                              active
+                                ? 'bg-[#00ff66]/10 text-[#00ff66] font-semibold'
+                                : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-white'
+                            }`}
+                          >
+                            <span className="w-3 flex-shrink-0 font-mono" aria-hidden>
+                              {active ? '●' : '○'}
+                            </span>
+                            <span>{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* 6. Spielbeschreibung in Kachel einblenden */}
+                    <div className="space-y-1 border-t border-zinc-800/80 pt-2">
+                      <p className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-400">
+                        6. Spielbeschreibung in Kachel einblenden
+                      </p>
+                      {[
+                        {
+                          id: TILE_DESCRIPTION_SLIDE.RIGHT,
+                          label: 'Von rechts einblenden (Pfeil rechts)',
+                        },
+                        {
+                          id: TILE_DESCRIPTION_SLIDE.LEFT,
+                          label: 'Von links einblenden (Pfeil links)',
+                        },
+                      ].map((opt) => {
+                        const active = tileDescriptionSlide === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={active}
+                            onClick={() => setTileDescriptionSlide(opt.id)}
                             className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition cursor-pointer ${
                               active
                                 ? 'bg-[#00ff66]/10 text-[#00ff66] font-semibold'

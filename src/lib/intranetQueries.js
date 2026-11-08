@@ -36,6 +36,7 @@ export const INTRANET_GAME_SELECT = [
   GAME_I18N.coverUrl,
   GAME_STRUCT.coverStatus,
   GAME_STRUCT.slug,
+  GAME_STRUCT.fsk,
 ].join(', ');
 
 const INTRANET_GAME_SELECT_WITH_COUNTS = `${INTRANET_GAME_SELECT}, game_guides(count)`;
@@ -51,6 +52,26 @@ function buildLocalizedOrFilter(column, pattern) {
 
 function textFilter(value) {
   return validateSearchQuery(value);
+}
+
+function withoutFskColumn(select) {
+  return String(select)
+    .split(', ')
+    .filter((column) => column !== GAME_STRUCT.fsk)
+    .join(', ');
+}
+
+function isMissingFskColumn(error) {
+  const code = String(error?.code ?? '');
+  const message = String(error?.message ?? '').toLowerCase();
+  if (!message.includes(GAME_STRUCT.fsk)) return false;
+  return (
+    code === '42703'
+    || code === 'PGRST204'
+    || message.includes('does not exist')
+    || message.includes('schema cache')
+    || message.includes('column')
+  );
 }
 
 export function formatIntranetTitles(spieltitel) {
@@ -142,9 +163,19 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
       .limit(limit);
   };
 
-  let { data, error, count } = await run(INTRANET_GAME_SELECT_WITH_COUNTS);
+  let selectWithCounts = INTRANET_GAME_SELECT_WITH_COUNTS;
+  let selectPlain = INTRANET_GAME_SELECT;
+  let { data, error, count } = await run(selectWithCounts);
+  if (error && isMissingFskColumn(error)) {
+    selectWithCounts = withoutFskColumn(selectWithCounts);
+    selectPlain = withoutFskColumn(selectPlain);
+    ({ data, error, count } = await run(selectWithCounts));
+  }
   if (error) {
-    ({ data, error, count } = await run(INTRANET_GAME_SELECT));
+    ({ data, error, count } = await run(selectPlain));
+  }
+  if (error && isMissingFskColumn(error)) {
+    ({ data, error, count } = await run(withoutFskColumn(selectPlain)));
   }
 
   if (error) return { data: [], count: 0, error };
@@ -160,15 +191,19 @@ export async function fetchIntranetGamesByIds(supabase, ids) {
   const unique = [...new Set((ids ?? []).map((id) => String(id ?? '').trim()).filter(Boolean))];
   if (!unique.length) return { data: [], error: null };
 
-  let result = await fetchRowsByIds(
-    supabase,
-    TABLES.games,
-    INTRANET_GAME_SELECT_WITH_COUNTS,
-    GAME_PK,
-    unique,
-  );
+  let withCounts = INTRANET_GAME_SELECT_WITH_COUNTS;
+  let plain = INTRANET_GAME_SELECT;
+  let result = await fetchRowsByIds(supabase, TABLES.games, withCounts, GAME_PK, unique);
+  if (result.error && isMissingFskColumn(result.error)) {
+    withCounts = withoutFskColumn(withCounts);
+    plain = withoutFskColumn(plain);
+    result = await fetchRowsByIds(supabase, TABLES.games, withCounts, GAME_PK, unique);
+  }
   if (result.error) {
-    result = await fetchRowsByIds(supabase, TABLES.games, INTRANET_GAME_SELECT, GAME_PK, unique);
+    result = await fetchRowsByIds(supabase, TABLES.games, plain, GAME_PK, unique);
+  }
+  if (result.error && isMissingFskColumn(result.error)) {
+    result = await fetchRowsByIds(supabase, TABLES.games, withoutFskColumn(plain), GAME_PK, unique);
   }
   if (result.error) return { data: [], error: result.error };
 

@@ -9,6 +9,7 @@ const STEAM_GAME_COLUMNS = [
   'release_year',
   'developer',
   'publisher',
+  'fsk',
   'cover_url',
   'achievement_count',
   'linked_game_id',

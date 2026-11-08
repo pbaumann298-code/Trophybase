@@ -53,6 +53,7 @@ export const GAME_SELECT = [
   'spielzeit_komplettierer',
   'steam_app_id',
   GAME_STRUCT.radarProfile,
+  GAME_STRUCT.fsk,
 ].join(', ');
 
 const GAME_SELECT_NO_PUBLISHER = GAME_SELECT.split(', ')
@@ -87,6 +88,7 @@ export const HUB_GAME_SELECT = [
   GAME_STRUCT.homeTags,
   GAME_STRUCT.hasOnlineTrophies,
   GAME_STRUCT.hasMissableTrophies,
+  GAME_STRUCT.fsk,
 ].join(', ');
 
 /** Publisher-Akkordeon / Titellisten: Cover ja, ohne Beschreibung. */
@@ -163,11 +165,36 @@ function demoteMissingRadarProfile(error) {
   return true;
 }
 
+/** PostgREST-Schema-Cache kennt `fsk` noch nicht: Spalte aus dem Select nehmen und einmal wiederholen. */
+function isMissingFskError(error) {
+  const code = String(error?.code ?? '');
+  const message = String(error?.message ?? '').toLowerCase();
+  if (!message.includes(GAME_STRUCT.fsk)) return false;
+  return (
+    code === '42703' ||
+    code === 'PGRST204' ||
+    message.includes('does not exist') ||
+    message.includes('schema cache') ||
+    message.includes('column')
+  );
+}
+
+function demoteMissingFsk(error) {
+  if (!activeGameSelect.includes(GAME_STRUCT.fsk)) return false;
+  if (!isMissingFskError(error)) return false;
+  activeGameSelect = activeGameSelect
+    .split(', ')
+    .filter((col) => col !== GAME_STRUCT.fsk)
+    .join(', ');
+  return true;
+}
+
 async function runSelect(build) {
   let result = await build();
   if (
     result?.error &&
-    (demoteMissingPublisher(result.error) ||
+    (demoteMissingFsk(result.error) ||
+      demoteMissingPublisher(result.error) ||
       demoteMissingHomeTags(result.error) ||
       demoteMissingRadarProfile(result.error))
   ) {
@@ -372,7 +399,7 @@ export async function fetchGamesByIds(supabase, ids, locale = getLocale()) {
 
   let results = await run();
   let error = results.find((r) => r.error)?.error;
-  if (error && demoteMissingPublisher(error)) {
+  if (error && (demoteMissingFsk(error) || demoteMissingPublisher(error))) {
     results = await run();
     error = results.find((r) => r.error)?.error;
   }
@@ -469,7 +496,7 @@ async function fetchSearchRows(makeQuery, limit) {
   };
 
   let result = await run();
-  if (result.error && (demoteMissingPublisher(result.error) || demoteMissingHomeTags(result.error))) {
+  if (result.error && (demoteMissingFsk(result.error) || demoteMissingPublisher(result.error) || demoteMissingHomeTags(result.error))) {
     result = await run();
   }
   return result;
@@ -902,6 +929,9 @@ export async function searchGamesByStudio(
     );
 
   let { data, error } = await run(hasPublisherColumn());
+  if (error && demoteMissingFsk(error)) {
+    ({ data, error } = await run(hasPublisherColumn()));
+  }
   if (error && demoteMissingPublisher(error)) {
     ({ data, error } = await run(false));
   }
@@ -1029,6 +1059,13 @@ function stripPublisherColumn(columns) {
     .join(', ');
 }
 
+function stripFskColumn(columns) {
+  return String(columns)
+    .split(', ')
+    .filter((column) => column !== GAME_STRUCT.fsk)
+    .join(', ');
+}
+
 function isMissingPublisherError(error) {
   const code = String(error?.code ?? '');
   const message = String(error?.message ?? '').toLowerCase();
@@ -1096,13 +1133,19 @@ export async function fetchGamesByType(supabase, gameType, locale = getLocale(),
   };
 
   const fetchRange = async (columns, from, to) => {
-    let result = await buildQuery(columns).range(from, to);
+    let used = columns;
+    let result = await buildQuery(used).range(from, to);
+    if (result.error && mode !== 'full' && isMissingFskError(result.error)) {
+      used = stripFskColumn(used);
+      result = await buildQuery(used).range(from, to);
+    }
     if (result.error && mode !== 'full' && isMissingPublisherError(result.error)) {
-      result = await buildQuery(stripPublisherColumn(columns)).range(from, to);
+      used = stripPublisherColumn(used);
+      result = await buildQuery(used).range(from, to);
     } else if (result.error && mode === 'full') {
       result = await runSelect(() => buildQuery(getGameSelect()).range(from, to));
     }
-    return result;
+    return { ...result, columns: used };
   };
 
   if (paged) {
@@ -1123,6 +1166,10 @@ export async function fetchGamesByType(supabase, gameType, locale = getLocale(),
     // 1. Sofort-Render ab Batch 1: Erste 48 Spiele laden und sofort ans UI übergeben
     const firstBatchSize = CATALOG_FETCH_PAGE;
     const firstRes = await fetchRange(columns, 0, firstBatchSize - 1);
+    if (firstRes.columns) columns = firstRes.columns;
+    if (firstRes.error && isMissingFskError(firstRes.error)) {
+      columns = stripFskColumn(columns);
+    }
     if (firstRes.error && isMissingPublisherError(firstRes.error)) {
       columns = stripPublisherColumn(columns);
     }
@@ -1145,7 +1192,12 @@ export async function fetchGamesByType(supabase, gameType, locale = getLocale(),
     while (from < SEARCH_RESULT_CAP) {
       if (options.signal?.aborted) break;
       const to = Math.min(from + HUB_BACKGROUND_BATCH - 1, SEARCH_RESULT_CAP - 1);
-      const { data, error } = await fetchRange(columns, from, to);
+      const page = await fetchRange(columns, from, to);
+      const { data, error } = page;
+      if (page.columns) columns = page.columns;
+      if (error && isMissingFskError(error)) {
+        columns = stripFskColumn(columns);
+      }
       if (error && isMissingPublisherError(error)) {
         columns = stripPublisherColumn(columns);
       }
@@ -1237,7 +1289,7 @@ async function fetchFeaturedHomeGames(supabase, options) {
   };
 
   let { data, error } = await run(orderColumn);
-  if (error && demoteMissingPublisher(error)) {
+  if (error && (demoteMissingFsk(error) || demoteMissingPublisher(error))) {
     ({ data, error } = await run(orderColumn));
   }
   if (error && orderColumn === GAME_STRUCT.views) {

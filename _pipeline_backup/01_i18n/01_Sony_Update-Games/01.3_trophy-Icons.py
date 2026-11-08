@@ -12,11 +12,17 @@ import sys
 import time
 import json
 import requests
-from dotenv import load_dotenv
+from pathlib import Path
+from dotenv import load_dotenv, find_dotenv
 from psnawp_api import PSNAWP
 from supabase import create_client, Client
 
-load_dotenv()
+_ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV, override=True)
+else:
+    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 
 DELAY_BETWEEN_GAMES = 0.35
 TOKEN_MAX_AGE_SECONDS = 45 * 60  # Nach 45 Min. proaktiv erneuern (Sony-Limit = 60 Min.)

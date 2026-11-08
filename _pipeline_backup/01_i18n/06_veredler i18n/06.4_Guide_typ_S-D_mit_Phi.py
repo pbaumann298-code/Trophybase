@@ -3,11 +3,17 @@ import sys
 import re
 import json
 import requests
+from pathlib import Path
 from typing import Any, List, Dict
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from supabase import create_client, Client
 
-load_dotenv()
+_ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV, override=True)
+else:
+    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -76,11 +82,9 @@ def evaluate_rules_fast(spiel_typ: str, ach_rows: List[Dict[str, Any]]) -> str:
 def extract_compact_trophy_summary(ach_rows: List[Dict[str, Any]]) -> str:
     lines = []
     for row in ach_rows[:55]:
-        title = row.get("title") or row.get("name") or row.get("trophy_name") or ""
-        desc = (
-            row.get("description") or row.get("detail") or row.get("trophy_desc") or ""
-        )
-        tip = row.get("guide_tip") or row.get("tip") or ""
+        title = row.get("trophy_name") or ""
+        desc = row.get("trophy_desc") or ""
+        tip = row.get("guide_tip") or ""
         if isinstance(title, dict):
             title = title.get("de") or title.get("en") or ""
         if isinstance(desc, dict):

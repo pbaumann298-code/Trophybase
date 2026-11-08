@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-04.2_steam_enricher.py_Sprachen_Genre_Entwickler.py
-Holt kostenlos über Steam Store API + SteamSpy API:
+04.2_steam_enricher.py_Sprachen_Genre_Entwickler.py (v2 - Inkl. USK/PEGI Altersfreigaben & Tag-Schutz)
+Läuft komplett OHNE Steam API Key über die öffentliche Steam Store API + SteamSpy API:
 1. Echte In-Game-Sprachen (Text & Audio) -> games.game_locales
-2. Saubere Publisher & Entwickler -> games.publisher / games.entwickler
-3. NEU: Hochauflösendes Steam-Cover (600x900 Box-Art + header_image Fallback),
+2. Saubere Publisher, Entwickler & Release-Jahr -> games.publisher / entwickler / release_jahr
+3. Hochauflösendes Steam-Cover (600x900_2x Box-Art als JSONB {"de": url, "en": url}),
    wenn das Spiel noch kein gültiges Cover in games.cover_url hat!
-4. Alle 26 offiziellen Startseiten-Tags -> games.home_tags (via RPC tb_set_home_tags_from_model)
-5. FIX: Tote Spalte 'genre' komplett entfernt (schreibt in sub_genres + home_tags).
+4. NEU: Regionale Altersfreigaben (USK, PEGI, ESRB, CERO, GRAC, DEJUS) -> games.age_ratings & games.usk_age
+5. SICHER: Bestehende home_tags (wie 'fmv', 'hidden_object') werden bewahrt und niemals überschrieben!
 """
 
 import os
@@ -16,66 +17,52 @@ import sys
 import time
 import html
 import requests
-from dotenv import load_dotenv
+from pathlib import Path
+from dotenv import load_dotenv, find_dotenv
 from supabase import create_client, Client
 
-load_dotenv()
+_ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV, override=True)
+else:
+    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 
-DELAY_BETWEEN_GAMES = 1.0
+DELAY_BETWEEN_GAMES = 0.8
 
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    sys.exit(
-        "❌ Fehler: SUPABASE_URL oder SUPABASE_SERVICE_ROLE_KEY fehlt in der .env!"
-    )
+    sys.exit("❌ Fehler: SUPABASE_URL oder SUPABASE_SERVICE_ROLE_KEY fehlt in der .env!")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 http_session = requests.Session()
 
 STEAM_LANG_MAP = {
-    "german": "de",
-    "deutsch": "de",
-    "english": "en",
-    "englisch": "en",
-    "french": "fr",
-    "französisch": "fr",
-    "spanish - spain": "es",
-    "spanisch - spanien": "es",
-    "spanish - latin america": "es",
-    "spanisch - lateinamerika": "es",
-    "italian": "it",
-    "italienisch": "it",
-    "dutch": "nl",
-    "niederländisch": "nl",
-    "portuguese - portugal": "pt",
-    "portugiesisch - portugal": "pt",
-    "portuguese - brazil": "pt",
-    "brasilianisches portugiesisch": "pt",
-    "russian": "ru",
-    "russisch": "ru",
-    "japanese": "ja",
-    "japanisch": "ja",
-    "korean": "ko",
-    "koreanisch": "ko",
-    "simplified chinese": "zh-hans",
-    "chinesisch (vereinfacht)": "zh-hans",
-    "traditional chinese": "zh-hant",
-    "chinesisch (traditionell)": "zh-hant",
-    "finnish": "fi",
-    "finnisch": "fi",
-    "swedish": "sv",
-    "schwedisch": "sv",
-    "polish": "pl",
-    "polnisch": "pl",
-    "turkish": "tr",
-    "türkisch": "tr",
-    "arabic": "ar",
-    "arabisch": "ar",
+    "german": "de", "deutsch": "de",
+    "english": "en", "englisch": "en",
+    "french": "fr", "französisch": "fr",
+    "spanish - spain": "es", "spanisch - spanien": "es",
+    "spanish - latin america": "es", "spanisch - lateinamerika": "es",
+    "italian": "it", "italienisch": "it",
+    "dutch": "nl", "niederländisch": "nl",
+    "portuguese - portugal": "pt", "portugiesisch - portugal": "pt",
+    "portuguese - brazil": "pt", "brasilianisches portugiesisch": "pt",
+    "russian": "ru", "russisch": "ru",
+    "japanese": "ja", "japanisch": "ja",
+    "korean": "ko", "koreanisch": "ko",
+    "simplified chinese": "zh-hans", "chinesisch (vereinfacht)": "zh-hans",
+    "traditional chinese": "zh-hant", "chinesisch (traditionell)": "zh-hant",
+    "finnish": "fi", "finnisch": "fi",
+    "swedish": "sv", "schwedisch": "sv",
+    "polish": "pl", "polnisch": "pl",
+    "turkish": "tr", "türkisch": "tr",
+    "arabic": "ar", "arabisch": "ar",
 }
 
-# Mapping auf alle 26 offiziellen Slugs aus src/lib/homeTagDefs.js
+RATING_BOARDS = ("usk", "pegi", "esrb", "cero", "grac", "dejus", "csrr", "steam_germany")
+
 HOME_TAG_RULES = {
     "soulslike": ["soulslike", "souls-like"],
     "open_world": ["open world", "sandbox"],
@@ -85,40 +72,16 @@ HOME_TAG_RULES = {
     "fps": ["fps", "first-person", "boomer shooter", "arena shooter"],
     "tps": ["third-person shooter", "third person"],
     "loot_shooter": ["looter shooter"],
-    "tactics": [
-        "strategy",
-        "turn-based tactics",
-        "turn-based strategy",
-        "rts",
-        "tower defense",
-        "tactical",
-    ],
+    "tactics": ["strategy", "turn-based tactics", "turn-based strategy", "rts", "tower defense", "tactical"],
     "coop_mp": ["co-op", "online co-op", "local co-op", "multiplayer", "pvp"],
     "roguelike": ["roguelike", "roguelite", "action roguelike", "bullet heaven"],
     "rpg": ["rpg", "jrpg", "action rpg", "crpg", "party-based rpg"],
-    "action_adventure": [
-        "action-adventure",
-        "hack and slash",
-        "stealth",
-        "character action game",
-    ],
+    "action_adventure": ["action-adventure", "hack and slash", "stealth", "character action game"],
     "survival_horror": ["survival horror", "horror", "zombies", "survival"],
-    "platformer": [
-        "platformer",
-        "2d platformer",
-        "3d platformer",
-        "precision platformer",
-        "metroidvania",
-    ],
+    "platformer": ["platformer", "2d platformer", "3d platformer", "precision platformer", "metroidvania"],
     "fighting": ["fighting", "2d fighter", "3d fighter", "beat 'em up"],
     "sports": ["sports", "football (soccer)", "basketball", "skateboarding", "golf"],
-    "simulation": [
-        "simulation",
-        "farming sim",
-        "city builder",
-        "life sim",
-        "management",
-    ],
+    "simulation": ["simulation", "farming sim", "city builder", "life sim", "management"],
     "hidden_object": ["hidden object"],
     "visual_novel": ["visual novel"],
     "fmv": ["fmv"],
@@ -144,7 +107,55 @@ def normalize_title(title: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def find_steam_app_id(title_en: str, title_de: str) -> int | None:
+def extract_steam_age_ratings(app_data: dict) -> tuple[dict, int | None]:
+    """Extrahiert USK, PEGI, ESRB, CERO & Co. aus appdetails."""
+    raw_ratings = app_data.get("ratings") or {}
+    clean_ratings = {}
+    for board in RATING_BOARDS:
+        info = raw_ratings.get(board)
+        if isinstance(info, dict) and info.get("rating"):
+            entry = {"rating": str(info["rating"]).strip().lower()}
+            if info.get("descriptors"):
+                desc = ", ".join(
+                    line.strip() for line in str(info["descriptors"]).splitlines() if line.strip()
+                )
+                if desc:
+                    entry["descriptors"] = desc
+            clean_ratings[board] = entry
+
+    usk_age = None
+    for candidate_board in ("usk", "steam_germany", "pegi"):
+        r_val = clean_ratings.get(candidate_board, {}).get("rating", "")
+        if r_val.isdigit():
+            num = int(r_val)
+            if num in (0, 3, 6, 7, 12, 16, 18):
+                usk_age = 0 if num == 3 else (6 if num == 7 else num)
+                break
+
+    if usk_age is None:
+        req = str(app_data.get("required_age") or "").strip()
+        if req.isdigit() and int(req) > 0:
+            usk_age = int(req)
+
+    return clean_ratings, usk_age
+
+
+def find_steam_app_id(game_uuid: str, title_en: str, title_de: str) -> int | None:
+    # 1. Zuerst blitzschnell in unserer lokalen catalog_steam_games schauen!
+    try:
+        local_res = (
+            supabase.table("catalog_steam_games")
+            .select("app_id")
+            .eq("linked_game_id", game_uuid)
+            .limit(1)
+            .execute()
+        )
+        if local_res.data and local_res.data[0].get("app_id"):
+            return int(local_res.data[0]["app_id"])
+    except Exception:
+        pass
+
+    # 2. Fallback: Live-Suche über Steam Store API
     for query_title in dict.fromkeys([title_en, title_de]):
         if not query_title or query_title == "Unbenannt":
             continue
@@ -152,7 +163,7 @@ def find_steam_app_id(title_en: str, title_de: str) -> int | None:
         url = "https://store.steampowered.com/api/storesearch/"
         try:
             res = http_session.get(
-                url, params={"term": clean_query, "l": "english", "cc": "US"}, timeout=8
+                url, params={"term": clean_query, "l": "english", "cc": "DE"}, timeout=8
             )
             if res.status_code != 200:
                 continue
@@ -177,10 +188,6 @@ def find_steam_app_id(title_en: str, title_de: str) -> int | None:
 
 
 def resolve_steam_cover_url(app_id: int, details: dict) -> str | None:
-    """
-    Prüft zuerst das hochauflösende vertikale Steam-Box-Cover (600x900, wie PS4/PS5-Cover).
-    Fällt sonst auf library_600x900.jpg oder header_image zurück.
-    """
     candidates = [
         f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/library_600x900_2x.jpg",
         f"https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/library_600x900_2x.jpg",
@@ -227,8 +234,9 @@ def parse_steam_languages(raw_html: str) -> tuple[list[str], list[str]]:
 def fetch_steam_details(app_id: int) -> dict | None:
     url = "https://store.steampowered.com/api/appdetails"
     try:
+        # cc="DE" liefert die deutsche USK / steam_germany Freigabe mit, l="english" hält die Sprachnamen englisch!
         res = http_session.get(
-            url, params={"appids": app_id, "l": "english", "cc": "US"}, timeout=8
+            url, params={"appids": app_id, "l": "english", "cc": "DE"}, timeout=8
         )
         if res.status_code != 200:
             return None
@@ -308,7 +316,7 @@ def enrich_game(game: dict):
     title_de = str(titles.get("de") or title_en).strip()
     status_obj = dict(game.get("status") or {})
 
-    app_id = game.get("steam_app_id") or find_steam_app_id(title_en, title_de)
+    app_id = game.get("steam_app_id") or find_steam_app_id(game_uuid, title_en, title_de)
     trophy_locales = detect_trophy_native_locales(game_uuid)
 
     if not app_id:
@@ -321,9 +329,7 @@ def enrich_game(game: dict):
         supabase.table("games").update(
             {"status": status_obj, "game_locales": locales_payload}
         ).eq("id", game_uuid).execute()
-        print(
-            f"  ⚪ [{title_de}] Nicht auf Steam -> Trophy-Sprachen ({len(trophy_locales)})."
-        )
+        print(f"  ⚪ [{title_de}] Nicht auf Steam -> Trophy-Sprachen ({len(trophy_locales)}).")
         return
 
     details = fetch_steam_details(app_id)
@@ -343,14 +349,10 @@ def enrich_game(game: dict):
                 "game_locales": locales_payload,
             }
         ).eq("id", game_uuid).execute()
-        print(
-            f"  ⚠️ [{title_de}] AppID {app_id} delisted -> Trophy-Sprachen ({len(trophy_locales)})."
-        )
+        print(f"  ⚠️ [{title_de}] AppID {app_id} delisted -> Trophy-Sprachen ({len(trophy_locales)}).")
         return
 
-    steam_text, steam_audio = parse_steam_languages(
-        details.get("supported_languages", "")
-    )
+    steam_text, steam_audio = parse_steam_languages(details.get("supported_languages", ""))
     combined_text_locales = sorted(set(steam_text) | set(trophy_locales))
 
     developers = [str(d).strip() for d in (details.get("developers") or []) if d]
@@ -360,6 +362,12 @@ def enrich_game(game: dict):
         for g in (details.get("genres") or [])
         if isinstance(g, dict) and g.get("description")
     ]
+
+    # Release-Jahr & Altersfreigaben (USK, PEGI, ESRB...) extrahieren
+    rel_date_str = str((details.get("release_date") or {}).get("date") or "")
+    year_match = re.search(r"\b(19\d\d|20\d\d)\b", rel_date_str)
+    rel_year = int(year_match.group(1)) if year_match else None
+    age_ratings, usk_age = extract_steam_age_ratings(details)
 
     status_obj["steam"] = "COMPLETED"
     update_payload = {
@@ -373,15 +381,19 @@ def enrich_game(game: dict):
         "sub_genres": (tags or steam_genres)[:10],
     }
 
+    if age_ratings:
+        update_payload["age_ratings"] = age_ratings
+    if usk_age is not None:
+        update_payload["usk_age"] = usk_age
+    if rel_year and not game.get("release_jahr"):
+        update_payload["release_jahr"] = rel_year
     if publishers and not str(game.get("publisher") or "").strip():
         update_payload["publisher"] = publishers[0]
     if developers and not str(game.get("entwickler") or "").strip():
         update_payload["entwickler"] = developers[0]
 
-    # NEU: Steam-Cover holen, wenn das Spiel noch kein Cover hat oder das Cover invalid war!
-    current_cover = (
-        game.get("cover_url") if isinstance(game.get("cover_url"), dict) else {}
-    )
+    # Steam-Cover als JSONB {"de": url, "en": url} setzen, falls noch kein gültiges Cover da ist
+    current_cover = game.get("cover_url") if isinstance(game.get("cover_url"), dict) else {}
     current_cover_status = game.get("cover_status")
     cover_added = False
 
@@ -396,28 +408,25 @@ def enrich_game(game: dict):
             update_payload["cover_notes"] = None
             cover_added = True
 
+    # home_tags: Bestehende Tags (z.B. 'fmv', 'hidden_object') BEWAHREN und neue anhängen!
+    existing_tags = list(game.get("home_tags") or [])
+    new_tags = derive_home_tags(tags, steam_genres)
+    if new_tags and not game.get("home_tags_locked"):
+        merged_tags = list(dict.fromkeys(existing_tags + new_tags))
+        update_payload["home_tags"] = merged_tags
+
     supabase.table("games").update(update_payload).eq("id", game_uuid).execute()
 
-    home_tags = derive_home_tags(tags, steam_genres)
-    if home_tags and not game.get("home_tags_locked"):
-        try:
-            supabase.rpc(
-                "tb_set_home_tags_from_model",
-                {"p_id": game_uuid, "p_tags": home_tags},
-            ).execute()
-        except Exception:
-            pass
-
-    cover_msg = " + 🖼️ Cover gesetzt!" if cover_added else ""
+    cover_msg = " + 🖼️ Cover!" if cover_added else ""
+    usk_msg = f" | USK={usk_age}" if usk_age is not None else ""
     print(
-        f"  ✅ [{title_de}] AppID={app_id} | Pub='{publishers[0] if publishers else '—'}' "
-        f"| Tags={home_tags} | Sprachen={len(combined_text_locales)}{cover_msg}"
+        f"  ✅ [{title_de}] AppID={app_id} | Pub='{publishers[0] if publishers else '—'}'"
+        f"{usk_msg} | Sprachen={len(combined_text_locales)}{cover_msg}"
     )
 
 
 def fetch_next_batch(limit: int = 100) -> list[dict]:
-    # WICHTIG: Ohne tote Spalte 'genre', dafür mit 'cover_url, cover_status'
-    cols = "id, spieltitel, entwickler, publisher, home_tags_locked, status, steam_app_id, cover_url, cover_status"
+    cols = "id, spieltitel, release_jahr, entwickler, publisher, home_tags, home_tags_locked, status, steam_app_id, cover_url, cover_status"
     for guide_state in ("PUBLISHED", "FERTIG"):
         res = (
             supabase.table("games")
@@ -441,16 +450,12 @@ def fetch_next_batch(limit: int = 100) -> list[dict]:
 
 
 def main():
-    print(
-        "🚀 Starte Steam-Metadaten-, Cover- & Sprach-Enricher (PUBLISHED -> FERTIG -> Rest)..."
-    )
+    print("🚀 Starte Steam-Enricher v2 (Sprachen, 600x900-Cover, USK/PEGI-Ratings, Publisher)...")
     total = 0
     while True:
         batch = fetch_next_batch(100)
         if not batch:
-            print(
-                f"\n🏁 Alle Spiele mit Steam-Metadaten angereichert ({total} verarbeitet)."
-            )
+            print(f"\n🏁 Alle Spiele mit Steam-Metadaten angereichert ({total} verarbeitet).")
             break
 
         print(f"\n📦 Verarbeite Batch mit {len(batch)} Spielen...")

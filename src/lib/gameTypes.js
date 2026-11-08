@@ -94,8 +94,8 @@
  *   1=Walkthrough, 2=Sammelobjekte, 3=Bosse. Mehrere Werte = der Eintrag stand
  *   in mehreren Excel-Reitern und wurde beim Upload zusammengefasst.
  * @property {LocalizedText} [item_name]
- * @property {LocalizedText} [localisation] Gebiet über chronological_group/category_group
- * @property {number[]} [localisation_sheet] JSONB-Array der Reiter, in denen localisation gilt (1/2/3)
+ * @property {LocalizedText} [spiel_region] Übergeordnete Spiel-Region / Welt. Steuert die räumliche Anordnung im Guide.
+ * @property {number[]} [localisation_sheet] JSONB-Array der Reiter, in denen spiel_region gilt (1/2/3)
  * @property {LocalizedText} [chronological_group]
  * @property {LocalizedText} [category_group]
  * @property {LocalizedText} [video_chapter]
@@ -114,8 +114,9 @@
  * @property {number[]} sheet_types Alle Reiter des Eintrags – maßgeblich für Filter
  * @property {1|2|3|number} sheet_type Primärer Reiter (sheet_types[0]), nur Abwärtskompatibilität
  * @property {string} [item_name]
- * @property {string} [localisation] Leer = keine Gebiets-Ebene für diesen Eintrag
- * @property {number[]} [localisation_sheets] Reiter, in denen localisation gilt
+ * @property {string} [spiel_region] Aufgelöste Spiel-Region. Leer = keine Gebiets-Ebene für diesen Eintrag
+ * @property {string} [localisation] Dieselbe Region wie spiel_region, Alias für die UI-Kacheln
+ * @property {number[]} [localisation_sheets] Reiter, in denen spiel_region gilt
  * @property {string} [chronological_group]
  * @property {string} [category_group]
  * @property {string} [video_chapter]
