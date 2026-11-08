@@ -646,17 +646,16 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
 
     # Alle Sprachen der aktuellen Welle prüfen (inkl. source_lang wie 'es', falls dort noch die DE-Tipps/Beschreibung fehlen,
     # und inkl. 'de'/'en', falls dort noch die spanischen Guide-Zeilen fehlen!)
-    active_targets = list(
-        dict.fromkeys(
-            [lg for lg in wave_targets if not is_locale_done_in_status(status_map, lg)]
-            + ([source_lang] if source_lang in wave_targets else [])
-            + [
-                lg
-                for lg in ("de", "en")
-                if lg in wave_targets and not is_locale_done_in_status(status_map, lg)
-            ]
-        )
-    )
+    # Basis-Sprachen ('de', 'en') IMMER mitprüfen, unabhängig von der gewählten Welle!
+    # Selbst wenn guide_en schon PUBLISHED ist: Stufe 3B übersetzt nur echte Lücken
+    # (wo guide_tip->>'en' oder beschreibung->>'en' noch leer ist) und überschreibt nichts Bestehendes!
+    candidate_langs = list(dict.fromkeys(["de", "en", source_lang] + list(wave_targets)))
+    active_targets = [
+        lg for lg in candidate_langs
+        if lg in ("de", "en") or not is_locale_done_in_status(status_map, lg)
+    ]
+        
+    
     if not active_targets:
         return True
 
