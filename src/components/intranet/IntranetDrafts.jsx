@@ -2271,46 +2271,6 @@ export default function IntranetDrafts({
     });
   }, [selectedCreatorName, creatorGroups, sortField, sortDirection]);
 
-  const previewChronoData = useMemo(() => {
-    const normalized = currentCreatorRows.map((row, index) => ({
-      ...row,
-      id: row.id || `preview-${index}`,
-      guide_id: String(row.guide_id ?? index + 1),
-      guide_sequence: row.guide_id ?? index + 1,
-      sort_order: Number.parseInt(String(row.guide_id ?? index + 1).replace(/\D/g, ''), 10) || index + 1,
-      sheet_types: [1],
-      sheet_type: 1,
-      item_name: getLocalizedItemName(row.item_name),
-      spiel_region: getLocalizedItemName(row.spiel_region ?? row.localisation),
-      localisation: getLocalizedItemName(row.spiel_region ?? row.localisation),
-      chronological_group:
-        getLocalizedItemName(row.chronological_group) ||
-        getLocalizedItemName(row.category_group) ||
-        getLocalizedItemName(row.boss_group) ||
-        cleanVideoChapterName(row.video_chapter, selectedGame) ||
-        'Walkthrough',
-      category_group: getLocalizedItemName(row.category_group),
-      boss_group: getLocalizedItemName(row.boss_group),
-      video_chapter: getLocalizedItemName(row.video_chapter),
-    }));
-    return buildChronologicalGuideData(normalized);
-  }, [currentCreatorRows, selectedGame]);
-
-  const creatorNamesList = useMemo(() => creatorTabs.map((tab) => tab.creatorName), [creatorTabs]);
-  const activeCreatorIdx = Math.max(0, creatorNamesList.indexOf(selectedCreatorName));
-  const {
-    goToPrevTab: goPrevCreator,
-    goToNextTab: goNextCreator,
-    canGoPrev: canPrevCreator,
-    canGoNext: canNextCreator,
-  } = useTabNavigation({
-    tabs: creatorNamesList,
-    activeTab: selectedCreatorName || creatorNamesList[0] || '',
-    onTabChange: setSelectedCreatorName,
-    containerRef: previewSwipeRef,
-    enabled: editorViewMode === 'preview' && creatorNamesList.length > 1,
-  });
-
   // 1. GRUPPEN-RÖNTGENBLICK: Berechne vorkommende Werte von category_group, chronological_group und boss_group inkl. Anzahl
   const groupStats = useMemo(() => {
     const buildFieldStats = (field) => {
@@ -2481,6 +2441,46 @@ export default function IntranetDrafts({
       null
     );
   }, [selectedGameId, gamesMap, rohGamesMap, rohmaterialGames]);
+
+  const previewChronoData = useMemo(() => {
+    const normalized = currentCreatorRows.map((row, index) => ({
+      ...row,
+      id: row.id || `preview-${index}`,
+      guide_id: String(row.guide_id ?? index + 1),
+      guide_sequence: row.guide_id ?? index + 1,
+      sort_order: Number.parseInt(String(row.guide_id ?? index + 1).replace(/\D/g, ''), 10) || index + 1,
+      sheet_types: [1],
+      sheet_type: 1,
+      item_name: getLocalizedItemName(row.item_name),
+      spiel_region: getLocalizedItemName(row.spiel_region ?? row.localisation),
+      localisation: getLocalizedItemName(row.spiel_region ?? row.localisation),
+      chronological_group:
+        getLocalizedItemName(row.chronological_group) ||
+        getLocalizedItemName(row.category_group) ||
+        getLocalizedItemName(row.boss_group) ||
+        cleanVideoChapterName(row.video_chapter, selectedGame) ||
+        'Walkthrough',
+      category_group: getLocalizedItemName(row.category_group),
+      boss_group: getLocalizedItemName(row.boss_group),
+      video_chapter: getLocalizedItemName(row.video_chapter),
+    }));
+    return buildChronologicalGuideData(normalized);
+  }, [currentCreatorRows, selectedGame]);
+
+  const creatorNamesList = useMemo(() => creatorTabs.map((tab) => tab.creatorName), [creatorTabs]);
+  const activeCreatorIdx = Math.max(0, creatorNamesList.indexOf(selectedCreatorName));
+  const {
+    goToPrevTab: goPrevCreator,
+    goToNextTab: goNextCreator,
+    canGoPrev: canPrevCreator,
+    canGoNext: canNextCreator,
+  } = useTabNavigation({
+    tabs: creatorNamesList,
+    activeTab: selectedCreatorName || creatorNamesList[0] || '',
+    onTabChange: setSelectedCreatorName,
+    containerRef: previewSwipeRef,
+    enabled: editorViewMode === 'preview' && creatorNamesList.length > 1,
+  });
 
   const uniqueCreatorVideos = useMemo(() => {
     const seen = new Set();
