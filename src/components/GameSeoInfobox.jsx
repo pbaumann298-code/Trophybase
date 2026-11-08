@@ -24,6 +24,7 @@ function GameSeoInfobox({
   locale = '',
   onDescriptionSaved,
   showDescription = true,
+  className = '',
 }) {
   const { globalLocale, t } = useLocale();
   const text = showDescription && typeof description === 'string' ? description.trim() : '';
@@ -98,7 +99,7 @@ function GameSeoInfobox({
 
   return (
     <section
-      className="mb-8 rounded-2xl border border-white/10 bg-zinc-900/60 p-5 md:p-6 shadow-none"
+      className={`${className || 'mb-8'} rounded-2xl border border-white/10 bg-zinc-900/60 p-5 md:p-6 shadow-none`}
       aria-label={showDescription ? 'Spielbeschreibung' : 'Content Creator'}
     >
       <div>

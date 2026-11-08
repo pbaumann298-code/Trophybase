@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import WatchlistButton from './WatchlistButton';
 import GuideOnlineBadge from './GuideOnlineBadge';
 import GuideTabBar from './GuideTabBar';
+import GuideLanguageSelector from './GuideLanguageSelector';
 import CollapsibleSectionCard from './CollapsibleSectionCard';
 import TrophyGroupedChecklist, { ClearGuideTipsButton, MarkOnlineBulkButton } from './TrophyGroupedChecklist';
 import GameSeoInfobox from './GameSeoInfobox';
@@ -19,7 +20,8 @@ import {
 import { publicStudioCredits } from '../lib/studioCredits';
 import { DeveloperSearchLink, HomeTagSearchLinks } from './SearchFacetLink';
 import { gameGuidePath } from '../lib/routeUtils';
-import { fetchGameGuideBundle } from '../lib/guideQueries';
+import { fetchGameGuideBundle, resolveGuideLanguage } from '../lib/guideQueries';
+import { contentLocalesForGame } from '../lib/contentLocales';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
   clearGameGuideTips,
@@ -104,6 +106,14 @@ function QuickwinGameCard({
 }) {
   const { t, globalLocale } = useLocale();
   const [detailGame, setDetailGame] = useState(game);
+  const [langState, setLangState] = useState({ id: getGameUuid(game), override: null });
+  const langGameId = getGameUuid(game);
+  if (langState.id !== langGameId) {
+    setLangState({ id: langGameId, override: null });
+  }
+  const guideLanguageOverride = langState.id === langGameId ? langState.override : null;
+  const setGuideLanguageOverride = (override) => setLangState({ id: langGameId, override });
+  const guideLang = resolveGuideLanguage(globalLocale, guideLanguageOverride);
   const gameUuid = getGameUuid(detailGame) || getGameUuid(game);
   const reportSource =
     getPlatformGameId(detailGame) ||
@@ -204,25 +214,39 @@ function QuickwinGameCard({
     return undefined;
   }, [gameUuid, isAdmin, sessionUser]);
 
+  const loadCursorRef = useRef({ gameUuid: '', lang: undefined });
+
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setNewer({ mode: '', heading: '', games: [] });
+    const prev = loadCursorRef.current;
+    const quiet = prev.gameUuid === gameUuid && prev.lang !== guideLanguageOverride;
+    loadCursorRef.current = { gameUuid, lang: guideLanguageOverride };
+    if (!quiet) {
+      setLoading(true);
+      setNewer({ mode: '', heading: '', games: [] });
+    }
     const uuid = getGameUuid(game);
     Promise.all([
       // Listenzeile ohne Cover/Genre → volle games-Zeile parallel nachladen
       uuid
         ? fetchGameByRouteRef(supabase, uuid, globalLocale)
         : Promise.resolve({ data: null }),
-      // Hubs: guide_tip fällt auf de/en zurück, wenn die Locale noch nicht übersetzt ist.
-      fetchGameTrophiesWithEarned(supabase, sessionUser?.id ?? null, game, globalLocale, null, {
-        textFallback: true,
-      }),
-      fetchGameGuideBundle(supabase, game, globalLocale),
-      fetchContentCreatorsForGame(supabase, game),
-      newerVersions
+      // Ohne eigene Sprachwahl: guide_tip fällt auf de/en zurück.
+      fetchGameTrophiesWithEarned(
+        supabase,
+        sessionUser?.id ?? null,
+        game,
+        globalLocale,
+        guideLanguageOverride,
+        { textFallback: guideLanguageOverride == null },
+      ),
+      fetchGameGuideBundle(supabase, game, globalLocale, guideLanguageOverride),
+      quiet
+        ? Promise.resolve(null)
+        : fetchContentCreatorsForGame(supabase, game),
+      !quiet && newerVersions
         ? fetchNewerVersions(supabase, game, globalLocale, { includeReady })
-        : Promise.resolve({ mode: '', heading: '', games: [] }),
+        : Promise.resolve(null),
     ]).then(([fullGameResult, trophyResult, guideBundle, creatorResult, newerResult]) => {
       if (cancelled) return;
       if (fullGameResult?.data) setDetailGame(fullGameResult.data);
@@ -237,17 +261,19 @@ function QuickwinGameCard({
       setWalkthrough(buildChronologicalGuideData(chapters));
       setCollectibles(buildByTypeGuideData(guides));
       setBosses(buildBossOverviewData(bossRows));
-      setCreators(creatorResult.data ?? []);
-      setNewer(newerResult || { mode: '', heading: '', games: [] });
-      setCompletedItems(
-        claimCompletedGuideItems(gameUuid, collectGuideProgressIds(chapters, guides, bossRows)),
-      );
+      if (!quiet) {
+        setCreators(creatorResult?.data ?? []);
+        setNewer(newerResult || { mode: '', heading: '', games: [] });
+        setCompletedItems(
+          claimCompletedGuideItems(gameUuid, collectGuideProgressIds(chapters, guides, bossRows)),
+        );
+      }
       setLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [game, gameUuid, globalLocale, sessionUser?.id, newerVersions, includeReady]);
+  }, [game, gameUuid, globalLocale, guideLanguageOverride, sessionUser?.id, newerVersions, includeReady]);
 
   useEffect(() => {
     if (!gameUuid) return undefined;
@@ -260,7 +286,7 @@ function QuickwinGameCard({
   }, [gameUuid, earnedIds]);
 
   const saveGuideTip = async (achievementId, text) => {
-    const { error } = await saveTrophyGuideTip(supabase, gameUuid, achievementId, globalLocale, text);
+    const { error } = await saveTrophyGuideTip(supabase, gameUuid, achievementId, guideLang, text);
     if (error) return error;
     const next = text.trim();
     setTrophies((prev) => prev.map((trophy) => (
@@ -276,7 +302,7 @@ function QuickwinGameCard({
       supabase,
       gameUuid,
       achievementId,
-      globalLocale,
+      guideLang,
       text,
     );
     if (error) return error;
@@ -315,7 +341,7 @@ function QuickwinGameCard({
   };
 
   const clearAllGuideTips = async () => {
-    const { error } = await clearGameGuideTips(supabase, gameUuid, globalLocale);
+    const { error } = await clearGameGuideTips(supabase, gameUuid, guideLang);
     if (error) {
       setTipHint(error.message || t('trophyTipFailed'));
       return;
@@ -437,8 +463,14 @@ function QuickwinGameCard({
   }, [tabs, activeTab]);
 
   const tabIndex = tabs.findIndex((tab) => tab.id === activeTab);
-  // Hub-Karte: Beschreibung mit de/en-Fallback statt leer.
-  const description = getGameDescription(detailGame, globalLocale, { exact: false });
+  const contentLocales = useMemo(
+    () => contentLocalesForGame(detailGame, { includeReady: isAdmin }),
+    [detailGame, isAdmin],
+  );
+  // Ohne eigene Sprachwahl bleibt der Hub-Fallback auf de/en. Eine gewählte Guidesprache ist exakt.
+  const description = getGameDescription(detailGame, guideLang, {
+    exact: guideLanguageOverride != null,
+  });
 
   const platinumDone = isPlatinumUnlocked(trophies, unlocked, earnedIds);
 
@@ -602,6 +634,23 @@ function QuickwinGameCard({
         </div>
       </article>
 
+      <GameSeoInfobox
+        title={title}
+        description={description}
+        creators={creators}
+        showDescription={false}
+        className="mb-4"
+      />
+
+      <div className="mb-4">
+        <GuideLanguageSelector
+          className="!mb-0 min-w-0 w-full"
+          guideLanguageOverride={guideLanguageOverride}
+          onGuideLanguageOverride={setGuideLanguageOverride}
+          locales={contentLocales}
+        />
+      </div>
+
       {loading ? (
         <p className="quickwin-card-note">{t('guideLoading')}</p>
       ) : (
@@ -614,13 +663,6 @@ function QuickwinGameCard({
             onNext={() => tabIndex < tabs.length - 1 && setActiveTab(tabs[tabIndex + 1].id)}
             canGoPrev={tabIndex > 0}
             canGoNext={tabIndex >= 0 && tabIndex < tabs.length - 1}
-          />
-
-          <GameSeoInfobox
-            title={title}
-            description={description}
-            creators={creators}
-            showDescription={false}
           />
 
           {activeTab === 'reiter0' && (
@@ -686,7 +728,7 @@ function QuickwinGameCard({
                     onCancel={cancelOnlinePick}
                     onConfirm={confirmOnlinePick}
                   />
-                  <ClearGuideTipsButton onClear={clearAllGuideTips} locale={globalLocale} />
+                  <ClearGuideTipsButton onClear={clearAllGuideTips} locale={guideLang} />
                 </div>
               ) : null}
               <TrophyGroupedChecklist
