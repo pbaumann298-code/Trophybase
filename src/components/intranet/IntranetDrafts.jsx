@@ -33,6 +33,11 @@ import {
 } from '../../lib/adminAccess';
 import { localeOptions } from '../../lib/uiStrings';
 import { getGameSupabaseDeepLinks } from '../../lib/supabaseDeepLink';
+import { CollectibleKacheln } from '../../pages/CollectibleKacheln';
+import { buildChronologicalGuideData } from '../../lib/guideData';
+import { GuideVideoProvider } from '../../context/GuideVideoContext';
+import { LocaleProvider } from '../../context/LocaleContext';
+import { useTabNavigation } from '../../hooks/useTabNavigation';
 
 const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
 const MAX_VISIBLE_QUEUE_GAMES = 10;
@@ -1575,6 +1580,8 @@ export default function IntranetDrafts({
   const [productiveRohRows, setProductiveRohRows] = useState([]);
   const [rohGamesMap, setRohGamesMap] = useState(new Map());
   const [loadingRohmaterial, setLoadingRohmaterial] = useState(false);
+  const [editorViewMode, setEditorViewMode] = useState('table');
+  const previewSwipeRef = useRef(null);
   /** 'staging' | 'rohmaterial' */
   const [activeDataSource, setActiveDataSource] = useState(initialDataSource);
   const activeDataSourceRef = useRef(initialDataSource);
@@ -2074,33 +2081,30 @@ export default function IntranetDrafts({
     }
   }, [activeDataSource, rohmaterialGames, totalStagingCountsMap]);
 
-  // Set default selection when queue loads or changes
+  // Set default selection when queue loads or changes. Quelle bleibt, bis sie manuell gewechselt wird.
   useEffect(() => {
-    if (activeDataSource === 'staging') {
-      if (queueGamesList.length > 0) {
-        if (!selectedGameId || !queueGamesList.some((item) => item.gameId === selectedGameId)) {
-          setSelectedGameId(queueGamesList[0].gameId);
+    if (loading || loadingRohmaterial) return;
+    if (activeDataSource === 'rohmaterial') {
+      if (rohmaterialGames.length > 0) {
+        const existsInRoh = rohmaterialGames.some((g) => g.gameId === selectedGameId);
+        if (!selectedGameId || !existsInRoh) {
+          setSelectedGameId(rohmaterialGames[0].gameId);
         }
-      } else if (rohmaterialGames.length > 0) {
-        setActiveDataSource('rohmaterial');
-        setSelectedGameId(rohmaterialGames[0].gameId);
       } else {
         setSelectedGameId(null);
         setSelectedCreatorName(null);
       }
-    } else if (rohmaterialGames.length > 0) {
-      const existsInRoh = rohmaterialGames.some((g) => g.gameId === selectedGameId);
-      if (!selectedGameId || !existsInRoh) {
-        setSelectedGameId(rohmaterialGames[0].gameId);
+      return;
+    }
+    if (queueGamesList.length > 0) {
+      if (!selectedGameId || !queueGamesList.some((item) => item.gameId === selectedGameId)) {
+        setSelectedGameId(queueGamesList[0].gameId);
       }
-    } else if (queueGamesList.length > 0) {
-      setActiveDataSource('staging');
-      setSelectedGameId(queueGamesList[0].gameId);
     } else {
       setSelectedGameId(null);
       setSelectedCreatorName(null);
     }
-  }, [activeDataSource, queueGamesList, rohmaterialGames, selectedGameId]);
+  }, [loading, loadingRohmaterial, activeDataSource, queueGamesList, rohmaterialGames, selectedGameId]);
 
   // Reset filters & selection when game or creator changes
   useEffect(() => {
@@ -2266,6 +2270,46 @@ export default function IntranetDrafts({
       return fallbackA - fallbackB;
     });
   }, [selectedCreatorName, creatorGroups, sortField, sortDirection]);
+
+  const previewChronoData = useMemo(() => {
+    const normalized = currentCreatorRows.map((row, index) => ({
+      ...row,
+      id: row.id || `preview-${index}`,
+      guide_id: String(row.guide_id ?? index + 1),
+      guide_sequence: row.guide_id ?? index + 1,
+      sort_order: Number.parseInt(String(row.guide_id ?? index + 1).replace(/\D/g, ''), 10) || index + 1,
+      sheet_types: [1],
+      sheet_type: 1,
+      item_name: getLocalizedItemName(row.item_name),
+      spiel_region: getLocalizedItemName(row.spiel_region ?? row.localisation),
+      localisation: getLocalizedItemName(row.spiel_region ?? row.localisation),
+      chronological_group:
+        getLocalizedItemName(row.chronological_group) ||
+        getLocalizedItemName(row.category_group) ||
+        getLocalizedItemName(row.boss_group) ||
+        cleanVideoChapterName(row.video_chapter, selectedGame) ||
+        'Walkthrough',
+      category_group: getLocalizedItemName(row.category_group),
+      boss_group: getLocalizedItemName(row.boss_group),
+      video_chapter: getLocalizedItemName(row.video_chapter),
+    }));
+    return buildChronologicalGuideData(normalized);
+  }, [currentCreatorRows, selectedGame]);
+
+  const creatorNamesList = useMemo(() => creatorTabs.map((tab) => tab.creatorName), [creatorTabs]);
+  const activeCreatorIdx = Math.max(0, creatorNamesList.indexOf(selectedCreatorName));
+  const {
+    goToPrevTab: goPrevCreator,
+    goToNextTab: goNextCreator,
+    canGoPrev: canPrevCreator,
+    canGoNext: canNextCreator,
+  } = useTabNavigation({
+    tabs: creatorNamesList,
+    activeTab: selectedCreatorName || creatorNamesList[0] || '',
+    onTabChange: setSelectedCreatorName,
+    containerRef: previewSwipeRef,
+    enabled: editorViewMode === 'preview' && creatorNamesList.length > 1,
+  });
 
   // 1. GRUPPEN-RÖNTGENBLICK: Berechne vorkommende Werte von category_group, chronological_group und boss_group inkl. Anzahl
   const groupStats = useMemo(() => {
@@ -7550,6 +7594,31 @@ export default function IntranetDrafts({
             
             {selectedGame ? (
               <>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditorViewMode('table')}
+                    className={`rounded-xl px-3.5 py-2 text-xs font-mono font-bold transition ${
+                      editorViewMode === 'table'
+                        ? 'bg-[#00ff66] text-black shadow-md shadow-[#00ff66]/20'
+                        : 'border border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-[#00ff66]/50'
+                    }`}
+                  >
+                    📋 Tabellen-Editor
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditorViewMode('preview')}
+                    className={`rounded-xl px-3.5 py-2 text-xs font-mono font-bold transition ${
+                      editorViewMode === 'preview'
+                        ? 'bg-[#00ff66] text-black shadow-md shadow-[#00ff66]/20'
+                        : 'border border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-[#00ff66]/50'
+                    }`}
+                  >
+                    📱 Creator-Swipe Vorschau ({creatorTabs.length} Creator)
+                  </button>
+                </div>
+
                 {/* 🛡️ VORABPRÜFUNGS-BANNER (wenn Spiel bereits Published ist oder Guide-Daten in game_guides hat) */}
                 {conflictInfo.hasConflict && (
                   <div className="rounded-2xl border-2 border-amber-500/60 bg-amber-500/10 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-amber-500/5">
@@ -8053,6 +8122,72 @@ export default function IntranetDrafts({
 
                 {/* C. GUIDE-ZEILEN TABELLE & GRUPPEN-RÖNTGENBLICK (SUPER COMPACT HIGH-DENSITY) */}
                 <div className="rounded-2xl border border-zinc-800 bg-[#121314] p-3 flex flex-col gap-2.5">
+                  {editorViewMode === 'preview' ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#00ff66]/40 bg-[#00ff66]/10 px-2.5 py-2">
+                        <button
+                          type="button"
+                          onClick={goPrevCreator}
+                          disabled={!canPrevCreator}
+                          className="rounded-lg border border-zinc-600 bg-zinc-900 px-3 py-1.5 text-lg font-bold text-white hover:border-[#00ff66] disabled:opacity-40"
+                          aria-label="Vorheriger Creator"
+                        >
+                          ‹
+                        </button>
+                        <div className="min-w-0 flex-1 text-center">
+                          <p className="text-sm font-bold text-white">
+                            Creator {activeCreatorIdx + 1} / {creatorTabs.length}: {selectedCreatorName || '—'}
+                          </p>
+                          <span className="mt-1 inline-flex rounded bg-zinc-900/70 px-2 py-0.5 text-[11px] font-mono text-zinc-300">
+                            {creatorTabs[activeCreatorIdx]?.videoCount ?? 0} Videos · {currentCreatorRows.length} Schritte
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={goNextCreator}
+                          disabled={!canNextCreator}
+                          className="rounded-lg border border-zinc-600 bg-zinc-900 px-3 py-1.5 text-lg font-bold text-white hover:border-[#00ff66] disabled:opacity-40"
+                          aria-label="Nächster Creator"
+                        >
+                          ›
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDiscardCreator}
+                          disabled={actionBusy || !selectedCreatorName}
+                          className="rounded-xl border border-red-500/60 bg-red-500/15 px-3 py-2 text-xs font-mono font-bold text-red-200 hover:bg-red-500/25 disabled:opacity-40"
+                        >
+                          🗑️ Creator &quot;{selectedCreatorName}&quot; verwerfen
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleOpenApproveModal}
+                          disabled={actionBusy || !selectedCreatorName}
+                          className="rounded-xl bg-[#00ff66] px-3 py-2 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-40"
+                        >
+                          ✓ Diesen Creator freigeben
+                        </button>
+                      </div>
+                      <div ref={previewSwipeRef} className="min-w-0">
+                        <LocaleProvider>
+                          <GuideVideoProvider>
+                            <CollectibleKacheln
+                              listTitle={`Walkthrough-Vorschau · ${selectedCreatorName || ''}`}
+                              collectiblesData={previewChronoData}
+                              completedItems={{}}
+                              toggleCompleted={() => {}}
+                              gameId={selectedGameId}
+                              groupByField="chronological_group"
+                              groupHeaderIcon="📍"
+                              hideCompleted={false}
+                              setHideCompleted={() => {}}
+                            />
+                          </GuideVideoProvider>
+                        </LocaleProvider>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
                   {creatorTabs.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#00ff66]/30 bg-[#00ff66]/5 px-2.5 py-2">
                       <span className="text-xs font-mono font-bold text-[#00ff66]">
@@ -9748,6 +9883,8 @@ export default function IntranetDrafts({
                       </tbody>
                     </table>
                   </div>
+                    </>
+                  )}
                 </div>
 
                 {/* ==================== 2. FLOATING BATCH-BAR (WENN ZEILEN AUSGEWÄHLT SIND) ==================== */}

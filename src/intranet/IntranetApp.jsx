@@ -10,7 +10,6 @@ import AdminLoginForm from '../components/admin/AdminLoginForm';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch';
 import IntranetFollowups from '../components/intranet/IntranetFollowups';
-import IntranetRohmaterial from '../components/intranet/IntranetRohmaterial';
 import IntranetDrafts from '../components/intranet/IntranetDrafts';
 import IntranetRadarAndServertot from '../components/intranet/IntranetRadarAndServertot';
 import IntranetRoadmap from '../components/intranet/IntranetRoadmap';
@@ -47,7 +46,6 @@ const TABS = [
   { id: 'roadmap', label: 'Roadmap & Ideen', icon: '🗺️' },
   { id: 'followups', label: 'Wiedervorlage', icon: '⚑' },
   { id: 'creators', label: 'Creator', icon: '▶' },
-  { id: 'rohmaterial', label: 'Rohmaterial', icon: '🧪' },
   { id: 'platforms', label: 'Steam & Xbox', icon: '🕹️' },
 ];
 
@@ -429,7 +427,6 @@ function IntranetApp() {
                 <IntranetFollowups sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
               )}
               {activeTab === 'creators' && <IntranetCreatorSearch />}
-              {activeTab === 'rohmaterial' && <IntranetRohmaterial />}
               {activeTab === 'platforms' && <IntranetPlatformCatalog />}
             </>
           )}
