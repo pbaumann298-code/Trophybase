@@ -33,7 +33,7 @@ const ROH_SELECT = [
   GUIDE_I18N.sheetType,
   GUIDE_I18N.itemName,
   GUIDE_I18N.spielRegion,
-  GUIDE_I18N.localisationSheet,
+  GUIDE_I18N.localisationType,
   GUIDE_I18N.chronologicalGroup,
   GUIDE_I18N.categoryGroup,
   GUIDE_I18N.bossGroup,

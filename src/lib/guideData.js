@@ -64,40 +64,37 @@ function compareTimestamp(a, b) {
   return String(a?.timestamp ?? '').localeCompare(String(b?.timestamp ?? ''));
 }
 
-/**
- * Gebiet über den *_group-Kacheln (z. B. Galaxie bei Astro Bot).
- * Leerer String heißt: dieser Eintrag hat keine Gebiets-Ebene und wird ohne
- * zusätzlichen Rahmen dargestellt.
- *
- * Ob localisation in diesem Reiter gilt, entscheidet localisation_sheets –
- * analog zu sheet_type. applyLocalisationForSheet setzt den String deshalb
- * vor dem Gruppieren bereits auf leer, wenn der Reiter nicht gemeint ist.
- */
 export function guideLocalisationKey(row) {
-  return String(row?.localisation ?? '').trim();
+  return String(row?.spiel_region ?? row?.localisation ?? '').trim();
 }
 
 /**
- * localisation für genau einen Excel-Reiter. Ohne localisation_sheet
- * (Altbestand) gilt das Gebiet nur im Walkthrough und bei den Bossen, nicht
- * bei den Sammelobjekten – sonst rutscht die Galaxie aus Reiter 1 nach Reiter 2.
- * @param {object|null|undefined} row
- * @param {number} sheetType GUIDE_SHEET_TYPE.*
+ * Prüft, ob spiel_region in diesem Reiter (1=Walkthrough, 2=Sammelobjekte, 3=Bosse) gilt.
+ * - Ist localisation_type ([1], [2], [3]) gepflegt, entscheidet dieses Array.
+ * - Ist localisation_type leer, wird spiel_region nur dann in Tab 2 (Sammelobjekte)
+ *   unterdrückt, wenn die Zeile gleichzeitig ein Walkthrough-Eintrag [1, 2] ist (Astro-Bot-Fall).
+ *   Reine Sammelobjekte ([2], Far Cry 5) und Bosse ([3], Elden Ring) zeigen ihre Region immer!
  */
 export function localisationForSheet(row, sheetType) {
-  const text = String(row?.localisation ?? '').trim();
+  const text = guideLocalisationKey(row);
   if (!text) return '';
 
   const wanted = Number(sheetType);
   const sheets = Array.isArray(row?.localisation_sheets)
     ? row.localisation_sheets
-    : resolveSheetTypes(row?.localisation_sheet);
+    : resolveSheetTypes(row?.localisation_type ?? row?.localisation_sheet);
 
   if (sheets.length > 0) {
     return sheets.includes(wanted) ? text : '';
   }
 
-  if (wanted === GUIDE_SHEET_TYPE.COLLECTIBLES) return '';
+  const rowTypes = resolveSheetTypes(row?.sheet_types ?? row?.sheet_type);
+  if (
+    wanted === GUIDE_SHEET_TYPE.COLLECTIBLES &&
+    rowTypes.includes(GUIDE_SHEET_TYPE.WALKTHROUGH)
+  ) {
+    return '';
+  }
   return text;
 }
 
@@ -347,8 +344,8 @@ export function buildChronologicalGuideData(chapterRows) {
 
 /**
  * Sammelobjekte (sheet_type 2): group by category_group, Sortierung nach
- * game_guides.guide_id (über sort_order). localisation nur, wenn
- * localisation_sheet den Reiter 2 enthält.
+ * game_guides.guide_id (über sort_order). spiel_region nur, wenn
+ * localisation_type den Reiter 2 enthält oder die Zeile kein Walkthrough ist.
  */
 export function buildByTypeGuideData(guideRows) {
   const mapped = applyLocalisationForSheet(

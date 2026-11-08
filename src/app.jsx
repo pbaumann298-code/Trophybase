@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { supabase } from './pages/supabaseClient';
 import Header from './components/Header';
 import HomePage from './pages/HomePage';
@@ -116,11 +116,8 @@ import PlatformTrophiesPage from './pages/PlatformTrophiesPage';
 import { fetchGameGuideBundle, resolveGameId } from './lib/guideQueries';
 import { fetchGameByRouteRef, fetchGameBySlug } from './lib/gameQueries';
 import { useLocale } from './context/LocaleContext';
-import {
-  countEarnedInList,
-  fetchGameTrophiesWithEarned,
-} from './lib/earnedTrophyQueries';
-import { getTrophyIdKey } from './lib/trophyQueries';
+import { fetchGameTrophiesWithEarned } from './lib/earnedTrophyQueries';
+import { getGameViewPolicy } from './lib/gameViewPolicy';
 import { applyTrophyUnlockToggle, isPlatinumUnlocked } from './lib/trophyTypes';
 import { saveLocalPlatinumFlag, PROGRESS_SYNCED_EVENT } from './lib/localUserProgress';
 import { pushLocalGameProgressToCloud } from './lib/progressCloudBridge';
@@ -412,6 +409,8 @@ function App() {
         userId,
         gameData,
         localeForPage,
+        null,
+        { textFallback: getGameViewPolicy(gameData, { variant: 'page' }).useTextFallback },
       );
       if (loadId === trophyLoadRef.current) {
         setActiveTrophies(trophiesOnly ? stripTrophyGuideExtras(trophies) : trophies);
@@ -786,7 +785,14 @@ function App() {
     const userId = sessionUser?.id ?? null;
     const loadId = startTrophyLoad();
     const [trophyResult, fullGame] = await Promise.all([
-      fetchGameTrophiesWithEarned(supabase, userId, game, globalLocale),
+      fetchGameTrophiesWithEarned(
+        supabase,
+        userId,
+        game,
+        globalLocale,
+        null,
+        { textFallback: getGameViewPolicy(game, { variant: 'page' }).useTextFallback },
+      ),
       gameUuid
         ? fetchGameByRouteRef(supabase, gameUuid, globalLocale)
         : Promise.resolve({ data: null }),
@@ -903,16 +909,6 @@ function App() {
       window.removeEventListener(PROGRESS_SYNCED_EVENT, onProgressSynced);
     };
   }, [selectedGame, earnedTrophyIds]);
-
-  const completedCount = useMemo(() => {
-    const earned = countEarnedInList(activeTrophies, earnedTrophyIds);
-    const manual = activeTrophies.filter((t) => {
-      const key = getTrophyIdKey(t);
-      return !earnedTrophyIds.has(key) && unlockedTrophies[key];
-    }).length;
-    return earned + manual;
-  }, [activeTrophies, earnedTrophyIds, unlockedTrophies]);
-  const progressPercent = activeTrophies.length > 0 ? Math.round((completedCount / activeTrophies.length) * 100) : 0;
 
   const handleBetaComplete = () => {
     window.history.pushState({}, '', '/');
@@ -1371,8 +1367,6 @@ function App() {
                 unlockedTrophies={unlockedTrophies}
                 earnedTrophyIds={earnedTrophyIds}
                 toggleTrophy={toggleTrophy}
-                completedCount={completedCount}
-                progressPercent={progressPercent}
                 hideCompleted={hideCompleted}
                 setHideCompleted={setHideCompleted}
                 completedGuideItems={completedGuideItems}

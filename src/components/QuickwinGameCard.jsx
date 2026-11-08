@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import WatchlistButton from './WatchlistButton';
 import GuideOnlineBadge from './GuideOnlineBadge';
-import GuideTabBar from './GuideTabBar';
 import GuideLanguageSelector from './GuideLanguageSelector';
-import CollapsibleSectionCard from './CollapsibleSectionCard';
-import TrophyGroupedChecklist, { ClearGuideTipsButton, MarkOnlineBulkButton } from './TrophyGroupedChecklist';
 import GameSeoInfobox from './GameSeoInfobox';
-import { BossKacheln, CollectibleKacheln } from '../pages/CollectibleKacheln';
-import { GuideVideoProvider } from '../context/GuideVideoContext';
+import GameGuideWorkspace from './GameGuideWorkspace';
 import { useLocale } from '../context/LocaleContext';
 import { GAME_FIELDS, GAME_STRUCT } from '../lib/gameSchema';
+import { getGameViewPolicy } from '../lib/gameViewPolicy';
 import {
   getGameCover,
   getGameDescription,
@@ -24,14 +21,8 @@ import { fetchGameGuideBundle, resolveGuideLanguage } from '../lib/guideQueries'
 import { contentLocalesForGame } from '../lib/contentLocales';
 import { fetchContentCreatorsForGame } from '../lib/contentCreators';
 import {
-  clearGameGuideTips,
   clearIntranetCover,
   markGameCoverValid,
-  saveTrophyGuideTip,
-  saveTrophyGuideTipLong,
-  saveTrophyVideo,
-  setAchievementFlags,
-  setAchievementsOnline,
   setIntranetIgdbCover,
 } from '../lib/intranetGameEdits';
 import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
@@ -40,7 +31,6 @@ import {
   buildByTypeGuideData,
   buildChronologicalGuideData,
 } from '../lib/guideData';
-import { getTrophyIdKey } from '../lib/trophyQueries';
 import {
   loadUnlockedTrophies,
   mergeUnlockedTrophies,
@@ -56,35 +46,13 @@ import {
   readCompletedGuideItems,
   saveCompletedGuideItems,
 } from '../lib/guideProgressStorage';
-import {
-  HIDDEN_TROPHY_MODE,
-  hiddenTrophiesRevealed,
-  loadHiddenTrophyMode,
-  saveHiddenTrophyMode,
-} from '../lib/hiddenTrophyPreference';
 import { supabase } from '../pages/supabaseClient';
 import { fetchGameByRouteRef, incrementGameViews } from '../lib/gameQueries';
 import { fetchNewerVersions } from '../lib/newerVersions';
-import { RelatedBlock } from './RelatedGuides';
-
-const TAB_META = {
-  reiter0: { icon: '🏆', labelKey: 'trophies' },
-  reiter1: { icon: '📖', labelKey: 'fullGameplay' },
-  reiter2: { icon: '📦', labelKey: 'completion' },
-  reiter3: { icon: '⚔️', labelKey: 'bosses' },
-  reiter4: { icon: '↗', labelKey: 'newerVersions' },
-};
 
 export function formatQuickwinCount(count, oneLabel, manyTemplate) {
   if (Number(count) === 1) return oneLabel;
   return String(manyTemplate ?? '').replace('{count}', String(count));
-}
-
-function distinctGroupCount(rows, field) {
-  const names = new Set(
-    (rows ?? []).map((row) => String(row?.[field] ?? '').trim()).filter(Boolean),
-  );
-  return names.size;
 }
 
 /**
@@ -97,9 +65,7 @@ function QuickwinGameCard({
   onRequestLogin,
   isAdmin = false,
   sessionUser = null,
-  newerVersions = false,
   includeReady = false,
-  serverNotice = false,
   serverNoticeText = '',
   /** false = nur komprimierte Guide-Ansicht, kein Sprung zur Vollseite */
   allowFullGameNav = true,
@@ -114,6 +80,8 @@ function QuickwinGameCard({
   const guideLanguageOverride = langState.id === langGameId ? langState.override : null;
   const setGuideLanguageOverride = (override) => setLangState({ id: langGameId, override });
   const guideLang = resolveGuideLanguage(globalLocale, guideLanguageOverride);
+  const policy = getGameViewPolicy(detailGame, { variant: 'inline', isAdmin });
+  const showFullPageLink = policy.allowFullPageLink && allowFullGameNav;
   const gameUuid = getGameUuid(detailGame) || getGameUuid(game);
   const reportSource =
     getPlatformGameId(detailGame) ||
@@ -135,13 +103,7 @@ function QuickwinGameCard({
   const [creators, setCreators] = useState([]);
   const [completedItems, setCompletedItems] = useState({});
   const [hideCompleted, setHideCompleted] = useState(false);
-  const [hiddenMode, setHiddenMode] = useState(() => loadHiddenTrophyMode(gameUuid));
-  const [activeTab, setActiveTab] = useState('reiter0');
   const [newer, setNewer] = useState({ mode: '', heading: '', games: [] });
-  const [tipHint, setTipHint] = useState('');
-  const [onlinePickMode, setOnlinePickMode] = useState(false);
-  const [onlinePickIds, setOnlinePickIds] = useState(() => new Set());
-  const [onlinePickBusy, setOnlinePickBusy] = useState(false);
   const [coverBusy, setCoverBusy] = useState(false);
   const [coverError, setCoverError] = useState('');
   const [igdbPrompt, setIgdbPrompt] = useState(false);
@@ -231,20 +193,20 @@ function QuickwinGameCard({
       uuid
         ? fetchGameByRouteRef(supabase, uuid, globalLocale)
         : Promise.resolve({ data: null }),
-      // Ohne eigene Sprachwahl: guide_tip fällt auf de/en zurück.
+      // Hub-Typen: ohne eigene Sprachwahl fällt guide_tip auf de/en zurück.
       fetchGameTrophiesWithEarned(
         supabase,
         sessionUser?.id ?? null,
         game,
         globalLocale,
         guideLanguageOverride,
-        { textFallback: guideLanguageOverride == null },
+        { textFallback: policy.useTextFallback && guideLanguageOverride == null },
       ),
       fetchGameGuideBundle(supabase, game, globalLocale, guideLanguageOverride),
       quiet
         ? Promise.resolve(null)
         : fetchContentCreatorsForGame(supabase, game),
-      !quiet && newerVersions
+      !quiet && policy.showNewerVersionsTab
         ? fetchNewerVersions(supabase, game, globalLocale, { includeReady })
         : Promise.resolve(null),
     ]).then(([fullGameResult, trophyResult, guideBundle, creatorResult, newerResult]) => {
@@ -273,7 +235,7 @@ function QuickwinGameCard({
     return () => {
       cancelled = true;
     };
-  }, [game, gameUuid, globalLocale, guideLanguageOverride, sessionUser?.id, newerVersions, includeReady]);
+  }, [game, gameUuid, globalLocale, guideLanguageOverride, sessionUser?.id, includeReady, policy.useTextFallback, policy.showNewerVersionsTab]);
 
   useEffect(() => {
     if (!gameUuid) return undefined;
@@ -284,109 +246,6 @@ function QuickwinGameCard({
     window.addEventListener(PROGRESS_SYNCED_EVENT, onSynced);
     return () => window.removeEventListener(PROGRESS_SYNCED_EVENT, onSynced);
   }, [gameUuid, earnedIds]);
-
-  const saveGuideTip = async (achievementId, text) => {
-    const { error } = await saveTrophyGuideTip(supabase, gameUuid, achievementId, guideLang, text);
-    if (error) return error;
-    const next = text.trim();
-    setTrophies((prev) => prev.map((trophy) => (
-      getTrophyIdKey(trophy) === achievementId
-        ? { ...trophy, guide_tip: next }
-        : trophy
-    )));
-    return null;
-  };
-
-  const saveGuideTipLong = async (achievementId, text) => {
-    const { error } = await saveTrophyGuideTipLong(
-      supabase,
-      gameUuid,
-      achievementId,
-      guideLang,
-      text,
-    );
-    if (error) return error;
-    const next = text.trim();
-    setTrophies((prev) => prev.map((trophy) => (
-      getTrophyIdKey(trophy) === achievementId
-        ? { ...trophy, guide_tip_long: next }
-        : trophy
-    )));
-    return null;
-  };
-
-  const saveGuideVideo = async (achievementId, video) => {
-    const { error, video: saved } = await saveTrophyVideo(supabase, gameUuid, achievementId, video);
-    if (error) return error;
-    setTrophies((prev) => prev.map((trophy) => (
-      getTrophyIdKey(trophy) === achievementId
-        ? {
-          ...trophy,
-          video_url: saved?.video_url ?? '',
-          timestamp: saved?.timestamp ?? '',
-        }
-        : trophy
-    )));
-    return null;
-  };
-
-  const saveTrophyFlags = async (trophy, patch) => {
-    const achievementId = getTrophyIdKey(trophy);
-    const { error } = await setAchievementFlags(supabase, gameUuid, achievementId, patch);
-    if (error) return error;
-    setTrophies((prev) => prev.map((row) => (
-      getTrophyIdKey(row) === achievementId ? { ...row, ...patch } : row
-    )));
-    return null;
-  };
-
-  const clearAllGuideTips = async () => {
-    const { error } = await clearGameGuideTips(supabase, gameUuid, guideLang);
-    if (error) {
-      setTipHint(error.message || t('trophyTipFailed'));
-      return;
-    }
-    setTrophies((prev) => prev.map((trophy) => ({ ...trophy, guide_tip: '', guide_tip_long: '' })));
-    setTipHint(t('trophyTipSaved'));
-  };
-
-  const toggleOnlinePick = (trophyKey) => {
-    const key = String(trophyKey ?? '').trim();
-    if (!key) return;
-    setOnlinePickIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
-  const cancelOnlinePick = () => {
-    setOnlinePickMode(false);
-    setOnlinePickIds(new Set());
-    setOnlinePickBusy(false);
-  };
-
-  const confirmOnlinePick = async () => {
-    const ids = [...onlinePickIds];
-    if (!ids.length || onlinePickBusy) return;
-    const message = t('markOnlineBulkConfirm').replaceAll('{count}', String(ids.length));
-    if (!window.confirm(message)) return;
-    setOnlinePickBusy(true);
-    setTipHint('');
-    const { error } = await setAchievementsOnline(supabase, gameUuid, ids, true);
-    setOnlinePickBusy(false);
-    if (error) {
-      setTipHint(error.message || t('markOnlineBulkFailed'));
-      return;
-    }
-    const marked = new Set(ids);
-    setTrophies((prev) => prev.map((row) => (
-      marked.has(getTrophyIdKey(row)) ? { ...row, is_online: true } : row
-    )));
-    cancelOnlinePick();
-    setTipHint(t('markOnlineBulkSaved'));
-  };
 
   const toggleTrophy = (id) => {
     if (earnedIds.has(id)) return;
@@ -427,49 +286,13 @@ function QuickwinGameCard({
     return map;
   }, [trophies]);
 
-  const doneCount = trophies.filter((trophy) => {
-    const key = getTrophyIdKey(trophy);
-    return earnedIds.has(key) || unlocked[key];
-  }).length;
-  const progressPercent = trophies.length > 0 ? Math.round((doneCount / trophies.length) * 100) : 0;
-  const hasHidden = trophies.some((trophy) => trophy.is_hidden);
-
-  const tabs = useMemo(() => {
-    const visible = ['reiter0'];
-    if (loading || walkthrough.length > 0) visible.push('reiter1');
-    if (!loading && collectibles.length > 0) visible.push('reiter2');
-    if (!loading && newer.games.length > 0) visible.push('reiter4');
-    if (!loading && bosses.length > 0) visible.push('reiter3');
-    return visible.map((id) => ({
-      id,
-      icon: TAB_META[id].icon,
-      label: id === 'reiter2' && (newerVersions || serverNotice)
-        ? t('collectGuide')
-        : t(TAB_META[id].labelKey),
-      count: id === 'reiter0'
-        ? trophies.length
-        : id === 'reiter1'
-          ? walkthrough.length
-          : id === 'reiter2'
-            ? collectibles.length
-            : id === 'reiter4'
-              ? newer.games.length
-              : bosses.length,
-    }));
-  }, [loading, walkthrough.length, collectibles.length, bosses.length, trophies.length, newer.games.length, t]);
-
-  useEffect(() => {
-    if (!tabs.some((tab) => tab.id === activeTab)) setActiveTab(tabs[0]?.id ?? 'reiter0');
-  }, [tabs, activeTab]);
-
-  const tabIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const contentLocales = useMemo(
     () => contentLocalesForGame(detailGame, { includeReady: isAdmin }),
     [detailGame, isAdmin],
   );
-  // Ohne eigene Sprachwahl bleibt der Hub-Fallback auf de/en. Eine gewählte Guidesprache ist exakt.
+  // Hub-Typen fallen ohne eigene Sprachwahl auf de/en zurück. Eine gewählte Guidesprache ist exakt.
   const description = getGameDescription(detailGame, guideLang, {
-    exact: guideLanguageOverride != null,
+    exact: guideLanguageOverride != null || !policy.useTextFallback,
   });
 
   const platinumDone = isPlatinumUnlocked(trophies, unlocked, earnedIds);
@@ -562,7 +385,7 @@ function QuickwinGameCard({
           </div>
           <div className="quickwin-card-body">
             <div className="quickwin-card-title-row">
-              {allowFullGameNav ? (
+              {showFullPageLink ? (
                 <a
                   href={href}
                   className="quickwin-card-title"
@@ -651,196 +474,33 @@ function QuickwinGameCard({
         />
       </div>
 
-      {loading ? (
-        <p className="quickwin-card-note">{t('guideLoading')}</p>
-      ) : (
-        <>
-          <GuideTabBar
-            tabs={tabs}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            onPrev={() => tabIndex > 0 && setActiveTab(tabs[tabIndex - 1].id)}
-            onNext={() => tabIndex < tabs.length - 1 && setActiveTab(tabs[tabIndex + 1].id)}
-            canGoPrev={tabIndex > 0}
-            canGoNext={tabIndex >= 0 && tabIndex < tabs.length - 1}
-          />
-
-          {activeTab === 'reiter0' && (
-            <div className="quickwin-tab">
-              {serverNotice ? (
-                <p className="quickwin-server-notice">{serverNoticeText}</p>
-              ) : null}
-              <div className="quickwin-progress">
-                <div className="quickwin-progress-label">
-                  <span>{t('overallProgress')}</span>
-                  <strong>
-                    {progressPercent}% ({doneCount}/{trophies.length})
-                  </strong>
-                </div>
-                <div className="quickwin-progress-track relative">
-                  <div className="absolute inset-y-0 start-0" style={{ width: `${progressPercent}%` }} />
-                </div>
-              </div>
-              <label className="quickwin-hide-done">
-                <input
-                  type="checkbox"
-                  checked={hideCompleted}
-                  onChange={(event) => setHideCompleted(event.target.checked)}
-                />
-                {t('hideCompleted')}
-              </label>
-              {hasHidden && (
-                <fieldset className="quickwin-hidden">
-                  <legend>{t('hiddenTrophies')}</legend>
-                  {[
-                    [HIDDEN_TROPHY_MODE.SHOW, 'hiddenTrophiesShow'],
-                    [HIDDEN_TROPHY_MODE.HIDE, 'hiddenTrophiesHide'],
-                    [HIDDEN_TROPHY_MODE.ALWAYS, 'hiddenTrophiesAlways'],
-                  ].map(([mode, labelKey]) => (
-                    <label key={mode}>
-                      <input
-                        type="radio"
-                        name={`hidden-trophy-${gameUuid}`}
-                        value={mode}
-                        checked={hiddenMode === mode}
-                        onChange={() => {
-                          saveHiddenTrophyMode(gameUuid, mode);
-                          setHiddenMode(loadHiddenTrophyMode(gameUuid));
-                        }}
-                      />
-                      {t(labelKey)}
-                    </label>
-                  ))}
-                </fieldset>
-              )}
-              {isAdmin ? (
-                <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-                  {tipHint ? <span className="text-[10px] text-zinc-500">{tipHint}</span> : null}
-                  <MarkOnlineBulkButton
-                    active={onlinePickMode}
-                    selectedCount={onlinePickIds.size}
-                    busy={onlinePickBusy}
-                    onStart={() => {
-                      setOnlinePickMode(true);
-                      setOnlinePickIds(new Set());
-                      setTipHint('');
-                    }}
-                    onCancel={cancelOnlinePick}
-                    onConfirm={confirmOnlinePick}
-                  />
-                  <ClearGuideTipsButton onClear={clearAllGuideTips} locale={guideLang} />
-                </div>
-              ) : null}
-              <TrophyGroupedChecklist
-                gameId={reportSource}
-                trophies={trophies}
-                unlockedTrophies={unlocked}
-                earnedTrophyIds={earnedIds}
-                hideCompleted={hideCompleted}
-                revealHidden={hiddenTrophiesRevealed(hiddenMode)}
-                onToggle={toggleTrophy}
-                mainGameTitle={title || t('mainGame')}
-                guideTipEditor={isAdmin ? saveGuideTip : null}
-                guideTipLongEditor={isAdmin ? saveGuideTipLong : null}
-                onTrophyVideo={isAdmin ? saveGuideVideo : null}
-                onTrophyFlags={isAdmin ? saveTrophyFlags : null}
-                onlinePickMode={onlinePickMode}
-                onlinePickIds={onlinePickIds}
-                onOnlinePickToggle={toggleOnlinePick}
-              />
-            </div>
-          )}
-
-          {activeTab === 'reiter1' && (
-            <GuideVideoProvider>
-              <CollapsibleSectionCard
-                sectionId={`qw-walk-${gameUuid}`}
-                title={t('fullGameplay')}
-                badge={`${walkthrough.length}`}
-                defaultOpen
-                accent="green"
-              >
-                <CollectibleKacheln
-                  gameId={reportSource}
-                  reportEntityType="guide_step"
-                  collectiblesData={walkthrough}
-                  trophyById={trophyById}
-                  groupByField="chronological_group"
-                  listTitle={t('fullGameplay')}
-                  hideCompleted={hideCompleted}
-                  setHideCompleted={setHideCompleted}
-                  completedItems={completedItems}
-                  toggleCompleted={toggleGuideItem}
-                  embedInAccordion
-                  hideGroupHeader={distinctGroupCount(walkthrough, 'chronological_group') <= 1}
-                />
-              </CollapsibleSectionCard>
-            </GuideVideoProvider>
-          )}
-
-          {activeTab === 'reiter2' && (
-            <GuideVideoProvider>
-              <CollapsibleSectionCard
-                sectionId={`qw-collect-${gameUuid}`}
-                title={newerVersions || serverNotice ? t('collectGuide') : t('completion')}
-                badge={`${collectibles.length}`}
-                defaultOpen
-                accent="amber"
-              >
-                <CollectibleKacheln
-                  gameId={reportSource}
-                  reportEntityType="guide_item"
-                  collectiblesData={collectibles}
-                  trophyById={trophyById}
-                  groupByField="category_group"
-                  listTitle={newerVersions || serverNotice ? t('collectGuide') : t('completion')}
-                  hideCompleted={hideCompleted}
-                  setHideCompleted={setHideCompleted}
-                  completedItems={completedItems}
-                  toggleCompleted={toggleGuideItem}
-                  embedInAccordion
-                  hideGroupHeader={distinctGroupCount(collectibles, 'category_group') <= 1}
-                />
-              </CollapsibleSectionCard>
-            </GuideVideoProvider>
-          )}
-
-          {activeTab === 'reiter4' && (
-            <RelatedBlock
-              compact
-              title={newer.mode === 'publisher'
-                ? t('publisherGames').replaceAll('{name}', newer.heading)
-                : newer.heading}
-              games={newer.games}
-              openGame={openGame}
-            />
-          )}
-
-          {activeTab === 'reiter3' && (
-            <GuideVideoProvider>
-              <CollapsibleSectionCard
-                sectionId={`qw-boss-${gameUuid}`}
-                title={t('bosses')}
-                badge={`${bosses.length}`}
-                defaultOpen
-                accent="purple"
-              >
-                <BossKacheln
-                  gameId={reportSource}
-                  bossesData={bosses}
-                  trophyById={trophyById}
-                  listTitle={t('bosses')}
-                  hideCompleted={hideCompleted}
-                  setHideCompleted={setHideCompleted}
-                  completedItems={completedItems}
-                  toggleCompleted={toggleGuideItem}
-                  embedInAccordion
-                />
-              </CollapsibleSectionCard>
-            </GuideVideoProvider>
-          )}
-        </>
-      )}
+      <GameGuideWorkspace
+        variant="inline"
+        policy={policy}
+        game={detailGame}
+        gameUuid={gameUuid}
+        reportSource={reportSource}
+        locale={guideLang}
+        isAdmin={isAdmin}
+        trophies={trophies}
+        onReplaceTrophies={setTrophies}
+        unlockedTrophies={unlocked}
+        earnedTrophyIds={earnedIds}
+        onToggleTrophy={toggleTrophy}
+        hideCompleted={hideCompleted}
+        setHideCompleted={setHideCompleted}
+        completedItems={completedItems}
+        toggleCompleted={toggleGuideItem}
+        walkthrough={walkthrough}
+        collectibles={collectibles}
+        bosses={bosses}
+        trophyById={trophyById}
+        loading={loading}
+        mainGameTitle={title}
+        newer={newer}
+        openGame={openGame}
+        serverNoticeText={serverNoticeText}
+      />
 
       {isAdmin && igdbPrompt ? (
         <div

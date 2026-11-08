@@ -72,8 +72,11 @@ export function mergeGuideRow(row, lang, index = 0) {
     lang,
     FALLBACK_LANGUAGE,
   );
-  const localisationSheets = resolveSheetTypes(
-    row[GUIDE_I18N.localisationSheet] ?? row.localisation_sheets,
+  const regionSheets = resolveSheetTypes(
+    row[GUIDE_I18N.localisationType] ??
+      row.localisation_type ??
+      row.localisation_sheet ??
+      row.localisation_sheets,
   );
   const chronologicalGroup = localizeJsonField(
     row[GUIDE_I18N.chronologicalGroup],
@@ -109,7 +112,7 @@ export function mergeGuideRow(row, lang, index = 0) {
     item_name: itemName,
     spiel_region: spielRegion,
     localisation: spielRegion,
-    localisation_sheets: localisationSheets,
+    localisation_sheets: regionSheets,
     chronological_group: chronologicalGroup,
     category_group: categoryGroup,
     boss_group: bossGroup,
