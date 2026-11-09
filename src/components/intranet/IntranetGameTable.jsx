@@ -435,8 +435,8 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, on
                       <span className="text-[10px] font-mono text-zinc-600">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <div className="flex items-center gap-3">
+                  <td className="min-w-0 max-w-full px-3 py-2">
+                    <div className="tb-admin-bar">
                       <DiscardGuideButton
                         disabled={busyKey === `${game.id}:discard-guide`}
                         onClick={() => handleDiscardGuide(game)}

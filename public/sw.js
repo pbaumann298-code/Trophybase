@@ -1,9 +1,10 @@
 /* TrophyBase service worker
- * Static assets → Cache First
- * Navigations → Network, fallback /offline.html
- * Supabase / API → Network Only (keine Trophäenstände im Cache)
+ * JS/CSS → Network First (Offline-Fallback aus dem Cache)
+ * Bilder → Cache First
+ * Navigation → Netzwerk, nie ein gecachtes HTML-Dokument; offline nur /offline.html
+ * Supabase / API → Network Only
  */
-const CACHE_VERSION = 'tb-static-v10';
+const CACHE_VERSION = 'tb-static-v11';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [
@@ -22,7 +23,8 @@ const PRECACHE_URLS = [
   '/images/unobtainable-platins-tile.jpg',
 ];
 
-const STATIC_EXTENSIONS = ['.js', '.css', '.svg', '.png', '.ico', '.webp', '.woff', '.woff2'];
+const CODE_EXTENSIONS = ['.js', '.css'];
+const IMAGE_EXTENSIONS = ['.svg', '.png', '.ico', '.webp', '.woff', '.woff2'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -44,18 +46,6 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-function isStaffApp(url) {
-  const path = url.pathname;
-  return (
-    path === '/intranet' ||
-    path === '/intranet/' ||
-    path === '/intranet.html' ||
-    path === '/admin' ||
-    path === '/admin/' ||
-    path === '/admin.html'
-  );
-}
-
 function isDatabaseRequest(url) {
   const host = url.hostname;
   if (host.endsWith('.supabase.co') || host.endsWith('.supabase.net')) return true;
@@ -63,18 +53,33 @@ function isDatabaseRequest(url) {
   return false;
 }
 
-function isStaticAsset(url) {
+function endsWithExt(pathname, extensions) {
+  return extensions.some((ext) => pathname.endsWith(ext));
+}
+
+function isCodeAsset(url) {
+  if (url.origin !== self.location.origin) return false;
+  return endsWithExt(url.pathname, CODE_EXTENSIONS);
+}
+
+function isImageAsset(url) {
   if (url.origin === self.location.origin) {
-    return STATIC_EXTENSIONS.some((ext) => url.pathname.endsWith(ext));
+    return endsWithExt(url.pathname, IMAGE_EXTENSIONS);
   }
-  if (hostIsCdn(url.hostname)) {
-    return STATIC_EXTENSIONS.some((ext) => url.pathname.endsWith(ext)) || url.pathname.includes('tailwind');
+  if (url.hostname === 'cdn.tailwindcss.com') {
+    return endsWithExt(url.pathname, IMAGE_EXTENSIONS) || url.pathname.includes('tailwind');
   }
   return false;
 }
 
-function hostIsCdn(hostname) {
-  return hostname === 'cdn.tailwindcss.com';
+async function putCache(request, response) {
+  if (!response || !response.ok || response.type !== 'basic') return;
+  try {
+    const cache = await caches.open(CACHE_VERSION);
+    await cache.put(request, response.clone());
+  } catch {
+    /* Speicher voll oder nicht cachebar */
+  }
 }
 
 async function cacheFirst(request) {
@@ -82,22 +87,32 @@ async function cacheFirst(request) {
   if (cached) return cached;
 
   const response = await fetch(request);
-  if (response && response.ok) {
-    const copy = response.clone();
-    const cache = await caches.open(CACHE_VERSION);
-    await cache.put(request, copy);
-  }
+  await putCache(request, response);
   return response;
 }
 
-async function networkOnly(request) {
-  return fetch(request);
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request, { cache: 'no-store' });
+    if (response) {
+      await putCache(request, response);
+      return response;
+    }
+  } catch {
+    /* offline */
+  }
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  return new Response('', { status: 504, statusText: 'Offline' });
 }
 
-async function navigationFallback(request) {
+async function networkOnly(request) {
+  return fetch(request, { cache: 'no-store' });
+}
+
+async function navigationNetworkFirst(request) {
   try {
-    const response = await fetch(request);
-    // 404/500 durchreichen – nur echter Netzwerkabbruch gilt als offline.
+    const response = await fetch(request, { cache: 'no-store' });
     if (response) return response;
   } catch {
     /* offline */
@@ -118,22 +133,27 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
-  if (url.pathname === '/sw.js') return;
-  if (isStaffApp(url)) return;
+  if (url.pathname === '/sw.js' || url.pathname === '/version.json' || url.pathname === '/registerSW.js') {
+    event.respondWith(networkOnly(request));
+    return;
+  }
 
   if (isDatabaseRequest(url)) {
     event.respondWith(networkOnly(request));
     return;
   }
 
-  if (request.mode === 'navigate') {
-    event.respondWith(navigationFallback(request));
+  if (request.mode === 'navigate' || request.destination === 'document') {
+    event.respondWith(navigationNetworkFirst(request));
     return;
   }
 
-  if (isStaticAsset(url)) {
-    event.respondWith(
-      cacheFirst(request).catch(() => caches.match(OFFLINE_URL)),
-    );
+  if (isCodeAsset(url)) {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
+  if (isImageAsset(url)) {
+    event.respondWith(cacheFirst(request).catch(() => caches.match(OFFLINE_URL)));
   }
 });

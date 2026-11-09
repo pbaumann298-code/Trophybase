@@ -9,6 +9,7 @@
   padding: 4px;
   border: 2px outset #fff;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden; /* Persona1: kein Browser-Scroll */
   box-sizing: border-box;
   display: flex;

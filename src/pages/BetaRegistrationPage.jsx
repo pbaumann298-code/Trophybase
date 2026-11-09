@@ -53,7 +53,7 @@ function BetaRegistrationPage({ sessionUser, onSessionEstablished, onComplete })
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#121314] px-4 py-12">
+    <div className="tb-fill-screen w-full flex items-center justify-center bg-[#121314] px-4 py-12">
       <div className="w-full max-w-sm">
         <TrophyBaseLogo />
 

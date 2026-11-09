@@ -15,16 +15,17 @@
   }
 }
 
-html {
-  overflow-x: hidden;
+html,
+body {
   max-width: 100%;
+  overflow-x: clip;
 }
 
 body {
   margin: 0;
   width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 .scrollbar-hide {
@@ -47,22 +48,129 @@ body {
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top);
+  height: calc(57px + env(safe-area-inset-top));
+}
+
+@media (min-width: 768px) {
+  .site-header {
+    height: calc(69px + env(safe-area-inset-top));
+  }
+}
+
+.tb-fill-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.tb-pane-max {
+  max-height: calc(100vh - 160px);
+  max-height: calc(100dvh - 160px);
+}
+
+.tb-safe-top {
+  padding-top: calc(1rem + env(safe-area-inset-top));
+}
+
+.tb-admin-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  gap: 0.5rem;
+}
+
+.tb-admin-bar--col {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.tb-admin-bar > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.tb-admin-bar button,
+.tb-admin-bar [role='button'] {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.tb-admin-session {
+  position: fixed;
+  z-index: 80;
+  top: calc(0.45rem + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  max-width: calc(100% - 0.75rem);
+  margin: 0;
+  padding: 0.28rem 0.45rem;
+  border: 1px solid rgba(0, 255, 102, 0.55);
+  border-radius: 999px;
+  background: rgba(18, 19, 20, 0.94);
+  color: #00ff66;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.tb-admin-session button,
+button.tb-admin-session {
+  max-width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  white-space: normal;
+}
+
+.tb-admin-session button {
+  border-radius: 999px;
+  padding: 0.12rem 0.4rem;
+  background: rgba(0, 255, 102, 0.12);
+}
+
+.tb-admin-session--guest {
+  border-color: rgba(251, 191, 36, 0.7);
+  color: #fcd34d;
+  cursor: pointer;
 }
 
 .site-header-logo {
   width: auto;
 }
 
-#root {
+#root,
+#intranet-root,
+#admin-root {
   width: 100%;
   max-width: 100%;
   min-width: 0;
   margin: 0;
-  min-height: 100svh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  overflow-x: clip;
+}
+
+#root {
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
-  overflow-x: hidden;
 }
 
 /* Platin-Gimmick: kleiner Pokal unten links auf dem Cover. */

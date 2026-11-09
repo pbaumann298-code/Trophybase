@@ -15,6 +15,8 @@ import MaintenancePage from './pages/MaintenancePage';
 import BetaRegistrationPage from './pages/BetaRegistrationPage';
 import { hasMaintenanceBypass } from './lib/maintenanceAccess';
 import { isAdminUser, isLabModeActive, staffAppHtmlForPath } from './lib/adminAccess';
+import { useHideAdminOverlays, useShowAdminChrome } from './lib/useAdminChrome';
+import AdminSessionPill from './components/AdminSessionPill';
 
 const GamingRoomDrawer = lazy(() => import('./v2/GamingRoomDrawer'));
 import {
@@ -221,6 +223,10 @@ function App() {
 
   // 🔐 Einzigartiger State für den User + Auth-Hydration-Status
   const [sessionUser, setSessionUser] = useState(null);
+  const hideAdminOverlays = useHideAdminOverlays();
+  const showAdminChrome = useShowAdminChrome(sessionUser);
+  const realAdmin = isAdminUser(sessionUser, { allowPublic: true, ignoreGuestSimulation: true });
+  const viewUser = hideAdminOverlays && realAdmin ? null : sessionUser;
   const [authLoading, setAuthLoading] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState(() => parseSimpleSearchParams().q);
@@ -645,7 +651,7 @@ function App() {
   ) => {
     const q = (typeof queryOverride === 'string' ? queryOverride : searchQuery).trim();
     if (!q) return;
-    const allowTrophies = Boolean(sessionUser) && trophiesOnly;
+    const allowTrophies = Boolean(viewUser) && trophiesOnly;
     if (updateUrl) {
       pushCurrentRouteToStack(buildSimpleSearchPath(q, page, exclude, allowTrophies));
     }
@@ -692,7 +698,7 @@ function App() {
 
     if (view === 'search-results') {
       const parsed = parseSimpleSearchParams(search);
-      const allowTrophies = Boolean(sessionUser) && parsed.includeTrophiesOnly;
+      const allowTrophies = Boolean(viewUser) && parsed.includeTrophiesOnly;
       const signature = `${parsed.q}\n${parsed.excludeQuickwins ? '1' : '0'}\n${allowTrophies ? '1' : '0'}`;
       setSelectedGame(null);
       setCurrentView('search-results');
@@ -720,10 +726,10 @@ function App() {
   });
 
   useEffect(() => {
-    if (authLoading || sessionUser) return undefined;
+    if (authLoading || viewUser) return undefined;
     const timer = window.setTimeout(() => setIncludeTrophiesOnly(false), 0);
     return () => window.clearTimeout(timer);
-  }, [authLoading, sessionUser]);
+  }, [authLoading, viewUser]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -756,7 +762,7 @@ function App() {
     const gameId = resolveGameId(game);
     const token = gameUuid || gameId || '';
     openedGameRef.current = token;
-    const isAdmin = isAdminUser(sessionUser);
+    const isAdmin = showAdminChrome;
     const initialPreferGuideTab = Boolean(
       options?.preferGuideTab || (isAdmin && isGameDraftMode(game)),
     );
@@ -782,7 +788,7 @@ function App() {
 
     navigateToGame(game, { locale: globalLocale });
 
-    const userId = sessionUser?.id ?? null;
+    const userId = viewUser?.id ?? null;
     const loadId = startTrophyLoad();
     const [trophyResult, fullGame] = await Promise.all([
       fetchGameTrophiesWithEarned(
@@ -805,7 +811,7 @@ function App() {
       setSelectedGame(fullGame.data);
     }
 
-    const trophiesOnly = resolveTrophiesOnlyView(resolvedGame, globalLocale, sessionUser);
+    const trophiesOnly = resolveTrophiesOnlyView(resolvedGame, globalLocale, viewUser);
     setTrophiesOnlyView(trophiesOnly);
 
     if (loadId === trophyLoadRef.current) {
@@ -1031,7 +1037,7 @@ function App() {
   }, [pushCurrentRouteToStack]);
 
   const openAdvancedSearch = useCallback(() => {
-    const trophiesOnly = Boolean(sessionUser) && includeTrophiesOnly;
+    const trophiesOnly = Boolean(viewUser) && includeTrophiesOnly;
     pushCurrentRouteToStack(buildAdvancedSearchPath({}, 1, excludeQuickwins, trophiesOnly));
     setCurrentView('advanced-search');
     setSelectedGame(null);
@@ -1040,7 +1046,7 @@ function App() {
       includeTrophiesOnly: trophiesOnly,
     });
     window.scrollTo(0, 0);
-  }, [excludeQuickwins, includeTrophiesOnly, pushCurrentRouteToStack, sessionUser]);
+  }, [excludeQuickwins, includeTrophiesOnly, pushCurrentRouteToStack, viewUser]);
 
   const openQuickwins = useCallback(() => {
     pushCurrentRouteToStack(quickwinsPublicPath(globalLocale));
@@ -1095,7 +1101,7 @@ function App() {
 
   if (staffAppHtml) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-zinc-500 text-sm font-mono px-4 text-center">
+      <div className="tb-fill-screen flex items-center justify-center text-zinc-500 text-sm font-mono px-4 text-center">
         Weiterleitung zur Anmeldung…
       </div>
     );
@@ -1138,7 +1144,7 @@ function App() {
   if (isQaAdminView) {
     if (authLoading) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-[#121314] text-zinc-500 text-sm font-mono">
+        <div className="tb-fill-screen flex items-center justify-center bg-[#121314] text-zinc-500 text-sm font-mono">
           Sitzung wird geprüft…
         </div>
       );
@@ -1162,15 +1168,15 @@ function App() {
   }
 
   return (
-    <ErrorReportProvider sessionUser={sessionUser}>
-    <WatchlistProvider sessionUser={sessionUser}>
-    <ProgressSyncProvider sessionUser={sessionUser} authLoading={authLoading}>
-    <PlatinumStatusProvider sessionUser={sessionUser}>
-    <div className="min-h-screen w-full max-w-full min-w-0 overflow-x-hidden flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
-      
+    <ErrorReportProvider sessionUser={viewUser}>
+    <WatchlistProvider sessionUser={viewUser}>
+    <ProgressSyncProvider sessionUser={viewUser} authLoading={authLoading}>
+    <PlatinumStatusProvider sessionUser={viewUser}>
+    <div className="tb-fill-screen w-full max-w-full min-w-0 flex flex-col bg-[#121314] text-gray-200 font-sans antialiased">
+      <AdminSessionPill sessionUser={sessionUser} />
       <Header
         setCurrentView={setCurrentView}
-        sessionUser={sessionUser}
+        sessionUser={viewUser}
         onLogout={handleLogout}
         onOpenWatchlist={openWatchlist}
         onOpenProfile={openProfile}
@@ -1188,7 +1194,7 @@ function App() {
       {isLabModeActive(sessionUser) && (currentView === 'home' || currentView === 'profile') ? (
         <Suspense fallback={null}>
           <GamingRoomDrawer
-            sessionUser={sessionUser}
+            sessionUser={viewUser}
             currentView={currentView}
             onGoHome={goHome}
             onOpenCockpit={openProfile}
@@ -1231,7 +1237,7 @@ function App() {
                 setSearchQuery={setSearchQuery}
                 handleSearchSubmit={handleSearchSubmit}
                 onCategorySearch={runSearch}
-                sessionUser={sessionUser}
+                sessionUser={viewUser}
                 onOpenAdvancedSearch={openAdvancedSearch}
                 onOpenWatchlist={openWatchlist}
                 onOpenGuideHelp={openGuideHelp}
@@ -1248,7 +1254,7 @@ function App() {
                 openGame={openGuide}
                 onBack={goBack}
                 onRequestLogin={() => setCurrentView('login')}
-                isAdmin={isAdminUser(sessionUser)}
+                isAdmin={showAdminChrome}
               />
             )}
 
@@ -1259,7 +1265,7 @@ function App() {
                 </div>
               ) : (
                 <ProfilePage
-                  sessionUser={sessionUser}
+                  sessionUser={viewUser}
                   setCurrentView={setCurrentView}
                   onRequestLogin={() => setCurrentView('login')}
                   openGame={openGuide}
@@ -1275,14 +1281,14 @@ function App() {
                 loading={loading}
                 page={searchPage}
                 onBack={goBack}
-                isAdmin={isAdminUser(sessionUser)}
+                isAdmin={showAdminChrome}
                 onPageChange={(nextPage) => {
                   setSearchPage(nextPage);
                   navigateToSimpleSearch(searchQuery, {
                     page: nextPage,
                     replace: true,
                     excludeQuickwins,
-                    includeTrophiesOnly: Boolean(sessionUser) && includeTrophiesOnly,
+                    includeTrophiesOnly: Boolean(viewUser) && includeTrophiesOnly,
                   });
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
@@ -1296,7 +1302,7 @@ function App() {
                 onOpenQuickwins={openQuickwins}
                 onOpenEasyPlatins={openEasyPlatins}
                 onOpenServertot={openServertot}
-                sessionUser={sessionUser}
+                sessionUser={viewUser}
                 quickwinsPath={quickwinsPublicPath(globalLocale)}
                 servertotPath={servertotPublicPath(globalLocale)}
                 easyPlatinsPath={easyPlatinsPublicPath(globalLocale)}
@@ -1308,8 +1314,8 @@ function App() {
                 openGame={openGuide}
                 onBack={goBack}
                 onRequestLogin={() => setCurrentView('login')}
-                isAdmin={isAdminUser(sessionUser)}
-                sessionUser={sessionUser}
+                isAdmin={showAdminChrome}
+                sessionUser={viewUser}
                 localizedCatalog={QUICKWINS_CATALOG}
               />
             )}
@@ -1319,8 +1325,8 @@ function App() {
                 openGame={openGuide}
                 onBack={goBack}
                 onRequestLogin={() => setCurrentView('login')}
-                isAdmin={isAdminUser(sessionUser)}
-                sessionUser={sessionUser}
+                isAdmin={showAdminChrome}
+                sessionUser={viewUser}
                 gameType={GAME_TYPE.SERVER_DEAD}
                 basePath={SERVERTOT_PATH}
                 titleKey="servertotTitle"
@@ -1337,8 +1343,8 @@ function App() {
                 openGame={openGuide}
                 onBack={goBack}
                 onRequestLogin={() => setCurrentView('login')}
-                isAdmin={isAdminUser(sessionUser)}
-                sessionUser={sessionUser}
+                isAdmin={showAdminChrome}
+                sessionUser={viewUser}
                 gameType={GAME_TYPE.EASY_PLATIN}
                 basePath={EASY_PLATINS_PATH}
                 titleKey="easyPlatinsTitle"
@@ -1361,7 +1367,7 @@ function App() {
             {currentView === 'game_info' && selectedGame && (
               <GameDetailPage
                 currentView={currentView}
-                sessionUser={sessionUser}
+                sessionUser={viewUser}
                 selectedGame={selectedGame}
                 activeTrophies={activeTrophies}
                 unlockedTrophies={unlockedTrophies}
@@ -1388,7 +1394,7 @@ function App() {
                 fromSearch={
                   prevHistoryView === 'search-results' || prevHistoryView === 'advanced-search'
                 }
-                trophiesOnly={trophiesOnlyView && !isAdminUser(sessionUser)}
+                trophiesOnly={trophiesOnlyView && !isAdminUser(viewUser)}
                 backLabel={historyVersion >= 0 ? backLabelForView(prevHistoryView, t) : t('backDashboard')}
               />
             )}
@@ -1396,7 +1402,7 @@ function App() {
             {currentView === 'platform-trophies' && (
               <PlatformTrophiesPage
                 onBack={goBack}
-                sessionUser={sessionUser}
+                sessionUser={viewUser}
               />
             )}
 

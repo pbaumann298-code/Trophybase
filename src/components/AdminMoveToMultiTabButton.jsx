@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { isAdminUser, setDraftReturnContext } from '../lib/adminAccess';
+import { setDraftReturnContext } from '../lib/adminAccess';
+import { useShowAdminChrome } from '../lib/useAdminChrome';
 import { inspectGameMultiTabMove, moveGameToMultiTab } from '../lib/rohmaterialQueries';
 import { supabase } from '../pages/supabaseClient';
 
@@ -87,7 +88,7 @@ function ForeignDataWarning({ inspection, busy, errorText, onCancel, onConfirm }
 }
 
 function AdminMoveToMultiTabButton({ user, gameId, className = '' }) {
-  const visible = isAdminUser(user) && Boolean(gameId);
+  const visible = useShowAdminChrome(user) && Boolean(gameId);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState('');
   const [warning, setWarning] = useState(null);
@@ -147,7 +148,7 @@ function AdminMoveToMultiTabButton({ user, gameId, className = '' }) {
 
   return (
     <>
-      <div className={`inline-flex w-full flex-col items-stretch sm:w-64 sm:items-end gap-1.5 ${className}`}>
+      <div className={`tb-admin-bar tb-admin-bar--col w-full sm:w-64 sm:items-end ${className}`}>
         <button
           type="button"
           onClick={handleClick}

@@ -278,10 +278,10 @@ export default function AdminCoverInspector({
 
   return (
     <div
-      className={`flex flex-col ${hideThumb ? 'w-full' : 'items-start shrink-0'} gap-1`}
+      className={`tb-admin-bar tb-admin-bar--col ${hideThumb ? 'w-full' : 'items-start'}`}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className={`flex items-start gap-1.5 ${hideThumb ? 'w-full justify-between' : ''}`}>
+      <div className={`flex min-w-0 max-w-full flex-wrap items-start gap-1.5 ${hideThumb ? 'w-full justify-between' : ''}`}>
         {!hideThumb ? (
           <span
             role="button"
@@ -317,7 +317,7 @@ export default function AdminCoverInspector({
         ) : null}
 
         {!isVerified ? (
-          <div className={`flex ${hideThumb ? 'flex-row w-full gap-1' : 'flex-col gap-1'}`}>
+          <div className={`tb-admin-bar min-w-0 max-w-full ${hideThumb ? 'w-full' : 'tb-admin-bar--col'}`}>
             <span
               role="button"
               tabIndex={0}
@@ -326,7 +326,7 @@ export default function AdminCoverInspector({
                 if (e.key === 'Enter' || e.key === ' ') handleClear(e);
               }}
               title="Falsches Cover löschen und status.igdb entfernen"
-              className={`rounded-md border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-center font-mono text-[9px] font-bold uppercase tracking-wider text-red-300 transition hover:bg-red-500/20 cursor-pointer whitespace-nowrap select-none ${
+              className={`rounded-md border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-center font-mono text-[9px] font-bold uppercase tracking-wider text-red-300 transition hover:bg-red-500/20 cursor-pointer whitespace-normal select-none ${
                 hideThumb ? 'flex-1' : ''
               } ${busy || !localCoverUrl ? 'opacity-40 pointer-events-none' : ''}`}
             >
@@ -350,7 +350,7 @@ export default function AdminCoverInspector({
                 }
               }}
               title="Neuen IGDB-Bildlink als Cover hinterlegen"
-              className={`rounded-md border border-[#00ff66]/40 bg-[#00ff66]/10 px-1.5 py-0.5 text-center font-mono text-[9px] font-bold uppercase tracking-wider text-[#00ff66] transition hover:bg-[#00ff66]/20 cursor-pointer whitespace-nowrap select-none ${
+              className={`rounded-md border border-[#00ff66]/40 bg-[#00ff66]/10 px-1.5 py-0.5 text-center font-mono text-[9px] font-bold uppercase tracking-wider text-[#00ff66] transition hover:bg-[#00ff66]/20 cursor-pointer whitespace-normal select-none ${
                 hideThumb ? 'flex-1' : ''
               } ${busy ? 'opacity-50 pointer-events-none' : ''}`}
             >
@@ -369,7 +369,7 @@ export default function AdminCoverInspector({
             if (e.key === 'Enter' || e.key === ' ') handleVerifyStatus(e);
           }}
           title="Klick darauf verifiziert das Cover (setzt cover_status = 'valid')"
-          className={`w-full rounded-md border px-1.5 py-0.5 text-center font-mono text-[9px] font-bold transition cursor-pointer whitespace-nowrap select-none ${
+          className={`w-full rounded-md border px-1.5 py-0.5 text-center font-mono text-[9px] font-bold transition cursor-pointer whitespace-normal select-none ${
             busy ? 'opacity-50 pointer-events-none' : ''
           } ${
             isInvalid

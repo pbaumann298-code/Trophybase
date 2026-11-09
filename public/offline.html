@@ -2,7 +2,7 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#121314" />
     <title>Offline · TrophyBase.app</title>
     <link rel="icon" href="/favicon.ico?v=tb2" sizes="48x48" />
@@ -14,6 +14,8 @@
       html,
       body {
         margin: 0;
+        max-width: 100%;
+        overflow-x: clip;
         min-height: 100%;
         background: #121314;
         color: #d4d4d8;
@@ -21,6 +23,7 @@
       }
       main {
         min-height: 100vh;
+        min-height: 100dvh;
         display: flex;
         flex-direction: column;
         align-items: center;

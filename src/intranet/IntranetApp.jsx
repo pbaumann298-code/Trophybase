@@ -269,7 +269,7 @@ function IntranetApp() {
 
   if (!authReady) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-[#0a0b0c] px-4 text-center font-mono">
+      <div className="tb-fill-screen flex flex-col items-center justify-center gap-3 bg-[#0a0b0c] px-4 text-center font-mono">
         <p className="text-sm text-zinc-300">Intranet wird geladen…</p>
         <p className="text-xs text-zinc-500">{bootStep}</p>
         <button
@@ -290,7 +290,7 @@ function IntranetApp() {
 
   if (!sessionUser || (!isAdmin && !creatorProfile)) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
+      <div className="tb-fill-screen flex flex-col items-center justify-center px-4 py-12">
         <AdminLoginForm
           onLogin={handleLogin}
           loading={loginLoading}
@@ -317,8 +317,8 @@ function IntranetApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0b0c] text-zinc-200">
-      <header className="sticky top-0 z-50 border-b border-zinc-800 bg-[#121314]/95 backdrop-blur px-4 sm:px-6 py-4">
+    <div className="tb-fill-screen bg-[#0a0b0c] text-zinc-200">
+      <header className="tb-safe-top sticky top-0 z-50 border-b border-zinc-800 bg-[#121314]/95 backdrop-blur px-4 sm:px-6 py-4">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-[0.15em] text-zinc-600">
@@ -337,7 +337,7 @@ function IntranetApp() {
               )}
             </h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
             <span className="text-xs font-mono text-zinc-500 hidden sm:inline">{sessionUser.email}</span>
             {isAdmin && (
               <a
@@ -358,7 +358,7 @@ function IntranetApp() {
         </div>
 
         {!isCreatorOnly && (
-          <nav className="max-w-7xl mx-auto flex gap-1 mt-4 overflow-x-auto">
+          <nav className="mx-auto mt-4 flex min-w-0 max-w-full flex-wrap gap-1 overflow-x-auto">
             {TABS.map((tab) => (
               <button
                 key={tab.id}

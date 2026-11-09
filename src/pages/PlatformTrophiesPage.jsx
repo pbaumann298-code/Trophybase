@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
-import { isAdminUser } from '../lib/adminAccess';
+import { useShowAdminChrome } from '../lib/useAdminChrome';
 import TrophyTypeIcon from '../components/TrophyTypeIcon';
 import { normalizeTrophyType, TROPHY_TYPE } from '../lib/trophyTypes';
 
@@ -32,7 +32,7 @@ function formatNum(val) {
 
 export function PlatformTrophiesPage({ onBack, sessionUser = null }) {
   const { globalLocale } = useLocale();
-  const isAdmin = isAdminUser(sessionUser);
+  const isAdmin = useShowAdminChrome(sessionUser);
 
   const [trophies, setTrophies] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -179,6 +179,7 @@ export function PlatformTrophiesPage({ onBack, sessionUser = null }) {
         ) : <div />}
 
         {isAdmin && (
+          <div className="tb-admin-bar max-w-full">
           <button
             type="button"
             disabled={refreshing || loading}
@@ -187,6 +188,7 @@ export function PlatformTrophiesPage({ onBack, sessionUser = null }) {
           >
             {refreshing ? '🔄 Aktualisiere…' : '🔄 Live-Stand prüfen'}
           </button>
+          </div>
         )}
       </div>
 

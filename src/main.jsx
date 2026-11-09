@@ -7,9 +7,11 @@ import { LocaleProvider } from './context/LocaleContext.jsx'
 import { MediaConsentProvider } from './context/MediaConsentContext.jsx'
 import { registerPwa } from './lib/registerPwa.js'
 import { anchorReloadInApp } from './lib/reloadHistory.js'
+import { startBuildWatch } from './lib/buildWatch.js'
 
 anchorReloadInApp()
 registerPwa()
+startBuildWatch()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

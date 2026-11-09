@@ -34,10 +34,11 @@ import {
 } from '../lib/guideData';
 import { incrementGameViews, updateGameLocalizedFields } from '../lib/gameQueries';
 import { loadRelatedGuides } from '../lib/relatedGames';
-import { fetchGameGuideBundle, resolveGameId, resolveGuideLanguage } from '../lib/guideQueries';
-import { fetchGameTrophiesWithEarned } from '../lib/earnedTrophyQueries';
+import { SUPPORTED_LOCALES } from '../lib/locale';
+import { fetchRawGuidesForGame, firstPopulatedGuideLang, guideRawHasLang, projectGuideBundle, resolveGameId, resolveGuideLanguage } from '../lib/guideQueries';
 import { VIDEO_TIMESTAMP_LAYOUT, useUserPreferences } from '../lib/userPreferences';
-import { fetchMyCreatorProfile, isAdminUser, isStaffDeviceOrSession } from '../lib/adminAccess';
+import { fetchMyCreatorProfile, isStaffDeviceOrSession } from '../lib/adminAccess';
+import { useShowAdminChrome } from '../lib/useAdminChrome';
 import { isGuidePublished, isGameDraftMode, hasPublishedGuide } from '../lib/guidePublication';
 import {
   clearIntranetCover,
@@ -169,10 +170,8 @@ function GamePageContent({
   onGoHome,
   openGame,
   onOpenHelp,
-  onActiveTrophies,
   onReplaceTrophies,
   onGameChange,
-  startTrophyLoad,
   fromSearch = false,
   backLabel = '',
   sessionUser = null,
@@ -180,12 +179,16 @@ function GamePageContent({
   trophiesOnly = false,
   onPatchGame = null,
 }) {
-  const [guideRows, setGuideRows] = useState([]);
-  const [chapterRows, setChapterRows] = useState([]);
-  const [bossRows, setBossRows] = useState([]);
+  const [rawGuideRows, setRawGuideRows] = useState([]);
+  const [rawGuideGameId, setRawGuideGameId] = useState('');
   const [guidesLoading, setGuidesLoading] = useState(false);
   const { globalLocale, t } = useLocale();
   const [guideLanguageOverride, setGuideLanguageOverride] = useState(null);
+  const hasAutoSelectedLangRef = useRef(null);
+  const rawGuideRef = useRef({ gameId: '', rows: [] });
+  const guideFetchId = resolveGameId(selectedGame);
+  const isAdmin = useShowAdminChrome(sessionUser);
+  const showPlatformSwitcher = useShowAdminChrome(sessionUser, { allowPublic: true });
   const [contentCreators, setContentCreators] = useState([]);
   const [relatedGuides, setRelatedGuides] = useState({ creatorGames: [], similarGames: [] });
   // Nach dem Freigeben sofort umschalten, ohne das Spiel neu zu laden. Die UUID
@@ -242,26 +245,16 @@ function GamePageContent({
     }
   }, [activeTab, notifyVideoCleared]);
 
+  const publishedLocalesKey = Array.isArray(selectedGame?.published_locales)
+    ? selectedGame.published_locales.join(',')
+    : null;
+
   useEffect(() => {
     notifyVideoCleared();
-  }, [selectedGame?.id, selectedGame?.platform_game_id, notifyVideoCleared]);
+  }, [guideFetchId, notifyVideoCleared]);
 
   useEffect(() => {
-    if (Array.isArray(guideItems)) setGuideRows(guideItems);
-  }, [guideItems]);
-
-  useEffect(() => {
-    if (Array.isArray(chapterItems)) setChapterRows(chapterItems);
-  }, [chapterItems]);
-
-  useEffect(() => {
-    if (Array.isArray(bossItems)) setBossRows(bossItems);
-  }, [bossItems]);
-
-  const hadLanguageOverrideRef = useRef(false);
-
-  useEffect(() => {
-    hadLanguageOverrideRef.current = false;
+    hasAutoSelectedLangRef.current = null;
     setGuideLanguageOverride(null);
     setCoverOverride(null);
     setCoverStatusOverride(undefined);
@@ -288,7 +281,7 @@ function GamePageContent({
     setPlatformTrophies((prev) => (prev.length === 0 ? prev : []));
     setPlatformTrophiesError((prev) => (prev ? '' : prev));
     setPlatformTrophiesLoading((prev) => (prev ? false : prev));
-  }, [selectedGame?.id, selectedGame?.platform_game_id]);
+  }, [guideFetchId]);
 
   const creatorGameId = getGameUuid(selectedGame);
 
@@ -309,64 +302,32 @@ function GamePageContent({
   }, [creatorGameId]);
 
   useEffect(() => {
-    // App.jsx lädt guideItems, chapterItems, bossItems und activeTrophies bereits beim Öffnen.
-    // Hier nur nachladen, wenn der Admin/User die Guide-Sprache explizit überschreibt
-    // (oder danach wieder auf Standard zurücksetzt) oder ein Reload nach dem Speichern angefordert wurde.
-    if (guideLanguageOverride !== null) {
-      hadLanguageOverrideRef.current = true;
-    } else if (!hadLanguageOverrideRef.current && guideReloadToken === 0) {
-      return undefined;
-    }
-
     let cancelled = false;
+    const requestedId = guideFetchId;
 
     async function loadGuideBundle() {
-      if (!selectedGame) {
-        setGuideRows([]);
-        setChapterRows([]);
-        setBossRows([]);
+      if (!requestedId) {
+        rawGuideRef.current = { gameId: '', rows: [] };
+        setRawGuideRows([]);
+        setRawGuideGameId('');
+        setGuidesLoading(false);
         return;
       }
 
-      const gameId = resolveGameId(selectedGame);
-      if (!gameId) return;
+      const switchingGame = rawGuideRef.current.gameId !== requestedId;
+      if (switchingGame) setGuidesLoading(true);
 
-      setGuidesLoading(true);
-      const loadId = startTrophyLoad?.();
-      const [bundle, trophyResult] = await Promise.all([
-        fetchGameGuideBundle(supabase, gameId, globalLocale, guideLanguageOverride),
-        fetchGameTrophiesWithEarned(
-          supabase,
-          sessionUser?.id ?? null,
-          selectedGame,
-          globalLocale,
-          guideLanguageOverride,
-          {
-            textFallback: getGameViewPolicy(selectedGame, {
-              variant: 'page',
-              isAdmin: isAdminUser(sessionUser),
-            }).useTextFallback && guideLanguageOverride == null,
-          },
-        ),
-      ]);
-      const { chapters, guides, bosses, chaptersError, guidesError, bossesError } = bundle;
-
+      const { data, error } = await fetchRawGuidesForGame(supabase, requestedId);
       if (cancelled) return;
 
-      if (!trophyResult.trophiesError) {
-        onActiveTrophies?.(trophyResult.trophies, trophyResult.earnedIds, loadId);
+      if (error) {
+        console.error('game_guides:', error.message, { gameId: requestedId });
       }
 
-      if (chaptersError || guidesError || bossesError) {
-        console.error('game_guides:', (chaptersError || guidesError || bossesError).message, {
-          gameId,
-        });
-      }
-
-      if (!chaptersError) setChapterRows(chapters);
-      if (!guidesError) setGuideRows(guides);
-      if (!bossesError) setBossRows(bosses);
-
+      const rows = error ? [] : (data ?? []);
+      rawGuideRef.current = { gameId: requestedId, rows };
+      setRawGuideRows(rows);
+      setRawGuideGameId(requestedId);
       setGuidesLoading(false);
     }
 
@@ -374,15 +335,48 @@ function GamePageContent({
     return () => {
       cancelled = true;
     };
+  }, [guideFetchId, isAdmin, guideReloadToken]);
+
+  useEffect(() => {
+    if (!guideFetchId || rawGuideGameId !== guideFetchId || guidesLoading) return;
+    if (hasAutoSelectedLangRef.current === guideFetchId) return;
+
+    hasAutoSelectedLangRef.current = guideFetchId;
+    if (publishedLocalesKey) return;
+
+    const uiLang = resolveGuideLanguage(globalLocale, null);
+    if (guideRawHasLang(rawGuideRows, uiLang)) return;
+    const draftLang = firstPopulatedGuideLang(rawGuideRows, ['en', 'de', ...SUPPORTED_LOCALES]);
+    if (draftLang && draftLang !== uiLang) setGuideLanguageOverride(draftLang);
   }, [
-    selectedGame,
+    guideFetchId,
+    rawGuideGameId,
+    rawGuideRows,
+    guidesLoading,
+    publishedLocalesKey,
     globalLocale,
-    guideLanguageOverride,
-    sessionUser?.id,
-    onActiveTrophies,
-    startTrophyLoad,
-    guideReloadToken,
   ]);
+
+  const handleGuideLanguageOverride = (override) => {
+    hasAutoSelectedLangRef.current = guideFetchId || 'locked';
+    setGuideLanguageOverride(override);
+  };
+
+  const effectiveGuideLang = resolveGuideLanguage(globalLocale, guideLanguageOverride);
+  const projectedGuides = useMemo(
+    () => projectGuideBundle(rawGuideRows, globalLocale, guideLanguageOverride),
+    [rawGuideRows, globalLocale, guideLanguageOverride],
+  );
+  const ownGuideRowsReady = rawGuideGameId !== '' && rawGuideGameId === guideFetchId;
+  const chapterRows = ownGuideRowsReady
+    ? projectedGuides.chapters
+    : (Array.isArray(chapterItems) ? chapterItems : []);
+  const guideRows = ownGuideRowsReady
+    ? projectedGuides.guides
+    : (Array.isArray(guideItems) ? guideItems : []);
+  const bossRows = ownGuideRowsReady
+    ? projectedGuides.bosses
+    : (Array.isArray(bossItems) ? bossItems : []);
 
   const hasProductiveGuide =
     chapterRows.length > 0 || guideRows.length > 0 || bossRows.length > 0;
@@ -421,7 +415,6 @@ function GamePageContent({
   );
 
   /** Plattform-Umschalter nur für den eingeloggten Admin, nie für Gäste. */
-  const showPlatformSwitcher = isAdminUser(sessionUser, { allowPublic: true });
   const usingPlatformStack = showPlatformSwitcher && activePlatform !== 'psn';
 
   /**
@@ -457,8 +450,6 @@ function GamePageContent({
   const gameId = watchlistGameId;
   /** Außen sichtbare Spiel-Referenz für Fehlermeldungen (NPWR, kein UUID). */
   const reportSource = useMemo(() => reportSourceForGame(selectedGame), [selectedGame]);
-  /** Sprache des angezeigten Guides. Freigabe und Tipp-Änderungen gelten nur für diese Sprache. */
-  const effectiveGuideLang = resolveGuideLanguage(globalLocale, guideLanguageOverride);
   const gameUuid = useMemo(() => getGameUuid(selectedGame), [selectedGame]);
   const studioCredits = useMemo(() => publicStudioCredits(selectedGame), [selectedGame]);
 
@@ -486,8 +477,14 @@ function GamePageContent({
     setActivePlatform(next);
   };
 
-  const isAdmin = isAdminUser(sessionUser);
   const policy = getGameViewPolicy(gameForPublication, { variant: 'page', isAdmin });
+
+  useEffect(() => {
+    if (showPlatformSwitcher) return;
+    setActivePlatform((prev) => (prev === 'psn' ? prev : 'psn'));
+    setPlatformTrophies((prev) => (prev.length === 0 ? prev : []));
+    setPlatformTrophiesLoading(false);
+  }, [showPlatformSwitcher]);
 
   useEffect(() => {
     if (!showPlatformSwitcher || !gameUuid) return undefined;
@@ -646,9 +643,11 @@ function GamePageContent({
           ...(patch.video_url !== undefined ? { video_url: patch.video_url } : {}),
         };
       });
-    setChapterRows(applyPatch);
-    setGuideRows(applyPatch);
-    setBossRows(applyPatch);
+    setRawGuideRows((prev) => {
+      const next = applyPatch(prev);
+      rawGuideRef.current = { gameId: rawGuideRef.current.gameId, rows: next };
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -769,7 +768,8 @@ function GamePageContent({
     };
   }, [selectedGame, globalLocale, trophiesOnly]);
 
-  const isGuideLoading = guidesLoading || loadingGuide;
+  const visibleGuideCount = chapterRows.length + guideRows.length + bossRows.length;
+  const isGuideLoading = (guidesLoading || loadingGuide) && visibleGuideCount === 0;
 
   const gameTitle = getGameTitle(selectedGame, globalLocale);
   const gameCover = coverOverride === null ? getGameCover(selectedGame, globalLocale) : coverOverride;
@@ -923,15 +923,15 @@ function GamePageContent({
         return;
       }
 
-      const keep = (rows) =>
-        (rows ?? []).filter((row) => {
+      setRawGuideRows((prev) => {
+        const next = (prev ?? []).filter((row) => {
           const id = String(row?.id ?? '');
           const gid = String(row?.guide_id ?? '');
           return id !== guideRowId && gid !== guideRowId;
         });
-      setChapterRows(keep);
-      setGuideRows(keep);
-      setBossRows(keep);
+        rawGuideRef.current = { gameId: rawGuideRef.current.gameId, rows: next };
+        return next;
+      });
     },
     [gameUuid],
   );
@@ -1252,7 +1252,7 @@ function GamePageContent({
                     <GuideOnlineBadge game={gameForPublication} visible={isAdmin} size="md" />
                   </div>
                   {isAdmin ? (
-                    <div className="absolute top-2.5 right-2.5 z-10 flex flex-col items-end gap-1">
+                    <div className="tb-admin-bar tb-admin-bar--col absolute top-2.5 right-2.5 z-10 max-w-[calc(100%-1.25rem)] items-end">
                       <button
                         type="button"
                         onClick={handleClearCover}
@@ -1323,7 +1323,7 @@ function GamePageContent({
                         ) : null}
                       </h2>
                     </div>
-                    <div className="flex flex-col items-stretch sm:items-end gap-2 sm:flex-shrink-0">
+                    <div className="tb-admin-bar tb-admin-bar--col w-full items-stretch sm:w-auto sm:max-w-xs sm:items-end">
                       <WatchlistButton gameId={watchlistGameId} variant="detail" />
                       <ShareButton title={gameTitle} />
                       {featureHints.watchlist && onOpenHelp ? (
@@ -1629,7 +1629,7 @@ function GamePageContent({
           <GuideLanguageSelector
             className="!mb-0 min-w-0 flex-1"
             guideLanguageOverride={guideLanguageOverride}
-            onGuideLanguageOverride={setGuideLanguageOverride}
+            onGuideLanguageOverride={handleGuideLanguageOverride}
             locales={contentLocales}
           />
           {isAdmin && !trophiesOnly ? (

@@ -320,7 +320,7 @@ function GameTile({
       </div>
       <div className="home-tile-meta">
         {isAdmin && gameId && effectiveGame?.cover_status !== 'valid' ? (
-          <div className="mb-1.5 w-full">
+          <div className="tb-admin-bar tb-admin-bar--col mb-1.5 w-full">
             <AdminCoverInspector
               game={effectiveGame}
               hideThumb

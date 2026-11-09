@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { isAdminUser } from '../lib/adminAccess';
+import { useShowAdminChrome } from '../lib/useAdminChrome';
 import {
   loadAdminFollowups,
   subscribeAdminFollowups,
@@ -11,7 +11,7 @@ import {
  */
 function AdminFollowupButton({ user, gameId, className = '' }) {
   const userId = user?.id ?? '';
-  const visible = isAdminUser(user) && Boolean(gameId);
+  const visible = useShowAdminChrome(user) && Boolean(gameId);
   const [active, setActive] = useState(false);
   const [freitext, setFreitext] = useState('');
   const [saving, setSaving] = useState(false);
@@ -61,7 +61,7 @@ function AdminFollowupButton({ user, gameId, className = '' }) {
   };
 
   return (
-    <div className={`inline-flex flex-col items-stretch sm:items-end gap-1.5 ${className}`}>
+    <div className={`tb-admin-bar tb-admin-bar--col w-full sm:w-auto sm:items-end ${className}`}>
       <button
         type="button"
         onClick={handleClick}

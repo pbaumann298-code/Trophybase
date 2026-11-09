@@ -141,7 +141,7 @@ function SearchResultRow({
           </div>
 
           {isAdmin && (isWatchlist || typeof onToggleDraftMode === 'function') && gameUuid && (
-            <div className="flex flex-col items-end gap-1 shrink-0">
+            <div className="tb-admin-bar tb-admin-bar--col min-w-0 max-w-full items-end">
               <button
                 type="button"
                 onClick={handleDraftToggleClick}

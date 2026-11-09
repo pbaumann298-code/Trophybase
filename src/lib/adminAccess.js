@@ -1,4 +1,5 @@
 import { ALLOWED_ADMINS, normalizeEmail } from './maintenanceAccess';
+import { adminOverlaysHidden } from './adminOverlayPreference';
 
 export const ADMIN_RETURN_STORAGE_KEY = 'tb_admin_return';
 export const ADMIN_ORIGIN_STORAGE_KEY = 'tb_admin_origin';
@@ -144,6 +145,10 @@ export function getAdminReturnUrl(fallback = '/intranet.html') {
 
 export function isStaffOrPreviewContext() {
   if (typeof window === 'undefined') return false;
+  if (adminOverlaysHidden()) {
+    const path = String(window.location.pathname || '').toLowerCase();
+    if (!path.includes('/admin') && !path.includes('/intranet')) return false;
+  }
   const p = window.location.pathname.toLowerCase();
   if (p.includes('/admin') || p.includes('/intranet')) {
     markDeviceAsStaff();
@@ -343,7 +348,17 @@ export function handleStaffGamePreviewClick(event, href) {
   }
 }
 
-export function isAdminUser(user, { allowPublic = false } = {}) {
+/** Gast-Simulation gilt nur auf der öffentlichen Seite, nie im Intranet oder Admin. */
+function guestSimulationBlocksAdmin() {
+  if (!adminOverlaysHidden()) return false;
+  if (typeof window === 'undefined') return false;
+  const path = String(window.location.pathname || '').toLowerCase();
+  if (path.includes('/admin') || path.includes('/intranet')) return false;
+  return true;
+}
+
+export function isAdminUser(user, { allowPublic = false, ignoreGuestSimulation = false } = {}) {
+  if (!ignoreGuestSimulation && guestSimulationBlocksAdmin()) return false;
   if (!user?.email) return false;
   if (!allowPublic && !isStaffOrPreviewContext()) return false;
   const isAdm = ALLOWED_ADMINS.includes(normalizeEmail(user.email));
@@ -354,6 +369,10 @@ export function isAdminUser(user, { allowPublic = false } = {}) {
 }
 
 export function isStaffDeviceOrSession(user = null) {
+  if (typeof window !== 'undefined' && adminOverlaysHidden()) {
+    const path = String(window.location.pathname || '').toLowerCase();
+    if (!path.includes('/admin') && !path.includes('/intranet')) return false;
+  }
   const effectiveUser = user || readCachedSessionUser();
   if (isAdminUser(effectiveUser, { allowPublic: true })) return true;
   if (isStaffOrPreviewContext()) return true;
@@ -386,6 +405,7 @@ export function setLabModeFlag(active = true) {
  * Normale Besucher (!isAdminUser) sehen weiterhin zu 100 % die eingefrorene V1-UI.
  */
 export function isLabModeActive(sessionUser) {
+  if (adminOverlaysHidden()) return false;
   if (!isAdminUser(sessionUser, { allowPublic: true })) return false;
   if (typeof window === 'undefined') return false;
   try {

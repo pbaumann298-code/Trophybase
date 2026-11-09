@@ -334,7 +334,7 @@ function GameGuideWorkspace({
   );
 
   const adminBulk = canEditTips ? (
-    <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+    <div className="tb-admin-bar mb-3 w-full justify-end">
       {tipHint ? <span className="text-[10px] text-zinc-500">{tipHint}</span> : null}
       <MarkOnlineBulkButton
         active={onlinePickMode}
@@ -632,7 +632,10 @@ function GameGuideWorkspace({
     </>
   );
 
-  if (inline && loading) {
+  const guideRowCount = (walkthrough?.length ?? 0) + (collectibles?.length ?? 0) + (bosses?.length ?? 0);
+  const showInitialGuideLoading = loading && guideRowCount === 0;
+
+  if (inline && showInitialGuideLoading) {
     return <p className="quickwin-card-note">{t('guideLoading')}</p>;
   }
 
@@ -648,7 +651,7 @@ function GameGuideWorkspace({
         canGoNext={nextOk}
         anchorRef={tabBarAnchorRef}
       />
-      {variant === 'page' && loading && currentTab !== 'reiter0' ? (
+      {variant === 'page' && showInitialGuideLoading && currentTab !== 'reiter0' ? (
         <p className="text-xs text-zinc-500 font-mono mb-4 animate-pulse">{t('guideLoading')}</p>
       ) : null}
       {variant === 'page' ? (

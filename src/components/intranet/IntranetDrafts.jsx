@@ -7475,7 +7475,7 @@ export default function IntranetDrafts({
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 items-start">
           
           {/* ==================== A. LINKE SPALTE: Spiele-Queue (3 Cols) ==================== */}
-          <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 max-h-[calc(100vh-160px)] overflow-hidden">
+          <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 tb-pane-max overflow-hidden">
             {/* Button "+ Neues Guide-Projekt" oben links in der Queue */}
             <button
               type="button"
@@ -10498,7 +10498,7 @@ export default function IntranetDrafts({
           </div>
 
           {/* ==================== D. RECHTE SPALTE: Parallele Trophäen-Ansicht (3 Cols) ==================== */}
-          <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 min-h-[320px] max-h-[calc(100vh-160px)] overflow-hidden">
+          <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 min-h-[320px] tb-pane-max overflow-hidden">
             <div className="flex flex-col gap-2 border-b border-zinc-800/80 pb-2.5 px-1">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>

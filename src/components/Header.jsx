@@ -8,6 +8,7 @@ import {
 } from '../lib/adminAccess';
 import { navigateToHome, PROFILE_PATH, WATCHLIST_PATH } from '../lib/routeUtils';
 import { supabase } from '../pages/supabaseClient';
+import { useShowAdminChrome } from '../lib/useAdminChrome';
 
 function Header({
   setCurrentView,
@@ -24,6 +25,7 @@ function Header({
     staffOrPreview ? readDraftReturnContext() : null
   );
   const isAdmin = isAdminUser(sessionUser, { allowPublic: true });
+  const showAdminChrome = useShowAdminChrome(sessionUser, { allowPublic: true });
   const [creatorProfile, setCreatorProfile] = useState(null);
 
   useEffect(() => {
@@ -71,8 +73,8 @@ function Header({
         />
       </a>
 
-      <div className="site-header-right relative z-20 ms-auto flex h-full min-w-0 shrink-0 items-center gap-2 pe-4 md:pe-6 ps-2">
-        {staffOrPreview && draftReturnCtx?.gameId ? (
+      <div className="site-header-right relative z-20 ms-auto flex h-full min-w-0 max-w-[calc(100%-3.25rem)] items-center justify-end gap-2 pe-3 md:pe-6 ps-2">
+        {showAdminChrome && staffOrPreview && draftReturnCtx?.gameId ? (
           <a
             href={draftReturnCtx.staffPath || '/intranet.html#entwuerfe'}
             onClick={(e) => {
@@ -80,7 +82,7 @@ function Header({
               window.location.assign(draftReturnCtx.staffPath || '/intranet.html#entwuerfe');
             }}
             title={`Zurück zum Entwurf: ${draftReturnCtx.title || draftReturnCtx.gameId}`}
-            className="flex-shrink-0 text-xs font-bold font-mono uppercase tracking-wider text-black bg-[#00ff66] hover:bg-[#00ff66]/90 border border-[#00ff66] px-3 sm:px-4 py-1.5 rounded-lg transition whitespace-nowrap no-underline shadow-md shadow-[#00ff66]/20"
+            className="min-w-0 max-w-full truncate text-xs font-bold font-mono uppercase tracking-wider text-black bg-[#00ff66] hover:bg-[#00ff66]/90 border border-[#00ff66] px-3 sm:px-4 py-1.5 rounded-lg transition no-underline shadow-md shadow-[#00ff66]/20"
           >
             ⬅️ Zurück zum Entwurf
             {draftReturnCtx.title
@@ -90,7 +92,7 @@ function Header({
         ) : null}
         <HeaderSettingsMenu
           sessionUser={sessionUser}
-          isAdmin={isAdmin}
+          isAdmin={showAdminChrome}
           isCreator={Boolean(creatorProfile?.id)}
           onLogout={onLogout}
           onOpenWatchlist={onOpenWatchlist}

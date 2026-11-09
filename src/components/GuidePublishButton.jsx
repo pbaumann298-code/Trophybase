@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
-import { isAdminUser } from '../lib/adminAccess';
+import { useShowAdminChrome } from '../lib/useAdminChrome';
 import { GAME_STRUCT, GAME_TYPE } from '../lib/gameSchema';
 import { setIntranetGameType } from '../lib/intranetGameEdits';
 import { fetchHomeTagDefs, orderHomeTags, readHomeTags, setEditorialHomeTags } from '../lib/homeTagDefs';
@@ -39,6 +39,7 @@ function GuidePublishButton({
   const [selectedType, setSelectedType] = useState('');
   const [selectedTags, setSelectedTags] = useState([]);
   const [tagsLoaded, setTagsLoaded] = useState(false);
+  const showAdminChrome = useShowAdminChrome(user);
 
   useEffect(() => {
     if (!publishPrompt) return undefined;
@@ -65,7 +66,7 @@ function GuidePublishButton({
   const lang = normalizeLocale(guideLang);
   const langLabel = lang.toUpperCase();
 
-  if (!isAdminUser(user) || !gameUuid || !canPublishLocale(lang)) return null;
+  if (!showAdminChrome || !gameUuid || !canPublishLocale(lang)) return null;
 
   const published = isGuidePublished(game, lang);
   const knownType = GAME_TYPES.includes(currentGameType(game));
@@ -149,7 +150,7 @@ function GuidePublishButton({
   };
 
   return (
-    <div className={`inline-flex flex-col items-stretch sm:items-end gap-1.5 ${className}`}>
+    <div className={`tb-admin-bar tb-admin-bar--col w-full sm:w-auto sm:items-end ${className}`}>
       <button
         type="button"
         onClick={handleClick}

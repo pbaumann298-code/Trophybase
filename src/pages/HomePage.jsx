@@ -9,7 +9,7 @@ import {
   getHomeCategoriesByIds,
 } from '../lib/homeCategories';
 import { HOME_LAYOUT_MODE, useUserPreferences } from '../lib/userPreferences';
-import { isAdminUser } from '../lib/adminAccess';
+import { useShowAdminChrome } from '../lib/useAdminChrome';
 import { useLocale } from '../context/LocaleContext';
 import { useVisibility } from '../context/VisibilityContext';
 import { usePlatinumStatus } from '../context/PlatinumStatusContext';
@@ -190,7 +190,7 @@ function HomePage({
   const [loading, setLoading] = useState(true);
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const searchFormRef = useRef(null);
-  const isAdmin = isAdminUser(sessionUser);
+  const isAdmin = useShowAdminChrome(sessionUser);
   const isMinimal = homeLayoutMode === HOME_LAYOUT_MODE.MINIMAL;
   const openCustomize = () => {
     if (onCustomizeHome) onCustomizeHome();

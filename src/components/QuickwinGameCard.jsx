@@ -337,7 +337,7 @@ function QuickwinGameCard({
               </div>
               <PlatinumUnlockedBadge active={platinumDone} size="sm" />
               {isAdmin && detailGame?.cover_status !== 'valid' ? (
-                <div className="absolute top-1.5 right-1.5 z-10 flex flex-col items-end gap-1">
+                <div className="tb-admin-bar tb-admin-bar--col absolute top-1.5 right-1.5 z-10 max-w-[calc(100%-0.75rem)] items-end">
                   <button
                     type="button"
                     onClick={handleClearCover}

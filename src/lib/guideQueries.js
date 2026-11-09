@@ -126,24 +126,45 @@ export function mergeGuideRow(row, lang, index = 0) {
   };
 }
 
+const GUIDE_TEXT_FIELDS = [
+  GUIDE_I18N.itemName,
+  GUIDE_I18N.chronologicalGroup,
+  GUIDE_I18N.categoryGroup,
+  GUIDE_I18N.bossGroup,
+  GUIDE_I18N.spielRegion,
+  GUIDE_I18N.videoChapter,
+];
+
+function fieldHasLang(value, lang) {
+  if (typeof value === 'string') return lang === 'de' && value.trim() !== '';
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const raw = value[lang];
+  return typeof raw === 'string' && raw.trim() !== '';
+}
+
+/** Ob die Rohzeilen in dieser Sprache eigenen Text tragen. */
+export function guideRawHasLang(rows, lang) {
+  const code = String(lang ?? '').trim().toLowerCase();
+  if (!code) return false;
+  return (rows ?? []).some((row) => GUIDE_TEXT_FIELDS.some((field) => fieldHasLang(row?.[field], code)));
+}
+
+/** Erste Sprache aus der Vorzugsliste, die in den Rohzeilen Text hat. */
+export function firstPopulatedGuideLang(rows, preferred = []) {
+  for (const lang of preferred) {
+    if (guideRawHasLang(rows, lang)) return String(lang).trim().toLowerCase();
+  }
+  return '';
+}
+
 /**
- * Lädt alle Guide-Einträge eines Spiels aus game_guides.
- * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {unknown} gameRef
- * @param {string} [locale]
- * @param {string|null} [overrideLang]
+ * Lädt die Guide-Zeilen einmal, inklusive aller JSONB-Sprachkeys.
+ * Die Anzeigesprache wird danach nur noch im Frontend projiziert.
  */
-export async function fetchGuidesForGame(
-  supabase,
-  gameRef,
-  locale = getLocale(),
-  overrideLang = null,
-) {
+export async function fetchRawGuidesForGame(supabase, gameRef) {
   const { uuid, error } = await resolveGameUuid(supabase, gameRef);
   if (error) return { data: [], error };
   if (!uuid) return { data: [], error: null };
-
-  const targetLang = resolveGuideLanguage(locale, overrideLang);
 
   const PAGE_SIZE = 1000;
   let allRows = [];
@@ -207,11 +228,47 @@ export async function fetchGuidesForGame(
     }
   }
 
-  const merged = allRows
+  return { data: allRows, error: null };
+}
+
+/**
+ * Projiziert bereits geladene Rohzeilen auf eine Anzeigesprache.
+ * Kein weiterer Netzwerk-Request.
+ */
+export function projectGuideBundle(rows, locale = getLocale(), overrideLang = null) {
+  const targetLang = resolveGuideLanguage(locale, overrideLang);
+  const data = (rows ?? [])
     .map((row, index) => mergeGuideRow(row, targetLang, index))
     .filter(Boolean);
+  const walkthrough = data.filter((row) => hasSheetType(row, GUIDE_SHEET_TYPE.WALKTHROUGH));
+  const collectibles = data.filter((row) => hasSheetType(row, GUIDE_SHEET_TYPE.COLLECTIBLES));
+  const bosses = data.filter((row) => hasSheetType(row, GUIDE_SHEET_TYPE.BOSSES));
+  return {
+    allGuides: data,
+    walkthrough,
+    collectibles,
+    chapters: walkthrough,
+    guides: collectibles,
+    bosses,
+  };
+}
 
-  return { data: merged, error: null };
+/**
+ * Lädt alle Guide-Einträge eines Spiels aus game_guides.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {unknown} gameRef
+ * @param {string} [locale]
+ * @param {string|null} [overrideLang]
+ */
+export async function fetchGuidesForGame(
+  supabase,
+  gameRef,
+  locale = getLocale(),
+  overrideLang = null,
+) {
+  const { data, error } = await fetchRawGuidesForGame(supabase, gameRef);
+  if (error) return { data: [], error };
+  return { data: projectGuideBundle(data, locale, overrideLang).allGuides, error: null };
 }
 
 /** @deprecated Nutze fetchGuidesForGame + sheet_type-Filter */

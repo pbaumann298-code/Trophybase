@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { defineConfig, loadEnv } from 'vite';
@@ -10,6 +11,51 @@ import { parsePrettyGuidePath } from './server/prettyPath.js';
 import { isCrawler } from './shared/crawler.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function createBuildId() {
+  let hash = 'local';
+  try {
+    const read = execSync('git rev-parse --short HEAD', {
+      cwd: __dirname,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .toString()
+      .trim();
+    if (read) hash = read;
+  } catch {
+    /* kein Git */
+  }
+  return `${hash}-${Date.now().toString(36)}`;
+}
+
+function buildIdPlugin(buildId) {
+  const body = `${JSON.stringify({ buildId })}\n`;
+  return {
+    name: 'tb-build-id',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const path = String(req.url || '').split('?')[0];
+        if (path !== '/version.json') {
+          next();
+          return;
+        }
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.end(body);
+      });
+    },
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: body,
+      });
+    },
+  };
+}
 
 function sendWebResponse(res, webResponse) {
   res.statusCode = webResponse.status;
@@ -98,9 +144,13 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   if (env.VITE_SUPABASE_URL) process.env.VITE_SUPABASE_URL = env.VITE_SUPABASE_URL;
   if (env.VITE_SUPABASE_ANON_KEY) process.env.VITE_SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY;
+  const buildId = createBuildId();
 
   return {
-    plugins: [react(), tailwindcss(), devApiPlugin(env)],
+    define: {
+      __APP_BUILD_ID__: JSON.stringify(buildId),
+    },
+    plugins: [react(), tailwindcss(), devApiPlugin(env), buildIdPlugin(buildId)],
     appType: 'spa',
     build: {
       rollupOptions: {
