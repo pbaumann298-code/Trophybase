@@ -20,7 +20,9 @@ _ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
 if _ROOT_ENV.exists():
     load_dotenv(_ROOT_ENV, override=True)
 else:
-    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    _parent_envs = [
+        p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()
+    ]
     load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 
 # =============================================================================
@@ -50,7 +52,7 @@ WAVES = {
     ],
 }
 
-ACTIVE_WAVE = os.getenv("TRANSLATION_WAVE", "wave2")
+ACTIVE_WAVE = os.getenv("TRANSLATION_WAVE", "wave1")
 AUTO_PUBLISH = True
 
 WEBSITE_SUPPORTED_LOCALES = {
@@ -325,6 +327,10 @@ def fetch_published_games_queue(target_langs: list[str]) -> list[dict]:
             break
         offset += page_size
 
+    # FIX 1: 'de' und 'en' IMMER in die Queue-Prüfung einschließen!
+    # Sonst werden EN-Guides (wo 'de' noch fehlt/FERTIG ist) in wave2 komplett übersprungen!
+    check_langs = list(dict.fromkeys(["de", "en"] + list(target_langs)))
+
     queue = []
     for g in all_games:
         raw_type = str(g.get("spiel_typ") or "").strip()
@@ -336,11 +342,7 @@ def fetch_published_games_queue(target_langs: list[str]) -> list[dict]:
         if not src_lang:
             continue
 
-        # WICHTIG: Wenn das Spiel auf ES/PT veröffentlicht wurde, muss es auch dann in die Queue,
-        # wenn DE/EN noch nicht PUBLISHED sind ODER in ES/PT noch die deutschen Guide-Tipps/Beschreibung fehlen!
-        needs_work = any(
-            not is_locale_done_in_status(status, lg) for lg in target_langs
-        )
+        needs_work = any(not is_locale_done_in_status(status, lg) for lg in check_langs)
         if needs_work or src_lang not in ("de", "en"):
             queue.append(g)
 
@@ -348,7 +350,6 @@ def fetch_published_games_queue(target_langs: list[str]) -> list[dict]:
         st = x.get("status") if isinstance(x.get("status"), dict) else {}
         g_type = primary_game_type(x.get("spiel_typ"))
         is_fresh, pub_ts = is_fast_lane_new_release(st, hours=72)
-        # 1. Echte Guides (Premium/Evergreen/Standard), die in den letzten 72h neu veröffentlicht wurden -> ÜBERHOLSPUR!
         fast_lane_rank = 0 if (is_fresh and g_type in DRIP_FEED_TYPES) else 1
         title_str = str(
             (x.get("spieltitel") or {}).get("de")
@@ -414,6 +415,35 @@ def bulk_save_guide_rows(rows_to_update: list[dict]):
                 )
 
 
+def bulk_save_guide_rows(rows_to_update: list[dict]):
+    if not rows_to_update:
+        return
+    chunk_size = 250
+    for i in range(0, len(rows_to_update), chunk_size):
+        chunk = rows_to_update[i : i + chunk_size]
+        try:
+            execute_with_retry(
+                supabase.rpc("tb_bulk_update_guide_translations", {"p_rows": chunk})
+            )
+        except Exception:
+            for r in chunk:
+                # FIX 2: 'spiel_region' klein geschrieben (wie in Postgres)!
+                execute_with_retry(
+                    supabase.table("game_guides")
+                    .update(
+                        {
+                            "spiel_region": r["spiel_region"],
+                            "chronological_group": r["chronological_group"],
+                            "category_group": r["category_group"],
+                            "boss_group": r["boss_group"],
+                            "item_name": r["item_name"],
+                            "translation_status": r["translation_status"],
+                        }
+                    )
+                    .eq("id", r["id"])
+                )
+
+
 def apply_translations_and_save(
     guide_rows: list[dict],
     source_lang: str,
@@ -427,11 +457,9 @@ def apply_translations_and_save(
 
     for row in guide_rows:
         changed = False
-        loc_map = (
-            dict(row.get("Spiel_region") or {})
-            if isinstance(row.get("Spiel_region"), dict)
-            else {}
-        )
+        # FIX 2: Sowohl 'spiel_region' als auch Fallback 'Spiel_region' unterstützen
+        raw_loc = row.get("spiel_region") or row.get("Spiel_region")
+        loc_map = dict(raw_loc) if isinstance(raw_loc, dict) else {}
         chrono_map = (
             dict(row.get("chronological_group") or {})
             if isinstance(row.get("chronological_group"), dict)
@@ -490,7 +518,7 @@ def apply_translations_and_save(
         }
 
         if changed:
-            row["Spiel_region"] = loc_map if loc_map else None
+            row["spiel_region"] = loc_map if loc_map else None
             row["chronological_group"] = chrono_map if chrono_map else None
             row["category_group"] = cat_map if cat_map else None
             row["boss_group"] = boss_map if boss_map else None
@@ -499,7 +527,8 @@ def apply_translations_and_save(
             rows_to_save.append(
                 {
                     "id": row["id"],
-                    "Spiel_region": row["Spiel_region"],
+                    "spiel_region": row["spiel_region"],
+                    "Spiel_region": row["spiel_region"],  # Für RPC-Kompatibilität
                     "chronological_group": row["chronological_group"],
                     "category_group": row["category_group"],
                     "boss_group": row["boss_group"],
@@ -649,13 +678,15 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
     # Basis-Sprachen ('de', 'en') IMMER mitprüfen, unabhängig von der gewählten Welle!
     # Selbst wenn guide_en schon PUBLISHED ist: Stufe 3B übersetzt nur echte Lücken
     # (wo guide_tip->>'en' oder beschreibung->>'en' noch leer ist) und überschreibt nichts Bestehendes!
-    candidate_langs = list(dict.fromkeys(["de", "en", source_lang] + list(wave_targets)))
+    candidate_langs = list(
+        dict.fromkeys(["de", "en", source_lang] + list(wave_targets))
+    )
     active_targets = [
-        lg for lg in candidate_langs
+        lg
+        for lg in candidate_langs
         if lg in ("de", "en") or not is_locale_done_in_status(status_map, lg)
     ]
-        
-    
+
     if not active_targets:
         return True
 
@@ -673,9 +704,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
         supabase.table("game_achievements").select("*").eq("game_id", game_id)
     )
     achievements = ach_res.data or []
-    ach_by_id = {
-        str(a.get("platform_achievement_id")).strip(): a for a in achievements
-    }
+    ach_by_id = {str(a.get("platform_achievement_id")).strip(): a for a in achievements}
 
     try:
         s1 = execute_with_retry(
@@ -701,14 +730,9 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
         unique_groups: dict[str, dict] = {}
 
         for row in guide_rows:
-            loc_map = (
-                row.get("Spiel_region")
-                if isinstance(row.get("Spiel_region"), dict)
-                else {}
-            )
-            loc_src = str(
-                loc_map.get(source_lang) or loc_map.get("de") or loc_map.get("en") or ""
-            ).strip()
+            raw_loc = row.get("spiel_region") or row.get("Spiel_region")
+            loc_map = raw_loc if isinstance(raw_loc, dict) else {}
+            _, loc_src = pick_field_source(loc_map, source_lang)
             if loc_src:
                 missing = [
                     lg
@@ -720,12 +744,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
 
             for col in ("chronological_group", "category_group", "boss_group"):
                 col_map = row.get(col) if isinstance(row.get(col), dict) else {}
-                col_src = str(
-                    col_map.get(source_lang)
-                    or col_map.get("de")
-                    or col_map.get("en")
-                    or ""
-                ).strip()
+                _, col_src = pick_field_source(col_map, source_lang)
                 if not col_src:
                     continue
                 missing = [
@@ -838,12 +857,7 @@ def run_pipeline_for_game(game_id: str, wave_targets: list[str]) -> bool:
             item_map = (
                 row.get("item_name") if isinstance(row.get("item_name"), dict) else {}
             )
-            item_src = str(
-                item_map.get(source_lang)
-                or item_map.get("de")
-                or item_map.get("en")
-                or ""
-            ).strip()
+            _, item_src = pick_field_source(item_map, source_lang)
             if not item_src:
                 continue
             missing = [

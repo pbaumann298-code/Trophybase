@@ -1,0 +1,184 @@
+import {
+  GAME_FK,
+  GAME_PK,
+  GAME_STRUCT,
+  GUIDE_I18N,
+  GUIDE_PK,
+  TABLES,
+} from './gameSchema';
+import { GUIDE_PUBLICATION, guideStatusKey, parseStatusMap } from './guidePublication';
+
+const PAGE_SIZE = 1000;
+
+export const FERTIG_REVIEW_SELECT = [
+  GAME_PK,
+  'platform_game_id',
+  'slug',
+  GAME_STRUCT.status,
+  GAME_STRUCT.publishingStatus,
+  GAME_STRUCT.publishedLocales,
+  GAME_STRUCT.progress,
+  GAME_STRUCT.isGuideLocked,
+  GAME_STRUCT.guideTyp,
+  'spieltitel',
+  'cover_url',
+  GAME_STRUCT.coverStatus,
+  GAME_STRUCT.publisher,
+  GAME_STRUCT.developer,
+  GAME_STRUCT.gameType,
+  GAME_STRUCT.trophyCount,
+  GAME_STRUCT.hardware,
+].join(', ');
+
+const GUIDE_TEXT_FIELDS = [
+  GUIDE_I18N.itemName,
+  GUIDE_I18N.chronologicalGroup,
+  GUIDE_I18N.categoryGroup,
+  GUIDE_I18N.bossGroup,
+  GUIDE_I18N.spielRegion,
+  GUIDE_I18N.videoChapter,
+];
+
+function textAtLang(value, lang) {
+  if (typeof value === 'string') return lang === 'de' && value.trim() !== '';
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const raw = value[lang];
+  return typeof raw === 'string' && raw.trim() !== '';
+}
+
+export function guideRowsHaveLang(rows, lang) {
+  return (rows ?? []).some((row) => GUIDE_TEXT_FIELDS.some((field) => textAtLang(row?.[field], lang)));
+}
+
+/** Sprachen mit echtem Text in den Guide-Zeilen, nur de und en. */
+export function fertigReviewPublishLangs(rows) {
+  return ['de', 'en'].filter((lang) => guideRowsHaveLang(rows, lang));
+}
+
+export function isSingleLangFertigGame(game) {
+  const locales = Array.isArray(game?.published_locales) ? game.published_locales : [];
+  if (locales.length > 0) return false;
+  const status = parseStatusMap(game?.status);
+  const de = String(status.guide_de ?? '').trim().toUpperCase();
+  const en = String(status.guide_en ?? '').trim().toUpperCase();
+  return de === GUIDE_PUBLICATION.DONE || en === GUIDE_PUBLICATION.DONE;
+}
+
+export function buildFertigPublishUpdate(game, langs) {
+  const status = { ...parseStatusMap(game?.status) };
+  for (const lang of langs) {
+    status[guideStatusKey(lang)] = GUIDE_PUBLICATION.PUBLISHED;
+  }
+  status.publish_status = GUIDE_PUBLICATION.PUBLISHED;
+  delete status.review_queue;
+  const publishedLocales = [...new Set(langs.map((lang) => String(lang).trim()).filter(Boolean))].sort();
+  return {
+    [GAME_STRUCT.status]: status,
+    [GAME_STRUCT.publishedLocales]: publishedLocales,
+    [GAME_STRUCT.publishingStatus]: Object.fromEntries(
+      publishedLocales.map((lang) => [lang, GUIDE_PUBLICATION.PUBLISHED]),
+    ),
+    [GAME_STRUCT.isGuideLocked]: true,
+  };
+}
+
+export function buildFertigDiscardStatus(currentStatus) {
+  const status = { ...parseStatusMap(currentStatus) };
+  status.guides = 'NO_VIDEO';
+  delete status.guide_de;
+  delete status.guide_en;
+  delete status.review_queue;
+  return status;
+}
+
+async function fetchAllGuideTextRows(supabase, gameId) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from(TABLES.guides)
+      .select(GUIDE_TEXT_FIELDS.join(', '))
+      .eq(GAME_FK, gameId)
+      .order(GUIDE_PK, { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) return { rows, error };
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
+  return { rows, error: null };
+}
+
+function isFertigReviewCandidate(game) {
+  const status = parseStatusMap(game?.status);
+  const review = String(status.review_queue ?? '').trim();
+  const de = String(status.guide_de ?? '').trim().toUpperCase();
+  const en = String(status.guide_en ?? '').trim().toUpperCase();
+  return review === 'SINGLE_LANG_FERTIG' || de === GUIDE_PUBLICATION.DONE || en === GUIDE_PUBLICATION.DONE;
+}
+
+/**
+ * Unveröffentlichte 1-Sprach-Guides: published_locales leer und
+ * review_queue SINGLE_LANG_FERTIG oder guide_de/guide_en = FERTIG.
+ * Die Status-Prüfung läuft im Client. Ein OR über status->>… zusammen mit
+ * published_locales = '[]' verfehlt den partiellen Index und läuft in den
+ * Statement-Timeout.
+ */
+export async function fetchFertigReviewGames(supabase) {
+  const games = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from(TABLES.games)
+      .select(FERTIG_REVIEW_SELECT)
+      .eq(GAME_STRUCT.publishedLocales, '[]')
+      .order(GAME_PK, { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) return { games, error };
+    const page = data ?? [];
+    games.push(...page.filter(isFertigReviewCandidate));
+    if (page.length < PAGE_SIZE) break;
+  }
+  return { games, error: null };
+}
+
+export async function publishFertigReviewGame(supabase, game) {
+  const id = String(game?.[GAME_PK] ?? game?.id ?? '').trim();
+  if (!id) return { update: null, langs: [], error: new Error('Kein Spiel ausgewählt.') };
+
+  const { rows, error: readError } = await fetchAllGuideTextRows(supabase, id);
+  if (readError) return { update: null, langs: [], error: readError };
+
+  const langs = fertigReviewPublishLangs(rows);
+  if (langs.length === 0) {
+    return {
+      update: null,
+      langs: [],
+      error: new Error('Keine deutschen oder englischen Texte in den Guide-Zeilen.'),
+    };
+  }
+
+  const update = buildFertigPublishUpdate(game, langs);
+  const { error } = await supabase.from(TABLES.games).update(update).eq(GAME_PK, id);
+  if (error) return { update: null, langs, error };
+  return { update, langs, error: null };
+}
+
+export async function discardFertigReviewGuide(supabase, game) {
+  const id = String(game?.[GAME_PK] ?? game?.id ?? '').trim();
+  if (!id) return { status: null, error: new Error('Kein Spiel ausgewählt.') };
+
+  const nextStatus = buildFertigDiscardStatus(game?.status);
+  const { error: unlockError } = await supabase
+    .from(TABLES.games)
+    .update({
+      [GAME_STRUCT.isGuideLocked]: false,
+      [GAME_STRUCT.status]: nextStatus,
+      [GAME_STRUCT.publishedLocales]: [],
+      [GAME_STRUCT.publishingStatus]: {},
+    })
+    .eq(GAME_PK, id);
+  if (unlockError) return { status: null, error: unlockError };
+
+  const { error: deleteError } = await supabase.from(TABLES.guides).delete().eq(GAME_FK, id);
+  if (deleteError) return { status: null, error: deleteError };
+  return { status: nextStatus, error: null };
+}

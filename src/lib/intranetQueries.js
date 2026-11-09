@@ -32,6 +32,8 @@ export const INTRANET_GAME_SELECT = [
   GAME_STRUCT.trophyCount,
   GAME_STRUCT.homeTags,
   GAME_STRUCT.status,
+  GAME_STRUCT.publishedLocales,
+  GAME_STRUCT.isGuideLocked,
   GAME_I18N.title,
   GAME_I18N.coverUrl,
   GAME_STRUCT.coverStatus,
@@ -180,6 +182,126 @@ export async function searchIntranetGames(supabase, filters = {}, options = {}) 
 
   if (error) return { data: [], count: 0, error };
   return { data: data ?? [], count: count ?? (data ?? []).length, error: null };
+}
+
+export const INTRANET_QUICK_FILTERS = [
+  { id: 'all', label: 'Alle' },
+  { id: 'sichtung', label: '⚡ Sichtung (1-Sprachig FERTIG)' },
+  { id: 'de_missing', label: '⚠️ DE fehlt (Nur Intl. Live)' },
+  { id: 'live', label: '🌐 Live (Published)' },
+  { id: 'locked', label: '🔒 Gesperrt / Servertot' },
+];
+
+const LIVE_STATUS_KEYS = [
+  ...SUPPORTED_LOCALES.map((lang) => `guide_${lang}`),
+  'review_queue',
+  'publish_status',
+  'guides',
+  'rohmaterial',
+  'trophies',
+  'discovery',
+  'overall',
+  'refinement',
+  'igdb',
+  'steam',
+  'online_mode',
+];
+
+function jsonbTextKey(key) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? key : `"${key}"`;
+}
+
+/**
+ * PostgREST kann jsonb/uuid nicht per ilike casten (`::text` zerlegt den Logic-Tree
+ * bzw. ilike bleibt auf jsonb). Plattform-IDs treffen deshalb per Containment
+ * auf den exakten Eintrag, Status über alle bekannten Keys.
+ */
+function platformIdClauses(query) {
+  if (!/^[A-Za-z0-9_-]{3,}$/.test(query)) return [];
+  const clauses = [`${GAME_PLATFORM_ID}.cs.["${query}"]`];
+  if (/^\d+$/.test(query)) clauses.push(`${GAME_PLATFORM_ID}.cs.[${query}]`);
+  return clauses;
+}
+
+/** OR-Filter für die Live-Suche: Titel aller Sprachen, UUID, Plattform-ID, spiel_typ, status. */
+export function buildIntranetLiveOrFilter(rawText) {
+  const query = String(rawText ?? '').trim();
+  if (!query) return '';
+  const like = quoteFilterValue(`%${query}%`);
+  const parts = SUPPORTED_LOCALES.map(
+    (lang) => `${GAME_I18N.title}->>${jsonbTextKey(lang)}.ilike.${like}`,
+  );
+  parts.push(`${GAME_STRUCT.gameType}.ilike.${like}`);
+  for (const key of LIVE_STATUS_KEYS) {
+    parts.push(`${GAME_STRUCT.status}->>${jsonbTextKey(key)}.ilike.${like}`);
+  }
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query)) {
+    parts.push(`${GAME_PK}.eq.${query}`);
+  }
+  parts.push(...platformIdClauses(query));
+  return parts.join(',');
+}
+
+export function applyIntranetQuickFilter(query, filterId) {
+  if (filterId === 'sichtung') {
+    return query
+      .eq(GAME_STRUCT.publishedLocales, '[]')
+      .or('status->>guide_de.eq.FERTIG,status->>guide_en.eq.FERTIG');
+  }
+  if (filterId === 'de_missing') {
+    return query
+      .neq(GAME_STRUCT.publishedLocales, '[]')
+      .not(GAME_STRUCT.publishedLocales, 'cs', '["de"]');
+  }
+  if (filterId === 'live') {
+    return query.neq(GAME_STRUCT.publishedLocales, '[]');
+  }
+  if (filterId === 'locked') {
+    return query.or(
+      `${GAME_STRUCT.isGuideLocked}.eq.true,${GAME_STRUCT.gameType}.ilike.${quoteFilterValue('%Servertot%')}`,
+    );
+  }
+  return query;
+}
+
+async function runIntranetLiveQuery(supabase, { text, quickFilter, head }) {
+  let query = supabase
+    .from(TABLES.games)
+    .select(head ? GAME_PK : INTRANET_GAME_SELECT, { count: 'exact', head });
+  query = applyIntranetQuickFilter(query, quickFilter);
+  const orFilter = buildIntranetLiveOrFilter(text);
+  if (orFilter) query = query.or(orFilter);
+  if (!head) {
+    query = query
+      .order(GAME_STRUCT.releaseYear, { ascending: false, nullsFirst: false })
+      .limit(INTRANET_GAME_LIMIT);
+  }
+  return query;
+}
+
+/** Live-Suche über Titel, UUID, Plattform-ID, spiel_typ und status, plus Schnellfilter. */
+export async function searchIntranetGamesLive(supabase, { text = '', quickFilter = 'all' } = {}) {
+  const { data, error, count } = await runIntranetLiveQuery(supabase, {
+    text,
+    quickFilter,
+    head: false,
+  });
+  if (error) return { data: [], count: 0, error };
+  return { data: data ?? [], count: count ?? (data ?? []).length, error: null };
+}
+
+export async function countIntranetQuickFilters(supabase, text = '') {
+  const pairs = await Promise.all(
+    INTRANET_QUICK_FILTERS.map(async (filter) => {
+      const { count, error } = await runIntranetLiveQuery(supabase, {
+        text,
+        quickFilter: filter.id,
+        head: true,
+      });
+      return [filter.id, error ? null : count ?? 0];
+    }),
+  );
+  return Object.fromEntries(pairs);
 }
 
 /**

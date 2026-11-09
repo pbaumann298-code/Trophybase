@@ -50,9 +50,11 @@ function AdminApp() {
     const draftCtx = readDraftReturnContext();
     return draftCtx?.gameId || null;
   });
+  const [draftSource, setDraftSource] = useState('staging');
 
-  const openInDrafts = (gameId) => {
+  const openInDrafts = (gameId, source = 'staging') => {
     setDraftTargetGameId(gameId || null);
+    setDraftSource(source === 'fertig_review' ? 'fertig_review' : 'staging');
     setActiveTab('entwuerfe');
   };
 
@@ -248,7 +250,7 @@ function AdminApp() {
           <IntranetGameSearch sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
         )}
         {activeTab === 'entwuerfe' && (
-          <IntranetDrafts initialDataSource="staging" initialGameId={draftTargetGameId} />
+          <IntranetDrafts initialDataSource={draftSource} initialGameId={draftTargetGameId} />
         )}
         {activeTab === 'd_freigabe' && (
           <IntranetRadarAndServertot

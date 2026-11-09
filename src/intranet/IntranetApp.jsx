@@ -101,9 +101,11 @@ function IntranetApp() {
     const draftCtx = readDraftReturnContext();
     return draftCtx?.gameId || null;
   });
+  const [draftSource, setDraftSource] = useState('staging');
 
-  const openInDrafts = (gameId) => {
+  const openInDrafts = (gameId, source = 'staging') => {
     setDraftTargetGameId(gameId || null);
+    setDraftSource(source === 'fertig_review' ? 'fertig_review' : 'staging');
     setActiveTab('entwuerfe');
   };
 
@@ -402,7 +404,7 @@ function IntranetApp() {
               )}
               {activeTab === 'entwuerfe' && (
                 <IntranetDrafts
-                  initialDataSource="staging"
+                  initialDataSource={draftSource}
                   initialGameId={draftTargetGameId}
                   creatorProfile={creatorProfile}
                   isCreatorMode={false}

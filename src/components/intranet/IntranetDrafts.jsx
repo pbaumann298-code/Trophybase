@@ -38,6 +38,11 @@ import { buildChronologicalGuideData } from '../../lib/guideData';
 import { GuideVideoProvider } from '../../context/GuideVideoContext';
 import { LocaleProvider } from '../../context/LocaleContext';
 import { useTabNavigation } from '../../hooks/useTabNavigation';
+import {
+  discardFertigReviewGuide,
+  fetchFertigReviewGames,
+  publishFertigReviewGame,
+} from '../../lib/fertigReview';
 
 const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
 const MAX_VISIBLE_QUEUE_GAMES = 10;
@@ -1566,7 +1571,6 @@ export default function IntranetDrafts({
   });
 
   // Rohmaterial (verschobene große Spiele) & Multi-Tab Editor
-  const [showRohmaterialView, setShowRohmaterialView] = useState(false);
   const [rohmaterialGames, setRohmaterialGames] = useState([]);
   const rohmaterialGamesRef = useRef(rohmaterialGames);
   rohmaterialGamesRef.current = rohmaterialGames;
@@ -1580,6 +1584,12 @@ export default function IntranetDrafts({
   const [productiveRohRows, setProductiveRohRows] = useState([]);
   const [rohGamesMap, setRohGamesMap] = useState(new Map());
   const [loadingRohmaterial, setLoadingRohmaterial] = useState(false);
+  const [fertigReviewGames, setFertigReviewGames] = useState([]);
+  const [fertigReviewRows, setFertigReviewRows] = useState([]);
+  const fertigReviewRowsRef = useRef(fertigReviewRows);
+  fertigReviewRowsRef.current = fertigReviewRows;
+  const [loadingFertigReview, setLoadingFertigReview] = useState(false);
+  const [discardConfirmId, setDiscardConfirmId] = useState(null);
   const [editorViewMode, setEditorViewMode] = useState('table');
   const previewSwipeRef = useRef(null);
   /** 'staging' | 'rohmaterial' */
@@ -1602,7 +1612,7 @@ export default function IntranetDrafts({
     if (draftCtx.filterQuery) {
       setFilterQuery(draftCtx.filterQuery);
     }
-    if (draftCtx.activeDataSource === 'rohmaterial' || draftCtx.activeDataSource === 'staging') {
+    if (draftCtx.activeDataSource === 'rohmaterial' || draftCtx.activeDataSource === 'staging' || draftCtx.activeDataSource === 'fertig_review') {
       setActiveDataSource(draftCtx.activeDataSource);
     }
     selectedGameIdRef.current = draftCtx.gameId;
@@ -1748,6 +1758,35 @@ export default function IntranetDrafts({
     }
   }, [initialGameId]);
 
+  const fetchFertigReview = useCallback(async () => {
+    setLoadingFertigReview(true);
+    try {
+      const { games, error: loadError } = await fetchFertigReviewGames(supabase);
+      if (loadError) throw loadError;
+      setFertigReviewGames(
+        (games ?? []).map((game) => {
+          const platform = Array.isArray(game.platform_game_id)
+            ? game.platform_game_id[0]
+            : game.platform_game_id;
+          return {
+            gameId: game.id,
+            game,
+            title: getLocalizedTitle(game.spieltitel),
+            platformGameId: platform || '—',
+            coverUrl: getLocalizedCover(game.cover_url),
+            rowCount: null,
+            source: 'fertig_review',
+          };
+        }),
+      );
+    } catch (err) {
+      console.error('Fertig-Sichtung Fehler:', err);
+      setError((prev) => prev || err?.message || 'Fertig-Sichtung konnte nicht geladen werden.');
+    } finally {
+      setLoadingFertigReview(false);
+    }
+  }, []);
+
   // Queue-Index über tb_get_staging_queue_summary. Volle Zeilen nur für ein Spiel.
   const fetchQueue = useCallback(async (preferredGameId = null) => {
     setLoading(true);
@@ -1829,8 +1868,9 @@ export default function IntranetDrafts({
     fetchQueue();
     if (!isCreatorMode) {
       fetchRohmaterialSummary();
+      fetchFertigReview();
     }
-  }, [fetchQueue, fetchRohmaterialSummary, isCreatorMode]);
+  }, [fetchQueue, fetchRohmaterialSummary, fetchFertigReview, isCreatorMode]);
 
   // Volle Guide-Zeilen nur für das gerade gewählte Spiel, gefiltert auf diese game_id.
   useEffect(() => {
@@ -1839,6 +1879,18 @@ export default function IntranetDrafts({
 
     async function ensureSelectedGuideRows() {
       try {
+        if (activeDataSource === 'fertig_review') {
+          if (fertigReviewRowsRef.current.some((row) => row.game_id === selectedGameId)) return;
+          const rows = (await loadGuideRowsForGame(TABLES.guides, selectedGameId)).map((row) => ({
+            ...row,
+            creator_name: row.creator_name || 'Fertig-Sichtung',
+            _sourceTable: TABLES.guides,
+          }));
+          if (cancelled) return;
+          setFertigReviewRows(rows);
+          return;
+        }
+
         if (activeDataSource === 'rohmaterial') {
           if (rohmaterialRowsRef.current.some((row) => row.game_id === selectedGameId)) return;
           const summary = rohmaterialGamesRef.current.find((item) => item.gameId === selectedGameId);
@@ -2017,6 +2069,17 @@ export default function IntranetDrafts({
 
   // Active sidebar list depending on activeDataSource ('staging' vs 'rohmaterial')
   const activeSidebarGamesList = useMemo(() => {
+    if (activeDataSource === 'fertig_review') {
+      const list = fertigReviewGames.map((item) => ({
+        ...item,
+        rowCount: fertigReviewRows.some((row) => row.game_id === item.gameId)
+          ? fertigReviewRows.filter((row) => row.game_id === item.gameId).length
+          : item.rowCount,
+        source: 'fertig_review',
+      }));
+      list.sort((a, b) => getGameRandomWeight(a.gameId) - getGameRandomWeight(b.gameId));
+      return list;
+    }
     if (activeDataSource === 'rohmaterial') {
       const list = rohmaterialGames.map((item) => {
         const dynamicCount = rohGameGroups.get(item.gameId)?.length ?? item.rowCount;
@@ -2031,7 +2094,7 @@ export default function IntranetDrafts({
     }
     return queueGamesList;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDataSource, rohmaterialGames, rohGameGroups, queueGamesList, getGameRandomWeight, randomSeed]);
+  }, [activeDataSource, fertigReviewGames, fertigReviewRows, rohmaterialGames, rohGameGroups, queueGamesList, getGameRandomWeight, randomSeed]);
 
   // Filtered Queue List (all matching games)
   const filteredQueueList = useMemo(() => {
@@ -2062,7 +2125,9 @@ export default function IntranetDrafts({
     const currentIds =
       activeDataSource === 'rohmaterial'
         ? rohmaterialGames.map((g) => g.gameId)
-        : Array.from(totalStagingCountsMap.keys());
+        : activeDataSource === 'fertig_review'
+          ? fertigReviewGames.map((g) => g.gameId)
+          : Array.from(totalStagingCountsMap.keys());
 
     for (const id of currentIds) {
       if (id) {
@@ -2079,11 +2144,24 @@ export default function IntranetDrafts({
       );
       setSelectedGameId(sortedIds[0]);
     }
-  }, [activeDataSource, rohmaterialGames, totalStagingCountsMap]);
+  }, [activeDataSource, rohmaterialGames, fertigReviewGames, totalStagingCountsMap]);
 
   // Set default selection when queue loads or changes. Quelle bleibt, bis sie manuell gewechselt wird.
   useEffect(() => {
-    if (loading || loadingRohmaterial) return;
+    if (activeDataSource === 'fertig_review') {
+      if (loadingFertigReview) return;
+      if (fertigReviewGames.length > 0) {
+        const exists = fertigReviewGames.some((g) => g.gameId === selectedGameId);
+        if (!selectedGameId || !exists) {
+          setSelectedGameId(fertigReviewGames[0].gameId);
+        }
+      } else {
+        setSelectedGameId(null);
+        setSelectedCreatorName(null);
+      }
+      return;
+    }
+    if (loading || (activeDataSource === 'rohmaterial' && loadingRohmaterial)) return;
     if (activeDataSource === 'rohmaterial') {
       if (rohmaterialGames.length > 0) {
         const existsInRoh = rohmaterialGames.some((g) => g.gameId === selectedGameId);
@@ -2104,7 +2182,7 @@ export default function IntranetDrafts({
       setSelectedGameId(null);
       setSelectedCreatorName(null);
     }
-  }, [loading, loadingRohmaterial, activeDataSource, queueGamesList, rohmaterialGames, selectedGameId]);
+  }, [loading, loadingRohmaterial, loadingFertigReview, activeDataSource, queueGamesList, rohmaterialGames, fertigReviewGames, selectedGameId]);
 
   // Reset filters & selection when game or creator changes
   useEffect(() => {
@@ -2125,6 +2203,7 @@ export default function IntranetDrafts({
     setVideoScrapeMode('single');
     setVideoScrapeDropPlaceholders(true);
     setBatchDrawerExpanded(false);
+    setDiscardConfirmId(null);
   }, [selectedGameId, selectedCreatorName, activeDataSource]);
 
   useEffect(() => {
@@ -2138,11 +2217,14 @@ export default function IntranetDrafts({
   // Current game's rows
   const currentGameRows = useMemo(() => {
     if (!selectedGameId) return [];
+    if (activeDataSource === 'fertig_review') {
+      return fertigReviewRows.filter((row) => row.game_id === selectedGameId);
+    }
     if (activeDataSource === 'rohmaterial') {
       return rohGameGroups.get(selectedGameId) || [];
     }
     return gameGroups.get(selectedGameId) || [];
-  }, [selectedGameId, activeDataSource, rohGameGroups, gameGroups]);
+  }, [selectedGameId, activeDataSource, fertigReviewRows, rohGameGroups, gameGroups]);
 
   // Group current game rows by creator_name (or batch_key)
   const creatorGroups = useMemo(() => {
@@ -2438,9 +2520,10 @@ export default function IntranetDrafts({
       gamesMap.get(selectedGameId) ||
       rohGamesMap.get(selectedGameId) ||
       rohmaterialGames.find((g) => g.gameId === selectedGameId)?.game ||
+      fertigReviewGames.find((g) => g.gameId === selectedGameId)?.game ||
       null
     );
-  }, [selectedGameId, gamesMap, rohGamesMap, rohmaterialGames]);
+  }, [selectedGameId, gamesMap, rohGamesMap, rohmaterialGames, fertigReviewGames]);
 
   const previewChronoData = useMemo(() => {
     const normalized = currentCreatorRows.map((row, index) => ({
@@ -2617,7 +2700,9 @@ export default function IntranetDrafts({
         const alreadyPub = isGameAlreadyPublishedOrLocked(effectiveGame);
         const hasExistingGuides = fetchedGuides.length > 0;
 
-        if (alreadyPub || hasExistingGuides) {
+        if (activeDataSourceRef.current === 'fertig_review') {
+          setShowConflictModal(false);
+        } else if (alreadyPub || hasExistingGuides) {
           setApproveLocale((prev) => prev || 'de');
           setSelectedGameTypes(parseGameTypes(effectiveGame?.spiel_typ));
 
@@ -2692,12 +2777,16 @@ export default function IntranetDrafts({
 
     const sourceLabel =
       currentCreatorRows.length > 0 || currentGameRows.length > 0
-        ? activeDataSource === 'rohmaterial'
+        ? activeDataSource === 'fertig_review'
+          ? 'game_guides (Fertig-Sichtung)'
+          : activeDataSource === 'rohmaterial'
           ? `game_guides_rohmaterial${selectedCreatorName ? ` (${selectedCreatorName})` : ''}`
           : `staging_game_guides${selectedCreatorName ? ` (${selectedCreatorName})` : ''}`
         : liveGuideRows.length > 0
           ? 'game_guides (Live)'
-          : activeDataSource === 'rohmaterial'
+          : activeDataSource === 'fertig_review'
+            ? 'game_guides (Fertig-Sichtung)'
+            : activeDataSource === 'rohmaterial'
             ? 'game_guides_rohmaterial'
             : 'staging_game_guides';
 
@@ -2875,6 +2964,50 @@ export default function IntranetDrafts({
     [creatorTabs, jumpToNextGame]
   );
 
+  const removeFertigGame = useCallback((gameId) => {
+    setFertigReviewGames((prev) => prev.filter((item) => item.gameId !== gameId));
+    setFertigReviewRows((prev) => prev.filter((row) => row.game_id !== gameId));
+  }, []);
+
+  const handlePublishFertigReview = async () => {
+    if (actionBusy || !selectedGame || !selectedGameId) return;
+    setActionBusy(true);
+    setError('');
+    try {
+      const { langs, error: publishError } = await publishFertigReviewGame(supabase, selectedGame);
+      if (publishError) throw publishError;
+      setNotice(`Freigegeben (${langs.map((lang) => lang.toUpperCase()).join(', ')}) → Pipeline.`);
+      jumpToNextGame(selectedGameId);
+      removeFertigGame(selectedGameId);
+    } catch (err) {
+      setError(err?.message || 'Freigabe ist fehlgeschlagen.');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleDiscardFertigReview = async () => {
+    if (actionBusy || !selectedGame || !selectedGameId) return;
+    if (discardConfirmId !== selectedGameId) {
+      setDiscardConfirmId(selectedGameId);
+      return;
+    }
+    setActionBusy(true);
+    setError('');
+    try {
+      const { error: discardError } = await discardFertigReviewGuide(supabase, selectedGame);
+      if (discardError) throw discardError;
+      setNotice('Guide-Zeilen verworfen. Status steht auf NO_VIDEO.');
+      setDiscardConfirmId(null);
+      jumpToNextGame(selectedGameId);
+      removeFertigGame(selectedGameId);
+    } catch (err) {
+      setError(err?.message || 'Guide-Zeilen konnten nicht verworfen werden.');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   // --- HELPER: Format field value for target table (staging_game_guides vs game_guides_rohmaterial vs game_guides) ---
   const formatFieldValueForTable = useCallback((existingRow, field, rawValue) => {
     const sourceTable = existingRow?._sourceTable || 'staging_game_guides';
@@ -2915,19 +3048,25 @@ export default function IntranetDrafts({
         }
         return str || null;
       }
-      if (!str) return null;
       const currentVal = existingRow?.[field];
-      if (typeof currentVal === 'object' && currentVal !== null && !Array.isArray(currentVal)) {
-        const nextObj = { ...currentVal };
-        const keys = Object.keys(nextObj);
-        if (keys.length > 0) {
-          for (const k of keys) {
-            nextObj[k] = str;
-          }
-          return nextObj;
-        }
+      const hasObject =
+        typeof currentVal === 'object' && currentVal !== null && !Array.isArray(currentVal);
+      if (!str) {
+        if (!hasObject) return null;
+        const deText = typeof currentVal.de === 'string' ? currentVal.de.trim() : '';
+        const enText = typeof currentVal.en === 'string' ? currentVal.en.trim() : '';
+        const sourceLang = deText || !enText ? 'de' : 'en';
+        const next = { ...currentVal };
+        delete next[sourceLang];
+        return Object.keys(next).length > 0 ? next : null;
       }
-      return { de: str, en: str };
+      if (hasObject) {
+        const deText = typeof currentVal.de === 'string' ? currentVal.de.trim() : '';
+        const enText = typeof currentVal.en === 'string' ? currentVal.en.trim() : '';
+        const sourceLang = deText || !enText ? 'de' : 'en';
+        return { ...currentVal, [sourceLang]: str };
+      }
+      return { de: str };
     }
 
     return rawValue;
@@ -2965,6 +3104,7 @@ export default function IntranetDrafts({
     setStagingRows(mapRows);
     setRohmaterialRows(mapRows);
     setProductiveRohRows(mapRows);
+    setFertigReviewRows(mapRows);
 
     if (localModified) {
       saveStagingLocalOverrides(localOverrides);
@@ -7215,24 +7355,23 @@ export default function IntranetDrafts({
                       : 'text-zinc-400 hover:text-purple-200 border border-transparent'
                   }`}
                 >
-                  <span>📦 Multi-Tab / Rohmaterial ({rohmaterialGames.length})</span>
+                  <span>🛠️ Multi-Tab Editor ({rohmaterialGames.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveDataSource('fertig_review')}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-mono font-bold transition ${
+                    activeDataSource === 'fertig_review'
+                      ? 'bg-amber-500/20 text-amber-200 border border-amber-400/50'
+                      : 'text-zinc-400 hover:text-amber-200 border border-transparent'
+                  }`}
+                >
+                  <span>⚡ Fertig-Sichtung (game_guides) ({fertigReviewGames.length})</span>
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowRohmaterialView((prev) => !prev)}
-                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-mono font-bold transition ${
-                  showRohmaterialView
-                    ? 'border-purple-500/60 bg-purple-500/20 text-purple-200'
-                    : 'border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20'
-                }`}
-              >
-                <span>📦 Rohmaterial-Übersicht ({rohmaterialGames.length})</span>
-                <span>{showRohmaterialView ? '▲' : '▼'}</span>
-              </button>
               <span className="text-[11px] font-mono text-zinc-500">
-                Staging: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({formatQueueRowCount(totalStagingRows)} Zeilen) · Rohmaterial: <strong className="text-purple-300">{rohmaterialGames.length} Spiele</strong> ({formatQueueRowCount(totalRohmaterialRows)} Zeilen)
+                Staging: <strong className="text-zinc-300">{queueGamesList.length} Spiele</strong> ({formatQueueRowCount(totalStagingRows)} Zeilen) · Rohmaterial: <strong className="text-purple-300">{rohmaterialGames.length} Spiele</strong> ({formatQueueRowCount(totalRohmaterialRows)} Zeilen) · Fertig: <strong className="text-amber-200">{fertigReviewGames.length}</strong>
               </span>
             </>
           ) : (
@@ -7259,7 +7398,10 @@ export default function IntranetDrafts({
             type="button"
             onClick={() => {
               fetchQueue();
-              if (!isCreatorMode) fetchRohmaterialSummary();
+              if (!isCreatorMode) {
+                fetchRohmaterialSummary();
+                fetchFertigReview();
+              }
             }}
             className="rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[11px] font-mono text-zinc-300 hover:border-[#00ff66]/40 hover:text-[#00ff66] transition"
           >
@@ -7267,113 +7409,6 @@ export default function IntranetDrafts({
           </button>
         </div>
       </div>
-
-      {/* Aufklappbare Liste der verschobenen großen Spiele (Rohmaterial / Multi-Tab) */}
-      {showRohmaterialView && (
-        <div className="rounded-2xl border border-purple-500/30 bg-[#15131c] p-4 flex flex-col gap-3">
-          <div className="flex items-center justify-between border-b border-purple-500/20 pb-2">
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-purple-200">
-                📦 Verschobene große Spiele zur Multi-Tab-Bearbeitung ({rohmaterialGames.length})
-              </h3>
-              <p className="text-[11px] text-zinc-400 font-mono">
-                Spiele mit <span className="text-purple-300">status-&gt;&gt;&apos;rohmaterial&apos; = &apos;PENDING_MULTI_TAB&apos;</span> oder Einträgen in <span className="text-purple-300">game_guides_rohmaterial</span> – direkt im Editor konsolidierbar
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowRohmaterialView(false)}
-              className="text-xs font-mono text-zinc-400 hover:text-white px-2 py-1"
-            >
-              ✕ Schließen
-            </button>
-          </div>
-
-          {loadingRohmaterial ? (
-            <p className="text-xs font-mono text-zinc-400 py-4 text-center animate-pulse">
-              Lade Rohmaterial-Spiele…
-            </p>
-          ) : rohmaterialGames.length === 0 ? (
-            <p className="text-xs font-mono text-zinc-500 py-4 text-center">
-              Aktuell keine verschobenen großen Spiele vorhanden.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-80 overflow-y-auto pr-1">
-              {rohmaterialGames.map((item, idx) => {
-                const targetId = item.gameId || item.platformGameId;
-                const multiTabHref = targetId ? `/guide/${encodeURIComponent(targetId)}?rohmaterial=1` : '';
-                const isSelectedRoh = activeDataSource === 'rohmaterial' && selectedGameId === item.gameId;
-                return (
-                  <div
-                    key={item.gameId || item.platformGameId || idx}
-                    className={`flex items-center justify-between gap-2.5 rounded-xl border p-2.5 transition ${
-                      isSelectedRoh
-                        ? 'border-purple-400 bg-purple-500/20'
-                        : 'border-purple-500/25 bg-zinc-900/80 hover:border-purple-400/50'
-                    }`}
-                  >
-                    <div
-                      onClick={() => {
-                        setActiveDataSource('rohmaterial');
-                        setSelectedGameId(item.gameId);
-                      }}
-                      className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
-                    >
-                      {item.coverUrl ? (
-                        <img
-                          src={item.coverUrl}
-                          alt={item.title}
-                          className="h-11 w-9 shrink-0 rounded object-cover bg-zinc-800"
-                        />
-                      ) : (
-                        <div className="h-11 w-9 shrink-0 rounded bg-zinc-800 flex items-center justify-center text-xs">
-                          📦
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-white truncate">{item.title}</p>
-                        <p className="text-[10px] font-mono text-purple-300 truncate">
-                          {item.platformGameId} · {item.rowCount} Zeilen
-                        </p>
-                        {item.creatorList?.length > 0 && (
-                          <p className="text-[10px] font-mono text-zinc-400 truncate">
-                            ▶ {item.creatorList.join(', ')}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveDataSource('rohmaterial');
-                          setSelectedGameId(item.gameId);
-                          setShowRohmaterialView(false);
-                        }}
-                        className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2.5 py-1.5 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/30 transition"
-                        title="Im Gruppen- & Multi-Tab-Editor öffnen"
-                      >
-                        ✏️ Bearbeiten
-                      </button>
-                      {multiTabHref && (
-                        <a
-                          href={multiTabHref}
-                          onClick={(e) => handleStaffGamePreviewClick(e, multiTabHref)}
-                          className="rounded-lg border border-purple-400/40 bg-purple-500/20 px-2 py-1.5 text-[10px] font-mono font-bold text-purple-200 hover:bg-purple-500/35 no-underline"
-                          title="Auf Spieleseite prüfen"
-                        >
-                          ↗
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
 
       {loading && activeSidebarGamesList.length === 0 ? (
         <div className="flex h-64 items-center justify-center font-mono text-sm text-zinc-500 animate-pulse">
@@ -7383,11 +7418,17 @@ export default function IntranetDrafts({
         <div className="flex flex-col items-center justify-center rounded-2xl border border-zinc-800 bg-[#121314] px-6 py-16 text-center">
           <span className="text-4xl">🎉</span>
           <h2 className="mt-3 text-lg font-bold text-white">
-            {activeDataSource === 'rohmaterial' ? 'Keine Rohmaterial-Spiele' : 'Keine offenen Entwürfe'}
+            {activeDataSource === 'rohmaterial'
+              ? 'Keine Rohmaterial-Spiele'
+              : activeDataSource === 'fertig_review'
+                ? 'Keine Fertig-Sichtungen'
+                : 'Keine offenen Entwürfe'}
           </h2>
           <p className="mt-1 text-xs text-zinc-400 max-w-sm leading-relaxed">
             {activeDataSource === 'rohmaterial' ? (
               <>Aktuell liegen keine Spiele in <span className="font-mono text-zinc-300">game_guides_rohmaterial</span>.</>
+            ) : activeDataSource === 'fertig_review' ? (
+              <>Keine unveröffentlichten 1-Sprach-Guides mit Status FERTIG in <span className="font-mono text-zinc-300">game_guides</span>.</>
             ) : (
               <>Die Staging Queue (<span className="font-mono text-zinc-300">staging_game_guides</span>) ist aktuell leer.</>
             )}
@@ -7418,7 +7459,10 @@ export default function IntranetDrafts({
               type="button"
               onClick={() => {
                 fetchQueue();
-                if (!isCreatorMode) fetchRohmaterialSummary();
+                if (!isCreatorMode) {
+                fetchRohmaterialSummary();
+                fetchFertigReview();
+              }
               }}
               className="rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-200 hover:border-[#00ff66]/40 hover:text-[#00ff66]"
             >
@@ -7449,10 +7493,14 @@ export default function IntranetDrafts({
             <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-2.5 px-1">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-white">
-                  {activeDataSource === 'rohmaterial' ? '📦 Multi-Tab Queue' : '📝 Spiele-Queue'}
+                  {activeDataSource === 'rohmaterial'
+                    ? '📦 Multi-Tab Queue'
+                    : activeDataSource === 'fertig_review'
+                      ? '⚡ Fertig-Sichtung'
+                      : '📝 Spiele-Queue'}
                 </h3>
                 <p className="text-[10px] text-zinc-500 font-mono">
-                  {visibleQueueList.length} / {filteredQueueList.length} Spiele ({formatQueueRowCount(activeDataSource === 'rohmaterial' ? totalRohmaterialRows : totalStagingRows)} Zeilen)
+                  {visibleQueueList.length} / {filteredQueueList.length} Spiele ({formatQueueRowCount(activeDataSource === 'rohmaterial' ? totalRohmaterialRows : activeDataSource === 'fertig_review' ? filteredQueueList.length : totalStagingRows)} Zeilen)
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -7468,7 +7516,10 @@ export default function IntranetDrafts({
                   type="button"
                   onClick={() => {
                     fetchQueue();
-                    if (!isCreatorMode) fetchRohmaterialSummary();
+                    if (!isCreatorMode) {
+                fetchRohmaterialSummary();
+                fetchFertigReview();
+              }
                   }}
                   title="Queue aktualisieren"
                   className="rounded-lg border border-zinc-700 bg-zinc-800 p-1.5 text-xs text-zinc-400 hover:text-[#00ff66]"
@@ -10338,6 +10389,33 @@ export default function IntranetDrafts({
                             <span>🎥 Zurück auf „Aufnahme läuft“</span>
                           </button>
                         )}
+                      </>
+                    ) : activeDataSource === 'fertig_review' ? (
+                      <>
+                        <button
+                          type="button"
+                          disabled={actionBusy || currentGameRows.length === 0}
+                          onClick={handlePublishFertigReview}
+                          className="flex items-center gap-2 rounded-xl bg-[#00ff66] px-4 py-2.5 text-xs font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50 transition shadow-lg shadow-[#00ff66]/15"
+                        >
+                          <span>✅ Freigeben (DE/EN -&gt; Pipeline)</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionBusy || currentGameRows.length === 0}
+                          onClick={handleDiscardFertigReview}
+                          className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition disabled:opacity-50 ${
+                            discardConfirmId === selectedGameId
+                              ? 'border-red-400 bg-red-500/30 text-red-100'
+                              : 'border-red-500/50 bg-red-500/15 text-red-200 hover:bg-red-500/25'
+                          }`}
+                        >
+                          <span>
+                            {discardConfirmId === selectedGameId
+                              ? '🗑️ Nochmal klicken: Guide-Zeilen löschen'
+                              : '🗑️ Guide-Zeilen verwerfen'}
+                          </span>
+                        </button>
                       </>
                     ) : (
                       <>

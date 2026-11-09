@@ -5,7 +5,7 @@ import {
   writeIntranetGameSearchState,
 } from '../../lib/adminAccess';
 import { GAME_TYPE } from '../../lib/gameSchema';
-import { INTRANET_GAME_LIMIT, INTRANET_GAME_TYPE_EMPTY, searchIntranetGames } from '../../lib/intranetQueries';
+import { INTRANET_GAME_LIMIT, INTRANET_GAME_TYPE_EMPTY, INTRANET_QUICK_FILTERS, countIntranetQuickFilters, searchIntranetGames, searchIntranetGamesLive } from '../../lib/intranetQueries';
 import { PIPELINE_PRESETS, PIPELINE_STATUS_KEYS, STATUS_FILTER_MODES } from '../../lib/gamePipelineStatus';
 import IntranetGameTable from './IntranetGameTable';
 
@@ -71,6 +71,12 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(() => Boolean(initial?.hasSearched));
   const [errorMessage, setErrorMessage] = useState('');
+  const [liveQuery, setLiveQuery] = useState('');
+  const [quickFilter, setQuickFilter] = useState('all');
+  const [quickCounts, setQuickCounts] = useState({});
+  const [liveTouched, setLiveTouched] = useState(false);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveRefresh, setLiveRefresh] = useState(0);
 
   const updateField = (key) => (event) => {
     setFilters((prev) => ({ ...prev, [key]: event.target.value }));
@@ -165,6 +171,34 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setLiveLoading(true);
+      try {
+        const counts = await countIntranetQuickFilters(supabase, liveQuery);
+        if (cancelled) return;
+        setQuickCounts(counts);
+        if (!liveTouched && !liveQuery.trim() && quickFilter === 'all') return;
+        const found = await searchIntranetGamesLive(supabase, { text: liveQuery, quickFilter });
+        if (cancelled) return;
+        if (found.error) throw found.error;
+        setResults(found.data);
+        setCount(found.count);
+        setHasSearched(true);
+        setErrorMessage('');
+      } catch (err) {
+        if (!cancelled) setErrorMessage(err?.message || 'Live-Suche fehlgeschlagen.');
+      } finally {
+        if (!cancelled) setLiveLoading(false);
+      }
+    }, 280);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [liveQuery, quickFilter, liveTouched, liveRefresh]);
+
+  useEffect(() => {
     // Nur speichern wenn aktiv gesucht — nie beim leeren Mount den Speicher löschen
     if (!hasSearched) return;
     persist({ filters, hasSearched: true, results, count });
@@ -211,6 +245,50 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
           Leere Felder werden ignoriert. Ohne jedes Feld: bis zu {INTRANET_GAME_LIMIT} Einträge.
           Spiele öffnen in einem neuen Fenster — die Suche hier bleibt stehen.
         </p>
+      </div>
+
+      <div className="rounded-2xl border border-zinc-800 bg-[#1a1b1c] p-4 space-y-3">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
+            Live-Suche
+          </span>
+          <input
+            type="search"
+            value={liveQuery}
+            onChange={(event) => {
+              setLiveTouched(true);
+              setLiveQuery(event.target.value);
+            }}
+            placeholder="Titel (alle Sprachen), UUID, NPWR / Steam-ID, spiel_typ, Status…"
+            autoComplete="off"
+            className={FIELD_CLASS}
+          />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {INTRANET_QUICK_FILTERS.map((filter) => {
+            const active = quickFilter === filter.id;
+            const total = quickCounts[filter.id];
+            return (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => {
+                  setLiveTouched(true);
+                  setQuickFilter(filter.id);
+                }}
+                className={`px-3 py-1.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider border ${
+                  active
+                    ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
+                    : 'border-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                {filter.label}
+                <span className="ml-1.5 text-zinc-300">{total == null ? '…' : total}</span>
+              </button>
+            );
+          })}
+          {liveLoading ? <span className="self-center text-[10px] font-mono text-zinc-500">Suche…</span> : null}
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -372,6 +450,15 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
           sessionUser={sessionUser}
           onGamePatch={handleGamePatch}
           onOpenInDrafts={onOpenInDrafts}
+          onQuickFertigPublish={(game, update) => {
+            handleGamePatch(game.id, {
+              status: update.status,
+              publishing_status: update.publishing_status,
+              published_locales: update.published_locales,
+              is_guide_locked: update.is_guide_locked,
+            });
+            setLiveRefresh((value) => value + 1);
+          }}
         />
       )}
 

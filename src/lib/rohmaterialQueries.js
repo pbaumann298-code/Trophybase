@@ -377,6 +377,188 @@ function jsonbObjectOrNull(value) {
   return Object.keys(value).length > 0 ? value : null;
 }
 
+const INSPECT_GUIDE_LANG_FIELDS = [
+  GUIDE_I18N.itemName,
+  GUIDE_I18N.chronologicalGroup,
+  GUIDE_I18N.categoryGroup,
+  GUIDE_I18N.bossGroup,
+  GUIDE_I18N.spielRegion,
+];
+
+function emptyMultiTabInspect(error = null) {
+  return {
+    hasForeignData: false,
+    foreignGuideLangs: [],
+    foreignTipLangs: [],
+    foreignDescLangs: [],
+    publishedLocales: [],
+    rowCount: 0,
+    error,
+  };
+}
+
+function uniqueLangList(value) {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === 'string' && value.trim().startsWith('[')
+      ? (() => {
+          try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })()
+      : [];
+  const seen = new Set();
+  const langs = [];
+  for (const item of source) {
+    const lang = String(item ?? '').trim();
+    const marker = lang.toLowerCase();
+    if (!lang || seen.has(marker)) continue;
+    seen.add(marker);
+    langs.push(lang);
+  }
+  return langs;
+}
+
+function isForeignLang(lang) {
+  return String(lang ?? '').trim().toLowerCase() !== 'de';
+}
+
+function parseJsonbRecord(value) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('{')) return null;
+    try {
+      return parseJsonbRecord(JSON.parse(trimmed));
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value;
+}
+
+function collectForeignLangKeys(value, into) {
+  const record = parseJsonbRecord(value);
+  if (!record) return;
+  for (const [key, raw] of Object.entries(record)) {
+    const lang = String(key ?? '').trim();
+    if (!isForeignLang(lang)) continue;
+    if (typeof raw === 'string' && raw.trim() !== '') into.add(lang);
+  }
+}
+
+function inspectHasForeignData({ foreignGuideLangs, foreignTipLangs, foreignDescLangs, publishedLocales }) {
+  return foreignGuideLangs.some(isForeignLang)
+    || foreignTipLangs.some(isForeignLang)
+    || foreignDescLangs.some(isForeignLang)
+    || publishedLocales.some(isForeignLang);
+}
+
+function normalizeInspectResult(data) {
+  const row = Array.isArray(data) ? data[0] : data;
+  const source = row && typeof row === 'object' ? row : {};
+  const foreignGuideLangs = uniqueLangList(source.foreignGuideLangs ?? source.foreign_guide_langs)
+    .filter(isForeignLang);
+  const foreignTipLangs = uniqueLangList(source.foreignTipLangs ?? source.foreign_tip_langs)
+    .filter(isForeignLang);
+  const foreignDescLangs = uniqueLangList(source.foreignDescLangs ?? source.foreign_desc_langs)
+    .filter(isForeignLang);
+  const publishedLocales = uniqueLangList(source.publishedLocales ?? source.published_locales);
+  const rowCount = Number(source.rowCount ?? source.row_count ?? 0) || 0;
+  return {
+    hasForeignData: inspectHasForeignData({
+      foreignGuideLangs,
+      foreignTipLangs,
+      foreignDescLangs,
+      publishedLocales,
+    }),
+    foreignGuideLangs,
+    foreignTipLangs,
+    foreignDescLangs,
+    publishedLocales,
+    rowCount,
+    error: null,
+  };
+}
+
+async function inspectGameMultiTabMoveFromTables(supabase, gameId) {
+  const { data: game, error: gameError } = await supabase
+    .from(TABLES.games)
+    .select(GAME_STRUCT.publishedLocales)
+    .eq(GAME_PK, gameId)
+    .maybeSingle();
+  if (gameError) return emptyMultiTabInspect(gameError);
+
+  const publishedLocales = uniqueLangList(game?.[GAME_STRUCT.publishedLocales]);
+  const foreignGuideLangs = new Set();
+  let rowCount = 0;
+
+  for (let from = 0; ; from += MULTI_TAB_PAGE) {
+    const { data, error } = await supabase
+      .from(TABLES.guides)
+      .select(INSPECT_GUIDE_LANG_FIELDS.join(', '))
+      .eq(GAME_FK, gameId)
+      .order(GUIDE_PK, { ascending: true })
+      .range(from, from + MULTI_TAB_PAGE - 1);
+    if (error) return emptyMultiTabInspect(error);
+    const page = data ?? [];
+    for (const row of page) {
+      rowCount += 1;
+      for (const field of INSPECT_GUIDE_LANG_FIELDS) {
+        collectForeignLangKeys(row?.[field], foreignGuideLangs);
+      }
+    }
+    if (page.length < MULTI_TAB_PAGE) break;
+  }
+
+  const guideLangs = [...foreignGuideLangs].sort((a, b) => a.localeCompare(b));
+  return {
+    hasForeignData: inspectHasForeignData({
+      foreignGuideLangs: guideLangs,
+      foreignTipLangs: [],
+      foreignDescLangs: [],
+      publishedLocales,
+    }),
+    foreignGuideLangs: guideLangs,
+    foreignTipLangs: [],
+    foreignDescLangs: [],
+    publishedLocales,
+    rowCount,
+    error: null,
+  };
+}
+
+/**
+ * Prüft, ob ein Spiel vor dem Multi-Tab-Umzug Fremdsprachen trägt.
+ * Zuerst RPC `tb_inspect_game_guides_languages`. Fehlt sie oder schlägt sie fehl,
+ * werden `games.published_locales` und die Guide-JSONB-Felder direkt gelesen.
+ * Nur Deutsch (auch `published_locales: ['de']`) gilt nicht als Fremddaten.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} gameId
+ */
+export async function inspectGameMultiTabMove(supabase, gameId) {
+  const id = String(gameId ?? '').trim();
+  if (!id) return emptyMultiTabInspect(new Error('Kein Spiel ausgewählt.'));
+
+  try {
+    const { data, error } = await supabase.rpc('tb_inspect_game_guides_languages', {
+      p_game_id: id,
+    });
+    if (!error) return normalizeInspectResult(data);
+  } catch {
+    // RPC nicht vorhanden oder nicht erreichbar: Tabellen-Fallback unten.
+  }
+
+  try {
+    return await inspectGameMultiTabMoveFromTables(supabase, id);
+  } catch (error) {
+    return emptyMultiTabInspect(error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
 function statusForMultiTabMove(currentStatus) {
   const statusMap = { ...parseStatusMap(currentStatus) };
   for (const [key, value] of Object.entries(statusMap)) {

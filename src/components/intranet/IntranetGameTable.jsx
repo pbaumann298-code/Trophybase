@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { handleStaffGamePreviewClick } from '../../lib/adminAccess';
 import { getPlatformGameIds } from '../../lib/gameModel';
-import { GAME_FK, GAME_TYPE, TABLES } from '../../lib/gameSchema';
+import { GAME_FK, TABLES } from '../../lib/gameSchema';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import AdminCoverInspector from '../AdminCoverInspector';
 import { formatIntranetTitles, intranetGameHref } from '../../lib/intranetQueries';
@@ -11,14 +11,13 @@ import {
   listPipelineStatusEntries,
   pipelineStatusValue,
 } from '../../lib/gamePipelineStatus';
-import {
-  discardIntranetGuide,
+import { discardIntranetGuide,
   pullGameBackToDrafts,
   removeIntranetStatusKey,
-  setIntranetGameType,
   statusAfterGuideDiscard,
   statusAfterPullBackToDrafts,
 } from '../../lib/intranetGameEdits';
+import { isSingleLangFertigGame, publishFertigReviewGame } from '../../lib/fertigReview';
 import {
   fetchHomeTagDefs,
   formatLocalizedHomeTags,
@@ -30,8 +29,6 @@ import {
 import HomeTagChecks from '../HomeTagChecks';
 import { toggleAdminFollowup } from '../../lib/adminFollowups';
 import { useAdminFollowups } from '../../hooks/useAdminFollowups';
-
-const GAME_TYPES = Object.values(GAME_TYPE);
 
 const STATUS_COLUMNS = [
   { key: 'discovery', className: 'text-zinc-400' },
@@ -78,11 +75,10 @@ function StatusDeleteButton({ label, disabled, onClick }) {
  * @param {object[]} props.games
  * @param {object|null} props.sessionUser
  * @param {(gameId: string, partial: object) => void} [props.onGamePatch]
- * @param {(gameId: string) => void} [props.onOpenInDrafts]
- *   Wird nach „🚀 Entwürfe + Follow“ aufgerufen; der Host wechselt in den Entwürfe-Tab
- *   und wählt das Spiel dort vor (IntranetDrafts initialGameId).
+ * @param {(gameId: string, source?: string) => void} [props.onOpenInDrafts]
+ * @param {(game: object, update: object) => void} [props.onQuickFertigPublish]
  */
-function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts }) {
+function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, onQuickFertigPublish }) {
   const userId = sessionUser?.id ?? '';
   const { entries: followups, error: followupError } = useAdminFollowups(userId);
   const followedIds = new Set(followups.map((entry) => entry.id));
@@ -111,17 +107,25 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts }) 
     onGamePatch?.(gameId, partial);
   };
 
-  const handleType = async (game, gameType) => {
-    const key = `${game.id}:type`;
+  const handleQuickFertigPublish = async (game) => {
+    const key = `${game.id}:fertig-publish`;
     setBusyKey(key);
     setErrorMessage('');
-    const { gameType: saved, error } = await setIntranetGameType(supabase, game.id, gameType);
+    setNotice('');
+    const { update, langs, error } = await publishFertigReviewGame(supabase, game);
     setBusyKey('');
-    if (error) {
-      setErrorMessage(error.message || 'Spieltyp konnte nicht gespeichert werden.');
+    if (error || !update) {
+      setErrorMessage(error?.message || 'Freigabe ist fehlgeschlagen.');
       return;
     }
-    patch(game.id, { spiel_typ: saved });
+    onQuickFertigPublish?.(game, update);
+    patch(game.id, {
+      status: update.status,
+      publishing_status: update.publishing_status,
+      published_locales: update.published_locales,
+      is_guide_locked: true,
+    });
+    setNotice(`Freigegeben: ${langs.map((lang) => lang.toUpperCase()).join(', ')}`);
   };
 
   const handleTags = async (game, slug) => {
@@ -457,6 +461,25 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts }) 
                       >
                         📝 In Entwürfe
                       </button>
+                      {isSingleLangFertigGame(game) ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleQuickFertigPublish(game)}
+                            disabled={busyKey === `${game.id}:fertig-publish`}
+                            className="text-[10px] font-bold uppercase tracking-wider text-[#00ff66] hover:text-white disabled:opacity-50"
+                          >
+                            ⚡ Direkt freigeben
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onOpenInDrafts?.(game.id, 'fertig_review')}
+                            className="text-[10px] font-bold uppercase tracking-wider text-amber-200 hover:text-amber-100"
+                          >
+                            🔍 Im Editor prüfen
+                          </button>
+                        </>
+                      ) : null}
                       {onOpenInDrafts ? (
                         <button
                           type="button"
