@@ -130,7 +130,7 @@ function gameMatchesArchetype(game, archetype) {
 }
 
 const DOM_CHUNK_SIZE = 60;
-const PUBLISHER_ROW_PREVIEW = 6;
+const PUBLISHER_ROW_PREVIEW = 8;
 
 const TILE_SHELL_CLASS =
   'catalog-tile-shell catalog-tile-shell--carousel flex-shrink-0 snap-start w-[9.25rem] sm:w-[10.5rem] lg:w-[11.25rem] max-w-[11.25rem]';
@@ -177,6 +177,7 @@ function PublisherLetterSection({
   serverNotice,
   serverNoticeText,
 }) {
+  const { t } = useLocale();
   const trackRef = useRef(null);
   const [expanded, setExpanded] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -230,11 +231,12 @@ function PublisherLetterSection({
               id={`catalog-letter-title-${letter}`}
               className="home-category-title home-category-title--clickable"
               onClick={() => setExpanded((prev) => !prev)}
+              title={expanded ? t('catalogShowLess') : t('catalogShowAll')}
               aria-expanded={expanded}
             >
               {letter}
               <span className="catalog-show-all-label">
-                {publishers.length}
+                {expanded ? t('catalogShowLess') : `${t('catalogShowAll')} (${publishers.length})`}
               </span>
             </button>
           ) : (

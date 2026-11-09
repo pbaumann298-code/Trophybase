@@ -6,16 +6,16 @@ import { useUserPreferences } from '../lib/userPreferences';
 import QuickwinGameCard from './QuickwinGameCard';
 import GameTile from './GameTile';
 
-export const CATALOG_ROW_PREVIEW = 10;
-const EXPANDED_CHUNK_SIZE = 60;
+export const CATALOG_ROW_PREVIEW = 8;
+const EXPANDED_CHUNK_SIZE = 64;
 
 const TILE_SHELL_CLASS =
   'catalog-tile-shell catalog-tile-shell--carousel flex-shrink-0 snap-start w-[9.25rem] sm:w-[10.5rem] lg:w-[11.25rem] max-w-[11.25rem]';
 const GRID_TILE_SHELL_CLASS = 'catalog-tile-shell min-w-0 w-full';
 
 const GRID_COLUMN_QUERIES = [
+  ['(min-width: 1280px)', 8],
   ['(min-width: 1024px)', 6],
-  ['(min-width: 768px)', 5],
   ['(min-width: 640px)', 4],
 ];
 
@@ -40,7 +40,7 @@ function subscribeGridColumns(onChange) {
 }
 
 /**
- * Ein Buchstaben-Block: horizontale Reihe (max. ~10). „Alle anzeigen“ zeigt
+ * Ein Buchstaben-Block: horizontale Reihe (max. 8). „Alle anzeigen“ zeigt
  * dieselben 3:4-Kacheln nebeneinander im Grid.
  */
 function CatalogLetterSection({
@@ -195,7 +195,7 @@ function CatalogLetterSection({
                 {expanded ? '↖' : '↗'}
               </span>
               <span className="catalog-show-all-label">
-                {expanded ? t('catalogShowLess') : t('catalogShowAll')}
+                {expanded ? t('catalogShowLess') : `${t('catalogShowAll')} (${filteredGames.length})`}
               </span>
             </button>
           ) : (
@@ -236,7 +236,7 @@ function CatalogLetterSection({
       </header>
 
       {expanded ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
           {expandedGames.map((game, index) => (
             <Fragment key={getGameUuid(game) || `${letter}-grid-${index}`}>
               {renderTile(game, index, GRID_TILE_SHELL_CLASS)}

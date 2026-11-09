@@ -88,15 +88,22 @@
 }
 
 .catalog-show-all-label {
-  margin-left: 0.35rem;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 255, 102, 0.4);
+  background: rgba(0, 255, 102, 0.1);
   font-size: 0.72rem;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.02em;
-  color: #a1a1aa;
+  color: #00ff66;
   text-transform: none;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .home-category-title--clickable:hover .catalog-show-all-label {
+  background: rgba(0, 255, 102, 0.2);
+  border-color: #00ff66;
   color: #00ff66;
 }
 
@@ -163,6 +170,12 @@ button.publisher-tile.is-selected {
 @media (min-width: 1024px) {
   .publisher-tile-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .publisher-tile-grid {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 }
 
