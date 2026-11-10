@@ -79,8 +79,10 @@ export const GAME_STRUCT = {
   status: 'status',
   /** Nur die freigegebenen Sprachen, z. B. { de: 'PUBLISHED', en: 'PUBLISHED' }. */
   publishingStatus: 'publishing_status',
-  /** Kürzel der freigegebenen Sprachen, z. B. ['de', 'en']. */
+  /** Kürzel der freigegebenen Sprachen, z. B. ['de', 'en']. Trigger aus status.guide_*. */
   publishedLocales: 'published_locales',
+  /** true, sobald irgendeine Sprache in status.guide_<locale> = PUBLISHED steht. */
+  isPublished: 'is_published',
   hasOnlineTrophies: 'has_online_trophies',
   hasMissableTrophies: 'has_missable_trophies',
   totalOnlineTrophies: 'total_online_trophies',

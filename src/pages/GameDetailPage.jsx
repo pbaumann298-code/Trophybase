@@ -343,9 +343,16 @@ function GamePageContent({
     if (hasAutoSelectedLangRef.current === guideFetchId) return;
 
     hasAutoSelectedLangRef.current = guideFetchId;
-    if (publishedLocalesKey) return;
-
     const uiLang = resolveGuideLanguage(globalLocale, null);
+    if (publishedLocalesKey) {
+      const published = publishedLocalesKey.split(',').map((lang) => lang.trim()).filter(Boolean);
+      if (published.includes(uiLang)) return;
+      const original = String(selectedGame?.original_locale || '').trim().toLowerCase();
+      const next = original && published.includes(original) ? original : published[0];
+      if (next && next !== uiLang) setGuideLanguageOverride(next);
+      return;
+    }
+
     if (guideRawHasLang(rawGuideRows, uiLang)) return;
     const draftLang = firstPopulatedGuideLang(rawGuideRows, ['en', 'de', ...SUPPORTED_LOCALES]);
     if (draftLang && draftLang !== uiLang) setGuideLanguageOverride(draftLang);
@@ -356,6 +363,7 @@ function GamePageContent({
     guidesLoading,
     publishedLocalesKey,
     globalLocale,
+    selectedGame?.original_locale,
   ]);
 
   const handleGuideLanguageOverride = (override) => {

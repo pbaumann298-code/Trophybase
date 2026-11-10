@@ -60,7 +60,7 @@ import {
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
 import { GAME_TYPE, TABLES } from './lib/gameSchema';
-import { isGuidePublished, isGameDraftMode } from './lib/guidePublication';
+import { isGuidePublished, isGameDraftMode, hasPublishedGuide } from './lib/guidePublication';
 import {
   parseServertotPath,
   servertotPageCopy,
@@ -94,6 +94,7 @@ const SERVERTOT_CATALOG = {
 /** Eingeloggte Nicht-Admins: unveröffentlichte Spiele nur als Trophäenliste. */
 function resolveTrophiesOnlyView(game, locale, user) {
   if (!user || isAdminUser(user)) return false;
+  if (hasPublishedGuide(game)) return false;
   return !isGuidePublished(game, locale);
 }
 

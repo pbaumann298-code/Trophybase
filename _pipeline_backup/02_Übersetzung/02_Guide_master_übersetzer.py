@@ -403,7 +403,7 @@ def bulk_save_guide_rows(rows_to_update: list[dict]):
                     supabase.table("game_guides")
                     .update(
                         {
-                            "Spiel_region": r["Spiel_region"],
+                            "spiel_region": r["spiel_region"],
                             "chronological_group": r["chronological_group"],
                             "category_group": r["category_group"],
                             "boss_group": r["boss_group"],
@@ -528,7 +528,7 @@ def apply_translations_and_save(
                 {
                     "id": row["id"],
                     "spiel_region": row["spiel_region"],
-                    "Spiel_region": row["spiel_region"],  # Für RPC-Kompatibilität
+                    "spiel_region": row["spiel_region"],  # Für RPC-Kompatibilität
                     "chronological_group": row["chronological_group"],
                     "category_group": row["category_group"],
                     "boss_group": row["boss_group"],

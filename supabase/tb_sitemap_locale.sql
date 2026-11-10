@@ -1,9 +1,9 @@
 -- Sitemap-RPC: eine Sprache, fester Timeout, schlanke Spalten.
--- Stand: Migration sitemap_locale_limit_10000 (10/2026) – identisch mit der Live-DB.
+-- Stand: is_published statt guide_<locale> (11/2026). p_locale bleibt die Sitemap-Sprache der URL.
 -- Zusammen mit games_sitemap_locale_idx.sql fuer schnelle Plaene.
 --
 -- Ohne Index wuerde PostgREST oft an statement_timeout (oft 8s) scheitern.
--- Die Funktion setzt lokal 30s, filtert guide_<lang> = PUBLISHED und schliesst
+-- Die Funktion setzt lokal 30s, filtert is_published und schliesst
 -- noindex-Spiele sowie Quickwin / easy_platin / Servertot / Unlesbar aus.
 -- server/sitemap.js ruft sie per supabase.rpc('tb_sitemap_locale', ...) auf.
 
@@ -26,14 +26,11 @@ set statement_timeout = '30s'
 as $$
 declare
   lang text := lower(trim(both from coalesce(p_locale, '')));
-  status_key text;
   row_cap integer := least(greatest(coalesce(p_limit, 10000), 1), 10000);
 begin
   if lang = '' or lang !~ '^[a-z]{2}(-[a-z]+)?$' then
     return;
   end if;
-
-  status_key := 'guide_' || lang;
 
   return query
   select
@@ -45,7 +42,7 @@ begin
   from public.games g
   where g.slug is not null
     and btrim(g.slug) <> ''
-    and g.status ->> status_key = 'PUBLISHED'
+    and g.is_published = true
     and coalesce(g.is_indexable, true) = true
     and coalesce(g.spiel_typ, '') not in ('Quickwin', 'easy_platin', 'Servertot', 'Unlesbar')
   order by g.created_at desc nulls last

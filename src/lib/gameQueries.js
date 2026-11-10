@@ -32,6 +32,8 @@ export const GAME_SELECT = [
   GAME_STRUCT.gameType,
   GAME_STRUCT.progress,
   GAME_STRUCT.status,
+  GAME_STRUCT.publishedLocales,
+  GAME_STRUCT.isPublished,
   GAME_STRUCT.hasOnlineTrophies,
   GAME_STRUCT.hasMissableTrophies,
   GAME_STRUCT.totalOnlineTrophies,
@@ -503,12 +505,11 @@ async function fetchSearchRows(makeQuery, limit) {
 }
 
 /**
- * Öffentliche Kataloge: nur PUBLISHED.
- * Admin-Vorschau: FERTIG oder PUBLISHED (noch nicht der ganze 20k-Katalog).
+ * Öffentliche Kataloge, Hubs, Zähler und verwandte Spiele: `is_published`.
+ * Der Trigger setzt das Flag, sobald irgendeine Sprache PUBLISHED ist.
+ * Admin-Vorschau: FERTIG, PUBLISHED oder DRAFT (noch nicht der ganze 20k-Katalog).
  * inkl. nur Trophäen: kein Guide-Statusfilter (Login + RLS).
- * Hubs (Quickwins, easy_platin, Servertot): `publishedInAny` = PUBLISHED in
- * mindestens einer der angegebenen Sprachen (Locale, de, en) statt nur in der
- * aktuellen Locale.
+ * `publishedInAny` bleibt als Aufruf-Flag für Hubs, filtert aber nicht mehr auf de/en.
  * @param {object} query
  * @param {{ includeReady?: boolean, publishedOnly?: boolean, publishedInAny?: string[], includeTrophiesOnly?: boolean, locale?: string }} [catalog]
  */
@@ -518,7 +519,7 @@ function guideStatusMatch(state, locales = SUPPORTED_LOCALES) {
     .join(',');
 }
 
-/** Hub-Seiten: Spiel ist für jede Sprache sichtbar, sobald es in Locale, de oder en PUBLISHED ist. */
+/** Hub-Aufrufe markieren sich weiter mit diesem Flag. Die Abfrage selbst nutzt is_published. */
 export function hubPublishedLocales(locale) {
   return [...new Set([String(locale || '').toLowerCase(), 'de', 'en'].filter(Boolean))];
 }
@@ -530,16 +531,10 @@ export function applyGuideCatalogFilter(query, catalog = {}) {
       `${guideStatusMatch(GUIDE_PUBLICATION.DONE)},${guideStatusMatch(GUIDE_PUBLICATION.PUBLISHED)},${guideStatusMatch(GUIDE_PUBLICATION.DRAFT)},${GAME_STRUCT.status}->>production_roadmap.eq.ACTIVE`,
     );
   }
-  if (Array.isArray(catalog.publishedInAny) && catalog.publishedInAny.length > 0) {
-    return query.or(guideStatusMatch(GUIDE_PUBLICATION.PUBLISHED, catalog.publishedInAny));
-  }
-  if (catalog.publishedOnly) {
-    const locale = catalog.locale || getLocale();
-    return query.filter(
-      `${GAME_STRUCT.status}->>${guideStatusKey(locale)}`,
-      'eq',
-      GUIDE_PUBLICATION.PUBLISHED,
-    );
+  const globallyPublished = catalog.publishedOnly
+    || (Array.isArray(catalog.publishedInAny) && catalog.publishedInAny.length > 0);
+  if (globallyPublished) {
+    return query.eq(GAME_STRUCT.isPublished, true);
   }
   return query;
 }

@@ -11,7 +11,7 @@ import {
   GAME_SEARCH_LOCALIZED_COLUMNS,
 } from './gameQueries';
 import { getLocale } from './locale';
-import { isGuidePublished } from './guidePublication';
+import { hasPublishedGuide } from './guidePublication';
 import { translateHomeTag } from './homeTagDefs';
 
 const LIMIT = 12;
@@ -152,17 +152,12 @@ function emptyRails() {
   return Object.fromEntries(HOME_CATEGORIES.map((cat) => [cat.id, []]));
 }
 
-/** Nur Guides, die in dieser Sprache wirklich freigegeben sind. Servertot nie. */
+/** Globale Startseiten-Rails: jedes veröffentlichte Spiel, Servertot nie. */
 function railsForLocale(byId, locale) {
+  void locale;
   const next = {};
   for (const [id, games] of Object.entries(byId ?? {})) {
-    next[id] = withoutServerDead(games ?? []).filter((game) => {
-      const status = game?.status;
-      if (!status || typeof status !== 'object' || Array.isArray(status)) {
-        return locale === 'de';
-      }
-      return isGuidePublished(game, locale);
-    });
+    next[id] = withoutServerDead(games ?? []).filter((game) => hasPublishedGuide(game));
   }
   return next;
 }

@@ -107,7 +107,7 @@ def fetch_published_games_without_radar():
             "id, hardware, total_online_trophies, total_missable_trophies, "
             "title_de:spieltitel->>de, title_en:spieltitel->>en"
         )
-        .eq("status->>guide_de", "PUBLISHED")
+        .eq("is_published", True)
         .in_("spiel_typ", ["Premium", "Evergreen", "Standard"])
         .is_("radar_profile", "null")
         .limit(500)

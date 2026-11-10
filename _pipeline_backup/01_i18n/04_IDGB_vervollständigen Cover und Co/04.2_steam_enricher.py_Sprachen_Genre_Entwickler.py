@@ -428,14 +428,17 @@ def enrich_game(game: dict):
 def fetch_next_batch(limit: int = 100) -> list[dict]:
     cols = "id, spieltitel, release_jahr, entwickler, publisher, home_tags, home_tags_locked, status, steam_app_id, cover_url, cover_status"
     for guide_state in ("PUBLISHED", "FERTIG"):
-        res = (
+        query = (
             supabase.table("games")
             .select(cols)
-            .eq("status->>guide_de", guide_state)
             .is_("status->>steam", "null")
             .limit(limit)
-            .execute()
         )
+        if guide_state == "PUBLISHED":
+            query = query.eq("is_published", True)
+        else:
+            query = query.eq("status->>guide_de", guide_state)
+        res = query.execute()
         if res.data:
             return res.data
 

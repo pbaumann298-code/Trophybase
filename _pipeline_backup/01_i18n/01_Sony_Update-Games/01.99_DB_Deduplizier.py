@@ -167,8 +167,6 @@ def run_studio_deduplication():
                 {
                     "is_guide_locked": False,
                     "status": {},
-                    "publishing_status": {},
-                    "published_locales": [],
                     "fortschritt": "FERTIG",
                 }
             ).eq("id", cid).execute()

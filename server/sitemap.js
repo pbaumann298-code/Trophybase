@@ -18,7 +18,7 @@ function xmlWrap(body) {
 
 /**
  * RPC public.tb_sitemap_locale(p_locale, p_limit):
- * nur status->>guide_<lang> = PUBLISHED, is_indexable <> false und ohne
+ * nur is_published, is_indexable <> false und ohne
  * Quickwin / easy_platin / Servertot / Unlesbar. Liefert
  * { slug, hardware, spiel_typ, is_indexable, created_at } – dieselben Spalten,
  * die die XML-Generierung braucht (created_at → lastmod).

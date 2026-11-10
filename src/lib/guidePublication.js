@@ -33,7 +33,33 @@ export function publishedGuideLocales(game) {
 }
 
 export function hasPublishedGuide(game) {
+  if (game?.[GAME_STRUCT.isPublished] === true || game?.is_published === true) return true;
   return publishedGuideLocales(game).length > 0;
+}
+
+/**
+ * Anzeige-Sprache, wenn die gewählte UI-Sprache noch nicht freigegeben ist.
+ * Reihenfolge: UI-Sprache, original_locale, erste Sprache aus published_locales
+ * bzw. aus status.guide_*.
+ * @param {object|null|undefined} game
+ * @param {string} uiLocale
+ */
+export function resolvePublishedContentLocale(game, uiLocale) {
+  const ui = normalizeLocale(uiLocale);
+  if (isGuidePublished(game, ui)) return ui;
+
+  const published = publishedGuideLocales(game);
+  const fromColumn = Array.isArray(game?.[GAME_STRUCT.publishedLocales] ?? game?.published_locales)
+    ? (game?.[GAME_STRUCT.publishedLocales] ?? game.published_locales)
+    : [];
+  const available = published.length > 0
+    ? published
+    : fromColumn.map((lang) => normalizeLocale(lang)).filter((lang) => SUPPORTED_LOCALES.includes(lang));
+
+  const original = normalizeLocale(game?.[GAME_STRUCT.originalLocale] ?? game?.original_locale ?? '');
+  if (original && available.includes(original)) return original;
+  if (available.length > 0) return available[0];
+  return ui;
 }
 
 /** Sprachspezifischer Schlüssel in games.status, z. B. „guide_de". */
