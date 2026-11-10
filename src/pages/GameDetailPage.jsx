@@ -13,6 +13,7 @@ import ShareButton from '../components/ShareButton';
 import GuidePublishButton from '../components/GuidePublishButton';
 import AdminFollowupButton from '../components/AdminFollowupButton';
 import AdminMoveToMultiTabButton from '../components/AdminMoveToMultiTabButton';
+import AdminGameDbPanel from '../components/AdminGameDbPanel';
 import AdminGameTypeSelect from '../components/AdminGameTypeSelect';
 import AdminHardwareSelect from '../components/AdminHardwareSelect';
 import GuideOnlineBadge from '../components/GuideOnlineBadge';
@@ -1171,6 +1172,22 @@ function GamePageContent({
       </button>
 
       <div className="w-full min-w-0 bg-[#1a1b1c] rounded-2xl border border-zinc-800 p-6 mb-8 shadow-xl">
+        {isAdmin && !trophiesOnly ? (
+          <AdminGameDbPanel
+            game={gameForPublication}
+            gameId={gameUuid}
+            onStatusChange={(status) => {
+              setPublicationOverride((prev) => ({
+                uuid: gameUuid,
+                status,
+                slug: prev?.uuid === gameUuid ? prev.slug : null,
+                gameType: prev?.uuid === gameUuid ? prev.gameType : null,
+                homeTags: prev?.uuid === gameUuid ? prev.homeTags : undefined,
+              }));
+              onGameChange?.({ [GAME_STRUCT.status]: status });
+            }}
+          />
+        ) : null}
         {!detailsExpanded ? (
           <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-4">

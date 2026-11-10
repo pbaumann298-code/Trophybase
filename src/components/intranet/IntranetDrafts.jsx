@@ -7689,10 +7689,11 @@ export default function IntranetDrafts({
           </div>
 
           {/* ==================== B & C. MITTLERE SPALTE: Detail & Creator Guide (6 Cols) ==================== */}
-          <div className="lg:col-span-6 flex flex-col gap-3 min-w-0">
+          <div className="lg:col-span-6 flex min-h-0 flex-col gap-3 min-w-0 tb-pane-max overflow-hidden">
             
             {selectedGame ? (
               <>
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -10412,8 +10413,9 @@ export default function IntranetDrafts({
                   </div>
                 )}
 
-                {/* E. ACTION-BAR (Freigeben vs. Creator-Einreichung vs. Rohmaterial vs. Löschen) */}
-                <div className="sticky bottom-4 z-40 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-800 bg-[#121314]/95 backdrop-blur-md p-3 shadow-xl">
+              </div>
+                {/* E. ACTION-BAR: unten in der Spalte angepinnt, scrollt nicht mit der Tabelle */}
+                <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-800 bg-[#121314] p-3 shadow-xl">
                   <div className="flex flex-wrap items-center gap-2">
                     {isCreatorMode ? (
                       <>
