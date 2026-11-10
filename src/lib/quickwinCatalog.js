@@ -137,6 +137,28 @@ export function quickwinPublisherIdentity(game, canon) {
   return canon.get(exact) || { key: exact, label: exact };
 }
 
+/** Unter dieser Trophäenzahl gilt ein Quickwin öffentlich als Micro-Platin. */
+export const MICRO_PLATIN_TROPHY_LIMIT = 20;
+
+export function quickwinTrophyCount(game) {
+  const count = Number(game?.[GAME_STRUCT.trophyCount] ?? game?.anzahl_trophaeen);
+  return Number.isFinite(count) ? count : null;
+}
+
+/**
+ * Öffentliche Quickwins-Ansicht.
+ * Shovelware-Publisher (quickwin_publisher_defs.published) bleiben sichtbar.
+ * Alles andere unter 20 Trophäen bleibt unsichtbar: unsichere Spiele landen
+ * sonst als Quickwin am falschen Platz.
+ */
+export function isPublicQuickwinGame(game, canon) {
+  const identity = quickwinPublisherIdentity(game, canon);
+  if (identity?.published === true) return true;
+  const count = quickwinTrophyCount(game);
+  if (count == null) return false;
+  return count >= MICRO_PLATIN_TROPHY_LIMIT;
+}
+
 /** Satzzeichen, die in Titeln und Suchworten zusätzlich ignoriert werden. */
 const TITLE_PUNCT_RE = /[;:'’.\-!?]/g;
 

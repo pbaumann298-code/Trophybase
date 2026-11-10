@@ -201,7 +201,7 @@ function AdminApp() {
 
   return (
     <div className="tb-fill-screen bg-[#0a0b0c] text-zinc-200">
-      <header className="tb-safe-top sticky top-0 z-50 border-b border-zinc-800 bg-[#121314]/95 backdrop-blur px-4 sm:px-6 py-4">
+      <header className="tb-safe-top border-b border-zinc-800 bg-[#121314] px-4 sm:px-6 py-4">
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-[0.15em] text-zinc-600">

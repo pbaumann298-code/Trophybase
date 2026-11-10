@@ -6,7 +6,12 @@ import {
   GUIDE_PK,
   TABLES,
 } from './gameSchema';
-import { GUIDE_PUBLICATION, guideStatusKey, parseStatusMap } from './guidePublication';
+import {
+  GUIDE_PUBLICATION,
+  buildUnifiedGuidePublishPatch,
+  guideStatusKey,
+  parseStatusMap,
+} from './guidePublication';
 
 const PAGE_SIZE = 1000;
 
@@ -110,15 +115,13 @@ async function fetchAllGuideTextRows(supabase, gameId) {
 
 function isFertigReviewCandidate(game) {
   const status = parseStatusMap(game?.status);
-  const review = String(status.review_queue ?? '').trim();
   const de = String(status.guide_de ?? '').trim().toUpperCase();
   const en = String(status.guide_en ?? '').trim().toUpperCase();
-  return review === 'SINGLE_LANG_FERTIG' || de === GUIDE_PUBLICATION.DONE || en === GUIDE_PUBLICATION.DONE;
+  return de === GUIDE_PUBLICATION.DONE || en === GUIDE_PUBLICATION.DONE;
 }
 
 /**
- * Unveröffentlichte 1-Sprach-Guides: published_locales leer und
- * review_queue SINGLE_LANG_FERTIG oder guide_de/guide_en = FERTIG.
+ * Unveröffentlichte Guides mit guide_de oder guide_en = FERTIG.
  * Die Status-Prüfung läuft im Client. Ein OR über status->>… zusammen mit
  * published_locales = '[]' verfehlt den partiellen Index und läuft in den
  * Statement-Timeout.
@@ -160,6 +163,64 @@ export async function publishFertigReviewGame(supabase, game) {
   const { error } = await supabase.from(TABLES.games).update(update).eq(GAME_PK, id);
   if (error) return { update: null, langs, error };
   return { update, langs, error: null };
+}
+
+/**
+ * Freigabe eines schon in game_guides liegenden FERTIG-Guides.
+ * Dieselbe Pipeline wie nach der Staging-Freigabe: gewählte Sprache auf
+ * PUBLISHED, danach tb_apply_stage1_sql_for_game. Die Zeilen bleiben,
+ * es wird nichts aus staging_game_guides kopiert.
+ */
+export async function publishFertigReviewInLanguage(supabase, game, lang) {
+  const id = String(game?.[GAME_PK] ?? game?.id ?? '').trim();
+  const normalized = String(lang ?? '').trim().toLowerCase();
+  if (!id) return { update: null, error: new Error('Kein Spiel ausgewählt.') };
+  if (!normalized) return { update: null, error: new Error('Keine Sprache gewählt.') };
+
+  const { rows, error: readError } = await fetchAllGuideTextRows(supabase, id);
+  if (readError) return { update: null, error: readError };
+  if (rows.length === 0) {
+    return { update: null, error: new Error('Keine Guide-Zeilen in game_guides.') };
+  }
+  if (!guideRowsHaveLang(rows, normalized)) {
+    return {
+      update: null,
+      error: new Error(
+        `In den Guide-Zeilen steht kein Text für [${normalized.toUpperCase()}].`,
+      ),
+    };
+  }
+
+  const { count: videoCount, error: videoError } = await supabase
+    .from(TABLES.guides)
+    .select(GUIDE_PK, { count: 'exact', head: true })
+    .eq(GAME_FK, id)
+    .not('video_url', 'is', null)
+    .neq('video_url', '');
+  if (videoError) return { update: null, error: videoError };
+
+  const update = buildUnifiedGuidePublishPatch({
+    currentGame: game,
+    lang: normalized,
+    guideState: GUIDE_PUBLICATION.PUBLISHED,
+    hasVideo: (videoCount ?? 0) > 0,
+  });
+  delete update[GAME_STRUCT.status].review_queue;
+  update[GAME_STRUCT.progress] = GUIDE_PUBLICATION.PUBLISHED;
+
+  const { error } = await supabase.from(TABLES.games).update(update).eq(GAME_PK, id);
+  if (error) return { update: null, error };
+
+  const { error: stageError } = await supabase.rpc('tb_apply_stage1_sql_for_game', {
+    p_game_id: id,
+  });
+  if (stageError) {
+    return {
+      update,
+      error: new Error(`Status ist gesetzt, die Pipeline ist fehlgeschlagen: ${stageError.message}`),
+    };
+  }
+  return { update, error: null };
 }
 
 export async function discardFertigReviewGuide(supabase, game) {

@@ -8,6 +8,7 @@ import {
   buildQuickwinPublisherCanon,
   filterQuickwins,
   gameTitleMatches,
+  isPublicQuickwinGame,
   groupQuickwinsByAlphabet,
   quickwinBrandCore,
   quickwinPublisherIdentity,
@@ -550,7 +551,10 @@ function QuickwinsPage({
     return buildQuickwinPublisherCanon(games);
   }, [games, isAdmin, alphabetCatalog, defMap]);
 
-  const visibleGames = games;
+  const visibleGames = useMemo(() => {
+    if (isAdmin || gameType !== GAME_TYPE.QUICKWIN) return games;
+    return games.filter((game) => isPublicQuickwinGame(game, canon));
+  }, [games, isAdmin, gameType, canon]);
 
   const easyPlatinsCounts = useMemo(() => {
     if (gameType !== GAME_TYPE.EASY_PLATIN) {
@@ -573,15 +577,15 @@ function QuickwinsPage({
 
   const publishers = useMemo(() => {
     if (alphabetCatalog) return [];
-    const counts = publisherGameCounts(games, canon);
+    const counts = publisherGameCounts(visibleGames, canon);
     const names = new Set();
-    for (const game of games) {
+    for (const game of visibleGames) {
       const identity = quickwinPublisherIdentity(game, canon);
       const count = identity.key ? (counts.get(identity.key) || 0) : 0;
       if (ownsPublisherTile(identity, count) && identity.label) names.add(identity.label);
     }
     return [...names].sort((a, b) => a.localeCompare(b, globalLocale || 'de', { sensitivity: 'base' }));
-  }, [alphabetCatalog, games, canon, globalLocale]);
+  }, [alphabetCatalog, visibleGames, canon, globalLocale]);
 
   const filteredGames = useMemo(() => {
     let filtered = filterQuickwins(
@@ -630,7 +634,7 @@ function QuickwinsPage({
 
   const grouped = useMemo(() => {
     if (alphabetCatalog) return [];
-    const counts = publisherGameCounts(games, canon);
+    const counts = publisherGameCounts(visibleGames, canon);
     const buckets = new Map();
     const otherGames = [];
     for (const game of filteredGames) {
@@ -671,7 +675,7 @@ function QuickwinsPage({
       });
     }
     return groups;
-  }, [alphabetCatalog, games, filteredGames, globalLocale, t, canon, applied.sort]);
+  }, [alphabetCatalog, visibleGames, filteredGames, globalLocale, t, canon, applied.sort]);
 
   const publisherLetterGroups = useMemo(() => {
     if (alphabetCatalog) return [];

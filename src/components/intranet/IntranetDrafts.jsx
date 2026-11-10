@@ -41,7 +41,7 @@ import { useTabNavigation } from '../../hooks/useTabNavigation';
 import {
   discardFertigReviewGuide,
   fetchFertigReviewGames,
-  publishFertigReviewGame,
+  publishFertigReviewInLanguage,
 } from '../../lib/fertigReview';
 
 const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
@@ -2969,21 +2969,17 @@ export default function IntranetDrafts({
     setFertigReviewRows((prev) => prev.filter((row) => row.game_id !== gameId));
   }, []);
 
-  const handlePublishFertigReview = async () => {
-    if (actionBusy || !selectedGame || !selectedGameId) return;
-    setActionBusy(true);
-    setError('');
-    try {
-      const { langs, error: publishError } = await publishFertigReviewGame(supabase, selectedGame);
-      if (publishError) throw publishError;
-      setNotice(`Freigegeben (${langs.map((lang) => lang.toUpperCase()).join(', ')}) → Pipeline.`);
-      jumpToNextGame(selectedGameId);
-      removeFertigGame(selectedGameId);
-    } catch (err) {
-      setError(err?.message || 'Freigabe ist fehlgeschlagen.');
-    } finally {
-      setActionBusy(false);
-    }
+  const handleOpenFertigApprove = () => {
+    if (!selectedGameId || !selectedGame || actionBusy) return;
+    const status = parseStatusMap(selectedGame.status);
+    const de = String(status.guide_de ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.DONE;
+    const en = String(status.guide_en ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.DONE;
+    setApproveLocale(de ? 'de' : en ? 'en' : '');
+    setSelectedGameTypes(parseGameTypes(selectedGame.spiel_typ));
+    setIncludeAllRohBatchesOnApprove(true);
+    setDiscardOtherCreators(true);
+    resetApproveCoverDraft();
+    setShowApproveModal(true);
   };
 
   const handleDiscardFertigReview = async () => {
@@ -3548,6 +3544,36 @@ export default function IntranetDrafts({
   // 1. Schnell-Löschen komplettes Spiel aus Liste oder Action-Bar
   const handleDeleteWholeGame = async (gameId) => {
     if (!gameId || actionBusy) return;
+
+    if (activeDataSource === 'fertig_review') {
+      const fertigGame = fertigReviewGames.find((item) => item.gameId === gameId)?.game;
+      if (!fertigGame?.status) {
+        setError('Fertig-Sichtung: Spielstatus fehlt, nichts gelöscht.');
+        return;
+      }
+      if (
+        !window.confirm(
+          'Diesen Guide aus der Fertig-Sichtung nehmen?\n\nDie Zeilen in game_guides werden gelöscht und guide_de/guide_en = FERTIG wird zurückgesetzt. Das Spiel selbst bleibt in der Datenbank.',
+        )
+      ) {
+        return;
+      }
+      setActionBusy(true);
+      setNotice('');
+      setError('');
+      const { error: discardError } = await discardFertigReviewGuide(supabase, fertigGame);
+      setActionBusy(false);
+      if (discardError) {
+        setError(`Löschen fehlgeschlagen: ${discardError.message}`);
+        return;
+      }
+      setNotice('Guide aus der Fertig-Sichtung genommen. game_guides-Zeilen sind gelöscht, Status FERTIG ist weg.');
+      setDiscardConfirmId(null);
+      jumpToNextGame(gameId);
+      removeFertigGame(gameId);
+      return;
+    }
+
     const isRoh = activeDataSource === 'rohmaterial';
     if (
       !window.confirm(
@@ -3869,10 +3895,10 @@ export default function IntranetDrafts({
 
     if (
       !selectedGameId ||
-      !selectedCreatorName ||
       actionBusy ||
       !selectedLanguage ||
-      effectiveGameTypes.length === 0
+      effectiveGameTypes.length === 0 ||
+      (activeDataSource !== 'fertig_review' && !selectedCreatorName)
     ) {
       return;
     }
@@ -4005,6 +4031,26 @@ export default function IntranetDrafts({
         };
         setGamesMap(updateGameMap);
         setRohGamesMap(updateGameMap);
+      }
+
+      if (activeDataSource === 'fertig_review') {
+        const { error: publishError } = await publishFertigReviewInLanguage(
+          supabase,
+          selectedGame,
+          selectedLanguage,
+        );
+        setActionBusy(false);
+        if (publishError) {
+          setError(publishError.message || 'Freigabe ist fehlgeschlagen.');
+          return;
+        }
+        setShowApproveModal(false);
+        setNotice(
+          `✓ Guide in [${selectedLanguage.toUpperCase()}] freigegeben. Pipeline (Stage 1) ist gelaufen.`,
+        );
+        jumpToNextGame(selectedGameId);
+        removeFertigGame(selectedGameId);
+        return;
       }
 
       if (activeDataSource === 'staging') {
@@ -7624,7 +7670,9 @@ export default function IntranetDrafts({
                       title={
                         isCreatorMode
                           ? 'Eigenes Guide-Projekt löschen'
-                          : 'Komplettes Spiel verworfen/löschen'
+                          : activeDataSource === 'fertig_review'
+                            ? 'Guide-Zeilen löschen und aus der Fertig-Sichtung nehmen'
+                            : 'Komplettes Spiel verworfen/löschen'
                       }
                       onClick={(e) => {
                         e.stopPropagation();
@@ -10395,14 +10443,14 @@ export default function IntranetDrafts({
                         <button
                           type="button"
                           disabled={actionBusy || currentGameRows.length === 0}
-                          onClick={handlePublishFertigReview}
+                          onClick={handleOpenFertigApprove}
                           className="flex items-center gap-2 rounded-xl bg-[#00ff66] px-4 py-2.5 text-xs font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-50 transition shadow-lg shadow-[#00ff66]/15"
                         >
-                          <span>✅ Freigeben (DE/EN -&gt; Pipeline)</span>
+                          <span>✓ Freigeben (Sprache & Cover → Pipeline)</span>
                         </button>
                         <button
                           type="button"
-                          disabled={actionBusy || currentGameRows.length === 0}
+                          disabled={actionBusy}
                           onClick={handleDiscardFertigReview}
                           className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition disabled:opacity-50 ${
                             discardConfirmId === selectedGameId
@@ -10584,9 +10632,17 @@ export default function IntranetDrafts({
                   Guide-Freigabe bestätigen
                 </h3>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Spiels: <span className="text-white font-medium">{getLocalizedTitle(selectedGame?.spieltitel)}</span>
+                  Spiel: <span className="text-white font-medium">{getLocalizedTitle(selectedGame?.spieltitel)}</span>
                   <br />
-                  Creator: <span className="text-[#00ff66] font-mono">{selectedCreatorName}</span>
+                  {activeDataSource === 'fertig_review' ? (
+                    <span>
+                      Quelle: <span className="text-amber-200 font-mono">game_guides</span>. Sprache, Spieltyp und Cover wie bei der Staging-Freigabe. Die Zeilen bleiben, danach läuft Stage 1.
+                    </span>
+                  ) : (
+                    <>
+                      Creator: <span className="text-[#00ff66] font-mono">{selectedCreatorName}</span>
+                    </>
+                  )}
                 </p>
               </div>
               <button
