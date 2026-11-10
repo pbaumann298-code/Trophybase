@@ -76,6 +76,7 @@ import {
   quickwinsPageCopy,
   quickwinsPublicPath,
 } from './lib/quickwinsPage';
+import { guideHelpPublicPath } from './lib/guideHelpPage';
 
 const QUICKWINS_CATALOG = {
   viewName: 'quickwins',
@@ -936,7 +937,7 @@ function App() {
       return () => clearGameSeoLinks();
     }
     if (currentView === 'guide-help') {
-      applyPathCanonical('/kurz-erklaert');
+      applyPathCanonical(guideHelpPublicPath(globalLocale));
       return () => clearGameSeoLinks();
     }
     if (currentView === 'search-results') {
@@ -1031,11 +1032,12 @@ function App() {
   }, [pushCurrentRouteToStack]);
 
   const openGuideHelp = useCallback((section = '') => {
-    pushCurrentRouteToStack(section ? `/kurz-erklaert#${section}` : '/kurz-erklaert');
+    const path = guideHelpPublicPath(globalLocale);
+    pushCurrentRouteToStack(section ? `${path}#${section}` : path);
     setCurrentView('guide-help');
-    navigateToGuideHelp(section);
+    navigateToGuideHelp(section, globalLocale);
     window.scrollTo(0, 0);
-  }, [pushCurrentRouteToStack]);
+  }, [globalLocale, pushCurrentRouteToStack]);
 
   const openAdvancedSearch = useCallback(() => {
     const trophiesOnly = Boolean(viewUser) && includeTrophiesOnly;

@@ -139,8 +139,9 @@ function applyShareMeta({ title, description, url, image, ogLocale, type = 'webs
 }
 
 /**
- * canonical zeigt strikt auf die aufgerufene Sprach-URL.
- * hreflang erst, wenn mindestens zwei Sprachen freigegeben sind.
+ * canonical zeigt auf die URL-Sprache, wenn sie in published_locales steht.
+ * Sonst auf original_locale bzw. die erste freigegebene Sprache.
+ * hreflang nur für freigegebene Sprachen, und erst ab zwei Sprachen.
  *
  * Der robots-Tag wird vor allem anderen gesetzt: Spiele ohne Slug bekommen
  * keine canonical-Links, brauchen aber trotzdem ihr noindex.

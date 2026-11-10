@@ -4,7 +4,8 @@ import { publicStudioCredits } from './studioCredits.js';
 import { getGameCover, getGameDescription, getGameTitle } from './gameModel.js';
 import { formatLocalizedHomeTags } from './homeTagDefs.js';
 import { buildPrettyGamePath, hardwareLabel, hardwareToUrlSegment } from './gameSlug.js';
-import { contentLocalesForGame } from './contentLocales.js';
+import { publishedLocalesOf, resolvePublishedContentLocale } from './guidePublication.js';
+import { normalizeLocale } from './locale.js';
 import { expandPlayStationSeoTerms } from './seoUtils.js';
 
 export const SITE_NAME = 'TrophyBase.app';
@@ -397,12 +398,14 @@ function buildPlayStationMetaDescription(title, terms, locale, ownDescription) {
 export function buildGameSeo({ origin, locale, hardware, slug, game, locales } = {}) {
   const hw = hardware || hardwareToUrlSegment(game?.hardware);
   const gameSlug = slug || String(game?.slug ?? '').trim();
-  const langs = locales?.length ? locales : contentLocalesForGame(game);
-  const canonicalLocale = langs.includes(locale)
-    ? locale
-    : langs.includes(DEFAULT_LOCALE)
-      ? DEFAULT_LOCALE
-      : langs[0];
+  const published = publishedLocalesOf(game);
+  const requested = Array.isArray(locales)
+    ? locales.map((lang) => normalizeLocale(lang)).filter(Boolean)
+    : [];
+  const langs = requested.length > 0
+    ? published.filter((lang) => requested.includes(lang))
+    : published;
+  const canonicalLocale = resolvePublishedContentLocale(game, locale);
   const path = buildPrettyGamePath(canonicalLocale, hw, gameSlug);
   const base = String(origin || '').replace(/\/$/, '');
   const canonical = path ? `${base}${path}` : '';

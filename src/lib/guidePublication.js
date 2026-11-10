@@ -38,23 +38,34 @@ export function hasPublishedGuide(game) {
 }
 
 /**
+ * Sprachen, die wirklich freigegeben sind.
+ * Liegt `published_locales` als Array vor, gilt nur diese Spalte.
+ * Sonst die PUBLISHED-Keys in status.
+ * @param {object|null|undefined} game
+ * @returns {string[]}
+ */
+export function publishedLocalesOf(game) {
+  const raw = game?.[GAME_STRUCT.publishedLocales] ?? game?.published_locales;
+  if (Array.isArray(raw)) {
+    return [...new Set(
+      raw
+        .map((lang) => normalizeLocale(lang))
+        .filter((lang) => SUPPORTED_LOCALES.includes(lang)),
+    )];
+  }
+  return publishedGuideLocales(game);
+}
+
+/**
  * Anzeige-Sprache, wenn die gewählte UI-Sprache noch nicht freigegeben ist.
- * Reihenfolge: UI-Sprache, original_locale, erste Sprache aus published_locales
- * bzw. aus status.guide_*.
+ * Reihenfolge: UI-Sprache, original_locale, erste Sprache aus published_locales.
  * @param {object|null|undefined} game
  * @param {string} uiLocale
  */
 export function resolvePublishedContentLocale(game, uiLocale) {
   const ui = normalizeLocale(uiLocale);
-  if (isGuidePublished(game, ui)) return ui;
-
-  const published = publishedGuideLocales(game);
-  const fromColumn = Array.isArray(game?.[GAME_STRUCT.publishedLocales] ?? game?.published_locales)
-    ? (game?.[GAME_STRUCT.publishedLocales] ?? game.published_locales)
-    : [];
-  const available = published.length > 0
-    ? published
-    : fromColumn.map((lang) => normalizeLocale(lang)).filter((lang) => SUPPORTED_LOCALES.includes(lang));
+  const available = publishedLocalesOf(game);
+  if (available.includes(ui)) return ui;
 
   const original = normalizeLocale(game?.[GAME_STRUCT.originalLocale] ?? game?.original_locale ?? '');
   if (original && available.includes(original)) return original;

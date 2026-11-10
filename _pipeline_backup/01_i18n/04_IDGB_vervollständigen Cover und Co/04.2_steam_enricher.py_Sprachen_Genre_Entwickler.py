@@ -437,7 +437,7 @@ def fetch_next_batch(limit: int = 100) -> list[dict]:
         if guide_state == "PUBLISHED":
             query = query.eq("is_published", True)
         else:
-            query = query.eq("status->>guide_de", guide_state)
+            query = query.or_("status->>guide_de.eq.FERTIG,status->>guide_en.eq.FERTIG")
         res = query.execute()
         if res.data:
             return res.data

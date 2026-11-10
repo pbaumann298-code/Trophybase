@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { useLocale } from '../context/LocaleContext';
+import { guideHelpPublicPath, parseGuideHelpPath } from '../lib/guideHelpPage';
+import { normalizeLocale } from '../lib/locale';
 
 const SECTIONS = [
   ['wischen', 'howToSwipeTitle', 'howToSwipeBody'],
@@ -10,7 +12,7 @@ const SECTIONS = [
 ];
 
 function HowToPage({ onBack }) {
-  const { t } = useLocale();
+  const { t, globalLocale } = useLocale();
 
   useEffect(() => {
     const previous = document.title;
@@ -21,13 +23,30 @@ function HowToPage({ onBack }) {
   }, [t]);
 
   useEffect(() => {
-    const id = window.location.hash.replace('#', '');
-    if (!id) {
-      window.scrollTo(0, 0);
-      return;
-    }
-    document.getElementById(id)?.scrollIntoView({ block: 'start' });
-  }, []);
+    const alignPath = () => {
+      const parsed = parseGuideHelpPath(window.location.pathname);
+      if (!parsed) return;
+      const locale = parsed.locale || normalizeLocale(globalLocale);
+      const target = guideHelpPublicPath(locale);
+      const current = window.location.pathname.replace(/\/$/, '') || '/';
+      if (current !== target) {
+        window.history.replaceState(
+          {},
+          '',
+          `${target}${window.location.search}${window.location.hash}`,
+        );
+      }
+      const id = window.location.hash.replace('#', '');
+      if (!id) {
+        window.scrollTo(0, 0);
+        return;
+      }
+      document.getElementById(id)?.scrollIntoView({ block: 'start' });
+    };
+    alignPath();
+    window.addEventListener('popstate', alignPath);
+    return () => window.removeEventListener('popstate', alignPath);
+  }, [globalLocale]);
 
   return (
     <article className="w-full max-w-3xl min-w-0 mx-auto px-4 sm:px-6 pt-8 pb-16 box-border">

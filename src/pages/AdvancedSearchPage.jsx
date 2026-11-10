@@ -23,7 +23,7 @@ import SearchIncludeTrophiesOnly from '../components/SearchIncludeTrophiesOnly';
 import '../styles/home.css';
 
 /** Fallback-Pfade, falls App die lokalisierten URLs nicht übergibt. */
-const FALLBACK_QUICKWINS = '/quickwins';
+const FALLBACK_QUICKWINS = '/micro-platins';
 const FALLBACK_EASY = '/easy-platins';
 const FALLBACK_SERVERTOT = '/servertot';
 

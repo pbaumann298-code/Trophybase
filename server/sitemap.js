@@ -4,6 +4,7 @@ import { hardwareToUrlSegment, buildPrettyGamePath } from '../src/lib/gameSlug.j
 import { servertotPublicPath } from '../src/lib/servertotPage.js';
 import { easyPlatinsPublicPath } from '../src/lib/easyPlatinsPage.js';
 import { quickwinsPublicPath } from '../src/lib/quickwinsPage.js';
+import { guideHelpPublicPath } from '../src/lib/guideHelpPage.js';
 import { getPublicSupabase, publicOrigin } from './publicSupabase.js';
 import { parseSitemapLocale } from './prettyPath.js';
 import { escapeHtml } from './escapeHtml.js';
@@ -18,7 +19,7 @@ function xmlWrap(body) {
 
 /**
  * RPC public.tb_sitemap_locale(p_locale, p_limit):
- * nur is_published, is_indexable <> false und ohne
+ * nur is_published und published_locales ? locale, is_indexable <> false und ohne
  * Quickwin / easy_platin / Servertot / Unlesbar. Liefert
  * { slug, hardware, spiel_typ, is_indexable, created_at } – dieselben Spalten,
  * die die XML-Generierung braucht (created_at → lastmod).
@@ -65,11 +66,24 @@ function urlEntry(loc, lastmod = '') {
 }
 
 /**
- * Statische Sammelseiten – immer vor den Einzelspielen.
- * Die drei Hub-Seiten (Quickwins, Unerreichbare Platins, Easy Platins) stehen
- * in jeder Sprache fest drin; die Root-URL nur einmal (Default-Sprache de).
+ * Einzige erlaubte Sitemap-URL ohne Sprachpräfix: die deutsche Startseite `/`.
+ * Jede Content- und Hub-URL muss `/{locale}/…` sein.
  */
-function staticCollectionUrls(origin, locale) {
+function assertLocalizedStaticUrl(origin, locale, url) {
+  const path = url.startsWith(origin) ? url.slice(origin.length) || '/' : url;
+  if (locale === 'de' && path === '/') return;
+  const prefix = `/${locale}/`;
+  if (!path.startsWith(prefix) || path.length <= prefix.length) {
+    throw new Error(`Sitemap-URL ohne Sprachpräfix: ${url}`);
+  }
+}
+
+/**
+ * Statische Sammelseiten – immer vor den Einzelspielen.
+ * Micro Platins, Unerreichbare Platins, Easy Platins und Kurz erklärt
+ * stehen in jeder Sprache mit Präfix drin; die Root-URL nur einmal (de).
+ */
+export function staticCollectionUrls(origin, locale) {
   const urls = [];
   if (locale === 'de') {
     urls.push(`${origin}/`);
@@ -77,6 +91,8 @@ function staticCollectionUrls(origin, locale) {
   urls.push(`${origin}${quickwinsPublicPath(locale)}`);
   urls.push(`${origin}${servertotPublicPath(locale)}`);
   urls.push(`${origin}${easyPlatinsPublicPath(locale)}`);
+  urls.push(`${origin}${guideHelpPublicPath(locale)}`);
+  urls.forEach((url) => assertLocalizedStaticUrl(origin, locale, url));
   return urls;
 }
 
@@ -90,8 +106,10 @@ function urlset(origin, locale, games) {
       const hardware = hardwareToUrlSegment(game.hardware);
       const loc = buildPrettyGamePath(locale, hardware, game.slug);
       if (!loc) return '';
+      const absolute = `${origin}${loc}`;
+      assertLocalizedStaticUrl(origin, locale, absolute);
       const lastmod = String(game[GAME_STRUCT.createdAt] ?? '').slice(0, 10);
-      return urlEntry(`${origin}${loc}`, lastmod);
+      return urlEntry(absolute, lastmod);
     })
     .filter(Boolean)
     .join('\n');

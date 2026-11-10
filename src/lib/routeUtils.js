@@ -1,6 +1,7 @@
 import { parseServertotPath, servertotPublicPath } from './servertotPage.js';
 import { parseEasyPlatinsPath, easyPlatinsPublicPath } from './easyPlatinsPage.js';
 import { parseQuickwinsPath, quickwinsPublicPath } from './quickwinsPage.js';
+import { guideHelpPublicPath, parseGuideHelpPath } from './guideHelpPage.js';
 import { resolveViewForSession } from './trophyBaseAuth.js';
 import { getLocale, normalizeLocale } from './locale.js';
 import {
@@ -53,8 +54,8 @@ export function getViewFromPath(pathname = '', search) {
   if (path === '/platinliste' || path === '/platform-trophies') return 'platform-trophies';
   if (path === '/impressum') return 'impressum';
   if (path === '/datenschutz' || path === '/privacy') return 'datenschutz';
-  if (path === '/kurz-erklaert') return 'guide-help';
-  if (path === '/quickwins' || parseQuickwinsPath(path)) return 'quickwins';
+  if (parseGuideHelpPath(path)) return 'guide-help';
+  if (path === '/micro-platins' || path === '/quickwins' || parseQuickwinsPath(path)) return 'quickwins';
   if (path === '/servertot' || parseServertotPath(path)) return 'servertot';
   if (path === '/easy-platins' || path === '/easyplatins' || parseEasyPlatinsPath(path)) {
     return 'easyplatins';
@@ -197,8 +198,9 @@ export function navigateToPrivacy() {
   writeAppPath('/datenschutz');
 }
 
-export function navigateToGuideHelp(section = '') {
-  const href = section ? `/kurz-erklaert#${section}` : '/kurz-erklaert';
+export function navigateToGuideHelp(section = '', locale = getLocale()) {
+  const path = guideHelpPublicPath(locale);
+  const href = section ? `${path}#${section}` : path;
   const here = `${normalizePath(window.location.pathname)}${window.location.hash}`;
   if (here === href) return;
   window.history.pushState({}, '', href);
@@ -316,7 +318,7 @@ export function navigateToAdvancedSearch(
 }
 
 /** Vorläufiger Pfad – Quickwins hat noch keinen sprachspezifischen Slug. */
-export const QUICKWINS_PATH = '/quickwins';
+export const QUICKWINS_PATH = '/micro-platins';
 /** Legacy-Einstieg; öffentliche Adresse ist /{locale}/unerreichbare-platins usw. */
 export const SERVERTOT_PATH = '/servertot';
 /** Legacy-Einstieg; öffentliche Adresse ist /{locale}/easy-platins usw. */
@@ -460,6 +462,13 @@ export function syncPathLocale(nextLocale) {
   if (parseQuickwinsPath(window.location.pathname)) {
     const nextPath = `${quickwinsPublicPath(normalized)}${window.location.search}`;
     writeAppPath(nextPath, { replace: true });
+    return;
+  }
+  if (parseGuideHelpPath(window.location.pathname)) {
+    const nextPath = `${guideHelpPublicPath(normalized)}${window.location.search}${window.location.hash}`;
+    const here = `${normalizePath(window.location.pathname)}${window.location.search}${window.location.hash}`;
+    if (here === nextPath) return;
+    window.history.replaceState({}, '', nextPath);
   }
 }
 

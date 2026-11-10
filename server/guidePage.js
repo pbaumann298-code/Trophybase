@@ -14,8 +14,7 @@ import {
 } from '../src/lib/gameSchema.js';
 import { hardwareToUrlSegment, buildPrettyGamePath, hardwareLabel } from '../src/lib/gameSlug.js';
 import { localizeJsonField, localizeSonyDescription, readAiTranslation } from '../src/lib/translationUtils.js';
-import { isGameIndexable } from '../src/lib/guidePublication.js';
-import { contentLocalesForGame, coerceToAvailableLocale } from '../src/lib/contentLocales.js';
+import { isGameIndexable, publishedLocalesOf, resolvePublishedContentLocale } from '../src/lib/guidePublication.js';
 import { buildGameSeo } from '../src/lib/gameSeo.js';
 import { formatLocalizedHomeTags } from '../src/lib/homeTagDefs.js';
 import { loadRelatedGuides } from '../src/lib/relatedGames.js';
@@ -489,6 +488,8 @@ export async function handleGuideRequest(requestUrl) {
       GAME_STRUCT.homeTags,
       GAME_STRUCT.gameType,
       GAME_STRUCT.status,
+      GAME_STRUCT.publishedLocales,
+      GAME_STRUCT.originalLocale,
       GAME_STRUCT.isIndexable,
       GAME_STRUCT.trophyCount,
       GAME_STRUCT.totalMissableTrophies,
@@ -528,8 +529,8 @@ export async function handleGuideRequest(requestUrl) {
       });
     }
 
-    const publishedLocales = contentLocalesForGame(game);
-    const serveLocale = coerceToAvailableLocale(pretty.locale, publishedLocales);
+    const publishedLocales = publishedLocalesOf(game);
+    const serveLocale = resolvePublishedContentLocale(game, pretty.locale);
     if (pretty.locale !== serveLocale) {
       const location = `${origin}${buildPrettyGamePath(serveLocale, pretty.hardware, pretty.slug)}`;
       return new Response(null, {

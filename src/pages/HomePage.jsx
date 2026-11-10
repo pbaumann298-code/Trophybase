@@ -20,6 +20,7 @@ import WatchlistButton from '../components/WatchlistButton';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
 import { gameGuidePath } from '../lib/routeUtils';
+import { guideHelpPublicPath } from '../lib/guideHelpPage';
 import '../styles/home.css';
 
 const HOME_FEATURE_KEYS = [
@@ -271,7 +272,7 @@ function HomePage({
                     <>
                       {before}
                       <a
-                        href="/kurz-erklaert#fehler"
+                        href={`${guideHelpPublicPath(globalLocale)}#fehler`}
                         className="home-hero-features-link"
                         onClick={(event) => {
                           if (!onOpenGuideHelp) return;

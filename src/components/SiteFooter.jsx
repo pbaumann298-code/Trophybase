@@ -1,8 +1,9 @@
 import { LEGAL, TRADEMARK_DISCLAIMER } from '../lib/legalConfig';
 import { useLocale } from '../context/LocaleContext';
+import { guideHelpPublicPath } from '../lib/guideHelpPage';
 
 function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy, onOpenHelp }) {
-  const { t } = useLocale();
+  const { globalLocale, t } = useLocale();
 
   return (
     <footer className="w-full max-w-full min-w-0 overflow-x-hidden bg-[#1a1b1c] border-t border-t-zinc-800/80 px-4 sm:px-6 md:px-8 py-6 flex flex-col gap-4 text-xs text-zinc-500">
@@ -35,7 +36,7 @@ function SiteFooter({ dbOk, onOpenImpressum, onOpenPrivacy, onOpenHelp }) {
             {t('privacy')}
           </a>
           <a
-            href="/kurz-erklaert"
+            href={guideHelpPublicPath(globalLocale)}
             className="hover:text-zinc-300 transition"
             onClick={(e) => {
               e.preventDefault();
