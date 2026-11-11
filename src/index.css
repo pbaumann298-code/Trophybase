@@ -64,9 +64,13 @@ body {
   min-height: 100dvh;
 }
 
-.tb-pane-max {
-  max-height: calc(100vh - 160px);
-  max-height: calc(100dvh - 160px);
+/* Nur die Desktop-Spalten der Entwürfe bleiben höhenbegrenzt.
+   Auf dem Handy wächst der Inhalt in der gegebenen Reihenfolge mit der Seite. */
+@media (min-width: 1024px) {
+  .tb-pane-max {
+    max-height: calc(100vh - 160px);
+    max-height: calc(100dvh - 160px);
+  }
 }
 
 .tb-safe-top {

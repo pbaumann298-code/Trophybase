@@ -7585,7 +7585,7 @@ export default function IntranetDrafts({
             />
 
             {/* Queue List (max 10 Spiele geladen, Rest rutscht automatisch nach) */}
-            <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-1">
+            <div className="flex flex-col gap-1.5 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               {visibleQueueList.map((item) => {
                 const isSelected = item.gameId === selectedGameId;
                 const itemPublished = isGameAlreadyPublishedOrLocked(item.game);
@@ -7693,7 +7693,7 @@ export default function IntranetDrafts({
             
             {selectedGame ? (
               <>
-              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+              <div className="flex w-full min-w-0 max-w-full flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -9588,11 +9588,7 @@ export default function IntranetDrafts({
                   )}
 
                   <div
-                    className={`overflow-x-auto ${
-                      selectedRowIds.size > 0
-                        ? 'pb-28 [@media(orientation:landscape)_and_(max-height:540px)]:pb-2 [@media(orientation:landscape)_and_(max-height:540px)]:pl-72'
-                        : ''
-                    }`}
+                    className={`w-full max-w-full overflow-x-auto ${selectedRowIds.size > 0 ? 'lg:pb-28' : ''}`}
                   >
                     <table className="w-max min-w-full text-left text-[11px] font-mono border-collapse">
                       <thead>
@@ -9990,7 +9986,7 @@ export default function IntranetDrafts({
                 {/* ==================== 2. FLOATING BATCH-BAR (WENN ZEILEN AUSGEWÄHLT SIND) ==================== */}
                 {selectedRowIds.size > 0 && (
                   <div
-                    className="fixed bottom-0 left-0 right-0 z-50 border-t-2 border-[#00ff66] bg-[#0e1210]/98 px-3 py-2 shadow-[0_-10px_30px_rgba(0,0,0,0.85)] backdrop-blur-md [@media(orientation:landscape)_and_(max-height:540px)]:bottom-0 [@media(orientation:landscape)_and_(max-height:540px)]:left-0 [@media(orientation:landscape)_and_(max-height:540px)]:right-auto [@media(orientation:landscape)_and_(max-height:540px)]:top-14 [@media(orientation:landscape)_and_(max-height:540px)]:w-72 [@media(orientation:landscape)_and_(max-height:540px)]:overflow-y-auto [@media(orientation:landscape)_and_(max-height:540px)]:border-t-0 [@media(orientation:landscape)_and_(max-height:540px)]:border-r-2 [@media(orientation:landscape)_and_(max-height:540px)]:p-2.5 [@media(orientation:landscape)_and_(max-height:540px)]:shadow-none"
+                    className="rounded-2xl border-2 border-[#00ff66] bg-[#0e1210] px-3 py-2 lg:fixed lg:bottom-0 lg:left-0 lg:right-0 lg:z-50 lg:rounded-none lg:border-x-0 lg:border-b-0 lg:border-t-2 lg:bg-[#0e1210]/98 lg:shadow-[0_-10px_30px_rgba(0,0,0,0.85)] lg:backdrop-blur-md"
                   >
                     {(batchDrawerExpanded || batchCustomField || confirmBatchDelete) && (
                       <div className="mb-2 flex max-h-[55vh] flex-col gap-2.5 overflow-y-auto border-b border-zinc-800 pb-2.5">
@@ -10277,7 +10273,7 @@ export default function IntranetDrafts({
                       </div>
                     )}
 
-                    <div className="flex items-center gap-1.5 [@media(orientation:landscape)_and_(max-height:540px)]:flex-col [@media(orientation:landscape)_and_(max-height:540px)]:items-stretch">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <div className="flex shrink-0 items-center gap-1">
                         <span className="inline-flex items-center rounded-lg bg-[#00ff66] px-2 py-1 text-xs font-mono font-bold text-black">
                           ☑️ {selectedRowIds.size}
@@ -10414,7 +10410,7 @@ export default function IntranetDrafts({
                 )}
 
               </div>
-                {/* E. ACTION-BAR: unten in der Spalte angepinnt, scrollt nicht mit der Tabelle */}
+                {/* E. ACTION-BAR: auf großen Screens unten in der Spalte, auf Mobil direkt unter der Tabelle */}
                 <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-800 bg-[#121314] p-3 shadow-xl">
                   <div className="flex flex-wrap items-center gap-2">
                     {isCreatorMode ? (
@@ -10594,7 +10590,7 @@ export default function IntranetDrafts({
                 )}
             </div>
 
-            <div className="flex-1 min-h-[320px] overflow-y-scroll flex flex-col gap-2 pr-1">
+            <div className="flex flex-col gap-2 lg:min-h-[320px] lg:flex-1 lg:overflow-y-scroll lg:pr-1">
               {loadingTrophies ? (
                 <div className="py-8 text-center text-xs font-mono text-zinc-500 animate-pulse">
                   Trophäen laden…
