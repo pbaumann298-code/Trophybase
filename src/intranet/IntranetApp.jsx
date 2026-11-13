@@ -8,7 +8,7 @@ import {
 } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
-import IntranetCreatorSearch from '../components/intranet/IntranetCreatorSearch';
+import IntranetCreators from '../components/intranet/IntranetCreators';
 import IntranetFollowups from '../components/intranet/IntranetFollowups';
 import IntranetDrafts from '../components/intranet/IntranetDrafts';
 import IntranetRadarAndServertot from '../components/intranet/IntranetRadarAndServertot';
@@ -88,6 +88,9 @@ function IntranetApp() {
       searchTab === 'steam'
     ) {
       return 'platforms';
+    }
+    if (hash === 'creators' || hash === 'creator' || searchTab === 'creators' || searchTab === 'creator') {
+      return 'creators';
     }
     return 'games';
   });
@@ -429,7 +432,7 @@ function IntranetApp() {
               {activeTab === 'followups' && (
                 <IntranetFollowups sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
               )}
-              {activeTab === 'creators' && <IntranetCreatorSearch />}
+              {activeTab === 'creators' && <IntranetCreators />}
               {activeTab === 'platforms' && <IntranetPlatformCatalog />}
             </>
           )}

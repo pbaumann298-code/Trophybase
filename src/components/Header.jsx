@@ -9,6 +9,7 @@ import {
 import { navigateToHome, PROFILE_PATH, WATCHLIST_PATH } from '../lib/routeUtils';
 import { supabase } from '../pages/supabaseClient';
 import { useShowAdminChrome } from '../lib/useAdminChrome';
+import InstallAppButton from './common/InstallAppButton';
 
 function Header({
   setCurrentView,
@@ -90,6 +91,7 @@ function Header({
               : ''}
           </a>
         ) : null}
+        <InstallAppButton />
         <HeaderSettingsMenu
           sessionUser={sessionUser}
           isAdmin={showAdminChrome}

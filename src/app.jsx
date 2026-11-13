@@ -57,6 +57,7 @@ import {
   navigateToGuideTab,
   withGuideTabParam,
   DEFAULT_GUIDE_TAB,
+  GUIDE_TAB_IDS,
 } from './lib/routeUtils';
 import { searchGames } from './lib/gameSearch';
 import { GAME_TYPE, TABLES } from './lib/gameSchema';
@@ -77,6 +78,8 @@ import {
   quickwinsPublicPath,
 } from './lib/quickwinsPage';
 import { guideHelpPublicPath } from './lib/guideHelpPage';
+import { creatorPublicPath, parseCreatorPath } from './lib/creatorPage';
+import CreatorProfilePage from './pages/CreatorProfilePage';
 
 const QUICKWINS_CATALOG = {
   viewName: 'quickwins',
@@ -765,6 +768,7 @@ function App() {
     const token = gameUuid || gameId || '';
     openedGameRef.current = token;
     const isAdmin = showAdminChrome;
+    const requestedTab = GUIDE_TAB_IDS.includes(options?.tab) ? options.tab : null;
     const initialPreferGuideTab = Boolean(
       options?.preferGuideTab || (isAdmin && isGameDraftMode(game)),
     );
@@ -774,7 +778,7 @@ function App() {
     setCurrentView('game_info');
     window.scrollTo(0, 0);
     setLoadingGuide(true);
-    setActiveTab(initialPreferGuideTab ? 'reiter1' : DEFAULT_GUIDE_TAB);
+    setActiveTab(requestedTab || (initialPreferGuideTab ? 'reiter1' : DEFAULT_GUIDE_TAB));
     setActiveTrophies([]);
     setGuideItems([]);
     setChapterItems([]);
@@ -789,6 +793,9 @@ function App() {
     }
 
     navigateToGame(game, { locale: globalLocale });
+    if (requestedTab && requestedTab !== DEFAULT_GUIDE_TAB) {
+      navigateToGuideTab(requestedTab, { replace: true });
+    }
 
     const userId = viewUser?.id ?? null;
     const loadId = startTrophyLoad();
@@ -839,7 +846,7 @@ function App() {
     setChapterItems(chapters);
     setGuideItems(guides);
     setBossItems(bosses);
-    if (initialPreferGuideTab || (isAdmin && isGameDraftMode(resolvedGame))) {
+    if (!requestedTab && (initialPreferGuideTab || (isAdmin && isGameDraftMode(resolvedGame)))) {
       if (chapters.length > 0) setActiveTab('reiter1');
       else if (guides.length > 0) setActiveTab('reiter2');
       else if (bosses.length > 0) setActiveTab('reiter3');
@@ -938,6 +945,15 @@ function App() {
     }
     if (currentView === 'guide-help') {
       applyPathCanonical(guideHelpPublicPath(globalLocale));
+      return () => clearGameSeoLinks();
+    }
+    if (currentView === 'creator') {
+      const creatorRoute = parseCreatorPath(window.location.pathname);
+      const canonical = creatorRoute
+        ? creatorPublicPath(creatorRoute.locale, creatorRoute.slug)
+        : window.location.pathname;
+      const noIndex = new URLSearchParams(window.location.search).has('claim');
+      applyPathCanonical(canonical, { noIndex });
       return () => clearGameSeoLinks();
     }
     if (currentView === 'search-results') {
@@ -1212,6 +1228,7 @@ function App() {
           currentView === 'impressum' ||
           currentView === 'datenschutz' ||
           currentView === 'guide-help' ||
+          currentView === 'creator' ||
           currentView === 'advanced-search' ||
           currentView === 'search-results' ||
           currentView === 'quickwins' ||
@@ -1413,6 +1430,15 @@ function App() {
             {currentView === 'tester-setup' && <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />}
             {currentView === 'impressum' && <LegalNoticePage onBack={goBack} />}
             {currentView === 'guide-help' && <HowToPage onBack={goBack} />}
+            {currentView === 'creator' && (
+              <CreatorProfilePage
+                sessionUser={sessionUser}
+                isAdmin={isAdminUser(sessionUser)}
+                authLoading={authLoading}
+                onOpenGame={openGuide}
+                onBack={goBack}
+              />
+            )}
             {currentView === 'datenschutz' && (
               <PrivacyPage
                 onBack={goBack}

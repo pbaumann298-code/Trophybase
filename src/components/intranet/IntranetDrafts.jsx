@@ -24,6 +24,7 @@ import {
   enqueueMultipleVideosForTimestampScrape,
 } from '../../lib/intranetGameEdits';
 import { intranetGameHref } from '../../lib/intranetQueries';
+import { isYoutubeChannelBlacklisted } from '../../lib/creatorQueries';
 import { listPipelineStatusEntries } from '../../lib/gamePipelineStatus';
 import {
   handleStaffGamePreviewClick,
@@ -4528,11 +4529,30 @@ export default function IntranetDrafts({
         ) {
           const { data: existingCreator } = await supabase
             .from(TABLES.contentCreators)
-            .select('id')
+            .select('id, is_blacklisted, channel_name, blacklist_reason, youtube_url')
             .ilike('channel_name', selectedCreatorName.trim())
             .maybeSingle();
 
+          const rejectBlacklist = (hit) => {
+            setActionBusy(false);
+            setError(
+              `Blacklist: „${hit.channelName || hit.channel_name || selectedCreatorName}“ ist gesperrt${
+                hit.reason || hit.blacklist_reason ? ` (${hit.reason || hit.blacklist_reason})` : ''
+              }. Zuordnung abgebrochen.`,
+            );
+          };
+
+          if (existingCreator?.is_blacklisted) {
+            rejectBlacklist(existingCreator);
+            return;
+          }
+
           if (existingCreator?.id) {
+            const knownUrl = await isYoutubeChannelBlacklisted(supabase, existingCreator.youtube_url);
+            if (knownUrl.blacklisted) {
+              rejectBlacklist(knownUrl);
+              return;
+            }
             creatorId = existingCreator.id;
           } else {
             const sampleRowWithUrl = rowsFromNonProductive.find(
@@ -4544,6 +4564,11 @@ export default function IntranetDrafts({
               sampleRowWithUrl?.video_url ||
               '';
             const inputUrl = rawUrl.trim() || 'https://www.youtube.com';
+            const blockedUrl = await isYoutubeChannelBlacklisted(supabase, inputUrl);
+            if (blockedUrl.blacklisted) {
+              rejectBlacklist(blockedUrl);
+              return;
+            }
             const { data: newCreator } = await supabase
               .from(TABLES.contentCreators)
               .insert({ channel_name: selectedCreatorName.trim(), youtube_url: inputUrl })

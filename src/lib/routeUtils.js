@@ -1,6 +1,7 @@
 import { parseServertotPath, servertotPublicPath } from './servertotPage.js';
 import { parseEasyPlatinsPath, easyPlatinsPublicPath } from './easyPlatinsPage.js';
 import { parseQuickwinsPath, quickwinsPublicPath } from './quickwinsPage.js';
+import { parseCreatorPath, creatorPublicPath } from './creatorPage.js';
 import { guideHelpPublicPath, parseGuideHelpPath } from './guideHelpPage.js';
 import { resolveViewForSession } from './trophyBaseAuth.js';
 import { getLocale, normalizeLocale } from './locale.js';
@@ -29,6 +30,7 @@ export const PUBLIC_APP_VIEWS = new Set([
   'impressum',
   'datenschutz',
   'guide-help',
+  'creator',
 ]);
 
 /** Views die eingeloggte Nutzer auch im Wartungsmodus sehen dürfen. */
@@ -55,6 +57,7 @@ export function getViewFromPath(pathname = '', search) {
   if (path === '/impressum') return 'impressum';
   if (path === '/datenschutz' || path === '/privacy') return 'datenschutz';
   if (parseGuideHelpPath(path)) return 'guide-help';
+  if (parseCreatorPath(path)) return 'creator';
   if (path === '/micro-platins' || path === '/quickwins' || parseQuickwinsPath(path)) return 'quickwins';
   if (path === '/servertot' || parseServertotPath(path)) return 'servertot';
   if (path === '/easy-platins' || path === '/easyplatins' || parseEasyPlatinsPath(path)) {
@@ -411,6 +414,16 @@ export function parseGuideTabParam(search) {
   return GUIDE_TAB_ID_BY_SLUG[slug] ?? null;
 }
 
+/**
+ * Guide-Pfad plus Reiter, ohne die Query der aktuellen Seite zu übernehmen.
+ * So landet ein Claim-Token von /creator/:slug nicht auf dem Guide.
+ */
+export function guidePathWithTab(path, tabId) {
+  const [pathname] = String(path ?? '').split('?');
+  if (!pathname || !tabId || tabId === DEFAULT_GUIDE_TAB || !GUIDE_TAB_SLUGS[tabId]) return pathname;
+  return `${pathname}?tab=${guideTabSlug(tabId)}`;
+}
+
 /** Hängt ?tab=… an einen Guide-Pfad; der Default-Reiter bleibt parameterfrei. */
 export function withGuideTabParam(path, tabId) {
   const [pathname, existingQuery = ''] = String(path ?? '').split('?');
@@ -469,6 +482,12 @@ export function syncPathLocale(nextLocale) {
     const here = `${normalizePath(window.location.pathname)}${window.location.search}${window.location.hash}`;
     if (here === nextPath) return;
     window.history.replaceState({}, '', nextPath);
+    return;
+  }
+  const creator = parseCreatorPath(window.location.pathname);
+  if (creator) {
+    const nextPath = `${creatorPublicPath(normalized, creator.slug)}${window.location.search}`;
+    writeAppPath(nextPath, { replace: true });
   }
 }
 

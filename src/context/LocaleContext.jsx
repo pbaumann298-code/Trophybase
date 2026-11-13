@@ -19,6 +19,7 @@ import { parseServertotPath } from '../lib/servertotPage';
 import { parseEasyPlatinsPath } from '../lib/easyPlatinsPage';
 import { parseQuickwinsPath } from '../lib/quickwinsPage';
 import { parseGuideHelpPath } from '../lib/guideHelpPage';
+import { parseCreatorPath } from '../lib/creatorPage';
 import { syncPathLocale } from '../lib/routeUtils';
 import { t } from '../lib/uiStrings';
 import { DEFAULT_AVAILABLE_LOCALES, coerceToAvailableLocale } from '../lib/contentLocales';
@@ -47,6 +48,10 @@ export function LocaleProvider({ children }) {
       const guideHelp = parseGuideHelpPath(window.location.pathname);
       if (guideHelp?.locale) {
         return persistLocale(guideHelp.locale, { skipEvent: true });
+      }
+      const creator = parseCreatorPath(window.location.pathname);
+      if (creator?.locale) {
+        return persistLocale(creator.locale, { skipEvent: true });
       }
       return bootstrapGlobalLocaleSync();
     }
