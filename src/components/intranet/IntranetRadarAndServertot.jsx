@@ -112,7 +112,7 @@ const SICKBAY_TABS = [
   { id: 'servertot', label: 'Servertot', icon: '💀' },
   { id: 'covers', label: 'Cover-Fehler', icon: '🖼️' },
   { id: 'reports', label: 'Fehlermeldungen', icon: '⚑' },
-  { id: 'denglisch', label: 'DE-Guides mit EN-Text (Denglisch-Check)', icon: '🇬🇧/🇩🇪' },
+  { id: 'denglisch', label: 'Sprach- & Freigabe-Check', icon: '🌐' },
 ];
 
 /** Schwere jsonb-Felder, erst beim Auswählen eines Spiels nachgeladen. */
@@ -2170,6 +2170,7 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
           key={denglischReload}
           reloadToken={denglischReload}
           onCount={setDenglischCount}
+          onOpenInDrafts={onOpenInDrafts}
         />
       ) : null}
 

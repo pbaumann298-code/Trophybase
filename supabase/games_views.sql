@@ -21,9 +21,6 @@ create index if not exists games_spiel_typ_idx
 create index if not exists games_views_desc_idx
   on public.games (views desc);
 
-create index if not exists games_guide_de_idx
-  on public.games ((status ->> 'guide_de'));
-
 create or replace function public.increment_game_views(game_uuid uuid)
 returns void
 language plpgsql

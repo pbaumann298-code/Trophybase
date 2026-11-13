@@ -77,7 +77,7 @@ import {
   quickwinsPageCopy,
   quickwinsPublicPath,
 } from './lib/quickwinsPage';
-import { guideHelpPublicPath } from './lib/guideHelpPage';
+import { guideHelpPublicPath, parseGuideHelpPath } from './lib/guideHelpPage';
 import { creatorPublicPath, parseCreatorPath } from './lib/creatorPage';
 import CreatorProfilePage from './pages/CreatorProfilePage';
 
@@ -129,7 +129,13 @@ import { applyTrophyUnlockToggle, isPlatinumUnlocked } from './lib/trophyTypes';
 import { saveLocalPlatinumFlag, PROGRESS_SYNCED_EVENT } from './lib/localUserProgress';
 import { pushLocalGameProgressToCloud } from './lib/progressCloudBridge';
 import { getGameUuid } from './lib/gameModel';
-import { applyGameSeoLinks, applyHomeSeo, applyPathCanonical, clearGameSeoLinks } from './lib/seoHead';
+import {
+  applyGameSeoLinks,
+  applyGuideHelpSeo,
+  applyHomeSeo,
+  applyPathCanonical,
+  clearGameSeoLinks,
+} from './lib/seoHead';
 import { isGameIndexable } from './lib/guidePublication';
 import {
   claimCompletedGuideItems,
@@ -944,7 +950,8 @@ function App() {
       return () => clearGameSeoLinks();
     }
     if (currentView === 'guide-help') {
-      applyPathCanonical(guideHelpPublicPath(globalLocale));
+      const parsed = parseGuideHelpPath(window.location.pathname);
+      applyGuideHelpSeo(parsed?.locale || globalLocale);
       return () => clearGameSeoLinks();
     }
     if (currentView === 'creator') {
@@ -1048,11 +1055,13 @@ function App() {
   }, [pushCurrentRouteToStack]);
 
   const openGuideHelp = useCallback((section = '') => {
+    const cleanSection = typeof section === 'string' ? section : '';
     const path = guideHelpPublicPath(globalLocale);
-    pushCurrentRouteToStack(section ? `${path}#${section}` : path);
+    pushCurrentRouteToStack(cleanSection ? `${path}#${cleanSection}` : path);
     setCurrentView('guide-help');
-    navigateToGuideHelp(section, globalLocale);
-    window.scrollTo(0, 0);
+    setSelectedGame(null);
+    navigateToGuideHelp(cleanSection, globalLocale);
+    if (!cleanSection) window.scrollTo(0, 0);
   }, [globalLocale, pushCurrentRouteToStack]);
 
   const openAdvancedSearch = useCallback(() => {
@@ -1200,6 +1209,7 @@ function App() {
         onOpenWatchlist={openWatchlist}
         onOpenProfile={openProfile}
         onOpenPlatformTrophies={openPlatformTrophies}
+        onOpenHelp={() => openGuideHelp()}
         onGoHome={goHome}
         onCustomizeHome={() => {
           if (currentView !== 'home') {
@@ -1429,7 +1439,14 @@ function App() {
             {currentView === 'login' && <LoginPage onLogin={handleLogin} />}
             {currentView === 'tester-setup' && <TesterSetupPage onCreateAccount={handleCreateOwnAccount} />}
             {currentView === 'impressum' && <LegalNoticePage onBack={goBack} />}
-            {currentView === 'guide-help' && <HowToPage onBack={goBack} />}
+            {currentView === 'guide-help' && (
+              <HowToPage
+                onBack={goBack}
+                onOpenEasyPlatins={openEasyPlatins}
+                onOpenQuickwins={openQuickwins}
+                onOpenServertot={openServertot}
+              />
+            )}
             {currentView === 'creator' && (
               <CreatorProfilePage
                 sessionUser={sessionUser}

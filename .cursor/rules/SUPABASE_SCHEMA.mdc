@@ -19,18 +19,18 @@ alwaysApply: true
    - In `staging_game_guides` sind `guide_id` (`integer`), `trophy_id` (`integer`), `item_name` (`text`), `chronological_group` (`text`), `category_group` (`text`), `boss_group` (`text`), `video_chapter` (`text`) flache Datentypen!
    - In `game_guides` und `game_guides_rohmaterial` sind `guide_id` (`text`), `trophy_id` (`text`), `sheet_type` (`jsonb`, Format `[1, 2, 3]`), `item_name` (`jsonb`), `chronological_group` (`jsonb`), `category_group` (`jsonb`), `boss_group` (`jsonb`), `video_chapter` (`jsonb`), `spiel_region` (`jsonb` – übergeordnete Spiel-Region/Welt für die Guide-Anordnung), `spiel_region_tab` (`jsonb` – Array `[1]`, `[2]`, `[3]` oder `[1, 2, 3]`, in welchen Tabs die Region angezeigt wird) mehrsprachige/strukturierte Typen!
    - `spiel_region` steuert die räumliche/strukturelle Anordnung im Guide. `spiel_region_tab` steuert, in welchen Reitern diese Region als Ober-Kachel erscheint.
-3. **3-Spalten-Gruppenprinzip & Auto-Tab-Trigger (`trg_auto_derive_sheet_type`):**
+3. **3-Spalten-Gruppenprinzip & Auto-Tab-Trigger (`g_04_auto_derive_sheet_type` / `g_05_clean_sheet_type` / `g_06_auto_derive_spiel_region_tab`):**
    - `chronological_group` gefüllt -> Tab `[1]` (Walkthrough)
    - `category_group` gefüllt -> Tab `[2]` (Sammelobjekte / Collectibles)
    - `boss_group` gefüllt -> Tab `[3]` (Bosse)
    - Sind mehrere Spalten in einer Zeile gefüllt, entsteht automatisch `[1, 2]`, `[1, 3]` usw. in `sheet_type`.
-4. **Schreibschutz-Trigger (`trg_protect_published_guides`):**
+4. **Schreibschutz-Trigger (`g_01_protect_published_guides` -> `enforce_published_guide_lock`):**
    - Veröffentlichte Spiele (`is_guide_locked = true` oder `PUBLISHED` in `fortschritt`/`status`/`publishing_status`) sind auf DB-Ebene gegen `DELETE` und strukturelle `UPDATE`s (`guide_id`, `sheet_type`, `video_url`, `timestamp`, `trophy_id`, `chronological_group`, `category_group`, `boss_group`) gesperrt!
    - Erlaubt ohne Entsperrung sind NUR Updates auf `spiel_region`, `translation_status`, `prod_note` und `item_name`.
    - Für strukturelle Einzel-Änderungen an veröffentlichten Zeilen muss `edit_unlocked = true` auf der jeweiligen `game_guides`-Zeile gesetzt werden (setzt sich beim Speichern per Auto-Relock wieder auf `false`).
-5. **Doppelte Tabellen (Single Source of Truth):**
-   - **User-Profile:** Immer `public.profiles` nutzen (NICHT `user_profiles`).
-   - **Fehlermeldungen / Reports:** Immer `public.community_reports` nutzen (NICHT `report_tickets`).
+5. **Tabellen-Klarstellungen (Single Source of Truth):**
+   - **User-Profile:** Immer `public.profiles` nutzen (`user_profiles` wurde entfernt).
+   - **Fehlermeldungen / Reports:** Eigentliche Meldungen liegen immer in `public.community_reports`. `public.report_tickets` ist **kein** Altbestand, sondern die aktive Einmal-Stoppuhr-/Anti-Bot-Ticket-Tabelle für `tb_issue_report_ticket` -> `tb_submit_error_report(..., p_ticket_id)` – niemals löschen!
    - **Wiedervorlage:** Liegt in `public.game_wiedervorlage` (`id`, `platform_game_id`, `spieltitel`, `freitext`).
 6. **Guide-Status & Sprachen (`games.status` jsonb):**
    - Pro Sprache ein Key `guide_<locale>` mit `DRAFT` → `FERTIG` → `READY` → `PUBLISHED`. `publishing_status` und `published_locales` werden vom Trigger `games_sync_publishing_columns` abgeleitet – NIE direkt schreiben.

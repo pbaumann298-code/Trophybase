@@ -50,6 +50,34 @@ const MAX_VISIBLE_QUEUE_GAMES = 10;
 const GAMES_QUEUE_SELECT_COLS =
   'id, platform_game_id, slug, status, publishing_status, published_locales, fortschritt, is_guide_locked, guide_typ, spieltitel, cover_url, cover_status, publisher, entwickler, spiel_typ, anzahl_trophaeen, hardware';
 
+const ADMIN_APPROVE_LOCALE_ORDER = [
+  'de',
+  'en',
+  'pl',
+  'es',
+  'fr',
+  'pt',
+  'it',
+  'nl',
+  'ru',
+  'sv',
+  'fi',
+  'ja',
+  'ko',
+  'zh-hans',
+  'zh-hant',
+  'ar',
+];
+
+const ADMIN_APPROVE_LOCALES = (() => {
+  const byCode = new Map(localeOptions().map((opt) => [opt.code, opt]));
+  const ordered = ADMIN_APPROVE_LOCALE_ORDER.map((code) => byCode.get(code)).filter(Boolean);
+  for (const opt of byCode.values()) {
+    if (!ADMIN_APPROVE_LOCALE_ORDER.includes(opt.code)) ordered.push(opt);
+  }
+  return ordered;
+})();
+
 function isGameAlreadyPublishedOrLocked(game) {
   if (!game) return false;
   if (hasPublishedGuide(game)) return true;
@@ -3210,9 +3238,11 @@ export default function IntranetDrafts({
   const handleOpenFertigApprove = () => {
     if (!selectedGameId || !selectedGame || actionBusy) return;
     const status = parseStatusMap(selectedGame.status);
-    const de = String(status.guide_de ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.DONE;
-    const en = String(status.guide_en ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.DONE;
-    setApproveLocale(de ? 'de' : en ? 'en' : '');
+    const detectedDoneLang =
+      ADMIN_APPROVE_LOCALE_ORDER.find(
+        (code) => String(status[guideStatusKey(code)] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.DONE,
+      ) || '';
+    setApproveLocale(detectedDoneLang);
     setSelectedGameTypes(parseGameTypes(selectedGame.spiel_typ));
     setIncludeAllRohBatchesOnApprove(true);
     setDiscardOtherCreators(true);
@@ -4679,6 +4709,7 @@ export default function IntranetDrafts({
               is_trophy_relevant: r.is_trophy_relevant || null,
               creator_id: creatorId,
               sheet_type: deriveSheetTypesFromRow(r),
+              translation_status: { [selectedLanguage]: 'SOURCE' },
             };
           });
 
@@ -10605,9 +10636,26 @@ export default function IntranetDrafts({
 
                 {/* ==================== 2. FLOATING BATCH-BAR (WENN ZEILEN AUSGEWÄHLT SIND) ==================== */}
                 {selectedRowIds.size > 0 && (
-                  <div
-                    className="fixed bottom-0 left-0 right-0 z-50 border-t-2 border-[#00ff66] bg-[#0e1210]/98 px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-10px_30px_rgba(0,0,0,0.85)] backdrop-blur-md"
-                  >
+                  <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50 flex flex-col">
+                    {/* Mobil / Tablet (< 1100px): "↩️ Zurück" prominent direkt ÜBER der Werkzeuge-Box */}
+                    <div className="flex items-center justify-between gap-2 px-3 pb-1.5 min-[1100px]:hidden">
+                      <div className="pointer-events-auto inline-flex max-w-full items-center gap-2 rounded-xl border border-zinc-700 bg-[#0e1210]/95 px-2.5 py-1.5 shadow-[0_-6px_20px_rgba(0,0,0,0.85)] backdrop-blur-md">
+                        <DraftUndoButton
+                          undoStack={undoStack}
+                          actionBusy={actionBusy}
+                          onUndo={handleUndo}
+                        />
+                        {undoStack.length > 0 && undoStack[undoStack.length - 1]?.label ? (
+                          <span className="max-w-[55vw] truncate text-[10px] font-mono text-zinc-400">
+                            {undoStack[undoStack.length - 1].label}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div
+                      className="pointer-events-auto border-t-2 border-[#00ff66] bg-[#0e1210]/98 px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-10px_30px_rgba(0,0,0,0.85)] backdrop-blur-md"
+                    >
                     {(batchDrawerExpanded || batchCustomField || confirmBatchDelete) && (
                       <div className="mb-2 flex max-h-[55vh] flex-col gap-2.5 overflow-y-auto border-b border-zinc-800 pb-2.5">
                         {batchCustomField ? (
@@ -11095,12 +11143,14 @@ export default function IntranetDrafts({
                       </div>
 
                       <div className="flex shrink-0 items-center gap-1">
-                        <DraftUndoButton
-                          undoStack={undoStack}
-                          actionBusy={actionBusy}
-                          onUndo={handleUndo}
-                          compact
-                        />
+                        <span className="hidden min-[1100px]:inline-flex">
+                          <DraftUndoButton
+                            undoStack={undoStack}
+                            actionBusy={actionBusy}
+                            onUndo={handleUndo}
+                            compact
+                          />
+                        </span>
                         <button
                           type="button"
                           onClick={() => setBatchDrawerExpanded(true)}
@@ -11126,6 +11176,7 @@ export default function IntranetDrafts({
                           🗑️
                         </button>
                       </div>
+                    </div>
                     </div>
                   </div>
                 )}
@@ -11384,35 +11435,36 @@ export default function IntranetDrafts({
                 )}
               </label>
 
-              {/* Schnellwahl Buttons */}
+              {/* Alle 16 Sprachen als Direkt-Pills (inkl. PL, ES, ...) */}
               <div className="flex flex-wrap gap-1.5">
-                {['de', 'en', 'es', 'fr', 'ja', 'pt', 'it'].map((code) => {
-                  const isSelected = approveLocale === code;
+                {ADMIN_APPROVE_LOCALES.map((opt) => {
+                  const isSelected = approveLocale === opt.code;
                   return (
                     <button
-                      key={code}
+                      key={opt.code}
                       type="button"
-                      onClick={() => setApproveLocale(code)}
-                      className={`px-2.5 py-1 rounded-lg font-mono text-xs font-bold uppercase transition ${
+                      title={`${opt.label} (${opt.code.toUpperCase()})`}
+                      onClick={() => setApproveLocale(opt.code)}
+                      className={`px-2 py-1 rounded-lg font-mono text-[11px] font-bold uppercase transition ${
                         isSelected
                           ? 'bg-[#00ff66] text-black border border-[#00ff66]'
                           : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 hover:text-white'
                       }`}
                     >
-                      {code}
+                      {opt.flag} {opt.code}
                     </button>
                   );
                 })}
               </div>
 
-              {/* Alle weiteren Sprachen Dropdown */}
+              {/* Alle Sprachen mit ausgeschriebenem Namen im Dropdown */}
               <select
                 value={approveLocale}
                 onChange={(e) => setApproveLocale(e.target.value)}
                 className="mt-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-200 font-mono focus:border-[#00ff66] focus:outline-none"
               >
-                <option value="">-- Alle Sprachen durchsuchen --</option>
-                {localeOptions().map((opt) => (
+                <option value="">-- Sprache im Dropdown wählen --</option>
+                {ADMIN_APPROVE_LOCALES.map((opt) => (
                   <option key={opt.code} value={opt.code}>
                     {opt.flag} {opt.label} ({opt.code.toUpperCase()})
                   </option>
@@ -11715,25 +11767,31 @@ export default function IntranetDrafts({
 
             {/* 3. Einstellungen für Übernahme (Sprache & Spiel-Typ, falls Ersetzen oder Beide behalten gewählt wird) */}
             <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 flex flex-col gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-bold text-zinc-200">
-                  Ziel-Sprache & Spiel-Typ (bei Übernahme des Entwurfs):
-                </span>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-zinc-200">
+                    Ziel-Sprache & Spiel-Typ (bei Übernahme des Entwurfs):
+                  </span>
+                  <span className="text-[10px] font-mono font-bold text-[#00ff66]">
+                    ✓ {(approveLocale || 'de').toUpperCase()}
+                  </span>
+                </div>
                 <div className="flex flex-wrap gap-1">
-                  {['de', 'en', 'es', 'fr', 'ja', 'pt', 'it'].map((code) => {
-                    const isSelected = (approveLocale || 'de') === code;
+                  {ADMIN_APPROVE_LOCALES.map((opt) => {
+                    const isSelected = (approveLocale || 'de') === opt.code;
                     return (
                       <button
-                        key={code}
+                        key={opt.code}
                         type="button"
-                        onClick={() => setApproveLocale(code)}
+                        title={`${opt.label} (${opt.code.toUpperCase()})`}
+                        onClick={() => setApproveLocale(opt.code)}
                         className={`px-2 py-0.5 rounded font-mono text-[11px] font-bold uppercase transition ${
                           isSelected
                             ? 'bg-[#00ff66] text-black border border-[#00ff66]'
                             : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:text-white'
                         }`}
                       >
-                        {code}
+                        {opt.flag} {opt.code}
                       </button>
                     );
                   })}

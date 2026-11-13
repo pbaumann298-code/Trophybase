@@ -12,6 +12,7 @@ import {
   guideStatusKey,
   parseStatusMap,
 } from './guidePublication';
+import { SUPPORTED_LOCALES } from './locale';
 
 const PAGE_SIZE = 1000;
 
@@ -55,18 +56,18 @@ export function guideRowsHaveLang(rows, lang) {
   return (rows ?? []).some((row) => GUIDE_TEXT_FIELDS.some((field) => textAtLang(row?.[field], lang)));
 }
 
-/** Sprachen mit echtem Text in den Guide-Zeilen, nur de und en. */
+/** Sprachen mit echtem Text in den Guide-Zeilen (alle 16 unterstützten Locales). */
 export function fertigReviewPublishLangs(rows) {
-  return ['de', 'en'].filter((lang) => guideRowsHaveLang(rows, lang));
+  return SUPPORTED_LOCALES.filter((lang) => guideRowsHaveLang(rows, lang));
 }
 
 export function isSingleLangFertigGame(game) {
   const locales = Array.isArray(game?.published_locales) ? game.published_locales : [];
   if (locales.length > 0) return false;
   const status = parseStatusMap(game?.status);
-  const de = String(status.guide_de ?? '').trim().toUpperCase();
-  const en = String(status.guide_en ?? '').trim().toUpperCase();
-  return de === GUIDE_PUBLICATION.DONE || en === GUIDE_PUBLICATION.DONE;
+  return SUPPORTED_LOCALES.some(
+    (lang) => String(status[guideStatusKey(lang)] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.DONE,
+  );
 }
 
 export function buildFertigPublishUpdate(game, langs) {
@@ -101,7 +102,7 @@ async function fetchAllGuideTextRows(supabase, gameId) {
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from(TABLES.guides)
-      .select(GUIDE_TEXT_FIELDS.join(', '))
+      .select([GUIDE_PK, ...GUIDE_TEXT_FIELDS].join(', '))
       .eq(GAME_FK, gameId)
       .order(GUIDE_PK, { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
@@ -115,9 +116,9 @@ async function fetchAllGuideTextRows(supabase, gameId) {
 
 function isFertigReviewCandidate(game) {
   const status = parseStatusMap(game?.status);
-  const de = String(status.guide_de ?? '').trim().toUpperCase();
-  const en = String(status.guide_en ?? '').trim().toUpperCase();
-  return de === GUIDE_PUBLICATION.DONE || en === GUIDE_PUBLICATION.DONE;
+  return SUPPORTED_LOCALES.some(
+    (lang) => String(status[guideStatusKey(lang)] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.DONE,
+  );
 }
 
 /**
@@ -165,11 +166,28 @@ export async function publishFertigReviewGame(supabase, game) {
   return { update, langs, error: null };
 }
 
+function moveFieldLang(value, fromLang, toLang) {
+  if (!value) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? { [toLang]: trimmed } : null;
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return value;
+  const fromVal = typeof value[fromLang] === 'string' ? value[fromLang].trim() : '';
+  const toVal = typeof value[toLang] === 'string' ? value[toLang].trim() : '';
+  if (!fromVal && !toVal) return value;
+  const next = { ...value };
+  delete next[fromLang];
+  next[toLang] = toVal || fromVal;
+  return next;
+}
+
 /**
  * Freigabe eines schon in game_guides liegenden FERTIG-Guides.
  * Dieselbe Pipeline wie nach der Staging-Freigabe: gewählte Sprache auf
- * PUBLISHED, danach tb_apply_stage1_sql_for_game. Die Zeilen bleiben,
- * es wird nichts aus staging_game_guides kopiert.
+ * PUBLISHED, danach tb_apply_stage1_sql_for_game. Liegt der Entwurfstext
+ * bisher unter einer anderen Einzelsprache (z. B. Polnisch in de/en abgelegt),
+ * wird er vorab sauber in die gewählte Zielsprache verschoben.
  */
 export async function publishFertigReviewInLanguage(supabase, game, lang) {
   const id = String(game?.[GAME_PK] ?? game?.id ?? '').trim();
@@ -182,13 +200,43 @@ export async function publishFertigReviewInLanguage(supabase, game, lang) {
   if (rows.length === 0) {
     return { update: null, error: new Error('Keine Guide-Zeilen in game_guides.') };
   }
+
+  let migratedFromLang = null;
   if (!guideRowsHaveLang(rows, normalized)) {
-    return {
-      update: null,
-      error: new Error(
-        `In den Guide-Zeilen steht kein Text für [${normalized.toUpperCase()}].`,
-      ),
-    };
+    const existingLangs = SUPPORTED_LOCALES.filter((l) => guideRowsHaveLang(rows, l));
+    if (existingLangs.length === 0) {
+      return {
+        update: null,
+        error: new Error(
+          `In den Guide-Zeilen steht kein Text für [${normalized.toUpperCase()}].`,
+        ),
+      };
+    }
+    migratedFromLang = existingLangs[0];
+    const { error: unlockError } = await supabase
+      .from(TABLES.games)
+      .update({ [GAME_STRUCT.isGuideLocked]: false })
+      .eq(GAME_PK, id);
+    if (unlockError) return { update: null, error: unlockError };
+
+    for (const row of rows) {
+      const rowId = row?.[GUIDE_PK];
+      if (!rowId) continue;
+      const rowPatch = {
+        edit_unlocked: true,
+        translation_status: { [normalized]: 'SOURCE' },
+      };
+      for (const field of GUIDE_TEXT_FIELDS) {
+        if (row[field] != null) {
+          rowPatch[field] = moveFieldLang(row[field], migratedFromLang, normalized);
+        }
+      }
+      const { error: rowErr } = await supabase
+        .from(TABLES.guides)
+        .update(rowPatch)
+        .eq(GUIDE_PK, rowId);
+      if (rowErr) return { update: null, error: rowErr };
+    }
   }
 
   const { count: videoCount, error: videoError } = await supabase
@@ -205,6 +253,13 @@ export async function publishFertigReviewInLanguage(supabase, game, lang) {
     guideState: GUIDE_PUBLICATION.PUBLISHED,
     hasVideo: (videoCount ?? 0) > 0,
   });
+  if (migratedFromLang && migratedFromLang !== normalized) {
+    const oldKey = guideStatusKey(migratedFromLang);
+    const oldState = String(update[GAME_STRUCT.status]?.[oldKey] ?? '').trim().toUpperCase();
+    if (oldState === GUIDE_PUBLICATION.DONE) {
+      delete update[GAME_STRUCT.status][oldKey];
+    }
+  }
   delete update[GAME_STRUCT.status].review_queue;
   update[GAME_STRUCT.progress] = GUIDE_PUBLICATION.PUBLISHED;
 

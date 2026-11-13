@@ -18,6 +18,7 @@ function Header({
   onOpenWatchlist,
   onOpenProfile,
   onOpenPlatformTrophies,
+  onOpenHelp,
   onCustomizeHome,
   onGoHome,
 }) {
@@ -100,6 +101,7 @@ function Header({
           onOpenWatchlist={onOpenWatchlist}
           onOpenProfile={onOpenProfile}
           onOpenPlatformTrophies={onOpenPlatformTrophies}
+          onOpenHelp={onOpenHelp}
           onCustomizeHome={onCustomizeHome}
           watchlistPath={WATCHLIST_PATH}
           profilePath={PROFILE_PATH}

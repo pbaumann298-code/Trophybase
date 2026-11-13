@@ -96,6 +96,7 @@ comment on table public.user_game_settings is
 create or replace function public.tb_set_updated_at()
 returns trigger
 language plpgsql
+set search_path = public
 as $$
 begin
   new.updated_at = now();
@@ -119,9 +120,9 @@ create trigger user_game_settings_set_updated_at
   for each row execute function public.tb_set_updated_at();
 
 -- ---------------------------------------------------------------------------
--- Profil automatisch bei Sign-up
+-- Profil automatisch bei Sign-up (aktiver Trigger: trg_on_auth_user_created)
 -- ---------------------------------------------------------------------------
-create or replace function public.tb_handle_new_user()
+create or replace function public.handle_new_auth_user()
 returns trigger
 language plpgsql
 security definer
@@ -135,10 +136,10 @@ begin
 end;
 $$;
 
-drop trigger if exists on_auth_user_created_profiles on auth.users;
-create trigger on_auth_user_created_profiles
+drop trigger if exists trg_on_auth_user_created on auth.users;
+create trigger trg_on_auth_user_created
   after insert on auth.users
-  for each row execute function public.tb_handle_new_user();
+  for each row execute function public.handle_new_auth_user();
 
 -- ---------------------------------------------------------------------------
 -- Row Level Security
@@ -148,51 +149,34 @@ alter table public.user_watchlist enable row level security;
 alter table public.user_guide_progress enable row level security;
 alter table public.user_game_settings enable row level security;
 
-drop policy if exists profiles_select_own on public.profiles;
-drop policy if exists profiles_insert_own on public.profiles;
-drop policy if exists profiles_update_own on public.profiles;
-drop policy if exists profiles_delete_own on public.profiles;
-
-create policy profiles_select_own
-  on public.profiles for select to authenticated
-  using (auth.uid() = id);
-
-create policy profiles_insert_own
-  on public.profiles for insert to authenticated
-  with check (auth.uid() = id);
-
-create policy profiles_update_own
-  on public.profiles for update to authenticated
-  using (auth.uid() = id)
-  with check (auth.uid() = id);
-
-create policy profiles_delete_own
-  on public.profiles for delete to authenticated
-  using (auth.uid() = id);
+drop policy if exists profiles_own on public.profiles;
+create policy profiles_own
+  on public.profiles for all to authenticated
+  using ((id = (select auth.uid())) or (select public.tb_is_admin()))
+  with check ((id = (select auth.uid())) or (select public.tb_is_admin()));
 
 drop policy if exists user_watchlist_select_own on public.user_watchlist;
 drop policy if exists user_watchlist_insert_own on public.user_watchlist;
 drop policy if exists user_watchlist_update_own on public.user_watchlist;
 drop policy if exists user_watchlist_delete_own on public.user_watchlist;
--- ältere Sammel-Policy aus rls_production.sql (falls vorhanden)
 drop policy if exists user_watchlist_own on public.user_watchlist;
 
 create policy user_watchlist_select_own
   on public.user_watchlist for select to authenticated
-  using (auth.uid() = user_id);
+  using ((select auth.uid()) = user_id);
 
 create policy user_watchlist_insert_own
   on public.user_watchlist for insert to authenticated
-  with check (auth.uid() = user_id);
+  with check ((select auth.uid()) = user_id);
 
 create policy user_watchlist_update_own
   on public.user_watchlist for update to authenticated
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
 
 create policy user_watchlist_delete_own
   on public.user_watchlist for delete to authenticated
-  using (auth.uid() = user_id);
+  using ((select auth.uid()) = user_id);
 
 drop policy if exists user_guide_progress_select_own on public.user_guide_progress;
 drop policy if exists user_guide_progress_insert_own on public.user_guide_progress;
@@ -201,20 +185,20 @@ drop policy if exists user_guide_progress_delete_own on public.user_guide_progre
 
 create policy user_guide_progress_select_own
   on public.user_guide_progress for select to authenticated
-  using (auth.uid() = user_id);
+  using ((select auth.uid()) = user_id);
 
 create policy user_guide_progress_insert_own
   on public.user_guide_progress for insert to authenticated
-  with check (auth.uid() = user_id);
+  with check ((select auth.uid()) = user_id);
 
 create policy user_guide_progress_update_own
   on public.user_guide_progress for update to authenticated
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
 
 create policy user_guide_progress_delete_own
   on public.user_guide_progress for delete to authenticated
-  using (auth.uid() = user_id);
+  using ((select auth.uid()) = user_id);
 
 drop policy if exists user_game_settings_select_own on public.user_game_settings;
 drop policy if exists user_game_settings_insert_own on public.user_game_settings;
@@ -223,20 +207,20 @@ drop policy if exists user_game_settings_delete_own on public.user_game_settings
 
 create policy user_game_settings_select_own
   on public.user_game_settings for select to authenticated
-  using (auth.uid() = user_id);
+  using ((select auth.uid()) = user_id);
 
 create policy user_game_settings_insert_own
   on public.user_game_settings for insert to authenticated
-  with check (auth.uid() = user_id);
+  with check ((select auth.uid()) = user_id);
 
 create policy user_game_settings_update_own
   on public.user_game_settings for update to authenticated
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
 
 create policy user_game_settings_delete_own
   on public.user_game_settings for delete to authenticated
-  using (auth.uid() = user_id);
+  using ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------
 -- Grants

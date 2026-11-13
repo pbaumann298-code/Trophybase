@@ -138,17 +138,22 @@ begin
     return new;
   end if;
 
-  if new.slug is not null and btrim(new.slug) <> '' then
-    return new;
-  end if;
-
   hw := public.tb_hardware_slug(new.hardware);
-  if hw is null then
-    return new;
+
+  if new.slug is not null and btrim(new.slug) <> '' then
+    base := public.tb_slugify(new.slug);
+    if hw is null then
+      new.slug := coalesce(base, btrim(new.slug));
+      return new;
+    end if;
+  else
+    if hw is null then
+      return new;
+    end if;
+    base := public.tb_slugify(public.tb_title_for_slug(new.spieltitel));
   end if;
 
-  base := public.tb_slugify(public.tb_title_for_slug(new.spieltitel));
-  if base is null then
+  if base is null or btrim(base) = '' then
     return new;
   end if;
 
@@ -162,22 +167,31 @@ begin
       and public.tb_hardware_slug(g.hardware) = hw
   ) into clash;
 
-  if clash then
-    if new.release_jahr is not null then
-      candidate := base || '-' || new.release_jahr::text;
-      select exists (
-        select 1
-        from public.games g
-        where g.id is distinct from new.id
-          and g.slug = candidate
-          and public.tb_hardware_slug(g.hardware) = hw
-      ) into clash;
-    end if;
+  if clash and new.release_jahr is not null then
+    candidate := base || '-' || new.release_jahr::text;
+    select exists (
+      select 1
+      from public.games g
+      where g.id is distinct from new.id
+        and g.slug = candidate
+        and public.tb_hardware_slug(g.hardware) = hw
+    ) into clash;
   end if;
 
   if clash then
-    suffix := lower(regexp_replace(coalesce(new.platform_game_id, new.id::text), '[^a-z0-9]+', '-', 'g'));
-    suffix := regexp_replace(suffix, '^-+|-+$', '', 'g');
+    suffix := lower(
+      regexp_replace(
+        coalesce(
+          nullif(new.platform_game_id #>> '{0}', ''),
+          nullif(new.platform_game_id #>> '{}', ''),
+          new.id::text
+        ),
+        '[^a-z0-9]+',
+        '-',
+        'g'
+      )
+    );
+    suffix := btrim(suffix, '-');
     candidate := base || '-' || suffix;
   end if;
 
@@ -186,12 +200,14 @@ begin
 end;
 $$;
 
+revoke execute on function public.tb_assign_game_slug() from public, anon, authenticated;
+
 drop trigger if exists games_assign_slug on public.games;
 create trigger games_assign_slug
-  before insert or update of spieltitel, hardware, release_jahr, slug
+  before insert or update of spieltitel, hardware, release_jahr, slug, status
   on public.games
   for each row
-  execute procedure public.tb_assign_game_slug();
+  execute function public.tb_assign_game_slug();
 
 -- Einmal-Backfill bestehender Zeilen (Trigger füllt slug, wo noch null).
 -- Bei Statement-Timeout in Batches wiederholen, z. B. mit zusätzlichem

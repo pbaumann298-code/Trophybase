@@ -1,12 +1,17 @@
-import { hreflangOf } from '../../shared/countryLocaleMap.js';
+import { SUPPORTED_LOCALES, hreflangOf } from '../../shared/countryLocaleMap.js';
 import { buildPrettyGamePath, hardwareToUrlSegment } from './gameSlug';
 import {
   SITE_NAME,
   HOME_META_TITLE,
+  DEFAULT_SHARE_IMAGE,
   buildGameSeo,
   buildHomeJsonLd,
+  clipMetaText,
   hreflangCluster,
+  ogLocaleOf,
 } from './gameSeo';
+import { guideHelpPageCopy, guideHelpPublicPath } from './guideHelpPage';
+import { normalizeLocale } from './locale';
 
 const SEO_ATTR = 'data-tb-seo';
 const ROBOTS_ATTR = 'data-tb-robots';
@@ -223,6 +228,42 @@ export function applyHomeSeo() {
   restoreHomeSeo();
   setDocumentTitle(HOME_META_TITLE);
   syncHomeJsonLd();
+}
+
+export function applyGuideHelpSeo(locale) {
+  if (typeof document === 'undefined') return;
+  const loc = normalizeLocale(locale);
+  const copy = guideHelpPageCopy(loc);
+  const origin = getCanonicalOrigin().replace(/\/$/, '');
+  const canonical = `${origin}${guideHelpPublicPath(loc)}`;
+  const pageTitle = `${copy.title} – PlayStation | TrophyBase`;
+  const description = clipMetaText(copy.lead, 180);
+
+  applyRobotsNoIndex(false);
+  removeSeoLinks();
+  removeSeoMeta();
+  stashHomeSeo();
+  setDocumentTitle(pageTitle);
+
+  appendLink('canonical', { href: canonical });
+  for (const lang of SUPPORTED_LOCALES) {
+    appendLink('alternate', {
+      hreflang: hreflangOf(lang),
+      href: `${origin}${guideHelpPublicPath(lang)}`,
+    });
+  }
+  appendLink('alternate', {
+    hreflang: 'x-default',
+    href: `${origin}${guideHelpPublicPath('en')}`,
+  });
+
+  applyShareMeta({
+    title: pageTitle,
+    description,
+    url: canonical,
+    image: `${origin}${DEFAULT_SHARE_IMAGE}`,
+    ogLocale: ogLocaleOf(loc),
+  });
 }
 
 export function applyPathCanonical(path, { noIndex = false } = {}) {

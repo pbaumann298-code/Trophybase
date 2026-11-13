@@ -4,6 +4,7 @@ import { useLocale } from '../context/LocaleContext';
 import { localeOptions } from '../lib/uiStrings';
 import { SUPPORTED_LOCALES } from '../lib/locale';
 import { DEFAULT_AVAILABLE_LOCALES } from '../lib/contentLocales';
+import { guideHelpPublicPath } from '../lib/guideHelpPage';
 import {
   COMPLETED_TROPHY_STYLE,
   GUIDE_ROW_ORDER,
@@ -38,6 +39,7 @@ function HeaderSettingsMenu({
   onLogout,
   onOpenWatchlist,
   onOpenProfile,
+  onOpenHelp,
   onCustomizeHome,
   watchlistPath = '/watchlist',
   profilePath = '/profile',
@@ -126,6 +128,12 @@ function HeaderSettingsMenu({
     event.preventDefault();
     setOpen(false);
     onOpenProfile?.();
+  };
+
+  const openHelp = (event) => {
+    event.preventDefault();
+    setOpen(false);
+    onOpenHelp?.();
   };
 
   const logout = () => {
@@ -589,6 +597,15 @@ function HeaderSettingsMenu({
             onClick={openWatchlist}
           >
             {t('watchlistTitle')}
+          </a>
+
+          <a
+            href={guideHelpPublicPath(globalLocale)}
+            role="menuitem"
+            className="block px-3 py-2 text-xs font-medium text-zinc-300 no-underline hover:bg-zinc-800/80 hover:text-white"
+            onClick={openHelp}
+          >
+            {t('howTo')}
           </a>
 
           {isAdmin ? (
