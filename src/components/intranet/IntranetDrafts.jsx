@@ -78,6 +78,22 @@ const ADMIN_APPROVE_LOCALES = (() => {
   return ordered;
 })();
 
+/**
+ * Abgesegnete Standard-Chrono-Gruppen (100% in public.tb_glossary für alle 16 Sprachen hinterlegt).
+ */
+const APPROVED_CHRONO_PRESETS = [
+  'Walkthrough',
+  'Quick Guide',
+  'Quick Trophy Guide',
+  'Trophy Guide',
+  'Trophy Guides',
+  '100% Achievement Guide',
+  'Platinum Walkthrough',
+  'Achievement Walkthrough',
+  'Main Walkthrough',
+  'Einzel-Trophäen & Videos',
+];
+
 function isGameAlreadyPublishedOrLocked(game) {
   if (!game) return false;
   if (hasPublishedGuide(game)) return true;
@@ -335,6 +351,26 @@ function DraftBatchCustomInput({ field, selectedCount, disabled = false, onApply
       <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#00ff66] shrink-0">
         {label}
       </span>
+      {field === 'chronological_group' ? (
+        <select
+          value=""
+          disabled={disabled}
+          aria-label="Standard Chrono-Group wählen"
+          onChange={(event) => {
+            const preset = event.target.value;
+            if (!preset) return;
+            onApply?.(preset);
+          }}
+          className="rounded-lg border border-cyan-500/50 bg-zinc-900 px-2.5 py-2 text-xs font-mono font-bold text-cyan-200 focus:border-[#00ff66] focus:outline-none"
+        >
+          <option value="">✅ Standard-Variante wählen…</option>
+          {APPROVED_CHRONO_PRESETS.map((preset) => (
+            <option key={preset} value={preset}>
+              {preset}
+            </option>
+          ))}
+        </select>
+      ) : null}
       <input
         ref={inputRef}
         type="text"
@@ -611,6 +647,27 @@ function GroupPillPopover({
         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-300">
           ✏️ Umbenennen / Zusammenführen mit:
         </span>
+
+        {field === 'chronological_group' ? (
+          <select
+            value=""
+            disabled={actionBusy}
+            aria-label="Abgesegnete Standard-Chrono-Gruppe wählen"
+            onChange={(event) => {
+              const preset = event.target.value;
+              if (!preset) return;
+              onRename(preset);
+            }}
+            className="w-full rounded-lg border border-cyan-500/45 bg-zinc-950 px-2 py-1.5 text-[11px] font-mono font-bold text-cyan-200 focus:border-[#00ff66] focus:outline-none"
+          >
+            <option value="">✅ Auf Standard-Chrono setzen (Auto-16-Sprachen)…</option>
+            {APPROVED_CHRONO_PRESETS.map((preset) => (
+              <option key={preset} value={preset}>
+                {preset}
+              </option>
+            ))}
+          </select>
+        ) : null}
 
         <PillRenameInput
           key={`${field}:${pill.key}`}
@@ -11041,13 +11098,24 @@ export default function IntranetDrafts({
                           <option value="">⏱️ Chrono</option>
                           <option value="__CUSTOM__">✏️ + Neue Chrono-Group eingeben…</option>
                           <option value="__CLEAR__">🗑️ (Chrono-Group leeren)</option>
-                          {groupStats.chronoPills
-                            .filter((p) => !p.isEmpty)
-                            .map((p) => (
-                              <option key={p.key} value={p.rawValue}>
-                                {p.label} ({p.count})
+                          <optgroup label="✅ Standard-Gruppen (Auto-16-Sprachen)">
+                            {APPROVED_CHRONO_PRESETS.map((preset) => (
+                              <option key={`preset-${preset}`} value={preset}>
+                                {preset}
                               </option>
                             ))}
+                          </optgroup>
+                          {groupStats.chronoPills.some((p) => !p.isEmpty) ? (
+                            <optgroup label="📌 Im aktuellen Guide vorhanden">
+                              {groupStats.chronoPills
+                                .filter((p) => !p.isEmpty)
+                                .map((p) => (
+                                  <option key={p.key} value={p.rawValue}>
+                                    {p.label} ({p.count})
+                                  </option>
+                                ))}
+                            </optgroup>
+                          ) : null}
                         </select>
                         <select
                           value=""
