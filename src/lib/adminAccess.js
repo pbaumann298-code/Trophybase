@@ -1,5 +1,5 @@
-import { ALLOWED_ADMINS, normalizeEmail } from './maintenanceAccess';
-import { adminOverlaysHidden } from './adminOverlayPreference';
+import { ALLOWED_ADMINS, normalizeEmail } from './maintenanceAccess.js';
+import { adminOverlaysHidden } from './adminOverlayPreference.js';
 
 export const ADMIN_RETURN_STORAGE_KEY = 'tb_admin_return';
 export const ADMIN_ORIGIN_STORAGE_KEY = 'tb_admin_origin';

@@ -1,4 +1,4 @@
-import { SUPPORTED_LOCALES } from './locale';
+import { SUPPORTED_LOCALES } from './locale.js';
 
 /** UI-Texte für Website-Chrome (Header, Footer, gemeinsame Labels) */
 export const UI_STRINGS = {

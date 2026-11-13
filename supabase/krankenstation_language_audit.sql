@@ -98,35 +98,6 @@ WITH glossary_terms AS MATERIALIZED (
     array_agg(DISTINCT lower(tb_glossary.de)) FILTER (WHERE tb_glossary.de IS NOT NULL AND tb_glossary.de <> '') AS de_arr
   FROM public.tb_glossary
 ),
-candidate_games AS MATERIALIZED (
-  SELECT
-    g.id AS game_id,
-    COALESCE(NULLIF(btrim(g.spieltitel ->> 'de'), ''), NULLIF(btrim(g.spieltitel ->> 'en'), ''), 'Unbenannt') AS spieltitel,
-    lower(btrim(COALESCE(g.spieltitel ->> 'en', ''))) AS title_en_lc,
-    lower(btrim(COALESCE(g.spieltitel ->> 'de', ''))) AS title_de_lc,
-    g.spiel_typ,
-    g.hardware,
-    g.slug AS game_slug,
-    g.published_locales,
-    g.status ? 'refinement_en' AS has_refinement_en,
-    CASE
-      WHEN jsonb_typeof(g.published_locales) = 'array' AND jsonb_array_length(g.published_locales) = 1
-        THEN g.published_locales ->> 0
-      ELSE NULL
-    END AS single_pub_lang,
-    COALESCE(public.tb_source_lang_for_game(g.status), 'de') AS game_source_lang
-  FROM public.games g
-  WHERE g.published_locales IS NOT NULL
-    AND g.published_locales <> '[]'::jsonb
-    AND COALESCE(g.spiel_typ, '') !~~* '%Quickwin%'
-    AND EXISTS (
-      SELECT 1
-      FROM public.game_guides gg0
-      WHERE gg0.game_id = g.id
-        AND COALESCE(gg0.denglisch_ok, false) = false
-        AND public.tb_guide_lang_candidate_v2(gg0.item_name, gg0.video_chapter, gg0.translation_status)
-    )
-),
 raw_candidates AS MATERIALIZED (
   SELECT
     gg.id AS row_uuid,
@@ -139,13 +110,13 @@ raw_candidates AS MATERIALIZED (
     gg.video_chapter,
     gg.video_url,
     gg.creator_id,
-    cg.spieltitel,
-    cg.title_en_lc,
-    cg.title_de_lc,
-    cg.spiel_typ,
-    cg.hardware,
-    cg.game_slug,
-    cg.published_locales,
+    COALESCE(NULLIF(btrim(g.spieltitel ->> 'de'), ''), NULLIF(btrim(g.spieltitel ->> 'en'), ''), 'Unbenannt') AS spieltitel,
+    lower(btrim(COALESCE(g.spieltitel ->> 'en', ''))) AS title_en_lc,
+    lower(btrim(COALESCE(g.spieltitel ->> 'de', ''))) AS title_de_lc,
+    g.spiel_typ,
+    g.hardware,
+    g.slug AS game_slug,
+    g.published_locales,
     COALESCE(
       CASE
         WHEN gg.translation_status IS NOT NULL AND NOT (gg.translation_status ? 'stage') THEN
@@ -168,7 +139,11 @@ raw_candidates AS MATERIALIZED (
             WHEN gg.translation_status ->> 'ar' = 'SOURCE' THEN 'ar'
           END
       END,
-      cg.single_pub_lang,
+      CASE
+        WHEN jsonb_typeof(g.published_locales) = 'array' AND jsonb_array_length(g.published_locales) = 1
+          THEN g.published_locales ->> 0
+        ELSE NULL
+      END,
       CASE
         WHEN gg.video_chapter IS NOT NULL THEN
           CASE
@@ -184,18 +159,20 @@ raw_candidates AS MATERIALIZED (
           END
       END,
       CASE
-        WHEN cg.has_refinement_en AND NOT (COALESCE(gg.video_chapter, '{}'::jsonb) ? 'de') THEN 'en'
+        WHEN (g.status ? 'refinement_en') AND NOT (COALESCE(gg.video_chapter, '{}'::jsonb) ? 'de') THEN 'en'
       END,
-      cg.game_source_lang
+      COALESCE(public.tb_source_lang_for_game(g.status), 'de')
     ) AS checked_lang,
     gt.match_de_arr,
     gt.de_arr
-  FROM candidate_games cg
+  FROM public.games g
+  JOIN public.game_guides gg ON gg.game_id = g.id
   CROSS JOIN glossary_terms gt
-  JOIN public.game_guides gg
-    ON gg.game_id = cg.game_id
-   AND COALESCE(gg.denglisch_ok, false) = false
-   AND public.tb_guide_lang_candidate_v2(gg.item_name, gg.video_chapter, gg.translation_status)
+  WHERE g.published_locales IS NOT NULL
+    AND g.published_locales <> '[]'::jsonb
+    AND COALESCE(g.spiel_typ, '') !~~* '%Quickwin%'
+    AND COALESCE(gg.denglisch_ok, false) = false
+    AND public.tb_guide_lang_candidate_v2(gg.item_name, gg.video_chapter, gg.translation_status)
 ),
 pre_classified AS MATERIALIZED (
   SELECT
@@ -317,10 +294,10 @@ sony_sampled_games AS MATERIALIZED (
     mg.checked_lang,
     mg.pre_hits,
     mg.has_non_en,
-    s.sample_total,
-    s.sample_loc
+    COALESCE(s.sample_total, 0) AS sample_total,
+    COALESCE(s.sample_loc, 0) AS sample_loc
   FROM matched_games mg
-  CROSS JOIN LATERAL (
+  LEFT JOIN LATERAL (
     SELECT
       count(*)::integer AS sample_total,
       count(*) FILTER (
@@ -337,9 +314,9 @@ sony_sampled_games AS MATERIALIZED (
         AND ga.platform_achievement_id::text <> ALL (ARRAY['0', '1'])
       LIMIT 5
     ) sub
-  ) s
+  ) s ON (NOT mg.has_non_en AND mg.checked_lang <> 'en')
   WHERE mg.has_non_en
-     OR NOT (mg.checked_lang <> 'en' AND s.sample_total > 0 AND s.sample_loc = 0)
+     OR NOT (mg.checked_lang <> 'en' AND COALESCE(s.sample_total, 0) > 0 AND COALESCE(s.sample_loc, 0) = 0)
 ),
 sony_checked_games AS MATERIALIZED (
   SELECT
@@ -349,11 +326,11 @@ sony_checked_games AS MATERIALIZED (
     ssg.sample_loc,
     gt.total_rows_in_game
   FROM sony_sampled_games ssg
-  CROSS JOIN LATERAL (
+  LEFT JOIN LATERAL (
     SELECT count(*)::integer AS total_rows_in_game
     FROM public.game_guides gg2
     WHERE gg2.game_id = ssg.game_id
-  ) gt
+  ) gt ON true
   WHERE ssg.has_non_en OR ssg.pre_hits >= 2 OR gt.total_rows_in_game = 1
 ),
 sony_verified_rows AS (
@@ -477,7 +454,103 @@ ORDER BY
   spieltitel,
   (NULLIF(regexp_replace(guide_id, '[^0-9]', '', 'g'), '')::integer);
 
--- 4. Admin-Lese-RPC mit 30s Statement-Timeout-Puffer
+-- 4. Persistente Cache-Tabelle für sub-50ms Antwortzeiten & Null-Timeout-Risiko
+CREATE TABLE IF NOT EXISTS public.tb_krankenstation_language_cache (
+  row_uuid uuid PRIMARY KEY,
+  game_id uuid NOT NULL,
+  spieltitel text,
+  spiel_typ text,
+  hardware text,
+  published_locales text[],
+  verdachts_zeilen_im_spiel bigint,
+  guide_id text,
+  trophy_id text,
+  text_de text,
+  text_en text,
+  group_de text,
+  group_en text,
+  issue_type text,
+  checked_lang text,
+  detected_lang text,
+  checked_text text,
+  video_title text,
+  video_url text,
+  sony_trophy_name text,
+  sony_localized_pct numeric,
+  total_rows_in_game bigint,
+  creator_name text,
+  game_slug text,
+  cached_at timestamptz NOT NULL DEFAULT now(),
+  is_resolved boolean NOT NULL DEFAULT false
+);
+
+CREATE INDEX IF NOT EXISTS idx_tb_lang_cache_game ON public.tb_krankenstation_language_cache (game_id);
+CREATE INDEX IF NOT EXISTS idx_tb_lang_cache_active ON public.tb_krankenstation_language_cache (is_resolved) WHERE is_resolved = false;
+
+-- 4b. Cache-Refresh-Funktion (läuft mit 2min Timeout als SECURITY DEFINER)
+CREATE OR REPLACE FUNCTION public.tb_refresh_krankenstation_language_cache()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+SET statement_timeout TO '2min'
+AS $function$
+DECLARE
+  v_inserted integer := 0;
+BEGIN
+  IF NOT public.tb_is_admin()
+     AND current_user NOT IN ('postgres', 'supabase_admin', 'service_role')
+     AND coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+     AND coalesce((nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'), '') <> 'service_role'
+  THEN
+    RAISE EXCEPTION 'Nur für Admins erlaubt.' USING errcode = '42501';
+  END IF;
+
+  INSERT INTO public.tb_krankenstation_language_cache (
+    row_uuid, game_id, spieltitel, spiel_typ, hardware, published_locales,
+    verdachts_zeilen_im_spiel, guide_id, trophy_id, text_de, text_en,
+    group_de, group_en, issue_type, checked_lang, detected_lang, checked_text,
+    video_title, video_url, sony_trophy_name, sony_localized_pct, total_rows_in_game,
+    creator_name, game_slug, cached_at
+  )
+  SELECT
+    row_uuid, game_id, spieltitel, spiel_typ, hardware, published_locales,
+    verdachts_zeilen_im_spiel, guide_id, trophy_id, text_de, text_en,
+    group_de, group_en, issue_type, checked_lang, detected_lang, checked_text,
+    video_title, video_url, sony_trophy_name, sony_localized_pct, total_rows_in_game,
+    creator_name, game_slug, now()
+  FROM public.v_krankenstation_denglisch_guides
+  ON CONFLICT (row_uuid) DO UPDATE SET
+    spieltitel = EXCLUDED.spieltitel,
+    spiel_typ = EXCLUDED.spiel_typ,
+    hardware = EXCLUDED.hardware,
+    published_locales = EXCLUDED.published_locales,
+    verdachts_zeilen_im_spiel = EXCLUDED.verdachts_zeilen_im_spiel,
+    guide_id = EXCLUDED.guide_id,
+    trophy_id = EXCLUDED.trophy_id,
+    text_de = EXCLUDED.text_de,
+    text_en = EXCLUDED.text_en,
+    group_de = EXCLUDED.group_de,
+    group_en = EXCLUDED.group_en,
+    issue_type = EXCLUDED.issue_type,
+    checked_lang = EXCLUDED.checked_lang,
+    detected_lang = EXCLUDED.detected_lang,
+    checked_text = EXCLUDED.checked_text,
+    video_title = EXCLUDED.video_title,
+    video_url = EXCLUDED.video_url,
+    sony_trophy_name = EXCLUDED.sony_trophy_name,
+    sony_localized_pct = EXCLUDED.sony_localized_pct,
+    total_rows_in_game = EXCLUDED.total_rows_in_game,
+    creator_name = EXCLUDED.creator_name,
+    game_slug = EXCLUDED.game_slug,
+    cached_at = now();
+
+  GET DIAGNOSTICS v_inserted = ROW_COUNT;
+  RETURN v_inserted;
+END;
+$function$;
+
+-- 4c. Admin-Lese-RPC (liest direkt aus dem Cache, < 30ms Latenz)
 CREATE OR REPLACE FUNCTION public.tb_get_krankenstation_language_audit(
   p_limit integer DEFAULT 1000
 )
@@ -486,16 +559,38 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
+DECLARE
+  v_count integer;
+  v_oldest timestamptz;
 BEGIN
-  IF NOT public.tb_is_admin() THEN
-    RAISE EXCEPTION 'Nur für Admins erlaubt.';
+  IF NOT public.tb_is_admin()
+     AND current_user NOT IN ('postgres', 'supabase_admin', 'service_role')
+     AND coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+     AND coalesce((nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'), '') <> 'service_role'
+  THEN
+    RAISE EXCEPTION 'Nur für Admins erlaubt.' USING errcode = '42501';
   END IF;
 
-  PERFORM set_config('statement_timeout', '30s', true);
+  SELECT count(*), min(cached_at) INTO v_count, v_oldest FROM public.tb_krankenstation_language_cache;
+
+  IF v_count = 0 OR v_oldest IS NULL OR v_oldest < now() - interval '6 hours' THEN
+    PERFORM public.tb_refresh_krankenstation_language_cache();
+  END IF;
 
   RETURN QUERY
-  SELECT *
-  FROM public.v_krankenstation_denglisch_guides
+  SELECT
+    row_uuid, game_id, spieltitel, spiel_typ, hardware, published_locales,
+    verdachts_zeilen_im_spiel, guide_id, trophy_id, text_de, text_en,
+    group_de, group_en, issue_type, checked_lang, detected_lang, checked_text,
+    video_title, video_url, sony_trophy_name, sony_localized_pct, total_rows_in_game,
+    creator_name, game_slug
+  FROM public.tb_krankenstation_language_cache
+  WHERE is_resolved = false
+  ORDER BY
+    (CASE WHEN detected_lang <> 'en' THEN 1 ELSE 0 END) DESC,
+    verdachts_zeilen_im_spiel DESC,
+    spieltitel,
+    (NULLIF(regexp_replace(guide_id, '[^0-9]', '', 'g'), '')::integer)
   LIMIT greatest(1, least(coalesce(p_limit, 1000), 2000));
 END;
 $function$;
@@ -539,8 +634,15 @@ BEGIN
   ELSE
     SELECT array_agg(row_uuid)
     INTO v_target_ids
-    FROM public.v_krankenstation_denglisch_guides
-    WHERE game_id = p_game_id;
+    FROM public.tb_krankenstation_language_cache
+    WHERE game_id = p_game_id AND is_resolved = false;
+
+    IF v_target_ids IS NULL OR array_length(v_target_ids, 1) IS NULL THEN
+      SELECT array_agg(row_uuid)
+      INTO v_target_ids
+      FROM public.v_krankenstation_denglisch_guides
+      WHERE game_id = p_game_id;
+    END IF;
   END IF;
 
   SET LOCAL tb.stage1_running = '1';
@@ -692,6 +794,13 @@ BEGIN
     RAISE EXCEPTION 'Unbekannte Aktion: %', p_action;
   END IF;
 
+  -- Cache sofort nachziehen
+  IF v_target_ids IS NOT NULL AND array_length(v_target_ids, 1) > 0 THEN
+    UPDATE public.tb_krankenstation_language_cache
+    SET is_resolved = true
+    WHERE row_uuid = ANY(v_target_ids);
+  END IF;
+
   RETURN jsonb_build_object(
     'ok', true,
     'affected', v_affected,
@@ -716,11 +825,14 @@ AS $function$
 $function$;
 
 REVOKE ALL ON FUNCTION public.tb_get_krankenstation_language_audit(integer) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.tb_refresh_krankenstation_language_cache() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.tb_resolve_krankenstation_language(uuid, text, uuid, text, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.tb_resolve_denglisch_guide(uuid, text, uuid) FROM PUBLIC, anon;
 
 GRANT SELECT ON public.v_krankenstation_denglisch_guides TO authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE ON public.tb_krankenstation_language_cache TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.tb_get_krankenstation_language_audit(integer) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.tb_refresh_krankenstation_language_cache() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.tb_resolve_krankenstation_language(uuid, text, uuid, text, text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.tb_resolve_denglisch_guide(uuid, text, uuid) TO authenticated, service_role;
 

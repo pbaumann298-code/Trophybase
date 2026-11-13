@@ -9,7 +9,8 @@ import { buildSupabaseTableUrl } from '../../lib/supabaseDeepLink';
 const VIEW = 'v_krankenstation_denglisch_guides';
 const READ_RPC = 'tb_get_krankenstation_language_audit';
 const RESOLVE_RPC = 'tb_resolve_krankenstation_language';
-const ROW_LIMIT = 1000;
+const REFRESH_RPC = 'tb_refresh_krankenstation_language_cache';
+const ROW_LIMIT = 2000;
 
 const COLUMNS = [
   'row_uuid',
@@ -178,6 +179,7 @@ function ActionButton({ children, title, onClick, disabled = false, tone = 'sky'
 export default function IntranetKrankenstation({ reloadToken = 0, onCount, onOpenInDrafts }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [capped, setCapped] = useState(false);
@@ -194,37 +196,58 @@ export default function IntranetKrankenstation({ reloadToken = 0, onCount, onOpe
     onCount?.(next.length);
   }, [onCount]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadAudit = useCallback(async () => {
     setLoading(true);
-
-    const loadAudit = async () => {
+    try {
       const rpcRes = await supabase.rpc(READ_RPC, { p_limit: ROW_LIMIT });
-      if (!rpcRes.error) return rpcRes;
-      return supabase
-        .from(VIEW)
-        .select(COLUMNS)
-        .limit(ROW_LIMIT);
-    };
-
-    loadAudit().then(({ data, error: loadError }) => {
-      if (cancelled) return;
-      if (loadError) {
-        setError(loadError.message || 'Sprachprüfung konnte nicht geladen werden.');
+      let res = rpcRes;
+      if (rpcRes.error) {
+        res = await supabase
+          .from(VIEW)
+          .select(COLUMNS)
+          .limit(ROW_LIMIT);
+      }
+      if (res.error) {
+        setError(res.error.message || 'Sprachprüfung konnte nicht geladen werden.');
         commit([]);
       } else {
-        const next = data ?? [];
+        const next = res.data ?? [];
         setError('');
         setCapped(next.length >= ROW_LIMIT);
         commit(next);
       }
+    } finally {
       setLoading(false);
-    });
+    }
+  }, [commit]);
 
+  useEffect(() => {
+    let cancelled = false;
+    loadAudit();
     return () => {
       cancelled = true;
     };
-  }, [reloadToken, commit]);
+  }, [reloadToken, loadAudit]);
+
+  const handleRefreshCache = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setError('');
+    setNotice('');
+    try {
+      const { data, error: rpcErr } = await supabase.rpc(REFRESH_RPC);
+      if (rpcErr) {
+        setError(rpcErr.message || 'Cache-Aktualisierung fehlgeschlagen.');
+      } else {
+        setNotice(`⚡ Cache erfolgreich aktualisiert (${data ?? 0} Einträge analysiert).`);
+        await loadAudit();
+      }
+    } catch (e) {
+      setError(e?.message || 'Cache-Aktualisierung fehlgeschlagen.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const counts = useMemo(() => {
     const acc = {
@@ -428,13 +451,25 @@ export default function IntranetKrankenstation({ reloadToken = 0, onCount, onOpe
             })}
           </div>
 
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Spiel, Creator, Sprache oder Text filtern…"
-            className="min-w-[15rem] flex-1 sm:max-w-xs rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-100 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
-          />
+          <div className="flex w-full items-center gap-2 sm:w-auto sm:max-w-md">
+            <button
+              type="button"
+              onClick={handleRefreshCache}
+              disabled={refreshing || loading}
+              title="Aktualisiert den serverseitigen Sprach-Cache"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 font-mono text-xs font-bold text-zinc-300 transition hover:border-[#00ff66] hover:text-[#00ff66] disabled:opacity-40"
+            >
+              <span>{refreshing ? '⏳' : '⚡'}</span>
+              <span>{refreshing ? 'Prüft…' : 'Cache aktualisieren'}</span>
+            </button>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Spiel, Creator, Sprache oder Text filtern…"
+              className="min-w-[15rem] flex-1 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-1.5 font-mono text-xs text-zinc-100 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+            />
+          </div>
         </div>
       </div>
 
