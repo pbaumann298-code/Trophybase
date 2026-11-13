@@ -1,0 +1,10 @@
+# MANDATORY PROJECT RULES (TrophyBase.app)
+
+Lies und befolge vor JEDER Code- oder SQL-Änderung zwingend diese Projekt-Regeln:
+1. `.cursor/rules/CONTEXT.md` (Tech-Stack: Vite 8 + React 19 SPA + Vercel + Supabase – KEIN Next.js!)
+2. `.cursor/rules/SUPABASE_SCHEMA.mdc` (Exakte Spaltennamen, Trigger-Hoheit auf `games`)
+3. `.cursor/rules/ui-freeze-policy.mdc` (Striktes Design-Freeze für öffentliches V1-UI)
+
+Zusatz-Gesetze:
+- Niemals `publishing_status`, `published_locales` oder `is_published` manuell schreiben (Trigger-Hoheit).
+- Bei 20.000+ Spielen niemals unpaginierte Queries ohne `.range()` oder Index-Filter ausführen.

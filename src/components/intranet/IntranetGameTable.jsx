@@ -18,6 +18,7 @@ import { discardIntranetGuide,
   statusAfterPullBackToDrafts,
 } from '../../lib/intranetGameEdits';
 import { isSingleLangFertigGame, publishFertigReviewGame } from '../../lib/fertigReview';
+import { publishingFieldsFromStatus } from '../../lib/guidePublication';
 import {
   fetchHomeTagDefs,
   formatLocalizedHomeTags,
@@ -121,8 +122,7 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, on
     onQuickFertigPublish?.(game, update);
     patch(game.id, {
       status: update.status,
-      publishing_status: update.publishing_status,
-      published_locales: update.published_locales,
+      ...publishingFieldsFromStatus(update.status),
       is_guide_locked: true,
     });
     setNotice(`Freigegeben: ${langs.map((lang) => lang.toUpperCase()).join(', ')}`);

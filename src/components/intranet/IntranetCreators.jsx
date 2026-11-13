@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { LocaleProvider, useLocale } from '../../context/LocaleContext';
 import CreatorShowcaseGrid from '../creator/CreatorShowcaseGrid';
+import { setAdminReturnFlag } from '../../lib/adminAccess';
 import { creatorPublicPath } from '../../lib/creatorPage';
 import { slugify } from '../../lib/gameSlug';
 import { isSafeYoutubeChannelUrl } from '../../lib/contentCreators';
+import { intranetGameHref } from '../../lib/intranetQueries';
+import { withGuideTabParam } from '../../lib/routeUtils';
 import {
   blacklistCreator,
   createAdminCreator,
@@ -56,7 +59,7 @@ function emptyForm() {
     is_blacklisted: false,
     blacklist_reason: '',
     user_id: null,
-    game_count: 0,
+    game_count: null,
   };
 }
 
@@ -135,6 +138,7 @@ function StatusBadge({ status }) {
 function IntranetCreatorsBody() {
   const { globalLocale } = useLocale();
   const [creators, setCreators] = useState([]);
+  const [gameCountsById, setGameCountsById] = useState({});
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -143,37 +147,52 @@ function IntranetCreatorsBody() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [outreachWarning, setOutreachWarning] = useState('');
   const [notice, setNotice] = useState('');
   const [includeDrafts, setIncludeDrafts] = useState(true);
   const [listFilter, setListFilter] = useState('all');
   const [blacklistOpen, setBlacklistOpen] = useState(false);
   const [blacklistReason, setBlacklistReason] = useState('');
   const [blacklistMode, setBlacklistMode] = useState('unlink');
+  const [gamesReloadTick, setGamesReloadTick] = useState(0);
+
+  const applyLoadedCreators = useCallback((rows, outreachError, selectId) => {
+    setCreators(rows);
+    setOutreachWarning(
+      outreachError
+        ? `Outreach-Daten nicht erreichbar (${outreachError.message || 'Lesefehler'}). Beim Speichern werden nur Stammdaten aktualisiert.`
+        : '',
+    );
+    const next = (selectId && rows.find((creator) => creator.id === selectId)) || preferredCreator(rows);
+    if (next) {
+      setCreating(false);
+      setSelectedId(next.id);
+      setForm((prev) => formFromCreator({
+        ...next,
+        game_count: prev.id === next.id && typeof prev.game_count === 'number'
+          ? prev.game_count
+          : next.game_count,
+      }));
+      setSlugTouched(true);
+    }
+  }, []);
 
   const loadCreators = async (selectId) => {
     setError('');
-    const { data, error: loadError } = await fetchAdminCreators(supabase);
+    const { data, outreachError, error: loadError } = await fetchAdminCreators(supabase);
     if (loadError) {
       setCreators([]);
       setError(loadError.message || 'Creator konnten nicht geladen werden.');
       setLoading(false);
       return;
     }
-    const rows = data ?? [];
-    setCreators(rows);
-    const next = rows.find((creator) => creator.id === selectId) || preferredCreator(rows);
-    if (next) {
-      setCreating(false);
-      setSelectedId(next.id);
-      setForm(formFromCreator(next));
-      setSlugTouched(true);
-    }
+    applyLoadedCreators(data ?? [], outreachError, selectId);
     setLoading(false);
   };
 
   useEffect(() => {
     let cancelled = false;
-    fetchAdminCreators(supabase).then(({ data, error: loadError }) => {
+    fetchAdminCreators(supabase).then(({ data, outreachError, error: loadError }) => {
       if (cancelled) return;
       if (loadError) {
         setCreators([]);
@@ -181,26 +200,25 @@ function IntranetCreatorsBody() {
         setLoading(false);
         return;
       }
-      const rows = data ?? [];
-      setCreators(rows);
-      const next = preferredCreator(rows);
-      if (next) {
-        setCreating(false);
-        setSelectedId(next.id);
-        setForm(formFromCreator(next));
-        setSlugTouched(true);
-      }
+      applyLoadedCreators(data ?? [], outreachError, null);
       setLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyLoadedCreators]);
 
   const gameKey = !form.id || creating
     ? ''
-    : `${form.id}:${includeDrafts ? 'all' : 'live'}:${globalLocale}`;
-  const [gameState, setGameState] = useState({ key: '', games: [], loading: false });
+    : `${form.id}:${includeDrafts ? 'all' : 'live'}:${globalLocale}:${gamesReloadTick}`;
+  const [gameState, setGameState] = useState({
+    resolvedKey: '',
+    games: [],
+    error: '',
+  });
+  const gamesLoading = Boolean(gameKey) && gameState.resolvedKey !== gameKey;
+  const visibleGames = gameState.resolvedKey === gameKey ? gameState.games : [];
+  const gamesError = gameState.resolvedKey === gameKey ? gameState.error : '';
 
   useEffect(() => {
     if (!gameKey) return undefined;
@@ -210,19 +228,49 @@ function IntranetCreatorsBody() {
     fetchCreatorGames(supabase, creatorId, {
       locale: globalLocale,
       scope,
-    }).then(({ data, error: gamesError }) => {
+    }).then(({ data, stats, error: fetchError }) => {
       if (cancelled) return;
-      if (gamesError) setError(gamesError.message || 'Spiele konnten nicht geladen werden.');
+      // Fehler nur lokal im Spiele-Bereich — Creator-Liste/Formular bleiben intakt.
       setGameState({
-        key: gameKey,
-        games: gamesError ? [] : (data ?? []),
-        loading: false,
+        resolvedKey: gameKey,
+        games: fetchError ? [] : (data ?? []),
+        error: fetchError ? (fetchError.message || 'Spiele konnten nicht geladen werden.') : '',
       });
+      if (!fetchError) {
+        const linked = typeof stats?.linkedGameCount === 'number'
+          ? stats.linkedGameCount
+          : (data ?? []).length;
+        setGameCountsById((prev) => (
+          prev[creatorId] === linked ? prev : { ...prev, [creatorId]: linked }
+        ));
+        setCreators((prev) => prev.map((creator) => (
+          creator.id === creatorId
+            ? { ...creator, game_count: linked }
+            : creator
+        )));
+        setForm((prev) => (
+          prev.id === creatorId ? { ...prev, game_count: linked } : prev
+        ));
+      }
     });
     return () => {
       cancelled = true;
     };
   }, [gameKey, form.id, includeDrafts, globalLocale]);
+
+  useEffect(() => {
+    if (!blacklistOpen || saving) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setBlacklistOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [blacklistOpen, saving]);
+
+  const selectedCreator = useMemo(
+    () => creators.find((creator) => creator.id === selectedId) || null,
+    [creators, selectedId],
+  );
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -246,10 +294,6 @@ function IntranetCreatorsBody() {
     setNotice('');
   };
 
-  if (gameState.key !== gameKey) {
-    setGameState({ key: gameKey, games: [], loading: Boolean(gameKey) });
-  }
-
   const update = (key) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     setForm((prev) => {
@@ -263,9 +307,10 @@ function IntranetCreatorsBody() {
   };
 
   const selectCreator = (creator) => {
+    const cachedCount = gameCountsById[creator.id] ?? creator.game_count;
     setCreating(false);
     setSelectedId(creator.id);
-    setForm(formFromCreator(creator));
+    setForm(formFromCreator({ ...creator, game_count: cachedCount }));
     setSlugTouched(true);
     setNotice('');
     setError('');
@@ -273,12 +318,41 @@ function IntranetCreatorsBody() {
 
   const startCreate = () => {
     setCreating(true);
-    setSelectedId(null);
     setForm(emptyForm());
     setSlugTouched(false);
     setNotice('');
     setError('');
   };
+
+  const cancelCreate = () => {
+    const fallback = selectedCreator || preferredCreator(creators);
+    if (fallback) {
+      selectCreator(fallback);
+      return;
+    }
+    setCreating(false);
+    setForm(emptyForm());
+    setNotice('');
+    setError('');
+  };
+
+  const syncClaimToken = (creatorId, token) => {
+    setForm((prev) => (prev.id === creatorId ? { ...prev, claim_token: token } : prev));
+    setCreators((prev) => prev.map((creator) => (
+      creator.id === creatorId ? { ...creator, claim_token: token } : creator
+    )));
+  };
+
+  const openIntranetGame = useCallback((entry, options) => {
+    const base = intranetGameHref(entry);
+    if (!base) return;
+    const href = withGuideTabParam(base, options?.tab);
+    setAdminReturnFlag(true);
+    const opened = window.open(href, '_blank');
+    if (!opened) {
+      window.location.assign(href);
+    }
+  }, []);
 
   const save = async () => {
     const message = validateForm(form);
@@ -306,7 +380,9 @@ function IntranetCreatorsBody() {
     };
     const result = creating
       ? await createAdminCreator(supabase, payload)
-      : await saveAdminCreator(supabase, form.id, payload);
+      : await saveAdminCreator(supabase, form.id, payload, {
+        skipOutreach: Boolean(outreachWarning),
+      });
     setSaving(false);
     if (result.error) {
       const code = result.error.code;
@@ -321,15 +397,16 @@ function IntranetCreatorsBody() {
 
   const rotateToken = async () => {
     if (!form.id) return;
+    const targetId = form.id;
     setSaving(true);
     setError('');
-    const { data, error: rotateError } = await rotateCreatorClaimToken(supabase, form.id);
+    const { data, error: rotateError } = await rotateCreatorClaimToken(supabase, targetId);
     setSaving(false);
     if (rotateError) {
       setError(rotateError.message || 'Token konnte nicht erneuert werden.');
       return;
     }
-    setForm((prev) => ({ ...prev, claim_token: data?.claim_token || '' }));
+    syncClaimToken(targetId, data?.claim_token || '');
     setNotice('Einladungs-Token erneuert. Der alte Link ist ungültig.');
   };
 
@@ -344,7 +421,7 @@ function IntranetCreatorsBody() {
   };
 
   const publicUrl = () => {
-    const slug = form.slug.trim();
+    const slug = String(selectedCreator?.slug || form.slug || '').trim();
     if (!slug) return '';
     return `${window.location.origin}${creatorPublicPath(globalLocale, slug)}`;
   };
@@ -359,28 +436,35 @@ function IntranetCreatorsBody() {
   };
 
   const copyClaim = async () => {
-    let token = form.claim_token;
     if (!form.id) {
       setError('Creator zuerst speichern.');
       return;
     }
+    const base = publicUrl();
+    if (!base) {
+      setError('Zuerst einen Slug speichern.');
+      return;
+    }
+    let token = form.claim_token;
     if (!token) {
+      const targetId = form.id;
       setSaving(true);
-      const rotated = await rotateCreatorClaimToken(supabase, form.id);
+      const rotated = await rotateCreatorClaimToken(supabase, targetId);
       setSaving(false);
       if (rotated.error || !rotated.data?.claim_token) {
         setError(rotated.error?.message || 'Einladungslink konnte nicht erzeugt werden.');
         return;
       }
       token = rotated.data.claim_token;
-      setForm((prev) => ({ ...prev, claim_token: token }));
+      syncClaimToken(targetId, token);
     }
-    const url = `${publicUrl()}?claim=${encodeURIComponent(token)}`;
+    const url = `${base}?claim=${encodeURIComponent(token)}`;
     copyText(url, 'Einladungslink kopiert.');
   };
 
   const confirmBlacklist = async () => {
     if (!form.id) return;
+    const targetId = form.id;
     const reason = blacklistReason.trim();
     if (!reason) {
       setError('Bitte einen Blacklist-Grund angeben.');
@@ -395,7 +479,7 @@ function IntranetCreatorsBody() {
     if (!confirmed) return;
     setSaving(true);
     setError('');
-    const { error: blacklistError } = await blacklistCreator(supabase, form.id, {
+    const { error: blacklistError } = await blacklistCreator(supabase, targetId, {
       reason,
       mode: destructive ? 'delete' : 'unlink',
     });
@@ -406,10 +490,12 @@ function IntranetCreatorsBody() {
     }
     setBlacklistOpen(false);
     setBlacklistReason('');
+    setGameCountsById((prev) => ({ ...prev, [targetId]: 0 }));
+    setGamesReloadTick((tick) => tick + 1);
     setNotice(destructive
       ? 'Creator gesperrt. Zugeordnete Guide-Zeilen wurden gelöscht.'
       : 'Creator gesperrt. Video-Verknüpfung gelöst, Guide-Texte bleiben.');
-    await loadCreators(form.id);
+    await loadCreators(targetId);
   };
 
   return (
@@ -419,7 +505,7 @@ function IntranetCreatorsBody() {
         <p className="text-sm text-zinc-500 max-w-3xl leading-relaxed">
           Profile, Outreach und die Spiele, deren Guide-Videos über
           {' '}
-          <span className="font-mono text-zinc-400">game_guides.creator_id</span>
+          <span className="font-mono text-zinc-400">game_guide_creators</span>
           {' '}
           an diesem Kanal hängen.
         </p>
@@ -427,6 +513,9 @@ function IntranetCreatorsBody() {
 
       {error ? (
         <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/25 rounded-lg px-3 py-2">{error}</p>
+      ) : null}
+      {outreachWarning ? (
+        <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">{outreachWarning}</p>
       ) : null}
       {notice ? (
         <p className="text-xs text-[#00ff66] bg-[#00ff66]/10 border border-[#00ff66]/25 rounded-lg px-3 py-2">{notice}</p>
@@ -474,6 +563,8 @@ function IntranetCreatorsBody() {
           <div className="max-h-[28rem] overflow-y-auto space-y-1">
             {filtered.map((creator) => {
               const active = !creating && creator.id === selectedId;
+              const shownCount = gameCountsById[creator.id] ?? creator.game_count;
+              const hasCount = typeof shownCount === 'number';
               return (
                 <button
                   key={creator.id}
@@ -487,7 +578,9 @@ function IntranetCreatorsBody() {
                 >
                   <span className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-semibold text-white">{creator.channel_name}</span>
-                    <span className="text-[10px] font-mono text-zinc-500">{creator.game_count}</span>
+                    <span className={`text-[10px] font-mono ${hasCount ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                      {hasCount ? shownCount : '—'}
+                    </span>
                   </span>
                   <span className="mt-1 flex flex-wrap items-center gap-2">
                     <StatusBadge status={creator.outreach_status} />
@@ -520,6 +613,11 @@ function IntranetCreatorsBody() {
             {!creating && form.id ? (
               <span className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={form.outreach_status} />
+                {form.user_id ? (
+                  <span className="inline-flex rounded-full border border-[#00ff66]/40 bg-[#00ff66]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#00ff66]">
+                    Account verknüpft
+                  </span>
+                ) : null}
                 {form.is_blacklisted ? (
                   <span className="inline-flex rounded-full border border-red-500/50 bg-red-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-300">
                     BLACKLIST
@@ -611,7 +709,7 @@ function IntranetCreatorsBody() {
             </label>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="submit"
               disabled={saving}
@@ -619,7 +717,17 @@ function IntranetCreatorsBody() {
             >
               {saving ? 'Speichert…' : 'Speichern'}
             </button>
-            {!creating && form.slug ? (
+            {creating ? (
+              <button
+                type="button"
+                onClick={cancelCreate}
+                disabled={saving}
+                className="rounded-xl border border-zinc-700 px-4 py-2 text-xs font-bold uppercase tracking-wider text-zinc-300 hover:text-white disabled:opacity-50"
+              >
+                Abbrechen
+              </button>
+            ) : null}
+            {!creating && publicUrl() ? (
               <a
                 href={publicUrl()}
                 target="_blank"
@@ -652,27 +760,27 @@ function IntranetCreatorsBody() {
                   disabled={saving}
                   className="rounded-xl border border-zinc-700 px-4 py-2 text-xs font-bold uppercase tracking-wider text-zinc-400 disabled:opacity-50"
                 >
-                Token rotieren
-              </button>
-              {!form.is_blacklisted ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBlacklistReason('');
-                    setBlacklistMode('unlink');
-                    setBlacklistOpen(true);
-                  }}
-                  disabled={saving}
-                  className="rounded-xl border border-red-500/40 px-4 py-2 text-xs font-bold uppercase tracking-wider text-red-300 disabled:opacity-50"
-                >
-                  Auf Blacklist setzen
+                  Token rotieren
                 </button>
-              ) : null}
-            </>
-          ) : null}
-          {form.is_blacklisted && form.blacklist_reason ? (
-            <p className="text-xs text-red-300">Grund: {form.blacklist_reason}</p>
-          ) : null}
+                {!form.is_blacklisted ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBlacklistReason('');
+                      setBlacklistMode('unlink');
+                      setBlacklistOpen(true);
+                    }}
+                    disabled={saving}
+                    className="rounded-xl border border-red-500/40 px-4 py-2 text-xs font-bold uppercase tracking-wider text-red-300 disabled:opacity-50"
+                  >
+                    Auf Blacklist setzen
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+            {form.is_blacklisted && form.blacklist_reason ? (
+              <p className="text-xs text-red-300">Grund: {form.blacklist_reason}</p>
+            ) : null}
           </div>
         </form>
       </div>
@@ -682,7 +790,7 @@ function IntranetCreatorsBody() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-sm font-bold text-white">
               {includeDrafts ? 'Alle verknüpften Spiele' : 'Nur veröffentlichte Live-Guides'}
-              {gameState.loading ? '' : ` · ${gameState.games.length}`}
+              {gamesLoading ? '' : ` · ${visibleGames.length}`}
             </h3>
             <div className="flex rounded-xl border border-zinc-800 p-1 text-[11px] font-bold uppercase tracking-wider">
               <button
@@ -701,13 +809,18 @@ function IntranetCreatorsBody() {
               </button>
             </div>
           </div>
-          {gameState.loading ? (
+          {gamesLoading ? (
             <p className="text-sm text-zinc-500">Spiele werden geladen…</p>
+          ) : gamesError ? (
+            <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/25 rounded-lg px-3 py-2">
+              {gamesError}
+            </p>
           ) : (
             <CreatorShowcaseGrid
-              games={gameState.games}
+              games={visibleGames}
               creatorId={form.id}
               locale={globalLocale}
+              onOpenGame={openIntranetGame}
               showDraftState={includeDrafts}
             />
           )}
@@ -715,7 +828,12 @@ function IntranetCreatorsBody() {
       ) : null}
 
       {blacklistOpen ? (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4" onClick={() => setBlacklistOpen(false)}>
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4"
+          onClick={() => {
+            if (!saving) setBlacklistOpen(false);
+          }}
+        >
           <form
             role="dialog"
             aria-modal="true"
@@ -773,8 +891,9 @@ function IntranetCreatorsBody() {
               </button>
               <button
                 type="button"
+                disabled={saving}
                 onClick={() => setBlacklistOpen(false)}
-                className="rounded-xl border border-zinc-700 px-4 py-2 text-xs font-bold uppercase tracking-wider text-zinc-300"
+                className="rounded-xl border border-zinc-700 px-4 py-2 text-xs font-bold uppercase tracking-wider text-zinc-300 disabled:opacity-50"
               >
                 Abbrechen
               </button>

@@ -4615,8 +4615,6 @@ export default function IntranetDrafts({
           const unlockGamePatch = {
             [GAME_STRUCT.isGuideLocked]: false,
             [GAME_STRUCT.status]: unlockedStatus,
-            [GAME_STRUCT.publishingStatus]: {},
-            [GAME_STRUCT.publishedLocales]: [],
           };
           if (
             String(curGameForUnlock?.[GAME_STRUCT.progress] ?? '').trim().toUpperCase() ===
@@ -4700,7 +4698,7 @@ export default function IntranetDrafts({
         const { data: current } = await supabase
           .from(TABLES.games)
           .select(
-            `${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}`
+            GAME_STRUCT.status
           )
           .eq(GAME_PK, selectedGameId)
           .maybeSingle();
@@ -6923,7 +6921,7 @@ export default function IntranetDrafts({
       const { data: currentGameData, error: gameReadErr } = await supabase
         .from(TABLES.games)
         .select(
-          `${GAME_PK}, platform_game_id, ${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}, ${GAME_STRUCT.progress}, ${GAME_STRUCT.isGuideLocked}`
+          `${GAME_PK}, platform_game_id, ${GAME_STRUCT.status}, ${GAME_STRUCT.progress}, ${GAME_STRUCT.isGuideLocked}`
         )
         .eq(GAME_PK, targetGameId)
         .maybeSingle();
@@ -6950,8 +6948,6 @@ export default function IntranetDrafts({
       const unlockPatch = {
         [GAME_STRUCT.isGuideLocked]: false,
         [GAME_STRUCT.status]: nextStatus,
-        [GAME_STRUCT.publishingStatus]: {},
-        [GAME_STRUCT.publishedLocales]: [],
       };
       if (
         String(currentGameData?.[GAME_STRUCT.progress] ?? selectedGame?.[GAME_STRUCT.progress] ?? '')

@@ -1,5 +1,5 @@
 import { SUPPORTED_LOCALES } from '../../shared/countryLocaleMap.js';
-import { TABLES, GAME_PK, GAME_STRUCT, GAME_TYPE, isQuickwinStyleType, computeIsIndexable } from './gameSchema.js';
+import { TABLES, GAME_PK, GAME_STRUCT, computeIsIndexable } from './gameSchema.js';
 import { normalizeLocale } from './locale.js';
 import { ensureGameSlug, warmPublishedGuidePages } from './publishSeo.js';
 
@@ -79,44 +79,30 @@ export function guideStatusKey(lang) {
 }
 
 /**
- * publishing_status und published_locales aus der Statusmappe.
- * Berücksichtigt alle Sprachen mit PUBLISHED oder FERTIG (sowie optionale bestehende Werte).
+ * Ableitung von publishing_status und published_locales aus games.status.
+ * Nur guide_<lang> = PUBLISHED zählt. FERTIG, READY und DRAFT bleiben ausschließlich in status.
+ * Die Spalten selbst schreibt der Trigger games_sync_publishing_columns; dieses Objekt
+ * dient nur der lokalen Anzeige, nie als Update-Payload.
  * @param {Record<string, unknown>} statusMap
- * @param {unknown} [existingPublishingStatus]
- * @param {unknown} [existingPublishedLocales]
  */
-export function publishingFieldsFromStatus(
-  statusMap,
-  existingPublishingStatus = null,
-  existingPublishedLocales = null,
-) {
-  const publishingStatus =
-    existingPublishingStatus &&
-    typeof existingPublishingStatus === 'object' &&
-    !Array.isArray(existingPublishingStatus)
-      ? { ...existingPublishingStatus }
-      : {};
-  const localesSet = new Set(
-    Array.isArray(existingPublishedLocales)
-      ? existingPublishedLocales.map((l) => normalizeLocale(l)).filter(Boolean)
-      : [],
-  );
+export function publishingFieldsFromStatus(statusMap) {
+  const publishingStatus = {};
+  const localesSet = new Set();
 
   for (const [key, value] of Object.entries(statusMap ?? {})) {
     if (!key.startsWith('guide_')) continue;
     const lang = normalizeLocale(key.slice('guide_'.length));
     if (!lang) continue;
     const upper = String(value ?? '').trim().toUpperCase();
-    if (upper === GUIDE_PUBLICATION.PUBLISHED || upper === GUIDE_PUBLICATION.DONE) {
+    if (upper === GUIDE_PUBLICATION.PUBLISHED) {
       publishingStatus[lang] = GUIDE_PUBLICATION.PUBLISHED;
       localesSet.add(lang);
     }
   }
 
-  const publishedLocales = [...localesSet].sort();
   return {
     [GAME_STRUCT.publishingStatus]: publishingStatus,
-    [GAME_STRUCT.publishedLocales]: publishedLocales,
+    [GAME_STRUCT.publishedLocales]: [...localesSet].sort(),
   };
 }
 
@@ -136,8 +122,9 @@ export async function removeGameFromWiedervorlage(supabase, gameUuid) {
 }
 
 /**
- * Erzeugt das einheitliche Update-Objekt für public.games bei Guide-Freigabe / Direkt-Upload
- * (setzt guide_<lang>, publish_status: 'PUBLISHED', publishing_status, published_locales, is_guide_locked: true).
+ * Erzeugt das einheitliche Update-Objekt für public.games bei Guide-Freigabe / Direkt-Upload.
+ * Schreibt nur status (guide_<lang>, publish_status) und is_guide_locked.
+ * publishing_status, published_locales und is_published setzt games_sync_publishing_columns.
  * @param {object} params
  * @param {Record<string, unknown>} [params.currentGame] Aktuelle games-Zeile
  * @param {string} params.lang Sprachkürzel ('de' | 'en' | ...)
@@ -172,23 +159,8 @@ export function buildUnifiedGuidePublishPatch({
     delete statusMap.rohmaterial;
   }
 
-  const pubFields = publishingFieldsFromStatus(
-    statusMap,
-    currentGame?.[GAME_STRUCT.publishingStatus],
-    currentGame?.[GAME_STRUCT.publishedLocales],
-  );
-
-  pubFields[GAME_STRUCT.publishingStatus][normalizedLang] = GUIDE_PUBLICATION.PUBLISHED;
-  if (!pubFields[GAME_STRUCT.publishedLocales].includes(normalizedLang)) {
-    pubFields[GAME_STRUCT.publishedLocales] = [
-      ...pubFields[GAME_STRUCT.publishedLocales],
-      normalizedLang,
-    ].sort();
-  }
-
   return {
     [GAME_STRUCT.status]: statusMap,
-    ...pubFields,
     [GAME_STRUCT.isGuideLocked]: true,
   };
 }
@@ -337,7 +309,7 @@ export async function setGuidePublished(supabase, gameUuid, lang, published) {
   const { data: current, error: readError } = await supabase
     .from(TABLES.games)
     .select(
-      `${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}, ${GAME_STRUCT.slug}, ${GAME_STRUCT.hardware}, ${GAME_STRUCT.gameType}`,
+      `${GAME_STRUCT.status}, ${GAME_STRUCT.slug}, ${GAME_STRUCT.hardware}, ${GAME_STRUCT.gameType}`,
     )
     .eq(GAME_PK, uuid)
     .maybeSingle();

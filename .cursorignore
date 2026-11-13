@@ -1,0 +1,9 @@
+# KI-Kontext-Bremse: Vor Cursor-Scans verstecken, aber in Git behalten
+_pipeline_backup/
+supabase/_archive/
+
+# Doppelt abgesichert für lokale Arbeitsdateien
+dist/
+node_modules/
+*.xlsx
+*.csv

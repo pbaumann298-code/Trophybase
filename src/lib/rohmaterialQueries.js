@@ -254,7 +254,7 @@ export async function promoteRohmaterialBatchToGuide(
 
   const { data: current, error: statusReadError } = await supabase
     .from(TABLES.games)
-    .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}`)
+    .select(GAME_STRUCT.status)
     .eq(GAME_PK, id)
     .maybeSingle();
 
@@ -646,7 +646,7 @@ export async function moveGameToMultiTab(supabase, gameId) {
   const { data: game, error: gameError } = await supabase
     .from(TABLES.games)
     .select(
-      `${GAME_PK}, ${GAME_PLATFORM_ID}, ${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}, ${GAME_STRUCT.progress}, ${GAME_STRUCT.isGuideLocked}`,
+      `${GAME_PK}, ${GAME_PLATFORM_ID}, ${GAME_STRUCT.status}, ${GAME_STRUCT.progress}, ${GAME_STRUCT.isGuideLocked}`,
     )
     .eq(GAME_PK, id)
     .maybeSingle();
@@ -685,8 +685,6 @@ export async function moveGameToMultiTab(supabase, gameId) {
   const unlockPatch = {
     [GAME_STRUCT.isGuideLocked]: false,
     [GAME_STRUCT.status]: nextStatus,
-    [GAME_STRUCT.publishingStatus]: {},
-    [GAME_STRUCT.publishedLocales]: [],
   };
   if (String(game[GAME_STRUCT.progress] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.PUBLISHED) {
     unlockPatch[GAME_STRUCT.progress] = GUIDE_PUBLICATION.DONE;

@@ -1,0 +1,20 @@
+---
+description: Verbindlicher Projekt-Kontext, Tech-Stack und Architektur-Leitplanken für TrophyBase.app
+alwaysApply: true
+---
+
+# PROJECT CONTEXT: TrophyBase.app
+
+## Aktueller Tech-Stack & Skalierung
+Vite 8 + React 19 SPA (Multi-Entry: index.html, admin.html, intranet.html) + Vercel Serverless/Edge Functions (`api/`, `middleware.js`) + Supabase (PostgreSQL); Domain & Mail über IONOS.
+
+- **App-Architektur:** Vite 8 + React 19 Multi-Entry SPA (`index.html`, `admin.html`, `intranet.html`). Verwende niemals `next/*`-Imports, `'use client'` oder App-Router-Konventionen.
+- **Server / Edge:** Vercel Serverless & Edge Functions (`api/`, `middleware.js`, `vercel.json`). IONOS wird ausschließlich für Domain und Mail genutzt.
+- **Backend / DB:** Supabase (PostgreSQL) mit 20.000+ Spielen (PlayStation, Steam, Xbox) und lokalisierter Guide-Pipeline (16 Sprachen).
+- **Lokale Pipelines:** Python 3.14 + `supabase-py` + `google-genai` (nutze reale Modelle aus `.env`, Default `gemini-2.5-flash`).
+
+## Zwingende Ausführungs-Regeln
+1. **Skalierung & PostgREST-Limits:** Bei 20.000+ Spielen dürfen niemals unpaginierte Selects über große Tabellen laufen. Nutze konsequent `.range()`, gezielte Filter auf indizierte Spalten oder RPCs. Keine ungebremsten Client-Loops mit Einzel-Queries (N+1).
+2. **DB-Trigger respektieren (`SUPABASE_SCHEMA.mdc`):** Schreibe NIEMALS manuell in `games.publishing_status`, `games.published_locales` oder `games.is_published`. Aktualisiere ausschließlich `games.status` (und ggf. `is_guide_locked`) – den Rest erledigt der Trigger `games_sync_publishing_columns`.
+3. **Spalten-Disziplin:** Nutze für Regionen exakt `spiel_region` bzw. `spiel_region_tab` (immer lowercase). Verwende niemals Legacy-Namen wie `localisation`, `localisation_sheet` oder großgeschriebenes `Spiel_region` in DB-Payloads. Erfinde keine Spaltennamen ohne Abgleich mit `.cursor/rules/SUPABASE_SCHEMA.mdc` oder bestehenden Migrationen.
+4. **UI-Freeze beachten:** Öffentliche V1-Komponenten unterliegen `.cursor/rules/ui-freeze-policy.mdc`. Änderungen an V2 passieren gekapselt in `src/v2/`, Admin-/Intranet-Logik bleibt sauber vom öffentlichen Bundle getrennt.

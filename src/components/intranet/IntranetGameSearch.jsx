@@ -8,6 +8,7 @@ import { GAME_TYPE } from '../../lib/gameSchema';
 import { INTRANET_GAME_LIMIT, INTRANET_GAME_TYPE_EMPTY, INTRANET_QUICK_FILTERS, countIntranetQuickFilters, searchIntranetGames, searchIntranetGamesLive } from '../../lib/intranetQueries';
 import { PIPELINE_PRESETS, PIPELINE_STATUS_KEYS, STATUS_FILTER_MODES } from '../../lib/gamePipelineStatus';
 import IntranetGameTable from './IntranetGameTable';
+import { publishingFieldsFromStatus } from '../../lib/guidePublication';
 
 const FIELD_CLASS =
   'bg-[#121314] border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-200 focus:outline-hidden focus:border-[#00ff66]/40 w-full';
@@ -453,8 +454,7 @@ function IntranetGameSearch({ sessionUser, onOpenInDrafts }) {
           onQuickFertigPublish={(game, update) => {
             handleGamePatch(game.id, {
               status: update.status,
-              publishing_status: update.publishing_status,
-              published_locales: update.published_locales,
+              ...publishingFieldsFromStatus(update.status),
               is_guide_locked: update.is_guide_locked,
             });
             setLiveRefresh((value) => value + 1);

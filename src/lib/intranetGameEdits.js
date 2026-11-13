@@ -21,7 +21,6 @@ import { formatHardwareValue } from './gameSlug';
 import {
   GUIDE_PUBLICATION,
   buildUnifiedGuidePublishPatch,
-  guideStatusKey,
   parseStatusMap,
   removeGameFromWiedervorlage,
 } from './guidePublication';
@@ -44,6 +43,10 @@ export function statusAfterGuideDiscard(currentStatus) {
   const statusMap = { ...parseStatusMap(currentStatus) };
   for (const key of Object.keys(statusMap)) {
     if (key.startsWith('guide_') || GUIDE_DISCARD_KEYS.has(key)) delete statusMap[key];
+  }
+  const publish = String(statusMap.publish_status ?? '').trim().toUpperCase();
+  if (publish === GUIDE_PUBLICATION.PUBLISHED || publish === 'READY') {
+    statusMap.publish_status = GUIDE_PUBLICATION.DONE;
   }
   statusMap.guides = 'NO_GUIDE';
   return statusMap;
@@ -554,11 +557,11 @@ export async function clearGameGuideTips(supabase, gameId, locale) {
 
 /**
  * Löscht alle game_guides-Zeilen eines Spiels und nimmt die Freigabe zurück.
- * publishing_status / published_locales werden geleert — eine Spalte is_published gibt es nicht.
- *
- * Reihenfolge ist durch `trg_protect_published_guides` vorgegeben: solange das Spiel
- * gesperrt oder veröffentlicht ist, blockiert die DB das DELETE auf game_guides.
- * Deshalb wird `games` zuerst entsperrt und erst danach gelöscht.
+ * guide_<lang> fällt aus status, publish_status geht von PUBLISHED/READY auf FERTIG.
+ * publishing_status, published_locales und is_published leert der Trigger
+ * games_sync_publishing_columns. Solange published_locales, is_guide_locked,
+ * fortschritt oder publish_status noch PUBLISHED sind, blockiert
+ * trg_protect_published_guides das DELETE. Deshalb wird games zuerst entsperrt.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
  */
@@ -578,8 +581,6 @@ export async function discardIntranetGuide(supabase, gameId) {
   const unlockPatch = {
     [GAME_STRUCT.isGuideLocked]: false,
     [GAME_STRUCT.status]: nextStatus,
-    [GAME_STRUCT.publishingStatus]: {},
-    [GAME_STRUCT.publishedLocales]: [],
   };
   if (String(current?.[GAME_STRUCT.progress] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.PUBLISHED) {
     unlockPatch[GAME_STRUCT.progress] = GUIDE_PUBLICATION.DONE;
@@ -638,9 +639,10 @@ export function statusAfterPullBackToDrafts(currentStatus) {
  *
  * Reihenfolge ist durch den DB-Trigger `trg_protect_published_guides` vorgegeben:
  * Solange `games.is_guide_locked = true`, `fortschritt = 'PUBLISHED'`,
- * `status.publish_status = 'PUBLISHED'` oder `publishing_status` ein PUBLISHED enthält,
- * blockiert die DB DELETE/UPDATE auf `game_guides`. Deshalb wird zuerst `games`
- * entsperrt, dann nach Staging kopiert und erst zuletzt aus `game_guides` gelöscht.
+ * `status.publish_status = 'PUBLISHED'` oder `published_locales` nicht leer ist,
+ * blockiert die DB DELETE/UPDATE auf `game_guides`. guide_* mit PUBLISHED/READY
+ * wird auf FERTIG gesetzt, damit games_sync_publishing_columns published_locales
+ * leert. Danach wird nach Staging kopiert und erst zuletzt aus `game_guides` gelöscht.
  *
  * game_guides (jsonb-Sprachmaps) → staging_game_guides (flache text/integer-Spalten):
  * `item_name`, `chronological_group`, `category_group`, `boss_group`, `video_chapter`
@@ -663,7 +665,7 @@ export async function pullGameBackToDrafts(supabase, gameId, lang = 'de') {
   const { data: game, error: gameError } = await supabase
     .from(TABLES.games)
     .select(
-      `${GAME_PK}, ${GAME_PLATFORM_ID}, ${GAME_I18N.title}, ${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}, ${GAME_STRUCT.progress}, ${GAME_STRUCT.isGuideLocked}`,
+      `${GAME_PK}, ${GAME_PLATFORM_ID}, ${GAME_I18N.title}, ${GAME_STRUCT.status}, ${GAME_STRUCT.progress}, ${GAME_STRUCT.isGuideLocked}`,
     )
     .eq(GAME_PK, id)
     .maybeSingle();
@@ -707,8 +709,6 @@ export async function pullGameBackToDrafts(supabase, gameId, lang = 'de') {
   const unlockPatch = {
     [GAME_STRUCT.isGuideLocked]: false,
     [GAME_STRUCT.status]: nextStatus,
-    [GAME_STRUCT.publishingStatus]: {},
-    [GAME_STRUCT.publishedLocales]: [],
   };
   if (String(game[GAME_STRUCT.progress] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.PUBLISHED) {
     unlockPatch[GAME_STRUCT.progress] = GUIDE_PUBLICATION.DONE;
@@ -1326,7 +1326,7 @@ export async function insertQuickGuideSteps(
 
   const { data: current, error: statusReadError } = await supabase
     .from(TABLES.games)
-    .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.publishingStatus}, ${GAME_STRUCT.publishedLocales}`)
+    .select(GAME_STRUCT.status)
     .eq(GAME_PK, id)
     .maybeSingle();
 

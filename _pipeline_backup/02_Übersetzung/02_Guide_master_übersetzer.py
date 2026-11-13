@@ -527,7 +527,6 @@ def apply_translations_and_save(
             rows_to_save.append(
                 {
                     "id": row["id"],
-                    "spiel_region": row["spiel_region"],
                     "spiel_region": row["spiel_region"],  # Für RPC-Kompatibilität
                     "chronological_group": row["chronological_group"],
                     "category_group": row["category_group"],

@@ -10,11 +10,12 @@ import {
 import { HUB_GAME_SELECT } from './gameQueries.js';
 import {
   GUIDE_PUBLICATION,
-  guideStatusKey,
   hasPublishedGuide,
+  isGuidePublished,
   publishedGuideLocales,
 } from './guidePublication.js';
 import { getGameTitle } from './gameModel.js';
+import { statusAfterGuideDiscard } from './intranetGameEdits.js';
 import { normalizeLocale, SUPPORTED_LOCALES } from './locale.js';
 import { localizeJsonField } from './translationUtils.js';
 import {
@@ -34,7 +35,9 @@ import {
  *   - guide_id, sheet_type, creator_id
  * Eine playlist_url-Spalte gibt es auf game_guides nicht (nur Staging/Rohmaterial).
  *
- * public.game_guide_creators ist eine Read-only-View (game_id, creator_id).
+ * Spiel-IDs eines einzelnen Creators kommen dedupliziert aus der View
+ * public.game_guide_creators (gefiltert per creator_id; Index-Only-Scan über
+ * game_guides(creator_id, game_id), nicht als Vollscan beim Intranet-Initial-Load).
  * public.creator_outreach_admin darf nur von den Admin-Funktionen gelesen werden.
  *
  * signature_tags ist in der Live-Datenbank ein text[]-Array, kein jsonb.
@@ -97,7 +100,7 @@ const SHEET_TAB = {
 const PLAYLIST_ID = /^(PL|UU|OL|FL|LL)/;
 
 function emptyStats() {
-  return { gameCount: 0, languageVersions: 0 };
+  return { gameCount: 0, languageVersions: 0, linkedGameCount: 0 };
 }
 
 function chunkList(values, size) {
@@ -170,8 +173,10 @@ function statsFromGames(games) {
 }
 
 /**
- * Alle game_id eines Creators aus der View, in 1000er-Ranges.
- * Die View wird nur gelesen.
+ * Distinct game_id eines einzelnen Creators über die View public.game_guide_creators
+ * (SELECT DISTINCT game_id, creator_id FROM game_guides WHERE creator_id IS NOT NULL).
+ * Startet mit .range(0, 999) (Index-Only-Scan auf game_guides(creator_id, game_id))
+ * und paginiert nur weiter, falls ein Creator >= 1.000 eigene Spiele erreicht.
  */
 export async function fetchCreatorGameIds(supabase, creatorId) {
   const id = String(creatorId ?? '').trim();
@@ -179,23 +184,20 @@ export async function fetchCreatorGameIds(supabase, creatorId) {
 
   const page = await fetchAllRanges(() => supabase
     .from(TABLES.gameGuideCreators)
-    .select(`${GAME_FK}, ${GUIDE_STRUCT.creatorId}`)
+    .select(GAME_FK)
     .eq(GUIDE_STRUCT.creatorId, id)
+    .not(GAME_FK, 'is', null)
     .order(GAME_FK, { ascending: true }));
 
   if (page.error) return { data: [], error: page.error };
   return { data: uniqueIds(page.data, GAME_FK), error: null };
 }
 
-async function fetchGamesByIds(supabase, gameIds, columns, scope, locale) {
+async function fetchGamesByIds(supabase, gameIds, columns, onlyPublished) {
   const rows = [];
   for (const chunk of chunkList(gameIds, GAME_ID_CHUNK)) {
     let query = supabase.from(TABLES.games).select(columns).in(GAME_PK, chunk);
-    if (scope === 'locale') {
-      query = query.or(
-        `${GAME_STRUCT.status}->>${guideStatusKey(locale)}.eq.${GUIDE_PUBLICATION.PUBLISHED}`,
-      );
-    } else if (scope === 'live') {
+    if (onlyPublished) {
       query = query.eq(GAME_STRUCT.isPublished, true);
     }
     const { data, error } = await query;
@@ -216,26 +218,27 @@ export async function fetchCreatorGames(supabase, creatorId, options = {}) {
   if (ids.error) return { data: [], stats: emptyStats(), error: ids.error };
   if (ids.data.length === 0) return { data: [], stats: emptyStats(), error: null };
 
-  const cards = await fetchGamesByIds(supabase, ids.data, CREATOR_CARD_SELECT, scope, locale);
-  if (cards.error) return { data: [], stats: emptyStats(), error: cards.error };
+  // Für 'locale' und 'live' reicht ein einziger Query auf is_published = true:
+  // vermeidet Doppel-Queries auf games und PostgREST-Syntaxfehler bei Bindestrich-Locales (zh-hans/zh-hant).
+  const fetched = await fetchGamesByIds(
+    supabase,
+    ids.data,
+    CREATOR_CARD_SELECT,
+    scope !== 'all',
+  );
+  if (fetched.error) return { data: [], stats: emptyStats(), error: fetched.error };
 
-  let stats;
-  if (scope === 'locale') {
-    const live = await fetchGamesByIds(
-      supabase,
-      ids.data,
-      `${GAME_PK}, ${GAME_STRUCT.status}`,
-      'live',
-      locale,
-    );
-    if (live.error) return { data: [], stats: emptyStats(), error: live.error };
-    stats = statsFromGames(live.data);
-  } else {
-    stats = statsFromGames(cards.data);
-  }
-
-  const data = [...cards.data].sort(compareGames(locale));
-  return { data, stats, error: null };
+  const stats = statsFromGames(fetched.data);
+  const visible = scope === 'locale'
+    ? fetched.data.filter((game) => isGuidePublished(game, locale))
+    : fetched.data;
+  const data = [...visible].sort(compareGames(locale));
+  // linkedGameCount = alle distinct game_id an diesem Creator (unabhängig vom Publish-Scope).
+  return {
+    data,
+    stats: { ...stats, linkedGameCount: ids.data.length },
+    error: null,
+  };
 }
 
 function guideNumber(value) {
@@ -404,7 +407,7 @@ function normalizeOutreach(row) {
   };
 }
 
-function normalizeAdminCreator(row, outreach, gameCount) {
+function normalizeAdminCreator(row, outreach, gameCount = null) {
   if (!row) return null;
   return {
     id: row.id,
@@ -420,30 +423,18 @@ function normalizeAdminCreator(row, outreach, gameCount) {
     user_id: row.user_id ?? null,
     is_blacklisted: Boolean(row.is_blacklisted),
     blacklist_reason: String(row.blacklist_reason ?? ''),
-    game_count: gameCount ?? 0,
+    game_count: typeof gameCount === 'number' ? gameCount : null,
     ...normalizeOutreach(outreach),
   };
 }
 
-async function fetchCreatorGameCounts(supabase) {
-  const counts = new Map();
-  const page = await fetchAllRanges(() => supabase
-    .from(TABLES.gameGuideCreators)
-    .select(`${GAME_FK}, ${GUIDE_STRUCT.creatorId}`)
-    .order(GUIDE_STRUCT.creatorId, { ascending: true })
-    .order(GAME_FK, { ascending: true }));
-  if (page.error) return { counts, error: page.error };
-  for (const row of page.data) {
-    const creatorId = row?.[GUIDE_STRUCT.creatorId];
-    if (!creatorId) continue;
-    counts.set(creatorId, (counts.get(creatorId) ?? 0) + 1);
-  }
-  return { counts, error: null };
-}
-
-/** Admin-Liste: content_creators, Outreach und Spielzähler. Nicht auf öffentlichen Seiten aufrufen. */
+/**
+ * Admin-Liste: nur content_creators + Outreach.
+ * Kein Scan von game_guides / game_guide_creators — Spielzähler kommen lazy
+ * über fetchCreatorGames, sobald ein Creator ausgewählt ist (vorher game_count = null).
+ */
 export async function fetchAdminCreators(supabase) {
-  const [creators, outreach, counts] = await Promise.all([
+  const [creators, outreach] = await Promise.all([
     fetchAllRanges(() => supabase
       .from(TABLES.contentCreators)
       .select(ADMIN_CREATOR_SELECT)
@@ -453,22 +444,21 @@ export async function fetchAdminCreators(supabase) {
       .from('creator_outreach_admin')
       .select(OUTREACH_SELECT)
       .order('creator_id', { ascending: true })),
-    fetchCreatorGameCounts(supabase),
   ]);
 
-  const error = creators.error || outreach.error || counts.error;
-  if (error) return { data: [], error };
+  if (creators.error) return { data: [], outreachError: null, error: creators.error };
 
-  const outreachByCreator = new Map((outreach.data ?? []).map((row) => [row.creator_id, row]));
+  // Outreach ist klein; bei Fehler trotzdem Creator-Liste zeigen, Fehler aber weiterreichen.
+  const outreachByCreator = new Map(
+    outreach.error
+      ? []
+      : (outreach.data ?? []).map((row) => [row.creator_id, row]),
+  );
   const data = (creators.data ?? [])
-    .map((row) => normalizeAdminCreator(
-      row,
-      outreachByCreator.get(row.id),
-      counts.counts.get(row.id) ?? 0,
-    ))
+    .map((row) => normalizeAdminCreator(row, outreachByCreator.get(row.id), null))
     .filter(Boolean);
 
-  return { data, error: null };
+  return { data, outreachError: outreach.error ?? null, error: null };
 }
 
 function cleanCreatorPatch(input) {
@@ -516,7 +506,7 @@ async function upsertOutreach(supabase, creatorId, input, extra = {}) {
   return { data, error };
 }
 
-export async function saveAdminCreator(supabase, creatorId, input) {
+export async function saveAdminCreator(supabase, creatorId, input, options = {}) {
   const id = String(creatorId ?? '').trim();
   if (!id) return { data: null, error: new Error('Kein Creator ausgewählt.') };
   const patch = cleanCreatorPatch(input);
@@ -533,9 +523,14 @@ export async function saveAdminCreator(supabase, creatorId, input) {
   if (error) return { data: null, error };
   if (!data) return { data: null, error: new Error('Creator wurde nicht gespeichert.') };
 
+  const count = typeof input?.game_count === 'number' ? input.game_count : null;
+  if (options.skipOutreach) {
+    return { data: normalizeAdminCreator(data, input, count), error: null };
+  }
+
   const outreach = await upsertOutreach(supabase, id, input);
   if (outreach.error) return { data: null, error: outreach.error };
-  return { data: normalizeAdminCreator(data, outreach.data, input?.game_count ?? 0), error: null };
+  return { data: normalizeAdminCreator(data, outreach.data, count), error: null };
 }
 
 export function newClaimToken() {
@@ -638,9 +633,15 @@ function comparableYoutubeUrl(url) {
     parsed.hash = '';
     parsed.hostname = parsed.hostname.replace(/^www\./i, '').replace(/^m\./i, '').toLowerCase();
     parsed.pathname = parsed.pathname.replace(/\/+$/, '').replace(/^\/c\/@/i, '/@');
+    for (const trackingKey of ['si', 'feature', 'pp', 'sub_confirmation']) {
+      parsed.searchParams.delete(trackingKey);
+    }
+    const hasSpecificPath = parsed.pathname !== '' && parsed.pathname !== '/';
+    const hasMediaParam = parsed.searchParams.has('v') || parsed.searchParams.has('list');
+    if (!hasSpecificPath && !hasMediaParam) return '';
     return parsed.toString();
   } catch {
-    return raw.toLowerCase();
+    return '';
   }
 }
 
@@ -694,6 +695,7 @@ async function writeIdChunks(supabase, ids, run) {
 
 /**
  * Löst nur die Video-Zuordnung. Guide-Texte (item_name, Gruppen, …) bleiben.
+ * game_guides braucht edit_unlocked = true für veröffentlichte Spiele (trg_protect_published_guides).
  * game_guides.video_url ist nullable; staging_game_guides.video_url ist NOT NULL und wird geleert.
  * game_guide_creators ist eine View aus game_guides.creator_id und wird nicht beschrieben.
  */
@@ -701,17 +703,25 @@ export async function unlinkCreatorGuideVideos(supabase, creatorId) {
   const id = String(creatorId ?? '').trim();
   if (!id) return { error: new Error('Kein Creator ausgewählt.') };
 
-  const guides = await fetchOwnedGuideRows(supabase, TABLES.guides, id);
+  const [guides, staging, rohmaterial] = await Promise.all([
+    fetchOwnedGuideRows(supabase, TABLES.guides, id),
+    fetchOwnedGuideRows(supabase, TABLES.stagingGuides, id),
+    fetchOwnedGuideRows(supabase, TABLES.guidesRohmaterial, id),
+  ]);
   if (guides.error) return { error: guides.error };
-  const staging = await fetchOwnedGuideRows(supabase, TABLES.stagingGuides, id);
   if (staging.error) return { error: staging.error };
+  if (rohmaterial.error) return { error: rohmaterial.error };
 
   const guideError = await writeIdChunks(
     supabase,
     uniqueIds(guides.data, 'id'),
     (chunk) => supabase
       .from(TABLES.guides)
-      .update({ [GUIDE_STRUCT.creatorId]: null, [GUIDE_STRUCT.videoUrl]: null })
+      .update({
+        [GUIDE_STRUCT.creatorId]: null,
+        [GUIDE_STRUCT.videoUrl]: null,
+        edit_unlocked: true,
+      })
       .in('id', chunk),
   );
   if (guideError) return { error: guideError };
@@ -742,11 +752,38 @@ export async function unlinkCreatorGuideVideos(supabase, creatorId) {
         .in('id', chunk),
     );
   }
-  return { error: stagingError };
+  if (stagingError) return { error: stagingError };
+
+  const rohIds = uniqueIds(rohmaterial.data, 'id');
+  let rohError = await writeIdChunks(
+    supabase,
+    rohIds,
+    (chunk) => supabase
+      .from(TABLES.guidesRohmaterial)
+      .update({
+        [GUIDE_STRUCT.creatorId]: null,
+        [GUIDE_STRUCT.videoUrl]: null,
+        playlist_url: null,
+      })
+      .in('id', chunk),
+  );
+  if (rohError) {
+    rohError = await writeIdChunks(
+      supabase,
+      rohIds,
+      (chunk) => supabase
+        .from(TABLES.guidesRohmaterial)
+        .update({
+          [GUIDE_STRUCT.creatorId]: null,
+          [GUIDE_STRUCT.videoUrl]: '',
+        })
+        .in('id', chunk),
+    );
+  }
+  return { error: rohError };
 }
 
 async function unlockGamesLikeDiscard(supabase, gameIds) {
-  const { statusAfterGuideDiscard } = await import('./intranetGameEdits.js');
   for (const chunk of chunkList(gameIds, 80)) {
     const { data, error } = await supabase
       .from(TABLES.games)
@@ -758,8 +795,6 @@ async function unlockGamesLikeDiscard(supabase, gameIds) {
       const patch = {
         [GAME_STRUCT.isGuideLocked]: false,
         [GAME_STRUCT.status]: nextStatus,
-        [GAME_STRUCT.publishingStatus]: {},
-        [GAME_STRUCT.publishedLocales]: [],
       };
       if (String(game[GAME_STRUCT.progress] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.PUBLISHED) {
         patch[GAME_STRUCT.progress] = GUIDE_PUBLICATION.DONE;
@@ -793,8 +828,15 @@ export async function blacklistCreator(supabase, creatorId, { reason = '', mode 
   if (rpcError) return { error: rpcError };
 
   if (mode === 'delete') {
-    const guides = await fetchOwnedGuideRows(supabase, TABLES.guides, id);
+    const [guides, staging, rohmaterial] = await Promise.all([
+      fetchOwnedGuideRows(supabase, TABLES.guides, id),
+      fetchOwnedGuideRows(supabase, TABLES.stagingGuides, id),
+      fetchOwnedGuideRows(supabase, TABLES.guidesRohmaterial, id),
+    ]);
     if (guides.error) return { error: guides.error };
+    if (staging.error) return { error: staging.error };
+    if (rohmaterial.error) return { error: rohmaterial.error };
+
     const unlockError = await unlockGamesLikeDiscard(supabase, uniqueIds(guides.data, 'game_id'));
     if (unlockError) return { error: unlockError };
     const deleteGuides = await writeIdChunks(
@@ -803,14 +845,18 @@ export async function blacklistCreator(supabase, creatorId, { reason = '', mode 
       (chunk) => supabase.from(TABLES.guides).delete().in('id', chunk),
     );
     if (deleteGuides) return { error: deleteGuides };
-    const staging = await fetchOwnedGuideRows(supabase, TABLES.stagingGuides, id);
-    if (staging.error) return { error: staging.error };
     const deleteStaging = await writeIdChunks(
       supabase,
       uniqueIds(staging.data, 'id'),
       (chunk) => supabase.from(TABLES.stagingGuides).delete().in('id', chunk),
     );
-    return { error: deleteStaging };
+    if (deleteStaging) return { error: deleteStaging };
+    const deleteRohmaterial = await writeIdChunks(
+      supabase,
+      uniqueIds(rohmaterial.data, 'id'),
+      (chunk) => supabase.from(TABLES.guidesRohmaterial).delete().in('id', chunk),
+    );
+    return { error: deleteRohmaterial };
   }
 
   const unlinked = await unlinkCreatorGuideVideos(supabase, id);

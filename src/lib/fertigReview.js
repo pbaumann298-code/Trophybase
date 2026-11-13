@@ -76,13 +76,8 @@ export function buildFertigPublishUpdate(game, langs) {
   }
   status.publish_status = GUIDE_PUBLICATION.PUBLISHED;
   delete status.review_queue;
-  const publishedLocales = [...new Set(langs.map((lang) => String(lang).trim()).filter(Boolean))].sort();
   return {
     [GAME_STRUCT.status]: status,
-    [GAME_STRUCT.publishedLocales]: publishedLocales,
-    [GAME_STRUCT.publishingStatus]: Object.fromEntries(
-      publishedLocales.map((lang) => [lang, GUIDE_PUBLICATION.PUBLISHED]),
-    ),
     [GAME_STRUCT.isGuideLocked]: true,
   };
 }
@@ -90,9 +85,14 @@ export function buildFertigPublishUpdate(game, langs) {
 export function buildFertigDiscardStatus(currentStatus) {
   const status = { ...parseStatusMap(currentStatus) };
   status.guides = 'NO_VIDEO';
-  delete status.guide_de;
-  delete status.guide_en;
+  for (const key of Object.keys(status)) {
+    if (key.startsWith('guide_')) delete status[key];
+  }
   delete status.review_queue;
+  const publish = String(status.publish_status ?? '').trim().toUpperCase();
+  if (publish === GUIDE_PUBLICATION.PUBLISHED || publish === 'READY') {
+    status.publish_status = GUIDE_PUBLICATION.DONE;
+  }
   return status;
 }
 
@@ -228,14 +228,16 @@ export async function discardFertigReviewGuide(supabase, game) {
   if (!id) return { status: null, error: new Error('Kein Spiel ausgewählt.') };
 
   const nextStatus = buildFertigDiscardStatus(game?.status);
+  const unlockPatch = {
+    [GAME_STRUCT.isGuideLocked]: false,
+    [GAME_STRUCT.status]: nextStatus,
+  };
+  if (String(game?.[GAME_STRUCT.progress] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.PUBLISHED) {
+    unlockPatch[GAME_STRUCT.progress] = GUIDE_PUBLICATION.DONE;
+  }
   const { error: unlockError } = await supabase
     .from(TABLES.games)
-    .update({
-      [GAME_STRUCT.isGuideLocked]: false,
-      [GAME_STRUCT.status]: nextStatus,
-      [GAME_STRUCT.publishedLocales]: [],
-      [GAME_STRUCT.publishingStatus]: {},
-    })
+    .update(unlockPatch)
     .eq(GAME_PK, id);
   if (unlockError) return { status: null, error: unlockError };
 

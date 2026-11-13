@@ -23,6 +23,7 @@ Gemini API*.txt
 # Excel- & Python-Pipeline-Artefakte niemals committen
 *.xlsx
 *.xls
+*.csv
 *.pyc
 __pycache__/
 .venv/
@@ -38,3 +39,5 @@ venv/
 *.njsproj
 *.sln
 *.sw?
+
+

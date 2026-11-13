@@ -26,7 +26,9 @@ _ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
 if _ROOT_ENV.exists():
     load_dotenv(_ROOT_ENV, override=True)
 else:
-    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    _parent_envs = [
+        p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()
+    ]
     load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
@@ -620,8 +622,8 @@ def upload_all_excels():
                         "video_chapter": merge_jsonb(
                             existing.get("video_chapter"), lang, r.get("video_chapter")
                         ),
-                        "Spiel_region": merge_jsonb(
-                            existing.get("Spiel_region"), lang, excel_region(r)
+                        "spiel_region": merge_jsonb(
+                            existing.get("spiel_region"), lang, excel_region(r)
                         ),
                         "creator_id": existing.get("creator_id"),
                     }
@@ -677,8 +679,8 @@ def upload_all_excels():
                         item["video_chapter"] = merge_jsonb(
                             item["video_chapter"], lang, r.get("video_chapter")
                         )
-                        item["Spiel_region"] = merge_jsonb(
-                            item["Spiel_region"], lang, excel_region(r)
+                        item["spiel_region"] = merge_jsonb(
+                            item["spiel_region"], lang, excel_region(r)
                         )
 
                         if pd.notna(r.get("video_url")) and not item["video_url"]:
@@ -745,8 +747,8 @@ def upload_all_excels():
                                 lang,
                                 r.get("video_chapter"),
                             ),
-                            "Spiel_region": merge_jsonb(
-                                existing.get("Spiel_region"),
+                            "spiel_region": merge_jsonb(
+                                existing.get("spiel_region"),
                                 lang,
                                 excel_region(r),
                             ),

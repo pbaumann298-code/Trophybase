@@ -29,7 +29,9 @@ _ROOT_ENV = Path(r"C:\Temp\TrophyBase\.env")
 if _ROOT_ENV.exists():
     load_dotenv(_ROOT_ENV, override=True)
 else:
-    _parent_envs = [p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()]
+    _parent_envs = [
+        p / ".env" for p in Path(__file__).resolve().parents if (p / ".env").exists()
+    ]
     load_dotenv(_parent_envs[0] if _parent_envs else find_dotenv(), override=True)
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -67,7 +69,7 @@ COLS_SHEET_1_2 = [
     "platform_game_id",
     "game_id",
     "guide_id",
-    "Spiel_region",
+    "spiel_region",
     "chronological_group",
     "category_group",
     "boss_group",
@@ -84,7 +86,7 @@ COLS_SHEET_3 = [
     "platform_game_id",
     "game_id",
     "boss_id",
-    "Spiel_region",
+    "spiel_region",
     "chronological_group",
     "category_group",
     "boss_group",
@@ -285,10 +287,10 @@ def load_uuids_from_excel(file_path: str) -> List[str]:
 
 
 def with_spiel_region(row: Dict) -> Dict:
-    """game_guides liefert Spiel_region, Rohmaterial/Staging noch localisation."""
+    """game_guides liefert spiel_region, Rohmaterial/Staging noch localisation."""
     item = dict(row)
-    if "Spiel_region" not in item and "localisation" in item:
-        item["Spiel_region"] = item.get("localisation")
+    if "spiel_region" not in item and "localisation" in item:
+        item["spiel_region"] = item.get("localisation")
     return item
 
 
