@@ -429,6 +429,74 @@ function RegionAssignBlock({ regionPills = [], disabled = false, onAssign }) {
   );
 }
 
+function GroupTrophyAssignBlock({ trophies = [], disabled = false, onAssign }) {
+  const [manualId, setManualId] = useState('');
+
+  const apply = (raw) => {
+    onAssign?.(raw);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
+      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-200">
+        🏆 Ganze Gruppe einer Trophäe (trophy_id) zuordnen
+      </span>
+      <select
+        value=""
+        disabled={disabled}
+        aria-label="Trophäe für die ganze Gruppe"
+        onChange={(event) => {
+          const next = event.target.value;
+          if (!next) return;
+          apply(next === '__CLEAR__' ? '' : next);
+        }}
+        className="w-full rounded-lg border border-amber-500/40 bg-zinc-950 px-2 py-1.5 text-[11px] font-mono text-amber-100 focus:border-[#00ff66] focus:outline-none"
+      >
+        <option value="">🏆 Trophäe wählen…</option>
+        <option value="__CLEAR__">🗑️ trophy_id der Gruppe leeren</option>
+        {trophies.map((trophy) => (
+          <option key={`${trophy.rawAchId}-${trophy.numericId}`} value={String(trophy.numericId)}>
+            #{trophy.numericId} – {trophy.displayName || trophy.rawAchId}
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          min={0}
+          inputMode="numeric"
+          value={manualId}
+          disabled={disabled}
+          placeholder="ID"
+          aria-label="trophy_id direkt eingeben"
+          onChange={(event) => setManualId(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              if (String(manualId).trim()) {
+                apply(String(manualId).trim());
+                setManualId('');
+              }
+            }
+          }}
+          className="w-20 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs font-mono text-white placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+        />
+        <button
+          type="button"
+          disabled={disabled || !String(manualId).trim()}
+          onClick={() => {
+            apply(String(manualId).trim());
+            setManualId('');
+          }}
+          className="shrink-0 rounded-lg bg-amber-400 px-2.5 py-1.5 text-[11px] font-mono font-bold text-black hover:bg-amber-300 disabled:opacity-50"
+        >
+          ID setzen
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function GroupPillPopover({
   field,
   pill,
@@ -440,12 +508,14 @@ function GroupPillPopover({
   actionBusy,
   pillPopoverRef,
   regionPills = [],
+  trophies = [],
   onClose,
   onToggleFilter,
   onSelectGroupRows,
   onRename,
   onMoveGroup,
   onAssignRegion,
+  onAssignTrophy,
 }) {
   return (
     <div
@@ -501,6 +571,12 @@ function GroupPillPopover({
       >
         <span>☑️ Alle {pill.count} Zeilen dieser Gruppe auswählen</span>
       </button>
+
+      <GroupTrophyAssignBlock
+        trophies={trophies}
+        disabled={actionBusy}
+        onAssign={(rawId) => onAssignTrophy?.(rawId)}
+      />
 
       <div className="flex flex-col gap-1.5 border-t border-zinc-800 pt-2">
         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-300">
@@ -802,6 +878,101 @@ function resolveDraftPlatformGameId(game) {
 
 function stripDraftVideoUrl(url) {
   return String(url ?? '').split('&t=')[0].split('?t=')[0].trim();
+}
+
+const GROUP_TIME_SORT_FIELDS = new Set([
+  'chronological_group',
+  'video_chapter',
+  'category_group',
+  'boss_group',
+  'spiel_region',
+]);
+
+const UNDO_STACK_LIMIT = 20;
+
+function timestampSortSeconds(value) {
+  const sec = parseTimecodeToSeconds(value);
+  return sec == null ? Number.MAX_SAFE_INTEGER : sec;
+}
+
+function cloneUndoValue(value) {
+  if (value == null || typeof value !== 'object') return value ?? null;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
+function undoValueKey(value) {
+  if (value == null) return 'null';
+  if (typeof value !== 'object') return `${typeof value}:${String(value)}`;
+  try {
+    return `j:${JSON.stringify(value)}`;
+  } catch {
+    return `s:${String(value)}`;
+  }
+}
+
+function cloneDraftRowForUndo(row) {
+  const cloned = cloneUndoValue(row) || {};
+  cloned.id = row?.id;
+  cloned._sourceTable = row?._sourceTable || 'staging_game_guides';
+  return cloned;
+}
+
+function buildPatchUndoLabel(snapshots) {
+  const count = snapshots.length;
+  const fields = [];
+  const seen = new Set();
+  for (const snap of snapshots) {
+    for (const key of Object.keys(snap.prevFields || {})) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      fields.push(key);
+    }
+  }
+  const fieldText = fields.slice(0, 3).join(', ');
+  return `${count} Zeile${count === 1 ? '' : 'n'} geändert${fieldText ? ` (${fieldText})` : ''}`;
+}
+
+function formatNumberedItemName(baseName, offset, total, mode, startNumber) {
+  const base = String(baseName ?? '').trim();
+  const n = Number(startNumber) + offset;
+  if (mode === 'none') return base;
+  if (mode === 'pad2') return `${base} ${String(n).padStart(2, '0')}`.trim();
+  if (mode === 'fraction') return `${base} ${n}/${total}`.trim();
+  if (mode === 'prefix') return `${n}. ${base}`.trim();
+  return `${base} #${n}`.trim();
+}
+
+function DraftUndoButton({ undoStack, actionBusy, onUndo, compact = false }) {
+  const lastLabel = undoStack[undoStack.length - 1]?.label;
+  const disabled = undoStack.length === 0 || actionBusy;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onUndo}
+      title={
+        undoStack.length === 0
+          ? 'Nichts zum Rückgängigmachen'
+          : `Letzte Aktion: ${lastLabel || 'Änderung'} · ${undoStack.length} Schritt${undoStack.length === 1 ? '' : 'e'} · Strg+Z`
+      }
+      className={
+        compact
+          ? 'inline-flex items-center gap-1 rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-1 text-[10px] font-mono font-bold text-zinc-100 hover:border-[#00ff66]/50 hover:text-[#00ff66] disabled:opacity-40'
+          : 'inline-flex items-center gap-1 rounded bg-zinc-800 px-2.5 py-1 text-[11px] font-mono font-bold text-zinc-100 border border-zinc-600 hover:border-[#00ff66]/50 hover:text-[#00ff66] transition disabled:opacity-40'
+      }
+    >
+      <span>↩️ Zurück</span>
+      {undoStack.length > 0 ? (
+        <span className="rounded bg-[#00ff66]/20 px-1 text-[10px] font-bold text-[#00ff66]">
+          {undoStack.length}
+        </span>
+      ) : null}
+    </button>
+  );
 }
 
 function shortenDraftVideoUrl(url) {
@@ -1668,6 +1839,57 @@ export default function IntranetDrafts({
   const [selectByTermField, setSelectByTermField] = useState('item_name');
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
   const [batchDrawerExpanded, setBatchDrawerExpanded] = useState(false);
+  const [undoStack, setUndoStack] = useState([]);
+  const undoStackRef = useRef([]);
+  const skipUndoRef = useRef(false);
+  const undoBusyRef = useRef(false);
+  const handleUndoRef = useRef(null);
+  const tableScrollRef = useRef(null);
+  const [renameBaseName, setRenameBaseName] = useState('');
+  const [renameNumberMode, setRenameNumberMode] = useState('hash');
+  const [renameStartNumber, setRenameStartNumber] = useState(1);
+  const [renameAlsoGuideIds, setRenameAlsoGuideIds] = useState(false);
+
+  const pushUndoEntry = useCallback((entry) => {
+    if (!entry || skipUndoRef.current) return;
+    const next = [...undoStackRef.current, entry].slice(-UNDO_STACK_LIMIT);
+    undoStackRef.current = next;
+    setUndoStack(next);
+  }, []);
+
+  const popUndoEntry = useCallback(() => {
+    const current = undoStackRef.current;
+    if (current.length === 0) return null;
+    const entry = current[current.length - 1];
+    const next = current.slice(0, -1);
+    undoStackRef.current = next;
+    setUndoStack(next);
+    return entry;
+  }, []);
+
+  const undoScopeKey = `${activeDataSource}|${selectedGameId || ''}`;
+  const [trackedUndoScope, setTrackedUndoScope] = useState(undoScopeKey);
+  if (trackedUndoScope !== undoScopeKey) {
+    setTrackedUndoScope(undoScopeKey);
+    undoStackRef.current = [];
+    setUndoStack([]);
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const key = String(event.key || '').toLowerCase();
+      if (key !== 'z' || event.shiftKey || event.altKey) return;
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const el = event.target;
+      const tag = String(el?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return;
+      if (undoStackRef.current.length === 0) return;
+      event.preventDefault();
+      handleUndoRef.current?.();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // 3. Trophäen-Schnell-Picker & Auto-Matcher ("Just Do It") State
   const [showTrophyMatcher, setShowTrophyMatcher] = useState(false);
@@ -2294,6 +2516,11 @@ export default function IntranetDrafts({
     if (!selectedCreatorName) return [];
     const rows = creatorGroups.get(selectedCreatorName) || [];
     const dir = sortDirection === 'desc' ? -1 : 1;
+    const videoOrder = new Map();
+    for (const row of rows) {
+      const url = stripDraftVideoUrl(row.video_url);
+      if (!videoOrder.has(url)) videoOrder.set(url, videoOrder.size);
+    }
 
     return [...rows].sort((a, b) => {
       let cmp = 0;
@@ -2305,11 +2532,7 @@ export default function IntranetDrafts({
         const valB = Number.isNaN(numB) ? Number.MAX_SAFE_INTEGER : numB;
         cmp = valA - valB;
       } else if (sortField === 'timestamp') {
-        const secA = parseTimecodeToSeconds(a.timestamp);
-        const secB = parseTimecodeToSeconds(b.timestamp);
-        const valA = secA == null ? Number.MAX_SAFE_INTEGER : secA;
-        const valB = secB == null ? Number.MAX_SAFE_INTEGER : secB;
-        cmp = valA - valB;
+        cmp = timestampSortSeconds(a.timestamp) - timestampSortSeconds(b.timestamp);
       } else if (sortField === 'item_name') {
         const strA = getLocalizedItemName(a.item_name);
         const strB = getLocalizedItemName(b.item_name);
@@ -2347,6 +2570,19 @@ export default function IntranetDrafts({
       }
 
       if (cmp !== 0) return cmp * dir;
+
+      if (GROUP_TIME_SORT_FIELDS.has(sortField)) {
+        const urlA = stripDraftVideoUrl(a.video_url);
+        const urlB = stripDraftVideoUrl(b.video_url);
+        if (urlA !== urlB) {
+          const rankA = videoOrder.get(urlA) ?? Number.MAX_SAFE_INTEGER;
+          const rankB = videoOrder.get(urlB) ?? Number.MAX_SAFE_INTEGER;
+          if (rankA !== rankB) return rankA - rankB;
+        }
+        const secCmp = timestampSortSeconds(a.timestamp) - timestampSortSeconds(b.timestamp);
+        if (secCmp !== 0) return secCmp;
+      }
+
       const fallbackA = Number.parseInt(String(a.guide_id ?? '').replace(/\D/g, ''), 10) || 0;
       const fallbackB = Number.parseInt(String(b.guide_id ?? '').replace(/\D/g, ''), 10) || 0;
       return fallbackA - fallbackB;
@@ -2638,15 +2874,16 @@ export default function IntranetDrafts({
       setLoadingLiveGuides(true);
       try {
         const [guidesRes, gameRes, rohCountRes, stagingCountRes] = await Promise.all([
-          supabase
-            .from(TABLES.guides)
-            .select(
-              'id, guide_id, sheet_type, item_name, chronological_group, category_group, boss_group, video_chapter, timestamp, video_url, trophy_id',
-              { count: 'exact' }
-            )
-            .eq('game_id', selectedGameId)
-            .order('id', { ascending: true })
-            .limit(1000),
+          fetchPages((from, to) =>
+            supabase
+              .from(TABLES.guides)
+              .select(
+                'id, guide_id, sheet_type, item_name, chronological_group, category_group, boss_group, video_chapter, timestamp, video_url, trophy_id',
+              )
+              .eq('game_id', selectedGameId)
+              .order('id', { ascending: true })
+              .range(from, to),
+          ),
           supabase
             .from(TABLES.games)
             .select(GAMES_QUEUE_SELECT_COLS)
@@ -2663,14 +2900,14 @@ export default function IntranetDrafts({
         ]);
 
         if (cancelled) return;
+        if (guidesRes.error) throw guidesRes.error;
 
         const fetchedGuides = guidesRes.data ?? [];
         const freshGame = gameRes.data ?? null;
 
         setLiveGuideRows(fetchedGuides);
         setSelectedGameDbCounts({
-          game_guides:
-            typeof guidesRes.count === 'number' ? guidesRes.count : fetchedGuides.length,
+          game_guides: fetchedGuides.length,
           game_guides_rohmaterial:
             typeof rohCountRes?.count === 'number' ? rohCountRes.count : null,
           staging_game_guides:
@@ -3108,8 +3345,10 @@ export default function IntranetDrafts({
   }, []);
 
   // --- HELPER: Persist batch updates to Supabase (staging_game_guides, game_guides_rohmaterial, game_guides) ---
-  const persistRowPatchesToSupabase = useCallback(async (targetRows, buildPatchForRow) => {
+  const persistRowPatchesToSupabase = useCallback(async (targetRows, buildPatchForRow, undoOptions) => {
     const patchesByRowId = new Map();
+    const undoSnapshots = [];
+    const recordUndo = undoOptions?.recordUndo !== false && !skipUndoRef.current;
     /** Map<tableName, Map<serializedPayload, { payload, ids }>> */
     const groupedDbCalls = new Map();
 
@@ -3117,6 +3356,26 @@ export default function IntranetDrafts({
       const statePatch = buildPatchForRow(row);
       if (!statePatch || Object.keys(statePatch).length === 0) continue;
       patchesByRowId.set(row.id, statePatch);
+
+      if (recordUndo) {
+        const prevFields = {};
+        let hasChange = false;
+        for (const key of Object.keys(statePatch)) {
+          const prev = cloneUndoValue(row[key] === undefined ? null : row[key]);
+          const next = statePatch[key] === undefined ? null : statePatch[key];
+          prevFields[key] = prev;
+          if (undoValueKey(prev) !== undoValueKey(next)) hasChange = true;
+        }
+        if (hasChange) {
+          undoSnapshots.push({
+            row: {
+              id: row.id,
+              _sourceTable: row._sourceTable || 'staging_game_guides',
+            },
+            prevFields,
+          });
+        }
+      }
 
       const sourceTable = row._sourceTable || 'staging_game_guides';
       const dbPayload = { ...statePatch };
@@ -3133,6 +3392,14 @@ export default function IntranetDrafts({
         tableGroup.set(payloadKey, { payload: dbPayload, ids: [] });
       }
       tableGroup.get(payloadKey).ids.push(row.id);
+    }
+
+    if (undoSnapshots.length > 0) {
+      pushUndoEntry({
+        type: 'patch',
+        label: undoOptions?.label || buildPatchUndoLabel(undoSnapshots),
+        snapshots: undoSnapshots,
+      });
     }
 
     // 1. Optimistic State Update immediately
@@ -3174,7 +3441,7 @@ export default function IntranetDrafts({
     }
 
     return patchesByRowId.size;
-  }, [applyRowsPatchInState]);
+  }, [applyRowsPatchInState, pushUndoEntry]);
 
   // --- GRUPPEN-KONSOLIDIERUNG & BATCH ACTIONS ---
 
@@ -3483,6 +3750,64 @@ export default function IntranetDrafts({
     } finally {
       setActionBusy(false);
     }
+  };
+
+  const applyTrophyIdToRows = async (targetRows, rawId, scopeLabel) => {
+    if (actionBusy || !targetRows?.length) return false;
+    const digits = String(rawId ?? '').replace(/\D/g, '');
+    const numId = digits ? String(Number.parseInt(digits, 10)) : '';
+    const trophyName = numId
+      ? normalizedTrophies.find((trophy) => String(trophy.numericId) === numId)?.displayName
+      : '';
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const updatedCount = await persistRowPatchesToSupabase(
+        targetRows,
+        (row) => ({
+          trophy_id: formatFieldValueForTable(row, 'trophy_id', numId),
+          is_trophy_relevant: numId ? 'ja' : 'Nein',
+        }),
+        {
+          label: numId
+            ? `🏆 trophy_id ${numId} für ${targetRows.length} Zeilen`
+            : `🗑️ trophy_id geleert (${targetRows.length} Zeilen)`,
+        },
+      );
+      setNotice(
+        numId
+          ? `🏆 ${scopeLabel}: trophy_id ${numId}${trophyName ? ` (${trophyName})` : ''} für ${updatedCount} Zeilen gespeichert.`
+          : `🗑️ ${scopeLabel}: trophy_id geleert (${updatedCount} Zeilen).`,
+      );
+      return true;
+    } catch (err) {
+      setError(`trophy_id konnte nicht gesetzt werden: ${err.message}`);
+      return false;
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleAssignTrophyToGroup = async (field, groupKey, rawId) => {
+    if (!field || actionBusy) return;
+    const affectedRows = currentCreatorRows.filter((row) => {
+      const val = getLocalizedItemName(row[field]).trim();
+      return (val || EMPTY_GROUP_TOKEN) === groupKey;
+    });
+    if (affectedRows.length === 0) {
+      setActivePillPopover(null);
+      return;
+    }
+    const saved = await applyTrophyIdToRows(affectedRows, rawId, 'Gruppe');
+    if (saved) setActivePillPopover(null);
+  };
+
+  const handleBatchAssignTrophy = async (rawId) => {
+    if (selectedRowIds.size === 0 || actionBusy) return;
+    const targetRows = currentCreatorRows.filter((row) => selectedRowIds.has(row.id));
+    await applyTrophyIdToRows(targetRows, rawId, 'Markierte Zeilen');
   };
 
   // 2c) Bereinigten Video-Namen aus Chapter (video_chapter) in Chrono, Category, Boss oder Item übernehmen
@@ -4556,10 +4881,15 @@ export default function IntranetDrafts({
       setError(`Batch-Löschen fehlgeschlagen: ${err.message}`);
     }
 
+    const deletedRowsForUndo = rowsToDelete
+      .filter((row) => deletedIds.has(row.id))
+      .map(cloneDraftRowForUndo);
+
     if (deletedIds.size > 0) {
       setStagingRows((prev) => prev.filter((row) => !deletedIds.has(row.id)));
       setRohmaterialRows((prev) => prev.filter((row) => !deletedIds.has(row.id)));
       setProductiveRohRows((prev) => prev.filter((row) => !deletedIds.has(row.id)));
+      setFertigReviewRows((prev) => prev.filter((row) => !deletedIds.has(row.id)));
       const overrides = loadStagingLocalOverrides();
       let overridesChanged = false;
       for (const id of deletedIds) {
@@ -4585,13 +4915,31 @@ export default function IntranetDrafts({
             renumberById.set(row.id, newGuideId);
           }
         });
+        if (deletedRowsForUndo.length > 0) {
+          pushUndoEntry({
+            type: 'delete',
+            label: `🗑️ ${deletedRowsForUndo.length} Zeile${deletedRowsForUndo.length === 1 ? '' : 'n'} gelöscht`,
+            deletedRows: deletedRowsForUndo,
+            guideIdSnapshots: rowsToRenumber.map((row) => ({
+              row: {
+                id: row.id,
+                _sourceTable: row._sourceTable || 'staging_game_guides',
+              },
+              prevFields: { guide_id: cloneUndoValue(row.guide_id) },
+            })),
+          });
+        }
         if (rowsToRenumber.length > 0) {
           rowsToRenumber.sort(
             (a, b) => renumberById.get(a.id) - renumberById.get(b.id),
           );
-          await persistRowPatchesToSupabase(rowsToRenumber, (row) => ({
-            guide_id: formatFieldValueForTable(row, 'guide_id', renumberById.get(row.id)),
-          }));
+          await persistRowPatchesToSupabase(
+            rowsToRenumber,
+            (row) => ({
+              guide_id: formatFieldValueForTable(row, 'guide_id', renumberById.get(row.id)),
+            }),
+            { recordUndo: false },
+          );
         }
         setSortField('guide_id');
         setSortDirection('asc');
@@ -4604,6 +4952,14 @@ export default function IntranetDrafts({
         setConfirmBatchDelete(false);
       }
     } else {
+      if (deletedRowsForUndo.length > 0) {
+        pushUndoEntry({
+          type: 'delete',
+          label: `🗑️ ${deletedRowsForUndo.length} Zeile${deletedRowsForUndo.length === 1 ? '' : 'n'} gelöscht`,
+          deletedRows: deletedRowsForUndo,
+          guideIdSnapshots: [],
+        });
+      }
       setSelectedRowIds((prev) => {
         const next = new Set(prev);
         for (const id of deletedIds) next.delete(id);
@@ -4629,6 +4985,15 @@ export default function IntranetDrafts({
       return;
     }
 
+    if (targetRow) {
+      pushUndoEntry({
+        type: 'delete',
+        label: '✕ Zeile gelöscht',
+        deletedRows: [cloneDraftRowForUndo(targetRow)],
+        guideIdSnapshots: [],
+      });
+    }
+
     setSelectedRowIds((prev) => {
       const next = new Set(prev);
       next.delete(rowId);
@@ -4641,6 +5006,7 @@ export default function IntranetDrafts({
       setRohmaterialRows((prev) => prev.filter((r) => r.id !== rowId));
     } else if (sourceTable === TABLES.guides) {
       setProductiveRohRows((prev) => prev.filter((r) => r.id !== rowId));
+      setFertigReviewRows((prev) => prev.filter((r) => r.id !== rowId));
     }
   };
 
@@ -5198,6 +5564,75 @@ export default function IntranetDrafts({
     }
   };
 
+  const resolveSelectedRowsInViewOrder = () => {
+    const visibleSelected = visibleCreatorRows.filter((row) => selectedRowIds.has(row.id));
+    if (visibleSelected.length > 0) return visibleSelected;
+    return currentCreatorRows.filter((row) => selectedRowIds.has(row.id));
+  };
+
+  const handleRenameSelectedItems = async () => {
+    if (actionBusy) return;
+    const baseName = renameBaseName.trim();
+    if (!baseName) {
+      setError('Bitte einen Basisnamen für die markierten Items eingeben.');
+      return;
+    }
+    const targetRows = resolveSelectedRowsInViewOrder();
+    if (targetRows.length === 0) return;
+
+    const startNumber = Number.isFinite(Number(renameStartNumber)) ? Number(renameStartNumber) : 1;
+    const total = targetRows.length;
+    const patches = new Map();
+    targetRows.forEach((row, index) => {
+      const nextName = formatNumberedItemName(baseName, index, total, renameNumberMode, startNumber);
+      patches.set(row.id, {
+        item_name: formatFieldValueForTable(row, 'item_name', nextName),
+      });
+    });
+
+    if (renameAlsoGuideIds) {
+      currentCreatorRows.forEach((row, index) => {
+        const existing = patches.get(row.id) || {};
+        patches.set(row.id, {
+          ...existing,
+          guide_id: formatFieldValueForTable(row, 'guide_id', index + 1),
+        });
+      });
+    }
+
+    const rowsToWrite = [];
+    const seen = new Set();
+    const ordered = renameAlsoGuideIds ? currentCreatorRows : targetRows;
+    for (const row of [...ordered, ...targetRows]) {
+      if (!patches.has(row.id) || seen.has(row.id)) continue;
+      seen.add(row.id);
+      rowsToWrite.push(row);
+    }
+
+    const firstName = formatNumberedItemName(baseName, 0, total, renameNumberMode, startNumber);
+    const lastName = formatNumberedItemName(baseName, total - 1, total, renameNumberMode, startNumber);
+    const range = total <= 1 || firstName === lastName ? `„${firstName}“` : `„${firstName}“ bis „${lastName}“`;
+
+    setActionBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await persistRowPatchesToSupabase(
+        rowsToWrite,
+        (row) => patches.get(row.id),
+        { label: `🏷️ ${total} Items umbenannt (${range})` },
+      );
+      const idNote = renameAlsoGuideIds
+        ? ` Guide-IDs 1..${currentCreatorRows.length} neu nummeriert.`
+        : '';
+      setNotice(`🏷️ ${total} markierte Items umbenannt (${range}).${idNote}`);
+    } catch (err) {
+      setError(`Umbenennen fehlgeschlagen: ${err.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   // 8c. Suchen & Ersetzen Logik (inkl. category_group)
   const searchReplacePreview = useMemo(() => {
     if (!searchQuery || !currentCreatorRows.length) {
@@ -5475,6 +5910,140 @@ export default function IntranetDrafts({
       ...(row.workflow_status ? { workflow_status: row.workflow_status } : {}),
     };
   };
+
+  const buildUndoInsertPayload = (row) => {
+    const table = row._sourceTable || 'staging_game_guides';
+    if (table === 'staging_game_guides') {
+      const guideNum = parseGuideIdNumber(row.guide_id);
+      return buildGuideRowClonePayload(row, {
+        gameId: row.game_id,
+        platformGameId: row.platform_game_id,
+        guideId: guideNum > 0 ? guideNum : 1,
+        itemName: getLocalizedItemName(row.item_name),
+      });
+    }
+
+    const guideNum = parseGuideIdNumber(row.guide_id);
+    const guideText = String(row.guide_id ?? '').trim();
+    const trophyDigits = String(row.trophy_id ?? '').replace(/\D/g, '');
+    const tabs = normalizeSpielRegionTab(row.spiel_region_tab);
+    const payload = {
+      game_id: row.game_id,
+      platform_game_id: row.platform_game_id ?? null,
+      creator_id: row.creator_id ?? null,
+      sheet_type: Array.isArray(row.sheet_type) ? row.sheet_type : deriveSheetTypesFromRow(row),
+      guide_id: guideText || String(guideNum > 0 ? guideNum : 1),
+      item_name: row.item_name ?? null,
+      spiel_region: row.spiel_region ?? null,
+      spiel_region_tab: tabs.length > 0 ? tabs : null,
+      chronological_group: row.chronological_group ?? null,
+      category_group: row.category_group ?? null,
+      boss_group: row.boss_group ?? null,
+      video_chapter: row.video_chapter ?? null,
+      timestamp: row.timestamp ?? null,
+      video_url: row.video_url ?? null,
+      trophy_id: trophyDigits ? String(Number.parseInt(trophyDigits, 10)) : null,
+      is_trophy_relevant: row.is_trophy_relevant ?? null,
+      prod_note: row.prod_note ?? null,
+    };
+
+    if (table === TABLES.guides) {
+      return { ...payload, edit_unlocked: true };
+    }
+
+    return {
+      ...payload,
+      creator_name: row.creator_name ?? null,
+      playlist_url: row.playlist_url ?? row.creator_input_url ?? row.video_url ?? null,
+      batch_key: row.batch_key ?? null,
+      batch_status: row.batch_status ?? null,
+    };
+  };
+
+  const appendRestoredGuideRows = (tableName, rows) => {
+    const tagged = (rows ?? []).map((row) => ({ ...row, _sourceTable: tableName }));
+    if (tableName === 'staging_game_guides') {
+      setStagingRows((prev) => [...prev, ...shapeStagingRows(tagged)]);
+      return;
+    }
+    if (tableName === TABLES.guidesRohmaterial) {
+      setRohmaterialRows((prev) => [...prev, ...tagged]);
+      return;
+    }
+    if (tableName === TABLES.guides) {
+      setProductiveRohRows((prev) => [...prev, ...tagged]);
+      if (activeDataSource === 'fertig_review') {
+        setFertigReviewRows((prev) => [...prev, ...tagged]);
+      }
+    }
+  };
+
+  const handleUndo = async () => {
+    if (actionBusy || undoBusyRef.current) return;
+    undoBusyRef.current = true;
+    const entry = popUndoEntry();
+    if (!entry) {
+      undoBusyRef.current = false;
+      return;
+    }
+
+    setActionBusy(true);
+    setError('');
+    try {
+      if (entry.type === 'patch') {
+        const byId = new Map((entry.snapshots || []).map((snap) => [snap.row.id, snap]));
+        skipUndoRef.current = true;
+        try {
+          await persistRowPatchesToSupabase(
+            (entry.snapshots || []).map((snap) => snap.row),
+            (row) => byId.get(row.id)?.prevFields || null,
+            { recordUndo: false },
+          );
+        } finally {
+          skipUndoRef.current = false;
+        }
+      } else if (entry.type === 'delete') {
+        const guideSnaps = entry.guideIdSnapshots || [];
+        if (guideSnaps.length > 0) {
+          const byId = new Map(guideSnaps.map((snap) => [snap.row.id, snap]));
+          skipUndoRef.current = true;
+          try {
+            await persistRowPatchesToSupabase(
+              guideSnaps.map((snap) => snap.row),
+              (row) => byId.get(row.id)?.prevFields || null,
+              { recordUndo: false },
+            );
+          } finally {
+            skipUndoRef.current = false;
+          }
+        }
+
+        const groups = new Map();
+        for (const row of entry.deletedRows || []) {
+          const tableName = row._sourceTable || 'staging_game_guides';
+          const list = groups.get(tableName) || [];
+          list.push(row);
+          groups.set(tableName, list);
+        }
+        for (const [tableName, rows] of groups) {
+          const payloads = rows.map((row) => buildUndoInsertPayload(row));
+          const inserted = await insertGuideRows(tableName, payloads);
+          appendRestoredGuideRows(tableName, inserted);
+        }
+      } else {
+        throw new Error('Unbekannter Undo-Schritt.');
+      }
+      setNotice(`↩️ Zurück: ${entry.label || 'letzte Änderung'}`);
+    } catch (err) {
+      skipUndoRef.current = false;
+      pushUndoEntry(entry);
+      setError(`Zurück fehlgeschlagen: ${err.message || err}`);
+    } finally {
+      undoBusyRef.current = false;
+      setActionBusy(false);
+    }
+  };
+  handleUndoRef.current = handleUndo;
 
   const markTargetRohmaterialPending = async (targetGame) => {
     const targetGameId = targetGame.id;
@@ -7345,7 +7914,7 @@ export default function IntranetDrafts({
   };
 
   return (
-    <div className="flex flex-col gap-4 text-zinc-200">
+    <div className={`flex flex-col gap-4 text-zinc-200 ${selectedRowIds.size > 0 ? 'pb-32' : ''}`}>
       {/* Top Banner / Notice */}
       {notice && (
         <div className="flex items-center justify-between rounded-xl border border-[#00ff66]/30 bg-[#00ff66]/10 px-4 py-2.5 text-xs text-[#00ff66]">
@@ -7518,7 +8087,7 @@ export default function IntranetDrafts({
         </div>
       ) : (
         /* High-Density 3-Spalten Layout */
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 items-start">
+        <div className="grid min-w-0 w-full grid-cols-1 gap-4 lg:grid-cols-12 items-start">
           
           {/* ==================== A. LINKE SPALTE: Spiele-Queue (3 Cols) ==================== */}
           <div className="lg:col-span-3 flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-[#121314] p-3 tb-pane-max overflow-hidden">
@@ -7689,11 +8258,11 @@ export default function IntranetDrafts({
           </div>
 
           {/* ==================== B & C. MITTLERE SPALTE: Detail & Creator Guide (6 Cols) ==================== */}
-          <div className="lg:col-span-6 flex min-h-0 flex-col gap-3 min-w-0 tb-pane-max overflow-hidden">
+          <div className="lg:col-span-6 flex min-h-0 w-full min-w-0 max-w-full flex-col gap-3 tb-pane-max overflow-hidden">
             
             {selectedGame ? (
               <>
-              <div className="flex w-full min-w-0 max-w-full flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+              <div className="flex w-full min-w-0 max-w-full flex-col gap-3 overflow-x-hidden lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -8221,7 +8790,7 @@ export default function IntranetDrafts({
                 </div>
 
                 {/* C. GUIDE-ZEILEN TABELLE & GRUPPEN-RÖNTGENBLICK (SUPER COMPACT HIGH-DENSITY) */}
-                <div className="rounded-2xl border border-zinc-800 bg-[#121314] p-3 flex flex-col gap-2.5">
+                <div className="flex min-w-0 w-full max-w-full flex-col gap-2.5 rounded-2xl border border-zinc-800 bg-[#121314] p-3">
                   {editorViewMode === 'preview' ? (
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#00ff66]/40 bg-[#00ff66]/10 px-2.5 py-2">
@@ -8324,8 +8893,8 @@ export default function IntranetDrafts({
                       )}
                     </div>
                   )}
-                  <div className="flex items-center justify-between px-1 flex-wrap gap-2">
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex min-w-0 items-center justify-between px-1 flex-wrap gap-2">
+                    <div className="flex min-w-0 items-center gap-2 flex-wrap">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-white">
                         Guide-Zeilen ({visibleCreatorRows.length}
                         {visibleCreatorRows.length !== currentCreatorRows.length
@@ -8333,6 +8902,7 @@ export default function IntranetDrafts({
                           : ''}
                         )
                       </h4>
+                      <DraftUndoButton undoStack={undoStack} actionBusy={actionBusy} onUndo={handleUndo} />
                       <button
                         type="button"
                         disabled={actionBusy || currentCreatorRows.length === 0}
@@ -8432,6 +9002,24 @@ export default function IntranetDrafts({
                       </button>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
+                      <div className="hidden lg:inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          title="Tabelle nach links scrollen"
+                          onClick={() => tableScrollRef.current?.scrollBy({ left: -360, behavior: 'smooth' })}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded border border-zinc-600 bg-zinc-800 text-xs font-bold text-zinc-100 hover:border-[#00ff66]/50 hover:text-[#00ff66]"
+                        >
+                          ◀
+                        </button>
+                        <button
+                          type="button"
+                          title="Tabelle nach rechts scrollen"
+                          onClick={() => tableScrollRef.current?.scrollBy({ left: 360, behavior: 'smooth' })}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded border border-zinc-600 bg-zinc-800 text-xs font-bold text-zinc-100 hover:border-[#00ff66]/50 hover:text-[#00ff66]"
+                        >
+                          ▶
+                        </button>
+                      </div>
                       {autoMatchedBannerCount > 0 && (
                         <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#00ff66]/50 bg-[#00ff66]/15 px-2.5 py-0.5 text-[11px] font-mono font-bold text-[#00ff66]">
                           ⚡ {autoMatchedBannerCount} Zeilen automatisch zu 100% verknüpft
@@ -9182,6 +9770,7 @@ export default function IntranetDrafts({
                           actionBusy={actionBusy}
                           pillPopoverRef={pillPopoverRef}
                           regionPills={groupStats.regionPills}
+                          trophies={normalizedTrophies}
                           onClose={() => setActivePillPopover(null)}
                           onToggleFilter={() => {
                             if (
@@ -9230,6 +9819,13 @@ export default function IntranetDrafts({
                               activePillMeta.field,
                               activePillMeta.pill.key,
                               next
+                            )
+                          }
+                          onAssignTrophy={(rawId) =>
+                            handleAssignTrophyToGroup(
+                              activePillMeta.field,
+                              activePillMeta.pill.key,
+                              rawId,
                             )
                           }
                         />
@@ -9588,11 +10184,12 @@ export default function IntranetDrafts({
                   )}
 
                   <div
-                    className={`w-full max-w-full overflow-x-auto ${selectedRowIds.size > 0 ? 'lg:pb-28' : ''}`}
+                    ref={tableScrollRef}
+                    className={`min-w-0 w-full max-w-full overflow-x-auto lg:max-h-[58vh] lg:overflow-y-auto ${selectedRowIds.size > 0 ? 'pb-28' : ''}`}
                   >
                     <table className="w-max min-w-full text-left text-[11px] font-mono border-collapse">
-                      <thead>
-                        <tr className="border-b border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider select-none">
+                      <thead className="sticky top-0 z-10 bg-[#121314] max-lg:static">
+                        <tr className="border-b border-zinc-800 bg-[#121314] text-[10px] text-zinc-400 uppercase tracking-wider select-none">
                           <th className="py-2 px-1 w-8">
                             <input
                               type="checkbox"
@@ -9799,13 +10396,29 @@ export default function IntranetDrafts({
 
                               {/* item_name */}
                               <td className="py-1 px-1 min-w-[14rem] sm:min-w-[18rem]">
-                                <DraftInlineInput
-                                  readOnly={selectedRowIds.size > 0}
-                                  type="text"
-                                  value={itemNameStr}
-                                  onCommit={(next) => handleUpdateRowField(row.id, 'item_name', next)}
-                                  className="w-full min-w-[14rem] sm:min-w-[18rem] rounded border border-transparent bg-transparent px-1 py-0.5 font-sans text-xs font-medium text-white hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
-                                />
+                                <div className="flex items-center gap-1">
+                                  <DraftInlineInput
+                                    readOnly={selectedRowIds.size > 0}
+                                    type="text"
+                                    value={itemNameStr}
+                                    onCommit={(next) => handleUpdateRowField(row.id, 'item_name', next)}
+                                    className="min-w-0 w-full flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-sans text-xs font-medium text-white hover:border-zinc-700 focus:border-[#00ff66] focus:bg-zinc-900 focus:outline-none"
+                                  />
+                                  {/[,;\n]/.test(itemNameStr) && (
+                                    <button
+                                      type="button"
+                                      title="Multi-Item-Zeile am Komma, Semikolon oder Zeilenumbruch zerlegen"
+                                      disabled={actionBusy}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSplitRowsByComma([row]);
+                                      }}
+                                      className="shrink-0 rounded p-1 text-[10px] text-zinc-500 hover:bg-cyan-500/20 hover:text-cyan-300 disabled:opacity-40"
+                                    >
+                                      ✂️
+                                    </button>
+                                  )}
+                                </div>
                               </td>
 
                               {/* spiel_region */}
@@ -9935,20 +10548,6 @@ export default function IntranetDrafts({
                               {/* Actions */}
                               <td className="py-1 px-1 text-right whitespace-nowrap">
                                 <div className="flex items-center justify-end gap-0.5">
-                                  {itemNameStr.includes(',') && (
-                                    <button
-                                      type="button"
-                                      title="Multi-Item-Zeile am Komma in Einzelzeilen zerlegen"
-                                      disabled={actionBusy}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleSplitRowsByComma([row]);
-                                      }}
-                                      className="rounded p-1 text-[10px] text-zinc-500 hover:bg-cyan-500/20 hover:text-cyan-300 disabled:opacity-40"
-                                    >
-                                      ✂️
-                                    </button>
-                                  )}
                                   <button
                                     type="button"
                                     title="Ganzes Video / Chapter entfernen"
@@ -9986,7 +10585,7 @@ export default function IntranetDrafts({
                 {/* ==================== 2. FLOATING BATCH-BAR (WENN ZEILEN AUSGEWÄHLT SIND) ==================== */}
                 {selectedRowIds.size > 0 && (
                   <div
-                    className="rounded-2xl border-2 border-[#00ff66] bg-[#0e1210] px-3 py-2 lg:fixed lg:bottom-0 lg:left-0 lg:right-0 lg:z-50 lg:rounded-none lg:border-x-0 lg:border-b-0 lg:border-t-2 lg:bg-[#0e1210]/98 lg:shadow-[0_-10px_30px_rgba(0,0,0,0.85)] lg:backdrop-blur-md"
+                    className="fixed bottom-0 left-0 right-0 z-50 border-t-2 border-[#00ff66] bg-[#0e1210]/98 px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-10px_30px_rgba(0,0,0,0.85)] backdrop-blur-md"
                   >
                     {(batchDrawerExpanded || batchCustomField || confirmBatchDelete) && (
                       <div className="mb-2 flex max-h-[55vh] flex-col gap-2.5 overflow-y-auto border-b border-zinc-800 pb-2.5">
@@ -10035,6 +10634,74 @@ export default function IntranetDrafts({
 
                         {batchDrawerExpanded && (
                           <>
+                            <div className="flex flex-col gap-1.5 rounded-xl border border-[#00ff66]/30 bg-[#00ff66]/5 px-2.5 py-2">
+                              <span className="text-[10px] font-mono font-bold text-[#00ff66]">
+                                🏷️ Markierte Items umbenennen & nummerieren
+                              </span>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  value={renameBaseName}
+                                  onChange={(e) => setRenameBaseName(e.target.value)}
+                                  placeholder="Basisname (z. B. Dokument)"
+                                  disabled={actionBusy}
+                                  className="min-w-[9rem] flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-100 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
+                                />
+                                <select
+                                  value={renameNumberMode}
+                                  onChange={(e) => setRenameNumberMode(e.target.value)}
+                                  disabled={actionBusy}
+                                  aria-label="Nummerierungs-Modus"
+                                  title="Nummerierungs-Modus für item_name"
+                                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] font-mono text-zinc-100 focus:border-[#00ff66] focus:outline-none"
+                                >
+                                  <option value="hash">#1</option>
+                                  <option value="pad2">01</option>
+                                  <option value="fraction">1/N</option>
+                                  <option value="prefix">1. Name</option>
+                                  <option value="none">Keine Nummer</option>
+                                </select>
+                                <label className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-300">
+                                  Start
+                                  <input
+                                    type="number"
+                                    value={renameStartNumber}
+                                    min={0}
+                                    disabled={actionBusy}
+                                    onChange={(e) => setRenameStartNumber(e.target.value === '' ? 1 : Number(e.target.value))}
+                                    className="w-14 rounded-lg border border-zinc-700 bg-zinc-950 px-1.5 py-1 text-[11px] text-zinc-100 focus:border-[#00ff66] focus:outline-none"
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  disabled={actionBusy || !renameBaseName.trim() || selectedRowIds.size === 0}
+                                  onClick={handleRenameSelectedItems}
+                                  className="rounded-lg border border-[#00ff66]/50 bg-[#00ff66]/15 px-2.5 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40"
+                                >
+                                  🏷️ Umbenennen
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={actionBusy || currentCreatorRows.length === 0}
+                                  onClick={handleRenumberGuideIds}
+                                  title="Nummeriert alle guide_id des Creators in der aktuellen Sortierung von 1..N"
+                                  className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-mono font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40"
+                                >
+                                  🔢 IDs 1..N
+                                </button>
+                              </div>
+                              <label className="inline-flex items-center gap-1.5 text-[10px] font-mono text-zinc-300">
+                                <input
+                                  type="checkbox"
+                                  checked={renameAlsoGuideIds}
+                                  disabled={actionBusy}
+                                  onChange={(e) => setRenameAlsoGuideIds(e.target.checked)}
+                                  className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-900 text-[#00ff66] focus:ring-0"
+                                />
+                                Auch Guide-IDs (1..N) der gesamten Liste neu durchnummerieren
+                              </label>
+                            </div>
+
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span className="text-[10px] font-mono text-zinc-400">
                                 🔍 Auswahl auf Begriff eingrenzen / markieren
@@ -10288,7 +10955,7 @@ export default function IntranetDrafts({
                         </button>
                       </div>
 
-                      <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5 min-[1100px]:grid-cols-4">
+                      <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5 min-[1100px]:grid-cols-5">
                         <select
                           value=""
                           disabled={actionBusy}
@@ -10385,9 +11052,42 @@ export default function IntranetDrafts({
                               </option>
                             ))}
                         </select>
+                        <select
+                          value=""
+                          disabled={actionBusy || selectedRowIds.size === 0}
+                          aria-label="Trophy"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            handleBatchAssignTrophy(val === '__CLEAR__' ? '' : val);
+                          }}
+                          className="min-w-0 rounded-lg border border-amber-400/50 bg-zinc-900 px-1 py-1 text-[10px] font-mono text-amber-100 focus:border-[#00ff66] focus:outline-none"
+                        >
+                          <option value="">🏆 Trophy</option>
+                          <option value="__CLEAR__">🗑️ Trophy-ID leeren</option>
+                          {normalizedTrophies.map((trophy) => (
+                            <option key={`${trophy.rawAchId}-${trophy.numericId}`} value={String(trophy.numericId)}>
+                              #{trophy.numericId} – {trophy.displayName || trophy.rawAchId}
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       <div className="flex shrink-0 items-center gap-1">
+                        <DraftUndoButton
+                          undoStack={undoStack}
+                          actionBusy={actionBusy}
+                          onUndo={handleUndo}
+                          compact
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setBatchDrawerExpanded(true)}
+                          title="Markierte Items umbenennen und nummerieren"
+                          className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/20"
+                        >
+                          🏷️
+                        </button>
                         <button
                           type="button"
                           onClick={() => setBatchDrawerExpanded((prev) => !prev)}

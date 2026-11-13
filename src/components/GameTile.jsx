@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { getGameCover, getGameDescription, getGameTitle, getGameUuid } from '../lib/gameModel';
+import GameFallbackCover from './GameFallbackCover';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { isGameDraftMode } from '../lib/guidePublication';
 import { useLocale } from '../context/LocaleContext';
@@ -271,11 +272,13 @@ function GameTile({
   const body = (
     <article className={shellClass} style={{ '--tile-accent': accent }}>
       <div className="home-tile-cover-wrap">
-        {cover ? (
-          <img src={cover} className="home-tile-cover" alt="" loading="lazy" />
-        ) : (
-          <div className="home-tile-cover home-tile-cover--empty">🎮</div>
-        )}
+        <GameFallbackCover
+          src={cover}
+          title={title}
+          variant="card"
+          imgClassName="home-tile-cover"
+          className="h-full w-full"
+        />
         {showOverlays ? (
           <GameCoverOverlays
             gameId={gameId}

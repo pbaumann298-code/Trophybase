@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocale } from '../context/LocaleContext';
 import { updateGameLocalizedFields } from '../lib/gameQueries';
 import { supabase } from '../pages/supabaseClient';
+import Reportable from './Reportable';
 
 function YoutubeIcon() {
   return (
@@ -21,6 +22,7 @@ function GameSeoInfobox({
   creators = null,
   isAdmin = false,
   gameUuid = '',
+  reportSource = '',
   locale = '',
   onDescriptionSaved,
   showDescription = true,
@@ -175,7 +177,17 @@ function GameSeoInfobox({
         {(credit || withYoutube.length > 0) && !editing && (
           <div className={showDescription && (paragraphs.length > 0 || (!text && isAdmin)) ? 'mt-5 pt-5 border-t border-white/10' : ''}>
             {credit ? (
-              <p className="text-sm leading-relaxed text-zinc-200">{credit}</p>
+              <p className="text-sm leading-relaxed text-zinc-200">
+                <Reportable
+                  as="span"
+                  source={reportSource || gameUuid}
+                  type="game"
+                  reportKey="creator"
+                  field="creator_credit"
+                >
+                  {credit}
+                </Reportable>
+              </p>
             ) : null}
             {withYoutube.length > 0 ? (
               <div className={`flex flex-wrap gap-2 ${credit ? 'mt-4' : ''}`}>

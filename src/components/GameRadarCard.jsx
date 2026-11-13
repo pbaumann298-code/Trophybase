@@ -2,6 +2,7 @@ import React from 'react';
 import { useLocale } from '../context/LocaleContext';
 import { RADAR_AXIS_LABELS, resolveRadarProfile } from '../lib/gameOverviewCopy';
 import { normalizeLocale } from '../lib/locale';
+import Reportable from './Reportable';
 
 export { RADAR_AXIS_LABELS };
 
@@ -14,7 +15,12 @@ export { RADAR_AXIS_LABELS };
  * @param {boolean} [props.embedded=false] - In übergeordneter CollapsibleSectionCard eingebettet
  * @param {string} [props.locale] - Optionale Zielsprache (überschreibt globalLocale)
  */
-export default function GameRadarCard({ profile, embedded = false, locale: localeProp = '' }) {
+export default function GameRadarCard({
+  profile,
+  embedded = false,
+  locale: localeProp = '',
+  reportSource = '',
+}) {
   const { globalLocale, t } = useLocale();
   const langKey = normalizeLocale(localeProp || globalLocale || 'de');
 
@@ -59,7 +65,20 @@ export default function GameRadarCard({ profile, embedded = false, locale: local
   const radarBody = (
     <div>
       {resolvedProfile.summary && (
-        <p className="mb-4 text-sm text-zinc-400 leading-relaxed">{resolvedProfile.summary}</p>
+        reportSource ? (
+          <Reportable
+            as="p"
+            source={reportSource}
+            type="game"
+            reportKey="summary"
+            field="radar_summary"
+            className="mb-4 text-sm text-zinc-400 leading-relaxed"
+          >
+            {resolvedProfile.summary}
+          </Reportable>
+        ) : (
+          <p className="mb-4 text-sm text-zinc-400 leading-relaxed">{resolvedProfile.summary}</p>
+        )
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-center">
@@ -134,26 +153,46 @@ export default function GameRadarCard({ profile, embedded = false, locale: local
 
         {/* Rechts: Konkrete Aufschlüsselung & Erklärung */}
         <div className="space-y-3 lg:col-span-7">
-          {resolvedProfile.axes.map((axis) => (
-            <div
-              key={axis.key || axis.label}
-              className="rounded-lg bg-zinc-900/60 p-2.5 border border-zinc-800/60"
-            >
-              <div className={`flex items-center justify-between ${axis.reason ? 'mb-1' : ''}`}>
-                <span className="text-xs font-semibold text-zinc-200">
-                  {axis.label}
-                </span>
-                <span className="text-xs font-bold text-sky-400 font-mono">
-                  {axis.score} / 10
-                </span>
-              </div>
-              {axis.reason ? (
-                <p className="text-xs text-zinc-400 leading-relaxed">
-                  {axis.reason}
-                </p>
-              ) : null}
-            </div>
-          ))}
+          {resolvedProfile.axes.map((axis) => {
+            const axisBody = (
+              <>
+                <div className={`flex items-center justify-between ${axis.reason ? 'mb-1' : ''}`}>
+                  <span className="text-xs font-semibold text-zinc-200">
+                    {axis.label}
+                  </span>
+                  <span className="text-xs font-bold text-sky-400 font-mono">
+                    {axis.score} / 10
+                  </span>
+                </div>
+                {axis.reason ? (
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    {axis.reason}
+                  </p>
+                ) : null}
+              </>
+            );
+            const axisClass = 'rounded-lg bg-zinc-900/60 p-2.5 border border-zinc-800/60';
+            if (!reportSource) {
+              return (
+                <div key={axis.key || axis.label} className={axisClass}>
+                  {axisBody}
+                </div>
+              );
+            }
+            return (
+              <Reportable
+                key={axis.key || axis.label}
+                as="div"
+                source={reportSource}
+                type="game"
+                reportKey={axis.key || axis.label}
+                field="radar_axis"
+                className={axisClass}
+              >
+                {axisBody}
+              </Reportable>
+            );
+          })}
         </div>
       </div>
     </div>

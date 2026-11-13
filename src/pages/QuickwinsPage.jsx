@@ -428,6 +428,8 @@ function QuickwinsPage({
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
+    let receivedBatch = false;
+    setGames([]);
     setInitialLoading(true);
     setLoadingMore(false);
     setLoadError(false);
@@ -438,6 +440,7 @@ function QuickwinsPage({
       mode: fetchMode,
       signal: controller.signal,
       onBatch: (batchRows, meta) => {
+        receivedBatch = true;
         if (cancelled) return;
         const rows = batchRows || [];
         setGames(rows);
@@ -452,7 +455,7 @@ function QuickwinsPage({
         if (cancelled) return;
         if (error) {
           console.error(titleKey, error.message);
-          if (games.length === 0) {
+          if (!receivedBatch) {
             setLoadError(true);
           }
         } else if (data) {
@@ -476,7 +479,6 @@ function QuickwinsPage({
       cancelled = true;
       controller.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalLocale, includeReady, gameType, titleKey, fetchMode]);
 
   useEffect(() => {

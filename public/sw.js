@@ -4,7 +4,7 @@
  * Navigation → Netzwerk, nie ein gecachtes HTML-Dokument; offline nur /offline.html
  * Supabase / API → Network Only
  */
-const CACHE_VERSION = 'tb-static-v11';
+const CACHE_VERSION = 'tb-static-v12';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_URLS = [
@@ -21,10 +21,11 @@ const PRECACHE_URLS = [
   '/images/quickwins-tile.jpg',
   '/images/easy-platins-tile.jpg',
   '/images/unobtainable-platins-tile.jpg',
+  '/images/fallback-cover.jpeg',
 ];
 
 const CODE_EXTENSIONS = ['.js', '.css'];
-const IMAGE_EXTENSIONS = ['.svg', '.png', '.ico', '.webp', '.woff', '.woff2'];
+const IMAGE_EXTENSIONS = ['.svg', '.png', '.ico', '.webp', '.jpg', '.jpeg', '.woff', '.woff2'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

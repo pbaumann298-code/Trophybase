@@ -23,7 +23,6 @@ import {
   buildUnifiedGuidePublishPatch,
   guideStatusKey,
   parseStatusMap,
-  publishingFieldsFromStatus,
   removeGameFromWiedervorlage,
 } from './guidePublication';
 import { normalizeLocale } from './locale';
@@ -556,6 +555,10 @@ export async function clearGameGuideTips(supabase, gameId, locale) {
 /**
  * Löscht alle game_guides-Zeilen eines Spiels und nimmt die Freigabe zurück.
  * publishing_status / published_locales werden geleert — eine Spalte is_published gibt es nicht.
+ *
+ * Reihenfolge ist durch `trg_protect_published_guides` vorgegeben: solange das Spiel
+ * gesperrt oder veröffentlicht ist, blockiert die DB das DELETE auf game_guides.
+ * Deshalb wird `games` zuerst entsperrt und erst danach gelöscht.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} gameId
  */
@@ -563,33 +566,40 @@ export async function discardIntranetGuide(supabase, gameId) {
   const id = String(gameId ?? '').trim();
   if (!id) return { status: null, error: new Error('Kein Spiel ausgewählt.') };
 
-  const { error: deleteError } = await supabase
-    .from(TABLES.guides)
-    .delete()
-    .eq(GAME_FK, id);
-
-  if (deleteError) return { status: null, error: deleteError };
-
   const { data: current, error: readError } = await supabase
     .from(TABLES.games)
-    .select(GAME_STRUCT.status)
+    .select(`${GAME_STRUCT.status}, ${GAME_STRUCT.progress}`)
     .eq(GAME_PK, id)
     .maybeSingle();
 
   if (readError) return { status: null, error: readError };
 
   const nextStatus = statusAfterGuideDiscard(current?.[GAME_STRUCT.status]);
-  const { data, error } = await supabase
+  const unlockPatch = {
+    [GAME_STRUCT.isGuideLocked]: false,
+    [GAME_STRUCT.status]: nextStatus,
+    [GAME_STRUCT.publishingStatus]: {},
+    [GAME_STRUCT.publishedLocales]: [],
+  };
+  if (String(current?.[GAME_STRUCT.progress] ?? '').trim().toUpperCase() === GUIDE_PUBLICATION.PUBLISHED) {
+    unlockPatch[GAME_STRUCT.progress] = GUIDE_PUBLICATION.DONE;
+  }
+
+  const { data, error: unlockError } = await supabase
     .from(TABLES.games)
-    .update({
-      [GAME_STRUCT.status]: nextStatus,
-      ...publishingFieldsFromStatus(nextStatus),
-    })
+    .update(unlockPatch)
     .eq(GAME_PK, id)
     .select(GAME_STRUCT.status)
     .maybeSingle();
 
-  if (error) return { status: null, error };
+  if (unlockError) return { status: null, error: unlockError };
+
+  const { error: deleteError } = await supabase
+    .from(TABLES.guides)
+    .delete()
+    .eq(GAME_FK, id);
+
+  if (deleteError) return { status: null, error: deleteError };
   return { status: parseStatusMap(data?.[GAME_STRUCT.status] ?? nextStatus), error: null };
 }
 

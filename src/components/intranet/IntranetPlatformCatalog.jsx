@@ -100,6 +100,7 @@ function AchievementDrawer({ platform, game }) {
         <tbody>
           {rows.map((row) => {
             const apiName = String(row.api_name || row.achievement_id || '');
+            const nameSource = row.trophy_name ?? row.name;
             const descSource = row.trophy_desc ?? row.description;
             const percent = row.global_percent ?? row.rarity_percent;
             return (
@@ -112,8 +113,8 @@ function AchievementDrawer({ platform, game }) {
                   )}
                 </td>
                 <td className="px-3 py-2 text-zinc-200">
-                  <p className="font-semibold">{textAt(row.name, 'de')}</p>
-                  <p className="mt-0.5 text-zinc-500">{textAt(row.name, 'en')}</p>
+                  <p className="font-semibold">{textAt(nameSource, 'de')}</p>
+                  <p className="mt-0.5 text-zinc-500">{textAt(nameSource, 'en')}</p>
                   <p className="mt-1 font-mono text-[10px] text-zinc-600">{apiName}</p>
                 </td>
                 <td className="px-3 py-2 text-zinc-400">

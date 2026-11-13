@@ -95,7 +95,8 @@ function indexPsnTrophies(psnTrophies) {
 /**
  * Katalogzeile → flaches UI-Objekt im Format von mergeAchievementRecord.
  * Live-Spalten: Steam/Xbox speichern die Beschreibung in `description`
- * (nicht `trophy_desc`) und Xbox die Seltenheit in `rarity_percent`.
+ * (nicht `trophy_desc`), den Namen in `trophy_name` (Harvester) oder `name`,
+ * und Xbox die Seltenheit in `rarity_percent`.
  * @param {Record<string, unknown>} row
  * @param {string} locale
  * @param {Map<string, object>} psnById
@@ -117,7 +118,7 @@ export function mapCatalogAchievementToTrophy(row, locale, psnById, platform) {
     id: apiName,
     platform_achievement_id: apiName,
     trophy_id: matchedId || apiName,
-    trophy_name: localizeJsonField(row.name, locale, 'en') || apiName,
+    trophy_name: localizeJsonField(row.trophy_name ?? row.name, locale, 'en') || apiName,
     trophy_desc: trophyDesc,
     trophy_description: trophyDesc,
     trophy_desc_translation: '',

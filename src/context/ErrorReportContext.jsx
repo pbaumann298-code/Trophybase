@@ -36,6 +36,7 @@ export function ErrorReportProvider({ children, sessionUser }) {
   const [modalDraft, setModalDraft] = useState(null);
   const pendingRef = useRef(null);
   const selectionTimerRef = useRef(null);
+  const mediaClickAtRef = useRef(0);
 
   const clearBubble = useCallback(() => {
     setBubblePos(null);
@@ -57,9 +58,13 @@ export function ErrorReportProvider({ children, sessionUser }) {
     let content = selectedText;
 
     if (!content) {
-      if (el.tagName === 'IMG') content = el.getAttribute('src') || el.alt || '';
-      else if (el.tagName === 'IFRAME' || el.tagName === 'VIDEO') {
-        content = el.getAttribute('src') || '';
+      const nestedMedia = el.tagName === 'IMG' || el.tagName === 'VIDEO' || el.tagName === 'IFRAME'
+        ? el
+        : el.querySelector?.('img, video, iframe');
+      if (el.tagName === 'IMG' || nestedMedia?.tagName === 'IMG') {
+        content = (nestedMedia || el).getAttribute('src') || el.getAttribute('alt') || '';
+      } else if (el.tagName === 'IFRAME' || el.tagName === 'VIDEO' || nestedMedia) {
+        content = (nestedMedia || el).getAttribute('src') || '';
       } else {
         content = el.textContent?.trim() || '';
       }
@@ -73,6 +78,7 @@ export function ErrorReportProvider({ children, sessionUser }) {
   const handleSelection = useCallback(() => {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) {
+      if (Date.now() - mediaClickAtRef.current < 320) return;
       clearBubble();
       return;
     }
@@ -125,20 +131,30 @@ export function ErrorReportProvider({ children, sessionUser }) {
       if (!reportable) return;
 
       const tag = reportable.tagName;
-      const isMedia = tag === 'IMG' || tag === 'VIDEO' || tag === 'IFRAME';
+      const isCover = reportable.dataset.field === 'cover_url';
+      const isMedia = tag === 'IMG' || tag === 'VIDEO' || tag === 'IFRAME' || isCover;
 
       if (!isMedia) return;
 
       event.preventDefault();
       event.stopPropagation();
 
+      const nestedMedia = tag === 'IMG' || tag === 'VIDEO' || tag === 'IFRAME'
+        ? reportable
+        : reportable.querySelector?.('img, video, iframe');
+      const box = nestedMedia?.getBoundingClientRect?.().width
+        ? nestedMedia
+        : reportable;
+
+      mediaClickAtRef.current = Date.now();
       pendingRef.current = reportable;
       setMarkedContent(
-        reportable.getAttribute('src') ||
+        nestedMedia?.getAttribute?.('src') ||
+          reportable.getAttribute('src') ||
           reportable.textContent?.trim() ||
           '',
       );
-      setBubblePos(computeBubblePosition(reportable.getBoundingClientRect()));
+      setBubblePos(computeBubblePosition(box.getBoundingClientRect()));
     },
     [],
   );

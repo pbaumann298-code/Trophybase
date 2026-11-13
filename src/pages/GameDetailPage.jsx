@@ -71,6 +71,8 @@ import {
 import { useLocale } from '../context/LocaleContext';
 import { contentLocalesForGame } from '../lib/contentLocales';
 import PlatinumUnlockedBadge from '../components/PlatinumUnlockedBadge';
+import Reportable from '../components/Reportable';
+import GameFallbackCover from '../components/GameFallbackCover';
 
 function reportSourceForGame(game) {
   return (
@@ -1200,7 +1202,9 @@ function GamePageContent({
           <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <h2 className="text-xl md:text-2xl font-extrabold text-white tracking-tight break-words m-0 flex flex-wrap items-center gap-x-3 gap-y-2">
-              <span>{gameTitle}</span>
+              <Reportable as="span" source={reportSource} type="game" reportKey={gameUuid} field="title">
+                {gameTitle}
+              </Reportable>
               {isAdmin ? (
                 <AdminGameTypeSelect
                   gameId={gameUuid}
@@ -1241,37 +1245,33 @@ function GamePageContent({
             <div className="flex flex-col md:flex-row flex-wrap md:flex-nowrap gap-8 items-start">
               <div className="w-full md:w-64 flex-shrink-0 flex flex-col gap-2">
                 <div className="relative w-full aspect-[3/4] rounded-xl overflow-hidden shadow-2xl border border-zinc-800 bg-[#121314]">
-                  {gameCover ? (
-                    <img
-                      src={gameCover}
-                      onClick={
-                        isAdmin
-                          ? () => {
-                              setCoverError('');
-                              setIgdbPrompt(true);
-                            }
-                          : undefined
-                      }
-                      title={isAdmin ? 'Klicken, um Cover-Link zu ändern' : undefined}
-                      className={`w-full h-full object-cover ${isAdmin ? 'cursor-pointer transition hover:opacity-90' : ''}`}
-                      alt="Game Cover"
-                    />
-                  ) : isAdmin ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCoverError('');
-                        setIgdbPrompt(true);
-                      }}
-                      className="flex h-full w-full cursor-pointer items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-wider text-zinc-400 transition hover:bg-zinc-900/80 hover:text-[#00ff66]"
-                    >
-                      Kein Cover – Klicken
-                    </button>
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center px-4 text-center text-[11px] font-mono uppercase tracking-wider text-zinc-600">
-                      kein Cover
-                    </div>
-                  )}
+                  <GameFallbackCover
+                    src={gameCover}
+                    title={gameTitle}
+                    alt="Game Cover"
+                    variant="detail"
+                    loading="eager"
+                    imgClassName={`h-full w-full object-cover ${isAdmin ? 'cursor-pointer transition hover:opacity-90' : ''}`}
+                    onClick={
+                      isAdmin
+                        ? () => {
+                            setCoverError('');
+                            setIgdbPrompt(true);
+                          }
+                        : undefined
+                    }
+                    titleAttr={isAdmin ? 'Klicken, um Cover-Link zu ändern' : undefined}
+                    reportableProps={
+                      !isAdmin && reportSource && gameUuid
+                        ? {
+                            source: reportSource,
+                            type: 'game',
+                            reportKey: gameUuid,
+                            field: 'cover_url',
+                          }
+                        : null
+                    }
+                  />
                   <PlatinumUnlockedBadge active={platinumDone} />
                   <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none">
                     <GuideOnlineBadge game={gameForPublication} visible={isAdmin} size="md" />
@@ -1330,7 +1330,9 @@ function GamePageContent({
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight break-words mt-0 mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-                        <span>{gameTitle}</span>
+                        <Reportable as="span" source={reportSource} type="game" reportKey={gameUuid} field="title">
+                          {gameTitle}
+                        </Reportable>
                         {isAdmin ? (
                           <AdminGameTypeSelect
                             gameId={gameUuid}
@@ -1422,9 +1424,16 @@ function GamePageContent({
                           }}
                         />
                       ) : (
-                        <span className="text-sky-300 font-semibold text-right">
+                        <Reportable
+                          as="span"
+                          source={reportSource}
+                          type="game"
+                          reportKey={gameUuid}
+                          field="hardware"
+                          className="text-sky-300 font-semibold text-right"
+                        >
                           {selectedGame[GAME_FIELDS.console] || '—'}
-                        </span>
+                        </Reportable>
                       )}
                     </div>
                     {showPlatformSwitcher ? (
@@ -1440,34 +1449,62 @@ function GamePageContent({
                     ) : null}
                     <div className="flex justify-between border-b border-zinc-800/40 pb-2">
                       <span className="text-zinc-500 font-mono text-xs uppercase">{t('releaseYear')}</span>
-                      <span className="text-zinc-200 font-medium">
+                      <Reportable
+                        as="span"
+                        source={reportSource}
+                        type="game"
+                        reportKey={gameUuid}
+                        field="release_jahr"
+                        className="text-zinc-200 font-medium"
+                      >
                         {selectedGame[GAME_FIELDS.year] || '—'}
-                      </span>
+                      </Reportable>
                     </div>
                     <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2 sm:col-span-1">
                       <span className="text-zinc-500 font-mono text-xs uppercase">{t('searchGenre')}</span>
-                      <span className="text-zinc-200 font-medium text-right">
+                      <Reportable
+                        as="span"
+                        source={reportSource}
+                        type="game"
+                        reportKey={gameUuid}
+                        field="home_tags"
+                        className="text-zinc-200 font-medium text-right"
+                      >
                         <HomeTagSearchLinks
                           tags={gameForPublication?.[GAME_STRUCT.homeTags]}
                           locale={globalLocale}
                           fallback={selectedGame[GAME_FIELDS.genre] || '—'}
                         />
-                      </span>
+                      </Reportable>
                     </div>
                     <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
                       <span className="text-zinc-500 font-mono text-xs uppercase">{t('studioLabel')}</span>
-                      <span className="text-zinc-200 font-medium text-right">
+                      <Reportable
+                        as="span"
+                        source={reportSource}
+                        type="game"
+                        reportKey={gameUuid}
+                        field="entwickler"
+                        className="text-zinc-200 font-medium text-right"
+                      >
                         {studioCredits.studio ? (
                           <DeveloperSearchLink name={studioCredits.studio} />
                         ) : '—'}
-                      </span>
+                      </Reportable>
                     </div>
                     {studioCredits.publisher ? (
                       <div className="flex justify-between border-b border-zinc-800/40 pb-2 col-span-2">
                         <span className="text-zinc-500 font-mono text-xs uppercase">{t('publisherLabel')}</span>
-                        <span className="text-zinc-200 font-medium text-right">
+                        <Reportable
+                          as="span"
+                          source={reportSource}
+                          type="game"
+                          reportKey={gameUuid}
+                          field="publisher"
+                          className="text-zinc-200 font-medium text-right"
+                        >
                           <DeveloperSearchLink name={studioCredits.publisher} />
-                        </span>
+                        </Reportable>
                       </div>
                     ) : null}
                   </div>
@@ -1520,11 +1557,18 @@ function GamePageContent({
                       ) : (
                         <>
                           {descriptionParagraphs.length > 0 ? (
-                            <div className="space-y-2.5 text-sm leading-relaxed text-zinc-300">
+                            <Reportable
+                              as="div"
+                              source={reportSource}
+                              type="game"
+                              reportKey={gameUuid}
+                              field="description"
+                              className="space-y-2.5 text-sm leading-relaxed text-zinc-300"
+                            >
                               {descriptionParagraphs.map((paragraph, index) => (
                                 <p key={index}>{paragraph}</p>
                               ))}
-                            </div>
+                            </Reportable>
                           ) : isAdmin && !trophiesOnly ? (
                             <p className="text-sm italic text-zinc-500">
                               Noch keine Beschreibung für diese Sprache.
@@ -1631,6 +1675,7 @@ function GamePageContent({
         }
         isAdmin={isAdmin && !trophiesOnly}
         gameId={gameUuid}
+        reportSource={reportSource || gameUuid}
         locale={effectiveGuideLang}
         onPlaytimeSaved={(next) => setPlaytime(next)}
       />
@@ -1642,6 +1687,7 @@ function GamePageContent({
         creators={contentCreators}
         isAdmin={isAdmin && !trophiesOnly}
         gameUuid={gameUuid}
+        reportSource={reportSource || gameUuid}
         locale={effectiveGuideLang}
         showDescription={false}
         onDescriptionSaved={(next) =>

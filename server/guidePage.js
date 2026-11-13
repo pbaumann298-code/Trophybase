@@ -171,23 +171,58 @@ function trophySectionsHtml(trophies, locale, labels) {
   return `<section><h2>${escapeHtml(t(locale, 'trophies'))}</h2>${blocks.join('')}</section>`;
 }
 
-async function fetchGameTrophies(supabase, gameId) {
-  const query = (select) =>
-    supabase.from(TABLES.achievements).select(select).eq(GAME_FK, gameId);
+/** PostgREST liefert pro Request höchstens 1.000 Zeilen. range ist inklusiv. */
+const POSTGREST_PAGE = 1000;
 
-  let { data, error } = await query(TROPHY_SELECT);
-  if (error) {
+async function fetchPagedRows(buildQuery) {
+  const rows = [];
+  for (let from = 0; ; from += POSTGREST_PAGE) {
+    const { data, error } = await buildQuery().range(from, from + POSTGREST_PAGE - 1);
+    if (error) return { data: rows, error };
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < POSTGREST_PAGE) return { data: rows, error: null };
+  }
+}
+
+async function fetchGameTrophies(supabase, gameId) {
+  const query = (select) => () =>
+    supabase
+      .from(TABLES.achievements)
+      .select(select)
+      .eq(GAME_FK, gameId)
+      .order('platform_achievement_id', { ascending: true });
+
+  let result = await fetchPagedRows(query(TROPHY_SELECT));
+  if (result.error && result.data.length === 0) {
     console.error(
       '[guidePage] trophies select with Guide-Tip-lang failed:',
-      error.message || error,
+      result.error.message || result.error,
     );
-    ({ data, error } = await query(TROPHY_SELECT_BASE));
-    if (error) {
-      console.error('[guidePage] trophies select fallback failed:', error.message || error);
+    result = await fetchPagedRows(query(TROPHY_SELECT_BASE));
+    if (result.error && result.data.length === 0) {
+      console.error('[guidePage] trophies select fallback failed:', result.error.message || result.error);
       return [];
     }
   }
-  return Array.isArray(data) ? data : [];
+  if (result.error) {
+    console.error('[guidePage] trophies page failed:', result.error.message || result.error);
+  }
+  return Array.isArray(result.data) ? result.data : [];
+}
+
+async function fetchGameGuides(supabase, gameId) {
+  const { data, error } = await fetchPagedRows(() =>
+    supabase
+      .from(TABLES.guides)
+      .select(GUIDE_SELECT)
+      .eq(GAME_FK, gameId)
+      .order(GUIDE_STRUCT.id, { ascending: true }),
+  );
+  if (error) {
+    console.error('[guidePage] guides select failed:', error.message || error);
+  }
+  return data ?? [];
 }
 
 function relatedHeading(kind, name, locale) {
@@ -542,9 +577,9 @@ export async function handleGuideRequest(requestUrl) {
       });
     }
 
-    const [trophies, { data: guides }, related] = await Promise.all([
+    const [trophies, guides, related] = await Promise.all([
       fetchGameTrophies(supabase, game[GAME_PK]),
-      supabase.from(TABLES.guides).select(GUIDE_SELECT).eq(GAME_FK, game[GAME_PK]),
+      fetchGameGuides(supabase, game[GAME_PK]),
       loadRelatedGuides(supabase, game, { locale: serveLocale }).catch(() => ({
         creatorGames: [],
         similarGames: [],

@@ -904,6 +904,19 @@ function TrophyGroupedChecklist({
   );
 
   const earnedSet = earnedTrophyIds ?? new Set();
+  const dlcHeading = (dlc) => (
+    gameId ? (
+      <Reportable
+        as="span"
+        source={gameId}
+        type="trophy"
+        reportKey={dlc.gruppe || dlc.title}
+        field="spielname"
+      >
+        {dlc.title}
+      </Reportable>
+    ) : dlc.title
+  );
 
   const mainProgress = useMemo(
     () => countUnlockedInList(mainGame, unlockedTrophies, getTrophyIdKey, earnedSet),
@@ -950,7 +963,7 @@ function TrophyGroupedChecklist({
             <CollapsibleSectionCard
               key={dlc.gruppe}
               sectionId={`trophies-dlc-${dlc.gruppe}`}
-              title={dlc.title}
+              title={dlcHeading(dlc)}
               badge={`${dlcProgress}/${dlc.trophies.length} · ${t('trophiesCountBadge').replaceAll('{count}', String(dlc.trophies.length))}`}
               defaultOpen={false}
               accent="purple"
@@ -1020,7 +1033,7 @@ function TrophyGroupedChecklist({
           <CollapsibleSectionCard
             key={dlc.gruppe}
             sectionId={`trophies-dlc-${dlc.gruppe}`}
-            title={dlc.title}
+            title={dlcHeading(dlc)}
             badge={`${dlcProgress}/${dlc.trophies.length} · ${t('trophiesCountBadge').replaceAll('{count}', String(dlc.trophies.length))}`}
             defaultOpen={false}
             accent="purple"

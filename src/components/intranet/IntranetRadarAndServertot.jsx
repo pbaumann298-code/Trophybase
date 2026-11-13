@@ -37,6 +37,7 @@ import {
   formatReportDisplayKey,
   formatReportGameTitle,
   formatReportNpwr,
+  isHintOnlyReport,
   setReportStatus,
 } from '../../lib/communityReportAdmin';
 import { parseReportImageUrls } from '../../lib/errorReport';
@@ -856,6 +857,27 @@ function GuideTipCell({ trophy, gameId, onSaved, disabled }) {
 }
 
 /** Servertot-Zusatzfelder; per `key={game.id}` remountet, Inputs unkontrolliert (Speichern bei Blur). */
+function ReportSuggestionEditor({ reportId, initial, disabled, onChange }) {
+  const [state, setState] = useState({ id: reportId, text: initial || '' });
+  if (state.id !== reportId) {
+    setState({ id: reportId, text: initial || '' });
+  }
+  const text = state.id === reportId ? state.text : (initial || '');
+
+  return (
+    <textarea
+      value={text}
+      disabled={disabled}
+      rows={3}
+      onChange={(event) => {
+        setState({ id: reportId, text: event.target.value });
+        onChange(reportId, event.target.value);
+      }}
+      className="mt-1 w-full resize-y rounded-md border border-amber-500/40 bg-zinc-950 px-2 py-1 text-xs leading-relaxed text-zinc-100 focus:border-amber-300 focus:outline-none"
+    />
+  );
+}
+
 function ServertotFields({ game, busy, onExplanation }) {
   const savedExplanation = pickText(game.status_explanation_localized);
   return (
@@ -923,6 +945,10 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
   const [reportFilter, setReportFilter] = useState('pending');
   const [reportSearch, setReportSearch] = useState('');
   const [reportBusyId, setReportBusyId] = useState('');
+  const suggestionDraftRef = useRef(new Map());
+  const rememberSuggestion = useCallback((id, text) => {
+    suggestionDraftRef.current.set(String(id), text);
+  }, []);
 
   // Anklickbares Cover-Modal für alle 3 Tabs
   const [editingCoverGame, setEditingCoverGame] = useState(null);
@@ -1486,7 +1512,15 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
     }
 
     if (modeAction === 'apply') {
-      const { error: applyError } = await setReportStatus(supabase, report.id, 'approved', report);
+      const edited = suggestionDraftRef.current.has(String(report.id))
+        ? suggestionDraftRef.current.get(String(report.id))
+        : report.suggested_text;
+      const { error: applyError } = await setReportStatus(
+        supabase,
+        report.id,
+        'approved',
+        { ...report, suggested_text: edited ?? '' },
+      );
       setReportBusyId('');
       if (applyError) {
         setError(applyError.message || 'Vorschlag konnte nicht übernommen werden.');
@@ -1924,6 +1958,7 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                 const images = parseReportImageUrls(report.image_url);
                 const isBusy = reportBusyId === String(report.id);
                 const isResolved = report.status && report.status !== 'pending';
+                const hintOnly = isHintOnlyReport(report);
 
                 return (
                   <li
@@ -2006,9 +2041,18 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                             <p className="font-mono text-[9px] uppercase tracking-wider text-amber-300">
                               Gemeldeter Fehler / Korrekturvorschlag
                             </p>
-                            <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-zinc-100">
-                              {report.suggested_text || '—'}
-                            </p>
+                            {isResolved ? (
+                              <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-zinc-100">
+                                {report.suggested_text || '—'}
+                              </p>
+                            ) : (
+                              <ReportSuggestionEditor
+                                reportId={report.id}
+                                initial={report.suggested_text || ''}
+                                disabled={isBusy}
+                                onChange={rememberSuggestion}
+                              />
+                            )}
                           </div>
                         </div>
 
@@ -2065,26 +2109,38 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                         </button>
                       ) : null}
                       {!isResolved ? (
-                        <>
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() => handleResolveReport(report, 'apply')}
-                            className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66] transition hover:bg-[#00ff66]/20 disabled:opacity-50"
-                            title="Korrekturvorschlag in DB übernehmen & als erledigt markieren"
-                          >
-                            ✓ Übernehmen
-                          </button>
+                        hintOnly ? (
                           <button
                             type="button"
                             disabled={isBusy}
                             onClick={() => handleResolveReport(report, 'resolve')}
-                            className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
-                            title="Meldung als erledigt markieren"
+                            className="rounded-lg border border-emerald-400/70 bg-emerald-500/20 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-200 transition hover:bg-emerald-500/30 disabled:opacity-50"
+                            title="Struktureller Hinweis – nach der Prüfung schließen, ohne die Datenbank zu überschreiben"
                           >
-                            ✓ Erledigt
+                            ✓ Geprüft & Erledigt
                           </button>
-                        </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => handleResolveReport(report, 'apply')}
+                              className="rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/10 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[#00ff66] transition hover:bg-[#00ff66]/20 disabled:opacity-50"
+                              title="Korrekturvorschlag in DB übernehmen & als erledigt markieren"
+                            >
+                              ✓ Übernehmen
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => handleResolveReport(report, 'resolve')}
+                              className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                              title="Meldung als erledigt markieren"
+                            >
+                              ✓ Erledigt
+                            </button>
+                          </>
+                        )
                       ) : null}
                       <button
                         type="button"

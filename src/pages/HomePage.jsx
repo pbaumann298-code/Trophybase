@@ -16,6 +16,7 @@ import { usePlatinumStatus } from '../context/PlatinumStatusContext';
 import SearchSkipQuickwins from '../components/SearchSkipQuickwins';
 import SearchIncludeTrophiesOnly from '../components/SearchIncludeTrophiesOnly';
 import GameTile from '../components/GameTile';
+import GameFallbackCover from '../components/GameFallbackCover';
 import WatchlistButton from '../components/WatchlistButton';
 import { GAME_FIELDS } from '../lib/gameSchema';
 import { getGameCover, getGameTitle, getGameUuid } from '../lib/gameModel';
@@ -129,11 +130,12 @@ function HomeGamesTable({ games, openGame, loading }) {
                       openGame(game);
                     }}
                   >
-                    {cover ? (
-                      <img src={cover} alt="" className="home-data-cover" loading="lazy" />
-                    ) : (
-                      <span className="home-data-cover home-data-cover--empty">🎮</span>
-                    )}
+                    <GameFallbackCover
+                      src={cover}
+                      title={title}
+                      variant="thumb"
+                      imgClassName="home-data-cover"
+                    />
                   </a>
                 </td>
                 <td>

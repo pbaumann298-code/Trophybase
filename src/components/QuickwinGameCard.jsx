@@ -40,6 +40,8 @@ import { applyTrophyUnlockToggle, isPlatinumUnlocked } from '../lib/trophyTypes'
 import { saveLocalPlatinumFlag, PROGRESS_SYNCED_EVENT } from '../lib/localUserProgress';
 import { pushLocalGameProgressToCloud } from '../lib/progressCloudBridge';
 import PlatinumUnlockedBadge from './PlatinumUnlockedBadge';
+import Reportable from './Reportable';
+import GameFallbackCover from './GameFallbackCover';
 import {
   claimCompletedGuideItems,
   collectGuideProgressIds,
@@ -303,35 +305,31 @@ function QuickwinGameCard({
         <div className="quickwin-card-main">
           <div className="flex flex-col gap-1.5 flex-shrink-0">
             <div className="quickwin-card-cover-wrap relative">
-              {cover ? (
-                <img
-                  src={cover}
-                  onClick={
-                    isAdmin
-                      ? () => {
-                          setCoverError('');
-                          setIgdbPrompt(true);
-                        }
-                      : undefined
-                  }
-                  title={isAdmin ? 'Klicken, um Cover-Link zu ändern' : undefined}
-                  className={`quickwin-card-cover ${isAdmin ? 'cursor-pointer transition hover:opacity-90' : ''}`}
-                  alt=""
-                />
-              ) : (
-                <div
-                  onClick={
-                    isAdmin
-                      ? () => {
-                          setCoverError('');
-                          setIgdbPrompt(true);
-                        }
-                      : undefined
-                  }
-                  className={`quickwin-card-cover quickwin-card-cover--empty ${isAdmin ? 'cursor-pointer' : ''}`}
-                  aria-hidden
-                />
-              )}
+              <GameFallbackCover
+                src={cover}
+                title={title}
+                variant="card"
+                imgClassName={`quickwin-card-cover ${isAdmin ? 'cursor-pointer transition hover:opacity-90' : ''}`}
+                onClick={
+                  isAdmin
+                    ? () => {
+                        setCoverError('');
+                        setIgdbPrompt(true);
+                      }
+                    : undefined
+                }
+                titleAttr={isAdmin ? 'Klicken, um Cover-Link zu ändern' : undefined}
+                reportableProps={
+                  !isAdmin && reportSource && gameUuid
+                    ? {
+                        source: reportSource,
+                        type: 'game',
+                        reportKey: gameUuid,
+                        field: 'cover_url',
+                      }
+                    : null
+                }
+              />
               <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
                 <GuideOnlineBadge game={detailGame} visible={isAdmin} size="sm" />
               </div>
@@ -394,7 +392,9 @@ function QuickwinGameCard({
                     openGame?.(detailGame);
                   }}
                 >
-                  {title}
+                  <Reportable as="span" source={reportSource} type="game" reportKey={gameUuid} field="title">
+                    {title}
+                  </Reportable>
                   {isAdmin ? (
                     <span className="quickwin-type">
                       {String(detailGame.spiel_typ ?? '').trim() || '—'}
@@ -403,7 +403,9 @@ function QuickwinGameCard({
                 </a>
               ) : (
                 <p className="quickwin-card-title">
-                  {title}
+                  <Reportable as="span" source={reportSource} type="game" reportKey={gameUuid} field="title">
+                    {title}
+                  </Reportable>
                   {isAdmin ? (
                     <span className="quickwin-type">
                       {String(detailGame.spiel_typ ?? '').trim() || '—'}
@@ -419,31 +421,50 @@ function QuickwinGameCard({
             <div className="quickwin-card-meta">
               <div>
                 <span>{t('searchConsole')}</span>
-                <strong>{detailGame[GAME_FIELDS.console] || '—'}</strong>
+                <strong>
+                  <Reportable as="span" source={reportSource} type="game" reportKey={gameUuid} field="hardware">
+                    {detailGame[GAME_FIELDS.console] || '—'}
+                  </Reportable>
+                </strong>
               </div>
               <div>
                 <span>{t('yearLabel')}</span>
-                <strong>{detailGame[GAME_FIELDS.year] || '—'}</strong>
+                <strong>
+                  <Reportable as="span" source={reportSource} type="game" reportKey={gameUuid} field="release_jahr">
+                    {detailGame[GAME_FIELDS.year] || '—'}
+                  </Reportable>
+                </strong>
               </div>
               <div>
                 <span>{t('searchGenre')}</span>
                 <strong className="quickwin-card-meta-links">
-                  <HomeTagSearchLinks
-                    tags={detailGame[GAME_STRUCT.homeTags]}
-                    locale={globalLocale}
-                    fallback={detailGame[GAME_FIELDS.genre] || '—'}
-                  />
+                  <Reportable as="span" source={reportSource} type="game" reportKey={gameUuid} field="home_tags">
+                    <HomeTagSearchLinks
+                      tags={detailGame[GAME_STRUCT.homeTags]}
+                      locale={globalLocale}
+                      fallback={detailGame[GAME_FIELDS.genre] || '—'}
+                    />
+                  </Reportable>
                 </strong>
               </div>
               <div>
                 <span>{t('studioLabel')}</span>
                 <strong className="quickwin-card-meta-links">
-                  {credits.studio ? <DeveloperSearchLink name={credits.studio} /> : '—'}
+                  <Reportable as="span" source={reportSource} type="game" reportKey={gameUuid} field="entwickler">
+                    {credits.studio ? <DeveloperSearchLink name={credits.studio} /> : '—'}
+                  </Reportable>
                 </strong>
               </div>
             </div>
             {description ? (
-              <div className="mt-4 space-y-2 text-sm leading-relaxed text-zinc-300">
+              <Reportable
+                as="div"
+                source={reportSource}
+                type="game"
+                reportKey={gameUuid}
+                field="description"
+                className="mt-4 space-y-2 text-sm leading-relaxed text-zinc-300"
+              >
                 {description
                   .split(/\n{2,}/)
                   .map((paragraph) => paragraph.trim())
@@ -451,7 +472,7 @@ function QuickwinGameCard({
                   .map((paragraph, index) => (
                     <p key={index}>{paragraph}</p>
                   ))}
-              </div>
+              </Reportable>
             ) : null}
           </div>
         </div>
@@ -461,6 +482,8 @@ function QuickwinGameCard({
         title={title}
         description={description}
         creators={creators}
+        gameUuid={gameUuid}
+        reportSource={reportSource || gameUuid}
         showDescription={false}
         className="mb-4"
       />

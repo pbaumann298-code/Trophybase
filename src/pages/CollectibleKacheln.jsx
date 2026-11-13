@@ -779,9 +779,22 @@ function SplitScreenGuideKacheln({
                 />
               )}
               {groupHeaderIcon}
-              <span style={{ textDecoration: isGroupAllCompleted ? 'line-through' : 'none' }}>
-                {group.name}
-              </span>
+              {gameId ? (
+                <Reportable
+                  as="span"
+                  source={gameId}
+                  type={reportEntityType}
+                  reportKey={group.name}
+                  field={groupByField}
+                  style={{ textDecoration: isGroupAllCompleted ? 'line-through' : 'none' }}
+                >
+                  {group.name}
+                </Reportable>
+              ) : (
+                <span style={{ textDecoration: isGroupAllCompleted ? 'line-through' : 'none' }}>
+                  {group.name}
+                </span>
+              )}
               {renderGroupAddon ? renderGroupAddon(items) : null}
               <span
                 style={{
@@ -860,23 +873,34 @@ function SplitScreenGuideKacheln({
                         />
                       ) : null;
 
+                    const timestampStyle = {
+                      fontFamily: 'monospace',
+                      fontSize: '11px',
+                      padding: '1px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: isActive ? 'rgba(0, 255, 102, 0.18)' : '#121314',
+                      border: isActive
+                        ? '1px solid rgba(0, 255, 102, 0.5)'
+                        : '1px solid #27272a',
+                      color: hasVideo ? '#00ff66' : '#a1a1aa',
+                      flexShrink: 0,
+                    };
+                    const timestampLabel = hasVideo ? `▶ ${item.timestamp}` : item.timestamp;
                     const timestampBadge = item.timestamp ? (
-                      <span
-                        style={{
-                          fontFamily: 'monospace',
-                          fontSize: '11px',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: isActive ? 'rgba(0, 255, 102, 0.18)' : '#121314',
-                          border: isActive
-                            ? '1px solid rgba(0, 255, 102, 0.5)'
-                            : '1px solid #27272a',
-                          color: hasVideo ? '#00ff66' : '#a1a1aa',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {hasVideo ? `▶ ${item.timestamp}` : item.timestamp}
-                      </span>
+                      gameId && reportKey ? (
+                        <Reportable
+                          as="span"
+                          source={gameId}
+                          type={reportEntityType}
+                          reportKey={reportKey}
+                          field="timestamp"
+                          style={timestampStyle}
+                        >
+                          {timestampLabel}
+                        </Reportable>
+                      ) : (
+                        <span style={timestampStyle}>{timestampLabel}</span>
+                      )
                     ) : null;
 
                     return (
@@ -1104,9 +1128,22 @@ function SplitScreenGuideKacheln({
             )}
             <span>
               {localisationHeaderIcon}{' '}
-              <span style={{ textDecoration: isSectionAllCompleted ? 'line-through' : 'none' }}>
-                {section.localisation}
-              </span>
+              {gameId ? (
+                <Reportable
+                  as="span"
+                  source={gameId}
+                  type={reportEntityType}
+                  reportKey={section.localisation}
+                  field="spiel_region"
+                  style={{ textDecoration: isSectionAllCompleted ? 'line-through' : 'none' }}
+                >
+                  {section.localisation}
+                </Reportable>
+              ) : (
+                <span style={{ textDecoration: isSectionAllCompleted ? 'line-through' : 'none' }}>
+                  {section.localisation}
+                </span>
+              )}
               <span
                 className="guide-localisation__count"
                 style={{

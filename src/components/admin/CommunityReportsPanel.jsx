@@ -5,6 +5,7 @@ import {
   formatReportDisplayKey,
   formatReportGameTitle,
   formatReportNpwr,
+  isHintOnlyReport,
   setReportStatus,
 } from '../../lib/communityReportAdmin';
 import { parseReportImageUrls } from '../../lib/errorReport';
@@ -70,6 +71,17 @@ function ReportIdentity({ report }) {
 
 function ReportCard({ report, onAction, busyId }) {
   const isBusy = busyId === report.id;
+  const hintOnly = isHintOnlyReport(report);
+  const [suggestionState, setSuggestionState] = useState({
+    id: report.id,
+    text: report.suggested_text || '',
+  });
+  if (suggestionState.id !== report.id) {
+    setSuggestionState({ id: report.id, text: report.suggested_text || '' });
+  }
+  const suggestion = suggestionState.id === report.id
+    ? suggestionState.text
+    : (report.suggested_text || '');
 
   return (
     <article className="rounded-xl border border-zinc-800 bg-[#121314] p-4 space-y-3">
@@ -90,7 +102,17 @@ function ReportCard({ report, onAction, busyId }) {
         </div>
         <div className="rounded-lg bg-[#00ff66]/5 border border-[#00ff66]/20 p-3">
           <p className="text-[#00ff66]/70 mb-1 uppercase text-[10px] font-mono">suggested_text</p>
-          <p className="text-zinc-200 break-words">{report.suggested_text}</p>
+          {report.status === 'pending' ? (
+            <textarea
+              value={suggestion}
+              disabled={isBusy}
+              rows={3}
+              onChange={(event) => setSuggestionState({ id: report.id, text: event.target.value })}
+              className="w-full resize-y rounded-md border border-[#00ff66]/30 bg-zinc-950 px-2 py-1 text-xs leading-relaxed text-zinc-100 focus:border-[#00ff66] focus:outline-none"
+            />
+          ) : (
+            <p className="text-zinc-200 break-words">{report.suggested_text}</p>
+          )}
         </div>
       </div>
 
@@ -98,18 +120,29 @@ function ReportCard({ report, onAction, busyId }) {
 
       {report.status === 'pending' && (
         <div className="flex flex-wrap gap-2 pt-1">
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={() => onAction(report, 'approved')}
-            className="px-4 py-2 rounded-lg bg-[#00ff66] text-[#121314] text-xs font-bold hover:bg-[#00dd55] disabled:opacity-50"
-          >
-            {isBusy ? '…' : 'Approve & DB updaten'}
-          </button>
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={() => onAction(report, 'rejected')}
+          {hintOnly ? (
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() => onAction(report, 'approved', { apply: false })}
+              className="px-4 py-2 rounded-lg bg-emerald-400 text-[#121314] text-xs font-bold hover:bg-emerald-300 disabled:opacity-50"
+            >
+              {isBusy ? '…' : '✓ Geprüft & Erledigt'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() => onAction({ ...report, suggested_text: suggestion }, 'approved', { apply: true })}
+              className="px-4 py-2 rounded-lg bg-[#00ff66] text-[#121314] text-xs font-bold hover:bg-[#00dd55] disabled:opacity-50"
+            >
+              {isBusy ? '…' : '✓ Übernehmen'}
+            </button>
+          )}
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() => onAction(report, 'rejected', { apply: false })}
             className="px-4 py-2 rounded-lg border border-red-900/50 text-red-400 text-xs font-bold hover:bg-red-500/10 disabled:opacity-50"
           >
             Reject
@@ -190,10 +223,15 @@ function CommunityReportsPanel() {
     [reports],
   );
 
-  const handleAction = async (report, status) => {
+  const handleAction = async (report, status, { apply = status === 'approved' } = {}) => {
     setBusyId(report.id);
     setActionMsg('');
-    const { error: actionError } = await setReportStatus(supabase, report.id, status, report);
+    const { error: actionError } = await setReportStatus(
+      supabase,
+      report.id,
+      status,
+      apply ? report : null,
+    );
     setBusyId(null);
 
     if (actionError) {
@@ -203,7 +241,9 @@ function CommunityReportsPanel() {
 
     setActionMsg(
       status === 'approved'
-        ? `Meldung #${report.id} approved – DB aktualisiert.`
+        ? (apply
+          ? `Meldung #${report.id} übernommen.`
+          : `Meldung #${report.id} geprüft und erledigt.`)
         : `Meldung #${report.id} rejected.`,
     );
     await load();

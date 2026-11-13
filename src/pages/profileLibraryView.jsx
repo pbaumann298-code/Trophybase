@@ -3,6 +3,7 @@ import WatchlistProgressBar from '../components/WatchlistProgressBar';
 import { gameGuidePath } from '../lib/routeUtils';
 import { searchGames } from '../lib/gameSearch';
 import { getGameCover, getGameTitle } from '../lib/gameModel';
+import GameFallbackCover from '../components/GameFallbackCover';
 import { QUICKWIN_ALPHABET } from '../lib/quickwinCatalog';
 import { letterSectionId, tileOpenKey } from '../lib/cockpitLibrary';
 import { fetchAchievementsForGame } from '../lib/achievementQueries';
@@ -277,11 +278,13 @@ function LibraryPosterTile({ item, open, onToggle }) {
         open ? 'border-[#00ff66] ring-2 ring-[#00ff66]/40' : 'border-zinc-800 hover:border-zinc-500'
       }`}
     >
-      {item.cover ? (
-        <img src={item.cover} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
-      ) : (
-        <span className="absolute inset-0 flex items-center justify-center text-2xl">🎮</span>
-      )}
+      <GameFallbackCover
+        src={item.cover}
+        title={item.title}
+        variant="card"
+        imgClassName="absolute inset-0 h-full w-full object-cover"
+        className="absolute inset-0 h-full w-full"
+      />
       {item.isPlatinum ? (
         <span className="absolute left-1 top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-sky-500/90 px-1 text-[10px] font-bold text-white shadow">
           🏆
@@ -330,11 +333,13 @@ export function CockpitGameDetailCard({
           }}
           className="block h-24 w-16 shrink-0 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 sm:h-28 sm:w-20"
         >
-          {item.cover ? (
-            <img src={item.cover} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <span className="flex h-full w-full items-center justify-center text-xl">🎮</span>
-          )}
+          <GameFallbackCover
+            src={item.cover}
+            title={item.title}
+            variant="thumb"
+            imgClassName="h-full w-full object-cover"
+            className="h-full w-full"
+          />
         </a>
 
         <div className="min-w-0 w-full flex-1">
@@ -575,11 +580,13 @@ function LibraryTable({ items, locale, onOpenGuide, onStart, onPlatinum }) {
                     }}
                     className="block h-10 w-8 overflow-hidden rounded border border-zinc-800 bg-zinc-900"
                   >
-                    {item.cover ? (
-                      <img src={item.cover} alt="" loading="lazy" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="flex h-full items-center justify-center text-xs">🎮</span>
-                    )}
+                    <GameFallbackCover
+                      src={item.cover}
+                      title={item.title}
+                      variant="thumb"
+                      imgClassName="h-full w-full object-cover"
+                      className="h-full w-full"
+                    />
                   </a>
                 </td>
                 <td className="max-w-[14rem] px-2 py-1.5">
@@ -899,11 +906,13 @@ export function LibraryQuickAdd({ locale, watchlistByGameId, onAdd }) {
               return (
                 <div key={gameId} className="flex items-center gap-2 rounded-lg border border-zinc-800/80 bg-[#18191b] px-2 py-1.5">
                   <div className="h-10 w-8 shrink-0 overflow-hidden rounded border border-zinc-800 bg-zinc-900">
-                    {cover ? (
-                      <img src={cover} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="flex h-full items-center justify-center text-xs">🎮</span>
-                    )}
+                    <GameFallbackCover
+                      src={cover}
+                      title={title}
+                      variant="thumb"
+                      imgClassName="h-full w-full object-cover"
+                      className="h-full w-full"
+                    />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-bold text-white">{title}</p>

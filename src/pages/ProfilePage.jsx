@@ -5,6 +5,7 @@ import { useLocale } from '../context/LocaleContext';
 import { SUPPORTED_LOCALES } from '../lib/locale';
 import { localeOptions } from '../lib/uiStrings';
 import { getGameCover, getGameTitle } from '../lib/gameModel';
+import GameFallbackCover from '../components/GameFallbackCover';
 import {
   sanitizePreferredLocales,
   useUserPreferences,
@@ -1220,17 +1221,14 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
                       }}
                       className="w-12 h-16 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 flex-shrink-0 block"
                     >
-                      {chk.cover ? (
-                        <img
-                          src={chk.cover}
-                          alt={chk.title}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-base">
-                          🎮
-                        </div>
-                      )}
+                      <GameFallbackCover
+                        src={chk.cover}
+                        title={chk.title}
+                        alt={chk.title}
+                        variant="thumb"
+                        imgClassName="h-full w-full object-cover"
+                        className="h-full w-full"
+                      />
                     </a>
 
                     <div className="min-w-0 flex-1">

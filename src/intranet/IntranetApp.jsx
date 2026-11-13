@@ -114,13 +114,14 @@ function IntranetApp() {
     let cancelled = false;
     async function loadDraftsCount() {
       try {
-        const { data, error } = await supabase
-          .from('staging_game_guides')
-          .select('game_id')
-          .range(0, 999);
-        if (cancelled || error || !data) return;
-        const uniqueGames = new Set(data.map((r) => r.game_id).filter(Boolean));
-        setDraftsCount(uniqueGames.size);
+        const { data, error } = await supabase.rpc('tb_get_staging_queue_summary', {
+          p_creator_id: null,
+          p_creator_name: null,
+        });
+        if (cancelled || error) return;
+        const summary = Array.isArray(data) ? (data[0] ?? {}) : (data ?? {});
+        const items = Array.isArray(summary.items) ? summary.items : [];
+        setDraftsCount(items.length);
       } catch (err) {
         console.error('Entwürfe-Zähler Fehler:', err);
       }

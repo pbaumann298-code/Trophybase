@@ -9,6 +9,7 @@ import { gameGuidePath } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
 import { useVisibility } from '../context/VisibilityContext';
 import { GameCoverOverlays } from '../components/GameTile';
+import GameFallbackCover from '../components/GameFallbackCover';
 import AdminCoverInspector from '../components/AdminCoverInspector';
 import '../styles/home.css';
 
@@ -83,11 +84,12 @@ function SearchResultRow({
     >
       <div className="flex flex-col gap-1.5 flex-shrink-0 w-28">
         <div className="relative group w-28 h-36 rounded-lg overflow-hidden shadow-lg border border-zinc-800">
-          {cover ? (
-            <img src={cover} className="w-full h-full object-cover" alt="" />
-          ) : (
-            <div className="w-full h-full bg-[#121314]" aria-hidden />
-          )}
+          <GameFallbackCover
+            src={cover}
+            title={title}
+            variant="card"
+            imgClassName="h-full w-full object-cover"
+          />
           <GameCoverOverlays
             gameId={gameUuid}
             game={effectiveGame}

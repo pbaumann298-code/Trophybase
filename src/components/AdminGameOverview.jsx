@@ -12,6 +12,7 @@ import { saveGamePlaytime } from '../lib/intranetGameEdits';
 import { supabase } from '../pages/supabaseClient';
 import CollapsibleSectionCard from './CollapsibleSectionCard';
 import GameRadarCard from './GameRadarCard';
+import Reportable from './Reportable';
 
 function formatCount(value) {
   if (value == null || value === '') return '—';
@@ -27,16 +28,21 @@ function formatHours(value, locale, pattern) {
   return pattern.replace('{n}', shown);
 }
 
-function FactRow({ label, value, emphasize = false }) {
+function FactRow({ label, value, emphasize = false, report = null }) {
+  const shown = report?.source ? (
+    <Reportable as="span" source={report.source} type="game" reportKey={report.key} field={report.field}>
+      {value}
+    </Reportable>
+  ) : value;
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-zinc-800/70 py-1.5">
       <dt className="text-zinc-500">{label}</dt>
-      <dd className={`text-right font-medium ${emphasize ? 'text-white' : 'text-zinc-100'}`}>{value}</dd>
+      <dd className={`text-right font-medium ${emphasize ? 'text-white' : 'text-zinc-100'}`}>{shown}</dd>
     </div>
   );
 }
 
-function QuickFactChip({ icon, text, tone = 'neutral' }) {
+function QuickFactChip({ icon, text, tone = 'neutral', report = null }) {
   const toneClass =
     tone === 'green'
       ? 'border-[#00ff66]/30 bg-[#00ff66]/10 text-[#00ff66]'
@@ -46,13 +52,27 @@ function QuickFactChip({ icon, text, tone = 'neutral' }) {
           ? 'border-sky-500/30 bg-sky-500/10 text-sky-300'
           : 'border-zinc-700/80 bg-zinc-900/80 text-zinc-200';
 
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium leading-snug ${toneClass}`}
-    >
+  const chip = (
+    <>
       <span aria-hidden="true">{icon}</span>
       <span>{text}</span>
-    </span>
+    </>
+  );
+  const className = `inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium leading-snug ${toneClass}`;
+  if (!report?.source) {
+    return <span className={className}>{chip}</span>;
+  }
+  return (
+    <Reportable
+      as="span"
+      source={report.source}
+      type="game"
+      reportKey={report.key}
+      field={report.field}
+      className={className}
+    >
+      {chip}
+    </Reportable>
   );
 }
 
@@ -69,12 +89,15 @@ function AdminGameOverview({
   className = '',
   isAdmin = false,
   gameId = '',
+  reportSource = '',
   locale: localeProp = '',
   onPlaytimeSaved,
   onStatusExplanationSaved,
 }) {
   const { globalLocale, t } = useLocale();
   const locale = String(localeProp || globalLocale || 'de').toLowerCase();
+  const source = reportSource || gameId;
+  const gameReport = (field, key = gameId) => (source ? { source, key, field } : null);
   const [editing, setEditing] = useState(false);
   const [draftStory, setDraftStory] = useState('');
   const [draftComplete, setDraftComplete] = useState('');
@@ -228,26 +251,43 @@ function AdminGameOverview({
       headerActions={headerActions}
     >
       {serverDead ? (
-        <p className="mb-3 text-sm font-semibold leading-relaxed text-red-500">
+        <Reportable
+          as="p"
+          source={source}
+          type="game"
+          reportKey="server_dead"
+          field="quick_fact"
+          className="mb-3 text-sm font-semibold leading-relaxed text-red-500"
+        >
           {t('serverDeadPlatinum')}
-        </p>
+        </Reportable>
       ) : null}
 
       {!serverDead && quickFacts.length > 0 ? (
         <div className="mb-4 flex flex-wrap gap-2">
           {quickFacts.map((fact) => (
             <QuickFactChip
-              key={fact.key}
+              key={`${fact.key}-${fact.text}`}
               icon={fact.icon}
               text={fact.text}
               tone={fact.tone}
+              report={gameReport('quick_fact', fact.key)}
             />
           ))}
         </div>
       ) : null}
 
       {!serverDead && manualExplanation && !editing ? (
-        <p className="mb-4 text-sm leading-relaxed text-zinc-300">{manualExplanation}</p>
+        <Reportable
+          as="p"
+          source={source}
+          type="game"
+          reportKey={gameId || 'status'}
+          field="status_explanation"
+          className="mb-4 text-sm leading-relaxed text-zinc-300"
+        >
+          {manualExplanation}
+        </Reportable>
       ) : null}
 
       {editing ? (
@@ -270,9 +310,9 @@ function AdminGameOverview({
 
       <div className={`grid gap-x-8 ${showPlaytimeBlock ? 'sm:grid-cols-2' : ''}`}>
         <dl className="text-sm">
-          <FactRow label={t('trophiesTotal')} value={formatCount(trophyCounts.total)} emphasize />
-          <FactRow label={t('trophiesMissable')} value={formatCount(trophyCounts.missable)} />
-          <FactRow label={t('trophiesOnline')} value={formatCount(trophyCounts.online)} />
+          <FactRow label={t('trophiesTotal')} value={formatCount(trophyCounts.total)} emphasize report={gameReport('trophies_total')} />
+          <FactRow label={t('trophiesMissable')} value={formatCount(trophyCounts.missable)} report={gameReport('trophies_missable')} />
+          <FactRow label={t('trophiesOnline')} value={formatCount(trophyCounts.online)} report={gameReport('trophies_online')} />
         </dl>
         {showPlaytimeBlock ? (
           <dl className="text-sm">
@@ -328,10 +368,10 @@ function AdminGameOverview({
             ) : (
               <>
                 {(isAdmin || hasStory) ? (
-                  <FactRow label={t('playtimeStory')} value={hours('hauptstory')} />
+                  <FactRow label={t('playtimeStory')} value={hours('hauptstory')} report={gameReport('spielzeit_hauptstory')} />
                 ) : null}
                 {(isAdmin || hasComplete) ? (
-                  <FactRow label={t('playtimeComplete')} value={hours('komplett')} />
+                  <FactRow label={t('playtimeComplete')} value={hours('komplett')} report={gameReport('spielzeit_komplettierer')} />
                 ) : null}
               </>
             )}
@@ -361,7 +401,7 @@ function AdminGameOverview({
         </div>
       ) : null}
 
-      <GameRadarCard profile={profile} locale={locale} isAdmin={isAdmin} embedded />
+      <GameRadarCard profile={profile} locale={locale} isAdmin={isAdmin} embedded reportSource={source} />
     </CollapsibleSectionCard>
   );
 }

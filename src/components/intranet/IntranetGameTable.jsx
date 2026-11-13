@@ -160,8 +160,14 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, on
       publishing_status: game.publishing_status,
       published_locales: game.published_locales,
       game_guides: game.game_guides,
+      is_guide_locked: game.is_guide_locked,
+      fortschritt: game.fortschritt,
     };
     const nextStatus = statusAfterGuideDiscard(game.status);
+    const progressPatch =
+      String(game.fortschritt ?? '').trim().toUpperCase() === 'PUBLISHED'
+        ? { fortschritt: 'FERTIG' }
+        : {};
     setBusyKey(key);
     setErrorMessage('');
     setNotice('');
@@ -169,7 +175,9 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, on
       status: nextStatus,
       publishing_status: {},
       published_locales: [],
+      is_guide_locked: false,
       game_guides: [{ count: 0 }],
+      ...progressPatch,
     });
 
     const { status, error } = await discardIntranetGuide(supabase, game.id);
@@ -183,7 +191,9 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, on
       status,
       publishing_status: {},
       published_locales: [],
+      is_guide_locked: false,
       game_guides: [{ count: 0 }],
+      ...progressPatch,
     });
     setNotice('Guide erfolgreich gelöscht und Status zurückgesetzt.');
   };

@@ -5,6 +5,10 @@ import {
   ACHIEVEMENT_I18N,
   GUIDE_PK,
   GUIDE_I18N,
+  GUIDE_STRUCT,
+  GAME_PK,
+  GAME_I18N,
+  GAME_STRUCT,
 } from './gameSchema';
 import { getLocale } from './locale';
 import { readReportableDataset } from './reportableAttrs';
@@ -21,6 +25,13 @@ const GUIDE_REPORT_TARGET = {
   pkColumn: GUIDE_PK,
   jsonLangFields: {
     name: GUIDE_I18N.itemName,
+    spiel_region: GUIDE_I18N.spielRegion,
+    chronological_group: GUIDE_I18N.chronologicalGroup,
+    category_group: GUIDE_I18N.categoryGroup,
+    boss_group: GUIDE_I18N.bossGroup,
+  },
+  structFields: {
+    timestamp: GUIDE_STRUCT.timestamp,
   },
 };
 
@@ -38,10 +49,38 @@ export const REPORT_ENTITY_MAP = {
       ai_translation: ACHIEVEMENT_I18N.aiTranslation,
       guide_tip: ACHIEVEMENT_I18N.guideTip,
       guide_tip_long: ACHIEVEMENT_I18N.guideTipLong,
+      spielname: ACHIEVEMENT_I18N.groupName,
     },
     structFields: {
       video_url: ACHIEVEMENT_STRUCT.videoUrl,
       icon_url: ACHIEVEMENT_STRUCT.iconUrl,
+      flags: ACHIEVEMENT_STRUCT.isMissable,
+    },
+  },
+  game: {
+    table: TABLES.games,
+    pkColumn: GAME_PK,
+    jsonLangFields: {
+      title: GAME_I18N.title,
+      description: GAME_I18N.description,
+      status_explanation: GAME_I18N.statusExplanation,
+      cover_url: GAME_I18N.coverUrl,
+      radar_summary: GAME_STRUCT.radarProfile,
+      radar_axis: GAME_STRUCT.radarProfile,
+    },
+    structFields: {
+      hardware: GAME_STRUCT.hardware,
+      release_jahr: GAME_STRUCT.releaseYear,
+      entwickler: GAME_STRUCT.developer,
+      publisher: GAME_STRUCT.publisher,
+      home_tags: GAME_STRUCT.homeTags,
+      spielzeit_hauptstory: 'spielzeit_hauptstory',
+      spielzeit_komplettierer: 'spielzeit_komplettierer',
+      trophies_total: GAME_STRUCT.trophyCount,
+      trophies_missable: GAME_STRUCT.totalMissableTrophies,
+      trophies_online: GAME_STRUCT.totalOnlineTrophies,
+      quick_fact: GAME_STRUCT.status,
+      creator_credit: GAME_STRUCT.status,
     },
   },
   guide_step: GUIDE_REPORT_TARGET,
@@ -53,6 +92,7 @@ export const REPORT_ENTITY_MAP = {
 /** data-type (HTML) → community_reports.content_type */
 const CONTENT_TYPE_TO_DB = {
   trophy: 'trophy',
+  game: 'game',
   guide_step: 'guide_step',
   guide_item: 'item_name',
   item_name: 'item_name',
@@ -99,7 +139,7 @@ export function detectContentKind(element, selectedText) {
   const tag = element.tagName?.toUpperCase();
   if (tag === 'IMG') return 'image';
   if (tag === 'VIDEO' || tag === 'IFRAME') return 'video';
-  if (element.dataset?.field === 'icon_url') return 'image';
+  if (element.dataset?.field === 'icon_url' || element.dataset?.field === 'cover_url') return 'image';
   if (element.dataset?.field === 'video_url') return 'video';
   return selectedText ? 'text' : 'text';
 }

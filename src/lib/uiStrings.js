@@ -4,6 +4,7 @@ import { SUPPORTED_LOCALES } from './locale';
 export const UI_STRINGS = {
   de: {
     profile: 'Profil',
+    noCoverFound: 'Kein Cover gefunden',
     login: 'Anmelden',
     logout: 'Abmelden',
     admin: 'Admin',
@@ -362,6 +363,7 @@ export const UI_STRINGS = {
   },
   en: {
     profile: 'Profile',
+    noCoverFound: 'No cover found',
     login: 'Sign in',
     logout: 'Sign out',
     admin: 'Admin',
@@ -720,6 +722,7 @@ export const UI_STRINGS = {
   },
   es: {
     profile: 'Perfil',
+    noCoverFound: 'No se encontró carátula',
     login: 'Iniciar sesión',
     logout: 'Cerrar sesión',
     admin: 'Admin',
@@ -1042,6 +1045,7 @@ export const UI_STRINGS = {
   },
   pt: {
     profile: 'Perfil',
+    noCoverFound: 'Nenhuma capa encontrada',
     login: 'Iniciar sessão',
     logout: 'Finalizar sessão',
     admin: 'Admin',
@@ -1342,6 +1346,7 @@ export const UI_STRINGS = {
   },
   fr: {
     profile: 'Profil',
+    noCoverFound: 'Aucune jaquette trouvée',
     login: 'Se connecter',
     logout: 'Se déconnecter',
     admin: 'Admin',
@@ -1642,6 +1647,7 @@ export const UI_STRINGS = {
   },
   it: {
     profile: 'Profilo',
+    noCoverFound: 'Nessuna copertina trovata',
     login: 'Accedi',
     logout: 'Esci',
     admin: 'Admin',
@@ -1942,6 +1948,7 @@ export const UI_STRINGS = {
   },
   nl: {
     profile: 'Profiel',
+    noCoverFound: 'Geen cover gevonden',
     login: 'Inloggen',
     logout: 'Uitloggen',
     admin: 'Admin',
@@ -2242,6 +2249,7 @@ export const UI_STRINGS = {
   },
   ru: {
     profile: 'Профиль',
+    noCoverFound: 'Обложка не найдена',
     login: 'Войти',
     logout: 'Выйти',
     admin: 'Админ',
@@ -2542,6 +2550,7 @@ export const UI_STRINGS = {
   },
   ja: {
     profile: 'プロフィール',
+    noCoverFound: 'カバーが見つかりません',
     login: 'サインイン',
     logout: 'サインアウト',
     admin: '管理者',
@@ -2842,6 +2851,7 @@ export const UI_STRINGS = {
   },
   ko: {
     profile: '프로필',
+    noCoverFound: '커버를 찾을 수 없습니다',
     login: '로그인',
     logout: '로그아웃',
     admin: '관리자',
@@ -3142,6 +3152,7 @@ export const UI_STRINGS = {
   },
   'zh-hans': {
     profile: '个人资料',
+    noCoverFound: '未找到封面',
     login: '登录',
     logout: '登出',
     admin: '管理员',
@@ -3442,6 +3453,7 @@ export const UI_STRINGS = {
   },
   'zh-hant': {
     profile: '個人資料',
+    noCoverFound: '找不到封面',
     login: '登入',
     logout: '登出',
     admin: '管理員',
@@ -3742,6 +3754,7 @@ export const UI_STRINGS = {
   },
   fi: {
     profile: 'Profiili',
+    noCoverFound: 'Kantta ei löytynyt',
     login: 'Kirjaudu sisään',
     logout: 'Kirjaudu ulos',
     admin: 'Ylläpito',
@@ -4042,6 +4055,7 @@ export const UI_STRINGS = {
   },
   pl: {
     profile: 'Profil',
+    noCoverFound: 'Nie znaleziono okładki',
     login: 'Zaloguj się',
     logout: 'Wyloguj się',
     admin: 'Admin',
@@ -4342,6 +4356,7 @@ export const UI_STRINGS = {
   },
   sv: {
     profile: 'Profil',
+    noCoverFound: 'Inget omslag hittades',
     login: 'Logga in',
     logout: 'Logga ut',
     admin: 'Admin',
@@ -4642,6 +4657,7 @@ export const UI_STRINGS = {
   },
   ar: {
     profile: 'الملف الشخصي',
+    noCoverFound: 'لم يتم العثور على غلاف',
     login: 'تسجيل الدخول',
     logout: 'تسجيل الخروج',
     admin: 'الإدارة',
