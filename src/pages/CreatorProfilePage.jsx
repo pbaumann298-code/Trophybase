@@ -55,6 +55,7 @@ function copyFor(locale) {
       selfClaimTrigger: 'Ist das dein YouTube-Kanal? Seite übernehmen',
       google: 'Mit Google anmelden',
       discord: 'Mit Discord anmelden',
+      twitch: 'Mit Twitch anmelden',
       emailToggle: 'Per E-Mail (Magic-Link) anmelden',
       emailSend: 'Anmelde-Link senden',
       emailSent: 'Anmelde-Link wurde gesendet! Bitte prüfe dein Postfach.',
@@ -97,6 +98,7 @@ function copyFor(locale) {
     selfClaimTrigger: 'Is this your YouTube channel? Claim page',
     google: 'Continue with Google',
     discord: 'Continue with Discord',
+    twitch: 'Continue with Twitch',
     emailToggle: 'Sign in via Email (Magic Link)',
     emailSend: 'Send sign-in link',
     emailSent: 'Sign-in link sent! Please check your inbox.',
@@ -536,6 +538,13 @@ function CreatorProfilePage({
                   className="rounded-xl bg-[#5865F2] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#4752c4] cursor-pointer"
                 >
                   {copy.discord}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => signInOAuth('twitch')}
+                  className="rounded-xl bg-[#9146FF] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#772CE8] cursor-pointer"
+                >
+                  {copy.twitch}
                 </button>
                 <button
                   type="button"

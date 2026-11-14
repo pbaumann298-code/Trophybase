@@ -15,7 +15,7 @@
 /** @typedef {'google'|'discord'|'github'|'apple'|'facebook'|'twitter'|'slack'|'spotify'|'twitch'|'linkedin_oidc'} OAuthProviderId */
 
 /** Pflicht für den Launch. */
-export const REQUIRED_OAUTH_PROVIDERS = /** @type {const} */ (['google', 'discord']);
+export const REQUIRED_OAUTH_PROVIDERS = /** @type {const} */ (['google', 'discord', 'twitch']);
 
 /** Weitere Provider, die Supabase unterstützt und wir optional anbieten können. */
 export const OPTIONAL_OAUTH_PROVIDERS = /** @type {const} */ ([
@@ -25,7 +25,6 @@ export const OPTIONAL_OAUTH_PROVIDERS = /** @type {const} */ ([
   'twitter',
   'slack',
   'spotify',
-  'twitch',
   'linkedin_oidc',
 ]);
 

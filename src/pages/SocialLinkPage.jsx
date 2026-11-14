@@ -3,10 +3,9 @@ import { supabase } from './supabaseClient';
 import { linkSocialIdentity } from '../lib/trophyBaseAuth';
 
 const PROVIDERS = [
-  { id: 'discord', label: 'Mit Discord verknüpfen', className: 'bg-[#5865F2] hover:bg-[#4752C4] text-white' },
   { id: 'google', label: 'Mit Google verknüpfen', className: 'bg-white hover:bg-zinc-100 text-zinc-900' },
-  { id: 'apple', label: 'Mit Apple verknüpfen', className: 'bg-zinc-800 hover:bg-zinc-700 text-white' },
-  { id: 'facebook', label: 'Mit Facebook verknüpfen', className: 'bg-[#1877F2] hover:bg-[#166FE5] text-white' },
+  { id: 'discord', label: 'Mit Discord verknüpfen', className: 'bg-[#5865F2] hover:bg-[#4752C4] text-white' },
+  { id: 'twitch', label: 'Mit Twitch verknüpfen', className: 'bg-[#9146FF] hover:bg-[#772CE8] text-white' },
 ];
 
 function SocialLinkPage({ sessionUser, onLogout }) {
