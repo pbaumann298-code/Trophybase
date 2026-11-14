@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { GAME_FIELDS, GAME_STRUCT } from '../lib/gameSchema';
 import { getGameUuid, getRouteSlug, getGameTitle, getGameCover } from '../lib/gameModel';
-import { isGameDraftMode } from '../lib/guidePublication';
+import { hasPublishedGuide, isGameDraftMode } from '../lib/guidePublication';
 import { publicStudioCredits } from '../lib/studioCredits';
 import { DeveloperSearchLink, HomeTagSearchLinks } from '../components/SearchFacetLink';
 import { paginateItems } from '../lib/gameSearch';
@@ -22,6 +22,7 @@ function SearchResultRow({
   isAdmin,
   isWatchlist = false,
   onToggleDraftMode = null,
+  showGuideStatus = false,
 }) {
   const { globalLocale, t } = useLocale();
   const { getEntryState, gameKey } = useVisibility();
@@ -45,6 +46,15 @@ function SearchResultRow({
   const credits = publicStudioCredits(effectiveGame);
   const watchlistId = gameUuid || getRouteSlug(effectiveGame);
   const isDraftRoadmap = Boolean(isAdmin && isGameDraftMode(effectiveGame));
+  const guideAvailable = hasPublishedGuide(effectiveGame);
+  const guideBadgeText =
+    globalLocale === 'de'
+      ? guideAvailable
+        ? '📖 Guide verfügbar'
+        : '🏆 Nur Trophäen'
+      : guideAvailable
+        ? '📖 Guide available'
+        : '🏆 Trophies only';
 
   const handleRowClick = (e) => {
     e.preventDefault();
@@ -125,19 +135,32 @@ function SearchResultRow({
                 </span>
               )}
             </h4>
-            {isDraftRoadmap && (
+            {(showGuideStatus || isDraftRoadmap) && (
               <div className="flex flex-wrap items-center gap-2">
-                <span
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openGame(game, { preferGuideTab: true });
-                  }}
-                  title="Klicken, um direkt in die Guide-/Checklisten-Ansicht zu springen"
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-400/50 shadow-sm hover:bg-amber-500/30 transition"
-                >
-                  🎬 Video-Roadmap (Entwurf)
-                </span>
+                {showGuideStatus && (
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold border ${
+                      guideAvailable
+                        ? 'bg-[#00ff66]/12 text-[#00ff66] border-[#00ff66]/35'
+                        : 'bg-zinc-900/90 text-zinc-400 border-zinc-700/80'
+                    }`}
+                  >
+                    {guideBadgeText}
+                  </span>
+                )}
+                {isDraftRoadmap && (
+                  <span
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openGame(game, { preferGuideTab: true });
+                    }}
+                    title="Klicken, um direkt in die Guide-/Checklisten-Ansicht zu springen"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-400/50 shadow-sm hover:bg-amber-500/30 transition"
+                  >
+                    🎬 Video-Roadmap (Entwurf)
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -237,6 +260,7 @@ function SearchResultsPage({
   isAdmin = false,
   isWatchlist = false,
   onToggleDraftMode = null,
+  showGuideStatus = false,
   resultsTitle,
   emptyMessage,
 }) {
@@ -327,6 +351,7 @@ function SearchResultsPage({
                 isAdmin={isAdmin}
                 isWatchlist={isWatchlist}
                 onToggleDraftMode={onToggleDraftMode}
+                showGuideStatus={showGuideStatus}
               />
             ))}
           </div>

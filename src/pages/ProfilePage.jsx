@@ -5,7 +5,9 @@ import { useLocale } from '../context/LocaleContext';
 import { SUPPORTED_LOCALES } from '../lib/locale';
 import { localeOptions } from '../lib/uiStrings';
 import { getGameCover, getGameTitle } from '../lib/gameModel';
+import AccountDeleteCard from '../components/AccountDeleteCard';
 import GameFallbackCover from '../components/GameFallbackCover';
+import { fetchMyLinkedCreators } from '../lib/creatorQueries';
 import {
   sanitizePreferredLocales,
   useUserPreferences,
@@ -117,6 +119,7 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
   const [profile, setProfile] = useState(null);
   const [watchlistItems, setWatchlistItems] = useState([]);
   const [guideChecklists, setGuideChecklists] = useState([]);
+  const [linkedCreators, setLinkedCreators] = useState([]);
   const [areaErrors, setAreaErrors] = useState({});
   const [loading, setLoading] = useState(true);
 
@@ -164,7 +167,11 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
     setLoading(true);
     setError(null);
 
-    const bundle = await fetchUserCockpitBundle(supabase, sessionUser.id, globalLocale);
+    const [bundle, myCreatorsRes] = await Promise.all([
+      fetchUserCockpitBundle(supabase, sessionUser.id, globalLocale),
+      fetchMyLinkedCreators(supabase),
+    ]);
+    setLinkedCreators(myCreatorsRes.data ?? []);
 
     if (bundle.errors.profile && !bundle.profile) {
       setError(
@@ -976,7 +983,7 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
             { id: 'COMPLETED', label: `🏆 Fertig & Platin (${stage3Completed.length})` },
             { id: 'ALL', label: `🌐 Alle Spiele (${filteredBySearch.length})` },
             { id: 'CHECKLISTS', label: `☑️ Checklisten (${guideChecklists.length})` },
-            { id: 'SETTINGS', label: '⚙️ Sprachen & Koop' },
+            { id: 'SETTINGS', label: '⚙️ Sprachen, Koop & Konto' },
           ].map((tab) => {
             const selected = activeBucket === tab.id;
             return (
@@ -1172,6 +1179,12 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
           </div>
         ) : null}
       </div>
+
+      <AccountDeleteCard
+        locale={globalLocale}
+        linkedCreators={linkedCreators}
+        onDeleted={() => navigateToHome(globalLocale)}
+      />
           </div>
         ) : activeBucket === 'CHECKLISTS' ? (
       <div className="rounded-xl border border-zinc-800 bg-[#121314] p-4 sm:p-5">

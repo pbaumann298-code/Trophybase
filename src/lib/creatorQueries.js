@@ -16,6 +16,7 @@ import {
 } from './guidePublication.js';
 import { getGameTitle } from './gameModel.js';
 import { statusAfterGuideDiscard } from './intranetGameEdits.js';
+import { saveProgressOwner } from './localUserProgress.js';
 import { normalizeLocale, SUPPORTED_LOCALES } from './locale.js';
 import { localizeJsonField } from './translationUtils.js';
 import {
@@ -912,4 +913,51 @@ export async function resetAdminCreatorClaim(supabase, creatorId) {
     p_creator_id: id,
   });
   return { data, error };
+}
+
+export async function prepareCreatorYoutubeOptOut(supabase, { slug } = {}) {
+  const cleanSlug = String(slug ?? '').trim().toLowerCase();
+  if (!cleanSlug) return { data: null, error: new Error('Creator-Slug fehlt.') };
+  const { data, error } = await supabase.rpc('tb_prepare_creator_youtube_optout', {
+    p_slug: cleanSlug,
+  });
+  return { data, error };
+}
+
+export async function verifyCreatorYoutubeOptOut(
+  supabase,
+  { slug, takeGuidesOffline = true } = {},
+) {
+  const cleanSlug = String(slug ?? '').trim().toLowerCase();
+  if (!cleanSlug) return { data: null, error: new Error('Creator-Slug fehlt.') };
+  const { data, error } = await supabase.functions.invoke('verify-youtube-creator', {
+    body: {
+      slug: cleanSlug,
+      action: 'opt_out',
+      takeGuidesOffline: Boolean(takeGuidesOffline),
+    },
+  });
+  return { data, error };
+}
+
+export async function fetchMyLinkedCreators(supabase) {
+  const { data, error } = await supabase.rpc('tb_get_my_linked_creators');
+  if (error) return { data: [], error };
+  return { data: Array.isArray(data) ? data : [], error: null };
+}
+
+export async function deleteMyAccount(supabase, { creatorMode = 'keep_guides' } = {}) {
+  const mode = creatorMode === 'offline_guides' ? 'offline_guides' : 'keep_guides';
+  const { data, error } = await supabase.rpc('tb_delete_my_account', {
+    p_creator_mode: mode,
+  });
+  if (error) return { data: null, error };
+
+  saveProgressOwner(null);
+  try {
+    await supabase.auth.signOut({ scope: 'local' });
+  } catch {
+    /* session already removed server-side */
+  }
+  return { data, error: null };
 }

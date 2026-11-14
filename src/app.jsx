@@ -1313,6 +1313,7 @@ function App() {
                 page={searchPage}
                 onBack={goBack}
                 isAdmin={showAdminChrome}
+                showGuideStatus={Boolean(viewUser) && includeTrophiesOnly}
                 onPageChange={(nextPage) => {
                   setSearchPage(nextPage);
                   navigateToSimpleSearch(searchQuery, {

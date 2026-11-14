@@ -3,6 +3,7 @@ import WatchlistProgressBar from '../components/WatchlistProgressBar';
 import { gameGuidePath } from '../lib/routeUtils';
 import { searchGames } from '../lib/gameSearch';
 import { getGameCover, getGameTitle } from '../lib/gameModel';
+import { hasPublishedGuide } from '../lib/guidePublication';
 import GameFallbackCover from '../components/GameFallbackCover';
 import { QUICKWIN_ALPHABET } from '../lib/quickwinCatalog';
 import { letterSectionId, tileOpenKey } from '../lib/cockpitLibrary';
@@ -450,9 +451,13 @@ export function CockpitGameDetailCard({
               <button
                 type="button"
                 onClick={() => onOpenGuide(item)}
-                className="cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800/80 px-2.5 py-1 font-mono text-[11px] text-zinc-200 transition hover:bg-zinc-700"
+                className={`cursor-pointer rounded-lg border px-2.5 py-1 font-mono text-[11px] transition ${
+                  hasPublishedGuide(item?.game)
+                    ? 'border-[#00ff66]/40 bg-[#00ff66]/10 text-[#00ff66] hover:bg-[#00ff66]/20'
+                    : 'border-zinc-700 bg-zinc-800/80 text-zinc-200 hover:bg-zinc-700'
+                }`}
               >
-                Guide →
+                {hasPublishedGuide(item?.game) ? '📖 Guide →' : '🏆 Trophäen →'}
               </button>
               {onClose ? (
                 <button
@@ -543,9 +548,18 @@ function QuickAction({ item, onStart, onPlatinum, onOpenGuide }) {
       </button>
     );
   }
+  const guideReady = hasPublishedGuide(item?.game);
   return (
-    <button type="button" onClick={() => onOpenGuide(item)} className="cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 font-mono text-[11px] text-zinc-200 hover:bg-zinc-700">
-      Guide →
+    <button
+      type="button"
+      onClick={() => onOpenGuide(item)}
+      className={`cursor-pointer rounded-lg border px-2.5 py-1 font-mono text-[11px] transition ${
+        guideReady
+          ? 'border-[#00ff66]/40 bg-[#00ff66]/10 text-[#00ff66] hover:bg-[#00ff66]/20'
+          : 'border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
+      }`}
+    >
+      {guideReady ? '📖 Guide →' : '🏆 Trophäen →'}
     </button>
   );
 }
@@ -916,7 +930,15 @@ export function LibraryQuickAdd({ locale, watchlistByGameId, onAdd }) {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-bold text-white">{title}</p>
-                    <p className="truncate font-mono text-[10px] text-zinc-500">{game.hardware || 'Konsole unbekannt'}</p>
+                    <p className="truncate font-mono text-[10px] text-zinc-500">
+                      {game.hardware || 'Konsole unbekannt'}
+                      <span className="mx-1.5 text-zinc-700">·</span>
+                      {hasPublishedGuide(game) ? (
+                        <span className="text-[#00ff66]">📖 Guide</span>
+                      ) : (
+                        <span className="text-zinc-400">🏆 Nur Trophäen</span>
+                      )}
+                    </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap justify-end gap-1">
                     <AddTap

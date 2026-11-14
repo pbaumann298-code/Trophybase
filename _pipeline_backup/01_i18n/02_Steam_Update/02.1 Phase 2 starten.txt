@@ -1,1 +1,8 @@
-02.1_Steam_Catalog_Harvester.py --achievements
+# 1) Komplett-Durchmarsch (Katalog restlos holen + Achievement-Radar + alle Achievements DE/EN + Sony-Vererbung):
+& 'C:\Users\pbaum\AppData\Local\Python\pythoncore-3.14-64\python.exe' 'C:\Temp\TrophyBase\01_i18n\02_Steam_Update\02.1_Steam_Catalog_Harvester.py'
+
+# 2) Optional: Alle 16 Sprachen direkt bei Steam ziehen (verbraucht 16 statt 2 Key-Calls pro Spiel):
+& 'C:\Users\pbaum\AppData\Local\Python\pythoncore-3.14-64\python.exe' 'C:\Temp\TrophyBase\01_i18n\02_Steam_Update\02.1_Steam_Catalog_Harvester.py' --achievements --all-langs
+
+# 3) Optional später: Fehlende Store-Metadaten (Entwickler/Publisher/Release/FSK) entspannt nachziehen:
+& 'C:\Users\pbaum\AppData\Local\Python\pythoncore-3.14-64\python.exe' 'C:\Temp\TrophyBase\01_i18n\02_Steam_Update\02.1_Steam_Catalog_Harvester.py' --enrich

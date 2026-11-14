@@ -6,6 +6,7 @@ import {
   loadProgressOwner,
   mergeProgressByGame,
   planProgressSync,
+  PROGRESS_OWNER_KEY,
   saveProgressOwner,
   scanLocalProgressByGame,
 } from '../lib/localUserProgress';
@@ -20,18 +21,47 @@ import { isUuid } from '../lib/gameModel';
 import { useVisibility } from './VisibilityContext';
 
 const ProgressSyncContext = createContext(null);
+const PROMPT_RESOLVED_PREFIX = 'tb_progress_prompt_resolved:';
+
+function hasResolvedPromptForUser(userId) {
+  if (!userId || typeof window === 'undefined') return false;
+  try {
+    return window.localStorage?.getItem(`${PROMPT_RESOLVED_PREFIX}${userId}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markPromptResolvedForUser(userId) {
+  if (!userId || typeof window === 'undefined') return;
+  try {
+    window.localStorage?.setItem(`${PROMPT_RESOLVED_PREFIX}${userId}`, '1');
+  } catch {
+    /* ignore storage errors */
+  }
+}
 
 export function ProgressSyncProvider({ sessionUser, authLoading = false, children }) {
   const userId = sessionUser?.id ?? null;
   const { listHiddenGameUuids, replaceHiddenGameUuids } = useVisibility();
+  const visibilityFnsRef = useRef({ listHiddenGameUuids, replaceHiddenGameUuids });
+
   const [prompt, setPrompt] = useState(null);
   const [busy, setBusy] = useState(false);
   const runIdRef = useRef(0);
+  const activePrompt = userId && prompt?.userId === userId ? prompt : null;
+
+  useEffect(() => {
+    visibilityFnsRef.current = { listHiddenGameUuids, replaceHiddenGameUuids };
+  }, [listHiddenGameUuids, replaceHiddenGameUuids]);
 
   const enableCloudPush = useCallback((id) => {
     setProgressCloudUser(id);
     setGameHiddenCloudUser(id);
-    if (id) saveProgressOwner(id);
+    if (id) {
+      saveProgressOwner(id);
+      markPromptResolvedForUser(id);
+    }
   }, []);
 
   const disableCloudPush = useCallback(() => {
@@ -39,12 +69,29 @@ export function ProgressSyncProvider({ sessionUser, authLoading = false, childre
     // Ausblenden darf weiter syncen, auch während der Fortschritts-Abfrage.
   }, []);
 
+  // Cross-Tab Synchronisation: Sobald in EINEM Tab entschieden wurde, schließen alle anderen Tabs sofort ihr Popup.
+  useEffect(() => {
+    if (!userId || typeof window === 'undefined') return undefined;
+    const resolvedKey = `${PROMPT_RESOLVED_PREFIX}${userId}`;
+    const handleStorage = (event) => {
+      if (
+        (event.key === PROGRESS_OWNER_KEY && event.newValue === userId) ||
+        (event.key === resolvedKey && event.newValue === '1')
+      ) {
+        setPrompt(null);
+        setProgressCloudUser(userId);
+        setGameHiddenCloudUser(userId);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [userId]);
+
   useEffect(() => {
     if (authLoading) return undefined;
     if (!userId) {
       disableCloudPush();
       setGameHiddenCloudUser(null);
-      setPrompt(null);
       return undefined;
     }
 
@@ -64,9 +111,9 @@ export function ProgressSyncProvider({ sessionUser, authLoading = false, childre
         if (error) console.warn('Spiel-Sichtbarkeit:', error.message);
         return;
       }
-      const localHidden = listHiddenGameUuids().filter((id) => isUuid(id));
+      const localHidden = visibilityFnsRef.current.listHiddenGameUuids().filter((id) => isUuid(id));
       const merged = new Set([...localHidden, ...cloudHidden]);
-      replaceHiddenGameUuids(merged);
+      visibilityFnsRef.current.replaceHiddenGameUuids(merged);
       const toPush = localHidden.filter((id) => !cloudHidden.includes(id));
       if (toPush.length > 0) {
         await Promise.all(toPush.map((id) => upsertGameHidden(supabase, userId, id, true)));
@@ -87,10 +134,13 @@ export function ProgressSyncProvider({ sessionUser, authLoading = false, childre
         return;
       }
 
+      const effectiveOwner =
+        loadProgressOwner() || (hasResolvedPromptForUser(userId) ? userId : null);
+
       const plan = planProgressSync({
         localByGame,
         cloudByGame,
-        owner: loadProgressOwner(),
+        owner: effectiveOwner,
         userId,
       });
 
@@ -116,9 +166,16 @@ export function ProgressSyncProvider({ sessionUser, authLoading = false, childre
         return;
       }
 
+      // Falls ein anderer Tab in der Zwischenzeit bereits entschieden hat → nicht noch mal fragen!
+      if (loadProgressOwner() === userId || hasResolvedPromptForUser(userId)) {
+        enableCloudPush(userId);
+        return;
+      }
+
       // prompt – Cloud-Push erst nach Entscheidung
       disableCloudPush();
       setPrompt({
+        userId,
         reason: plan.reason,
         localByGame: plan.localByGame,
         cloudByGame: plan.cloudByGame,
@@ -137,13 +194,13 @@ export function ProgressSyncProvider({ sessionUser, authLoading = false, childre
     return () => {
       cancelled = true;
     };
-  }, [userId, authLoading, enableCloudPush, disableCloudPush, listHiddenGameUuids, replaceHiddenGameUuids]);
+  }, [userId, authLoading, enableCloudPush, disableCloudPush]);
 
   const acceptBrowser = useCallback(async () => {
-    if (!userId || !prompt) return;
+    if (!userId || !activePrompt) return;
     setBusy(true);
     try {
-      const merged = mergeProgressByGame(prompt.localByGame, prompt.cloudByGame);
+      const merged = mergeProgressByGame(activePrompt.localByGame, activePrompt.cloudByGame);
       const { error } = await upsertUserGuideProgressBulk(supabase, userId, merged);
       if (error) {
         console.warn('Fortschritt-Sync:', error.message);
@@ -156,36 +213,36 @@ export function ProgressSyncProvider({ sessionUser, authLoading = false, childre
     } finally {
       setBusy(false);
     }
-  }, [userId, prompt, enableCloudPush]);
+  }, [userId, activePrompt, enableCloudPush]);
 
   const declineBrowser = useCallback(() => {
-    if (!userId || !prompt) return;
+    if (!userId || !activePrompt) return;
     setBusy(true);
     try {
-      applyProgressByGameToLocal(prompt.cloudByGame, { replaceAll: true });
+      applyProgressByGameToLocal(activePrompt.cloudByGame, { replaceAll: true });
       enableCloudPush(userId);
       setPrompt(null);
     } finally {
       setBusy(false);
     }
-  }, [userId, prompt, enableCloudPush]);
+  }, [userId, activePrompt, enableCloudPush]);
 
   const value = useMemo(
     () => ({
-      progressSyncPending: Boolean(prompt),
+      progressSyncPending: Boolean(activePrompt),
     }),
-    [prompt],
+    [activePrompt],
   );
 
   return (
     <ProgressSyncContext.Provider value={value}>
       {children}
       <ProgressSyncPrompt
-        open={Boolean(prompt)}
+        open={Boolean(activePrompt)}
         busy={busy}
-        localStats={prompt?.localStats}
-        cloudStats={prompt?.cloudStats}
-        reason={prompt?.reason ?? ''}
+        localStats={activePrompt?.localStats}
+        cloudStats={activePrompt?.cloudStats}
+        reason={activePrompt?.reason ?? ''}
         onAccept={acceptBrowser}
         onDecline={declineBrowser}
       />

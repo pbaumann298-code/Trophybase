@@ -394,6 +394,7 @@ function AdvancedSearchPage({
           onRequestLogin={onRequestLogin}
           compact
           isAdmin={includeReady}
+          showGuideStatus={Boolean(sessionUser) && includeTrophiesOnly}
           page={page}
           onPageChange={(nextPage) => {
             setPage(nextPage);
