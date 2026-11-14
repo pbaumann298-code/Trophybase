@@ -185,6 +185,15 @@ function AdminApp() {
     writeAdminTab(activeTab);
   }, [activeTab]);
 
+  useEffect(() => {
+    const onPreloadError = (event) => {
+      event?.preventDefault?.();
+      window.location.reload();
+    };
+    window.addEventListener('vite:preloadError', onPreloadError);
+    return () => window.removeEventListener('vite:preloadError', onPreloadError);
+  }, []);
+
   const handleLogin = async (email, password) => {
     setLoginLoading(true);
     setLoginError('');

@@ -31,13 +31,19 @@ export function registerPwa() {
     }).catch(() => {});
   };
 
-  window.addEventListener('load', () => {
+  const doRegister = () => {
     navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(() => {
       requestUpdate();
     }).catch((err) => {
       console.warn('Service Worker:', err.message);
     });
-  });
+  };
+
+  if (document.readyState === 'complete') {
+    doRegister();
+  } else {
+    window.addEventListener('load', doRegister, { once: true });
+  }
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') requestUpdate();

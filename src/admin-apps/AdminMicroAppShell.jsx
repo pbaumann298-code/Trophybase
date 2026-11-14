@@ -68,6 +68,12 @@ export default function AdminMicroAppShell({
         ensureAdminServiceWorker().catch(() => {});
       }
     }
+    const onPreloadError = (event) => {
+      event?.preventDefault?.();
+      window.location.reload();
+    };
+    window.addEventListener('vite:preloadError', onPreloadError);
+    return () => window.removeEventListener('vite:preloadError', onPreloadError);
   }, []);
 
   useEffect(() => {

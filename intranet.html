@@ -14,19 +14,72 @@
     <script type="module" src="/src/intranet/main.jsx"></script>
     <script>
       (function () {
+        var ersterFehler = null;
+        function healAndReload(force) {
+          try {
+            if (!force && sessionStorage.getItem('tb_intranet_heal_once') === '1') return false;
+            sessionStorage.setItem('tb_intranet_heal_once', '1');
+          } catch (e) {}
+          var p = Promise.resolve();
+          if (window.caches && caches.keys) {
+            p = caches.keys().then(function (ks) {
+              return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+            }).catch(function () {});
+          }
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            p = p.then(function () {
+              return navigator.serviceWorker.getRegistrations().then(function (regs) {
+                return Promise.all(regs.map(function (r) { return r.update().catch(function () {}); }));
+              });
+            }).catch(function () {});
+          }
+          p.finally(function () { location.reload(); });
+          return true;
+        }
+        addEventListener('vite:preloadError', function (e) {
+          if (e && e.preventDefault) e.preventDefault();
+          healAndReload(false);
+        });
+        addEventListener('error', function (e) {
+          ersterFehler = ersterFehler || (e.error && e.error.message) || e.message;
+        }, true);
+        addEventListener('unhandledrejection', function (e) {
+          ersterFehler = ersterFehler || String((e.reason && e.reason.message) || e.reason);
+        });
         addEventListener('load', function () {
           setTimeout(function () {
             var root = document.getElementById('intranet-root');
-            if (!root || root.children.length > 0) return;
+            if (!root) return;
+            if (root.children.length > 0) {
+              try { sessionStorage.removeItem('tb_intranet_heal_once'); } catch (e) {}
+              return;
+            }
+            if (healAndReload(false)) return;
             var box = document.createElement('div');
             box.style.cssText =
               'font:16px/1.6 system-ui,sans-serif;color:#e4e4e7;max-width:34rem;' +
               'margin:15vh auto;padding:0 1.5rem;text-align:center';
             box.innerHTML =
-              '<h1 style="font-size:1.25rem;margin:0 0 .75rem">Intranet konnte nicht starten</h1>' +
-              '<p style="margin:0;color:#a1a1aa">Bitte später erneut versuchen oder trophybase.app/intranet.html direkt öffnen.</p>';
+              '<h1 style="font-size:1.25rem;margin:0 0 .75rem">Intranet wird aktualisiert</h1>' +
+              '<p style="margin:0 0 1rem;color:#a1a1aa">Ein neues Update liegt bereit. Bitte einmal frisch neu starten.</p>';
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = '🔄 Cache leeren & neu starten';
+            btn.style.cssText =
+              'background:#00ff66;color:#0a0b0c;border:0;border-radius:.75rem;' +
+              'padding:.6rem 1.2rem;font-weight:700;cursor:pointer';
+            btn.onclick = function () { healAndReload(true); };
+            box.appendChild(btn);
+            if (ersterFehler) {
+              var details = document.createElement('p');
+              details.style.cssText =
+                'margin-top:1rem;font:13px ui-monospace,monospace;color:#f87171;background:#1a1b1c;' +
+                'border:1px solid #3f3f46;border-radius:.5rem;padding:.75rem;word-break:break-word';
+              details.textContent = ersterFehler;
+              box.appendChild(details);
+            }
             root.appendChild(box);
-          }, 2500);
+          }, 2200);
         });
       })();
     </script>

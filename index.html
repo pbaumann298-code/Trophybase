@@ -121,10 +121,37 @@
     </div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
-      /* Scheitert das Modul beim Laden, bleibt #root leer und die Seite waere
-         nur eine leere Flaeche ohne jeden Hinweis. Dann Klartext zeigen. */
+      /* Scheitert das Modul beim Laden (z. B. nach Deploy-Wechsel), heilt sich der
+         Browser einmalig selbst und zeigt sonst statt leerer blauer Fläche Klartext. */
       (function () {
         var ersterFehler = null;
+        function healAndReload(force) {
+          try {
+            if (!force && sessionStorage.getItem('tb_boot_heal_once') === '1') return false;
+            sessionStorage.setItem('tb_boot_heal_once', '1');
+          } catch (e) {}
+          var p = Promise.resolve();
+          if (window.caches && caches.keys) {
+            p = caches.keys().then(function (ks) {
+              return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+            }).catch(function () {});
+          }
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            p = p.then(function () {
+              return navigator.serviceWorker.getRegistrations().then(function (regs) {
+                return Promise.all(regs.map(function (r) { return r.update().catch(function () {}); }));
+              });
+            }).catch(function () {});
+          }
+          p.finally(function () {
+            location.reload();
+          });
+          return true;
+        }
+        addEventListener('vite:preloadError', function (e) {
+          if (e && e.preventDefault) e.preventDefault();
+          healAndReload(false);
+        });
         addEventListener(
           'error',
           function (e) {
@@ -138,7 +165,16 @@
         addEventListener('load', function () {
           setTimeout(function () {
             var root = document.getElementById('root');
-            if (!root || root.children.length > 0) return;
+            if (!root) return;
+            var onlyFallback =
+              root.children.length === 1 &&
+              root.firstElementChild &&
+              root.firstElementChild.hasAttribute('data-tb-home-fallback');
+            if (root.children.length > 0 && !onlyFallback) {
+              try { sessionStorage.removeItem('tb_boot_heal_once'); } catch (e) {}
+              return;
+            }
+            if (healAndReload(false)) return;
             var box = document.createElement('div');
             box.style.cssText =
               'font:16px/1.6 system-ui,sans-serif;color:#e4e4e7;max-width:34rem;' +
@@ -149,24 +185,27 @@
             var text = document.createElement('p');
             text.style.cssText = 'margin:0 0 1rem;color:#a1a1aa';
             text.textContent =
-              'Die Anwendung wurde nicht vollstaendig ausgeliefert. Bitte versuche es spaeter erneut.';
+              'Ein neues Update wurde eingespielt. Bitte lade die Seite frisch neu.';
             box.appendChild(titel);
             box.appendChild(text);
-            var link = document.createElement('a');
-            link.href = '/';
-            link.textContent = 'Zur Startseite';
-            link.style.cssText = 'color:#00ff66;font-weight:700';
-            box.appendChild(link);
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = '🔄 Cache leeren & neu starten';
+            btn.style.cssText =
+              'background:#00ff66;color:#0a0b0c;border:0;border-radius:.75rem;' +
+              'padding:.6rem 1.2rem;font-weight:700;cursor:pointer';
+            btn.onclick = function () { healAndReload(true); };
+            box.appendChild(btn);
             if (ersterFehler) {
               var details = document.createElement('p');
               details.style.cssText =
-                'font:13px ui-monospace,monospace;color:#f87171;background:#1a1b1c;' +
+                'margin-top:1rem;font:13px ui-monospace,monospace;color:#f87171;background:#1a1b1c;' +
                 'border:1px solid #3f3f46;border-radius:.5rem;padding:.75rem;word-break:break-word';
               details.textContent = ersterFehler;
               box.appendChild(details);
             }
             root.appendChild(box);
-          }, 1500);
+          }, 1800);
         });
       })();
     </script>

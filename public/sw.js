@@ -1,6 +1,8 @@
-/* TrophyBase Service Worker: Pass-Through + Admin Web Push.
- * HTML, /api, Intranet, Admin und Supabase werden nie gecacht.
- * Übrige Requests überlässt der Worker dem Browser.
+/* TrophyBase Service Worker: Reiner Pass-Through + Admin Web Push.
+ * Wichtig: Niemals `fetch(request, { cache: 'no-store' })` auf `mode: 'navigate'` aufrufen,
+ * da Chromium sonst `TypeError: Cannot construct a Request with a Request object that has mode 'navigate'`
+ * wirft und jede Seitennavigation mit `ERR_FAILED` abbricht!
+ * Ohne `event.respondWith()` übernimmt der Browser alle Netzwerk-Requests nativ.
  */
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
@@ -15,36 +17,8 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-function isSupabase(url) {
-  return url.hostname.endsWith('.supabase.co') || url.hostname.endsWith('.supabase.net');
-}
-
-function mustStayNetworkOnly(url, request) {
-  if (request.mode === 'navigate' || request.destination === 'document') return true;
-  const path = url.pathname;
-  if (path === '/intranet.html' || path === '/admin.html') return true;
-  if (path === '/admin-apps' || path.startsWith('/admin-apps/')) return true;
-  if (path === '/intranet' || path === '/admin' || path.startsWith('/intranet/') || path.startsWith('/admin/')) {
-    return true;
-  }
-  if (path === '/api' || path.startsWith('/api/')) return true;
-  if (path.endsWith('.html')) return true;
-  if (isSupabase(url)) return true;
-  return false;
-}
-
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  if (request.method !== 'GET') return;
-  let url;
-  try {
-    url = new URL(request.url);
-  } catch {
-    return;
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
-  if (!mustStayNetworkOnly(url, request)) return;
-  event.respondWith(fetch(request, { cache: 'no-store' }));
+self.addEventListener('fetch', () => {
+  /* Bewusst kein event.respondWith(): Browser + Vercel-Header regeln alle Abrufe direkt. */
 });
 
 self.addEventListener('push', (event) => {
