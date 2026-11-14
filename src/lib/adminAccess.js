@@ -1,5 +1,6 @@
 import { ALLOWED_ADMINS, normalizeEmail } from './maintenanceAccess.js';
 import { adminOverlaysHidden } from './adminOverlayPreference.js';
+import { AUTH_STORAGE_KEY, sharedAuthStorage } from './authStorage.js';
 
 export const ADMIN_RETURN_STORAGE_KEY = 'tb_admin_return';
 export const ADMIN_ORIGIN_STORAGE_KEY = 'tb_admin_origin';
@@ -8,6 +9,36 @@ export const INTRANET_GAME_SEARCH_STORAGE_KEY = 'tb_intranet_game_search';
 export const DRAFT_RETURN_STORAGE_KEY = 'tb_draft_return_context';
 export const LAB_MODE_STORAGE_KEY = 'tb_lab_mode';
 export const STAFF_DEVICE_STORAGE_KEY = 'tb_device_is_staff';
+
+export const ADMIN_SUBDOMAIN_PREFIXES = new Set([
+  'apps',
+  'bugs',
+  'drafts',
+  'workflows',
+  'radar',
+  'krankenstation',
+  'reports',
+  'db',
+  'creators',
+  'admin',
+  'intranet',
+]);
+
+export function isAdminSubdomainHost(hostname = '') {
+  const host = String(
+    hostname || (typeof window !== 'undefined' ? window.location.hostname : ''),
+  ).toLowerCase();
+  if (!host.endsWith('.trophybase.app')) return false;
+  const prefix = host.slice(0, -'.trophybase.app'.length);
+  return ADMIN_SUBDOMAIN_PREFIXES.has(prefix);
+}
+
+function isAdminLocationContext() {
+  if (typeof window === 'undefined') return false;
+  if (isAdminSubdomainHost(window.location.hostname)) return true;
+  const path = String(window.location.pathname || '').toLowerCase();
+  return path.includes('/admin') || path.includes('/intranet');
+}
 
 function markDeviceAsStaff() {
   try {
@@ -20,8 +51,7 @@ function markDeviceAsStaff() {
 }
 
 if (typeof window !== 'undefined') {
-  const initPath = String(window.location.pathname || '').toLowerCase();
-  if (initPath.includes('/admin') || initPath.includes('/intranet')) {
+  if (isAdminLocationContext()) {
     markDeviceAsStaff();
   }
 }
@@ -35,18 +65,21 @@ const STAFF_HTML_BY_PATH = {
 export const AUTH_SESSION_TIMEOUT_MS = 3000;
 
 /**
- * Liest synchron den gecachten Supabase-User aus localStorage (`tb-auth-token` oder `sb-*-auth-token`),
- * falls `supabase.auth.getSession()` durch einen internen Lock verzögert wird.
+ * Liest synchron den gecachten Supabase-User aus dem gemeinsamen `.trophybase.app`-Cookie
+ * oder `localStorage` (`tb-auth-token` / `sb-*-auth-token`), falls `supabase.auth.getSession()`
+ * durch einen internen Lock verzögert wird.
  */
 export function readCachedSessionUser() {
-  if (typeof window === 'undefined' || !window.localStorage) return null;
+  if (typeof window === 'undefined') return null;
   try {
-    const rawPrimary = window.localStorage.getItem('tb-auth-token');
+    const rawPrimary = sharedAuthStorage.getItem(AUTH_STORAGE_KEY);
     const candidates = [rawPrimary];
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const k = window.localStorage.key(i);
-      if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) {
-        candidates.push(window.localStorage.getItem(k));
+    if (window.localStorage) {
+      for (let i = 0; i < window.localStorage.length; i += 1) {
+        const k = window.localStorage.key(i);
+        if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) {
+          candidates.push(window.localStorage.getItem(k));
+        }
       }
     }
     for (const raw of candidates) {
@@ -118,7 +151,9 @@ export function setAdminReturnFlag(active = true, originPath = null) {
       if (!resolvedOrigin && typeof window !== 'undefined') {
         const pathname = String(window.location.pathname || '');
         const lower = pathname.toLowerCase();
-        if (lower.startsWith('/admin-apps/')) {
+        if (isAdminSubdomainHost(window.location.hostname)) {
+          resolvedOrigin = `${window.location.origin}${pathname || '/'}`;
+        } else if (lower.startsWith('/admin-apps/')) {
           resolvedOrigin = pathname;
         } else if (lower.includes('intranet')) {
           resolvedOrigin = '/intranet.html';
@@ -148,12 +183,10 @@ export function getAdminReturnUrl(fallback = '/intranet.html') {
 
 export function isStaffOrPreviewContext() {
   if (typeof window === 'undefined') return false;
-  if (adminOverlaysHidden()) {
-    const path = String(window.location.pathname || '').toLowerCase();
-    if (!path.includes('/admin') && !path.includes('/intranet')) return false;
+  if (adminOverlaysHidden() && !isAdminLocationContext()) {
+    return false;
   }
-  const p = window.location.pathname.toLowerCase();
-  if (p.includes('/admin') || p.includes('/intranet')) {
+  if (isAdminLocationContext()) {
     markDeviceAsStaff();
     return true;
   }
@@ -203,18 +236,21 @@ export function setDraftReturnContext(ctx) {
       localStorage.removeItem(DRAFT_RETURN_STORAGE_KEY);
       return;
     }
+    let defaultStaffPath = '/intranet.html#entwuerfe';
+    if (typeof window !== 'undefined') {
+      if (isAdminSubdomainHost(window.location.hostname)) {
+        defaultStaffPath = window.location.href;
+      } else if (window.location.pathname.includes('admin')) {
+        defaultStaffPath = '/admin.html';
+      }
+    }
     const payload = {
       gameId: String(ctx.gameId),
       creatorName: String(ctx.creatorName ?? ''),
       title: String(ctx.title ?? ''),
       filterQuery: String(ctx.filterQuery ?? ''),
       activeDataSource: ctx.activeDataSource === 'rohmaterial' ? 'rohmaterial' : 'staging',
-      staffPath: String(
-        ctx.staffPath ||
-          (typeof window !== 'undefined' && window.location.pathname.includes('admin')
-            ? '/admin.html'
-            : '/intranet.html#entwuerfe'),
-      ),
+      staffPath: String(ctx.staffPath || defaultStaffPath),
       reopenConflictModal: Boolean(ctx.reopenConflictModal),
       savedAt: Date.now(),
     };
@@ -337,17 +373,29 @@ export function writeIntranetGameSearchState({
   }
 }
 
+export function resolvePublicSiteUrl(href = '/') {
+  if (!href) return href;
+  if (/^https?:\/\//i.test(href)) return href;
+  if (typeof window !== 'undefined' && isAdminSubdomainHost(window.location.hostname)) {
+    const normalized = href.startsWith('/') ? href : `/${href}`;
+    return `https://trophybase.app${normalized}`;
+  }
+  return href;
+}
+
 /**
  * Spielvorschau aus Admin/Intranet: Admin-Tab offen lassen (Suche bleibt),
  * Return-Flag setzen. Nur wenn kein neues Fenster geht → gleiche Seite.
+ * Auf Subdomain-WebAPKs wird ein relativer Pfad automatisch auf `https://trophybase.app` aufgelöst.
  */
 export function handleStaffGamePreviewClick(event, href) {
   if (!href) return;
   event.preventDefault();
   setAdminReturnFlag(true);
-  const opened = window.open(href, '_blank');
+  const resolvedHref = resolvePublicSiteUrl(href);
+  const opened = window.open(resolvedHref, '_blank');
   if (!opened) {
-    window.location.assign(href);
+    window.location.assign(resolvedHref);
   }
 }
 
@@ -355,8 +403,7 @@ export function handleStaffGamePreviewClick(event, href) {
 function guestSimulationBlocksAdmin() {
   if (!adminOverlaysHidden()) return false;
   if (typeof window === 'undefined') return false;
-  const path = String(window.location.pathname || '').toLowerCase();
-  if (path.includes('/admin') || path.includes('/intranet')) return false;
+  if (isAdminLocationContext()) return false;
   return true;
 }
 
@@ -372,9 +419,8 @@ export function isAdminUser(user, { allowPublic = false, ignoreGuestSimulation =
 }
 
 export function isStaffDeviceOrSession(user = null) {
-  if (typeof window !== 'undefined' && adminOverlaysHidden()) {
-    const path = String(window.location.pathname || '').toLowerCase();
-    if (!path.includes('/admin') && !path.includes('/intranet')) return false;
+  if (typeof window !== 'undefined' && adminOverlaysHidden() && !isAdminLocationContext()) {
+    return false;
   }
   const effectiveUser = user || readCachedSessionUser();
   if (isAdminUser(effectiveUser, { allowPublic: true })) return true;

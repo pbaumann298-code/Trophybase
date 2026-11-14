@@ -16,6 +16,11 @@ export const config = {
  */
 export default function middleware(request) {
   const url = new URL(request.url);
+  const rawHost = request.headers.get('host') || url.hostname || '';
+  const host = rawHost.toLowerCase().split(':')[0];
+  if (host && host !== 'trophybase.app' && host !== 'www.trophybase.app') {
+    return next();
+  }
   if (!parsePrettyGuidePath(url.pathname)) return next();
   if (isCrawler(request.headers.get('user-agent'))) return next();
 

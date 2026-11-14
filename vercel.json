@@ -121,6 +121,14 @@
       ]
     },
     {
+      "source": "/admin-apps/(.*)\\.webmanifest",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json" },
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+      ]
+    },
+    {
       "source": "/admin-apps/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
@@ -128,6 +136,51 @@
         { "key": "Expires", "value": "0" },
         { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
       ]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "apps.trophybase.app" }],
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "bugs.trophybase.app" }],
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "drafts.trophybase.app" }],
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "workflows.trophybase.app" }],
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "radar.trophybase.app" }],
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "krankenstation.trophybase.app" }],
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "reports.trophybase.app" }],
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "db.trophybase.app" }],
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "creators.trophybase.app" }],
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
     }
   ],
   "redirects": [
@@ -188,6 +241,141 @@
     { "source": "/ar/kurz-erklaert", "destination": "/ar/how-it-works", "permanent": true }
   ],
   "rewrites": [
+    {
+      "source": "/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "apps.trophybase.app" }],
+      "destination": "/admin-apps/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/admin-apps/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "apps.trophybase.app" }],
+      "destination": "/admin-apps/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/((?!api/|assets/|admin\\.html|intranet\\.html|admin-apps/|version\\.json|registerSW\\.js|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt).*)",
+      "has": [{ "type": "host", "value": "apps.trophybase.app" }],
+      "destination": "/admin-apps/index.html"
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "bugs.trophybase.app" }],
+      "destination": "/admin-apps/roadmap/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/admin-apps/roadmap/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "bugs.trophybase.app" }],
+      "destination": "/admin-apps/roadmap/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/((?!api/|assets/|admin\\.html|intranet\\.html|admin-apps/|version\\.json|registerSW\\.js|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt).*)",
+      "has": [{ "type": "host", "value": "bugs.trophybase.app" }],
+      "destination": "/admin-apps/roadmap/index.html"
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "drafts.trophybase.app" }],
+      "destination": "/admin-apps/drafts/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/admin-apps/drafts/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "drafts.trophybase.app" }],
+      "destination": "/admin-apps/drafts/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/((?!api/|assets/|admin\\.html|intranet\\.html|admin-apps/|version\\.json|registerSW\\.js|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt).*)",
+      "has": [{ "type": "host", "value": "drafts.trophybase.app" }],
+      "destination": "/admin-apps/drafts/index.html"
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "workflows.trophybase.app" }],
+      "destination": "/admin-apps/workflows/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/admin-apps/workflows/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "workflows.trophybase.app" }],
+      "destination": "/admin-apps/workflows/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/((?!api/|assets/|admin\\.html|intranet\\.html|admin-apps/|version\\.json|registerSW\\.js|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt).*)",
+      "has": [{ "type": "host", "value": "workflows.trophybase.app" }],
+      "destination": "/admin-apps/workflows/index.html"
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "radar.trophybase.app" }],
+      "destination": "/admin-apps/radar/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/admin-apps/radar/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "radar.trophybase.app" }],
+      "destination": "/admin-apps/radar/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/((?!api/|assets/|admin\\.html|intranet\\.html|admin-apps/|version\\.json|registerSW\\.js|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt).*)",
+      "has": [{ "type": "host", "value": "radar.trophybase.app" }],
+      "destination": "/admin-apps/radar/index.html"
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "krankenstation.trophybase.app" }],
+      "destination": "/admin-apps/krankenstation/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/admin-apps/krankenstation/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "krankenstation.trophybase.app" }],
+      "destination": "/admin-apps/krankenstation/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/((?!api/|assets/|admin\\.html|intranet\\.html|admin-apps/|version\\.json|registerSW\\.js|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt).*)",
+      "has": [{ "type": "host", "value": "krankenstation.trophybase.app" }],
+      "destination": "/admin-apps/krankenstation/index.html"
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "reports.trophybase.app" }],
+      "destination": "/admin-apps/reports/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/admin-apps/reports/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "reports.trophybase.app" }],
+      "destination": "/admin-apps/reports/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/((?!api/|assets/|admin\\.html|intranet\\.html|admin-apps/|version\\.json|registerSW\\.js|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt).*)",
+      "has": [{ "type": "host", "value": "reports.trophybase.app" }],
+      "destination": "/admin-apps/reports/index.html"
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "db.trophybase.app" }],
+      "destination": "/admin-apps/db/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/admin-apps/db/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "db.trophybase.app" }],
+      "destination": "/admin-apps/db/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/((?!api/|assets/|admin\\.html|intranet\\.html|admin-apps/|version\\.json|registerSW\\.js|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt).*)",
+      "has": [{ "type": "host", "value": "db.trophybase.app" }],
+      "destination": "/admin-apps/db/index.html"
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "creators.trophybase.app" }],
+      "destination": "/admin-apps/creators/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/admin-apps/creators/manifest.webmanifest",
+      "has": [{ "type": "host", "value": "creators.trophybase.app" }],
+      "destination": "/admin-apps/creators/subdomain-manifest.webmanifest"
+    },
+    {
+      "source": "/((?!api/|assets/|admin\\.html|intranet\\.html|admin-apps/|version\\.json|registerSW\\.js|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt).*)",
+      "has": [{ "type": "host", "value": "creators.trophybase.app" }],
+      "destination": "/admin-apps/creators/index.html"
+    },
     {
       "source": "/admin",
       "destination": "/admin.html"

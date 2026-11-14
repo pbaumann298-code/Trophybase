@@ -1,27 +1,29 @@
 import { createClient } from '@supabase/supabase-js';
+import { AUTH_STORAGE_KEY, sharedAuthStorage } from './authStorage.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const AUTH_STORAGE_KEY = 'tb-auth-token';
+export { AUTH_STORAGE_KEY };
 
 /**
  * Migriert einmalig ein evtl. noch unter dem alten Standard-Key (`sb-*-auth-token`)
- * gespeichertes Supabase-Session-Token nach `tb-auth-token`, damit bestehende Logins
- * beim Wechsel des `storageKey` erhalten bleiben.
+ * gespeichertes Supabase-Session-Token nach `tb-auth-token` (inkl. `.trophybase.app` Cookie-Sync),
+ * damit bestehende Logins automatisch auf allen Subdomain-WebAPKs bereitstehen.
  */
 function migrateLegacyAuthToken() {
-  if (typeof window === 'undefined' || !window.localStorage) return;
+  if (typeof window === 'undefined') return;
   try {
-    const existing = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const existing = sharedAuthStorage.getItem(AUTH_STORAGE_KEY);
     if (existing) return;
+    if (!window.localStorage) return;
 
     for (let i = 0; i < window.localStorage.length; i += 1) {
       const key = window.localStorage.key(i);
       if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
         const legacyValue = window.localStorage.getItem(key);
         if (legacyValue) {
-          window.localStorage.setItem(AUTH_STORAGE_KEY, legacyValue);
+          sharedAuthStorage.setItem(AUTH_STORAGE_KEY, legacyValue);
           break;
         }
       }
@@ -46,6 +48,7 @@ function getOrCreateSupabaseClient() {
       autoRefreshToken: true,
       detectSessionInUrl: true,
       storageKey: AUTH_STORAGE_KEY,
+      storage: sharedAuthStorage,
     },
   });
 

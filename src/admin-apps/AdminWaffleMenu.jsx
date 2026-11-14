@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { MICRO_APPS } from './microAppRegistry';
+import {
+  getAdminDesktopHref,
+  getHubHref,
+  MICRO_APPS,
+} from './microAppRegistry';
 import { setAdminReturnFlag } from '../lib/adminAccess';
 
 export default function AdminWaffleMenu({ currentAppId = '' }) {
@@ -58,7 +62,7 @@ export default function AdminWaffleMenu({ currentAppId = '' }) {
               TrophyBase Suite
             </span>
             <a
-              href="/admin-apps/"
+              href={getHubHref()}
               className="text-[10px] font-mono text-[#00ff66] hover:underline no-underline"
             >
               Alle Apps / Install ↗
@@ -74,7 +78,7 @@ export default function AdminWaffleMenu({ currentAppId = '' }) {
                   href={app.href}
                   onClick={() => {
                     if (app.isPublicSite) {
-                      setAdminReturnFlag(true, window.location.pathname);
+                      setAdminReturnFlag(true, window.location.href);
                     }
                     setOpen(false);
                   }}
@@ -99,13 +103,13 @@ export default function AdminWaffleMenu({ currentAppId = '' }) {
 
           <div className="mt-2.5 flex items-center justify-between border-t border-zinc-800 pt-2 px-1 text-[10px] font-mono">
             <a
-              href="/admin.html"
+              href={getAdminDesktopHref()}
               className="text-zinc-400 hover:text-white no-underline"
             >
               🖥 Desktop-Gesamtansicht
             </a>
             <a
-              href="/admin-apps/"
+              href={getHubHref()}
               className="text-zinc-400 hover:text-[#00ff66] no-underline"
             >
               📱 App-Zentrale

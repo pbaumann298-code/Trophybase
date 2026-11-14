@@ -10,7 +10,7 @@ import { ensureAdminServiceWorker } from '../lib/adminPush';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
 import AdminPushControl from './AdminPushControl';
 import AdminWaffleMenu from './AdminWaffleMenu';
-import { getMicroAppById } from './microAppRegistry';
+import { getMicroAppById, getMicroAppHref } from './microAppRegistry';
 
 let pwaRegistered = false;
 
@@ -180,17 +180,27 @@ export default function AdminMicroAppShell({
   };
 
   const openInDrafts = useCallback((gameId, source = 'staging') => {
+    const normalizedSource =
+      source === 'rohmaterial'
+        ? 'rohmaterial'
+        : source === 'fertig_review'
+          ? 'fertig_review'
+          : 'staging';
     if (gameId) {
       setDraftReturnContext({
         gameId,
-        activeDataSource: source === 'rohmaterial' ? 'rohmaterial' : 'staging',
-        staffPath: window.location.pathname,
+        activeDataSource: normalizedSource === 'rohmaterial' ? 'rohmaterial' : 'staging',
+        staffPath: window.location.href,
       });
     }
-    const targetUrl = source === 'fertig_review'
-      ? '/admin-apps/drafts/?source=fertig_review'
-      : '/admin-apps/drafts/';
-    window.location.href = targetUrl;
+    const url = new URL(getMicroAppHref('drafts'), window.location.origin);
+    if (normalizedSource !== 'staging') {
+      url.searchParams.set('source', normalizedSource);
+    }
+    if (gameId) {
+      url.searchParams.set('gameId', String(gameId));
+    }
+    window.location.href = url.toString();
   }, []);
 
   if (authLoading) {

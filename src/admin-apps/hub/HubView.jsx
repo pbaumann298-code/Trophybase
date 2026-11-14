@@ -117,6 +117,11 @@ export default function HubView({ sessionUser }) {
                 <p className="mt-0.5 line-clamp-2 text-[11px] text-zinc-400 leading-snug">
                   {app.subtitle}
                 </p>
+                {app.subdomain && (
+                  <p className="mt-1.5 truncate font-mono text-[10px] text-zinc-500 group-hover:text-zinc-300">
+                    {app.subdomain}.trophybase.app
+                  </p>
+                )}
               </div>
             </a>
           );
