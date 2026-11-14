@@ -56,10 +56,24 @@ if (typeof window !== 'undefined') {
   }
 }
 
-/** Öffentliche SPA darf /intranet und /admin nicht als Startseite rendern. */
+/** Öffentliche SPA darf /intranet, /admin und Admin-Subdomains nicht als Startseite rendern. */
 const STAFF_HTML_BY_PATH = {
   '/intranet': '/intranet.html',
   '/admin': '/admin.html',
+};
+
+const STAFF_HTML_BY_HOST = {
+  'apps.trophybase.app': '/admin-apps/index.html',
+  'bugs.trophybase.app': '/admin-apps/roadmap/index.html',
+  'drafts.trophybase.app': '/admin-apps/drafts/index.html',
+  'workflows.trophybase.app': '/admin-apps/workflows/index.html',
+  'radar.trophybase.app': '/admin-apps/radar/index.html',
+  'krankenstation.trophybase.app': '/admin-apps/krankenstation/index.html',
+  'reports.trophybase.app': '/admin-apps/reports/index.html',
+  'db.trophybase.app': '/admin-apps/db/index.html',
+  'creators.trophybase.app': '/admin-apps/creators/index.html',
+  'admin.trophybase.app': '/admin.html',
+  'intranet.trophybase.app': '/intranet.html',
 };
 
 export const AUTH_SESSION_TIMEOUT_MS = 3000;
@@ -102,7 +116,15 @@ function pathWithoutTrailingSlash(pathname = '') {
   return path.endsWith('/') && path.length > 1 ? path.slice(0, -1) : path;
 }
 
-export function staffAppHtmlForPath(pathname) {
+export function staffAppHtmlForPath(pathname, hostname) {
+  const host = String(
+    hostname || (typeof window !== 'undefined' ? window.location.hostname : ''),
+  ).toLowerCase();
+  const hostHtml = STAFF_HTML_BY_HOST[host];
+  if (hostHtml) {
+    const rawPath = pathname || (typeof window !== 'undefined' ? window.location.pathname : '');
+    if (rawPath !== hostHtml) return hostHtml;
+  }
   return STAFF_HTML_BY_PATH[pathWithoutTrailingSlash(pathname)] ?? null;
 }
 

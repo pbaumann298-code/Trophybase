@@ -161,7 +161,17 @@ function CreatorProfilePage({
   const copy = copyFor(globalLocale);
   const parsed = parseCreatorPath(window.location.pathname);
   const slug = parsed?.slug || '';
-  const claimToken = new URLSearchParams(window.location.search).get('claim')?.trim() || '';
+  const urlClaimToken = new URLSearchParams(window.location.search).get('claim')?.trim() || '';
+  const claimStorageKey = slug ? `tb_creator_claim:${slug}` : '';
+  const storedClaimToken = (() => {
+    if (!claimStorageKey || typeof window === 'undefined') return '';
+    try {
+      return window.localStorage.getItem(claimStorageKey) || '';
+    } catch {
+      return '';
+    }
+  })();
+  const claimToken = urlClaimToken || storedClaimToken;
 
   const [pathTick, setPathTick] = useState(0);
   const [includeDrafts, setIncludeDrafts] = useState(false);
@@ -213,7 +223,17 @@ function CreatorProfilePage({
       ? ''
       : `${creator.id}:${globalLocale}:${scope}`;
 
-  const showTakeoverPanel = isUnclaimed && (Boolean(claimToken) || manualClaimOpen);
+  const showTakeoverPanel =
+    isUnclaimed && (Boolean(claimToken) || manualClaimOpen || Boolean(sessionUser?.id && !isAdmin));
+
+  useEffect(() => {
+    if (!claimStorageKey || !urlClaimToken) return;
+    try {
+      window.localStorage.setItem(claimStorageKey, urlClaimToken);
+    } catch {
+      /* ignore storage errors */
+    }
+  }, [claimStorageKey, urlClaimToken]);
 
   useEffect(() => {
     const onPop = () => setPathTick((value) => value + 1);
@@ -333,11 +353,13 @@ function CreatorProfilePage({
     });
   }
 
+  const cleanRedirectUrl = `${window.location.origin}${window.location.pathname}`;
+
   const signInOAuth = async (provider) => {
     setLoginError('');
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: window.location.href },
+      options: { redirectTo: cleanRedirectUrl },
     });
     if (error) setLoginError(error.message || 'Anmeldung fehlgeschlagen.');
   };
@@ -351,7 +373,7 @@ function CreatorProfilePage({
     setEmailSentMsg('');
     const { error } = await supabase.auth.signInWithOtp({
       email: cleanEmail,
-      options: { emailRedirectTo: window.location.href },
+      options: { emailRedirectTo: cleanRedirectUrl },
     });
     setEmailBusy(false);
     if (error) {
@@ -408,7 +430,14 @@ function CreatorProfilePage({
     setVerifySuccess(copy.verifiedFlash);
     setEditorOpen(true);
 
-    if (claimToken) {
+    if (claimStorageKey) {
+      try {
+        window.localStorage.removeItem(claimStorageKey);
+      } catch {
+        /* ignore storage errors */
+      }
+    }
+    if (urlClaimToken) {
       const params = new URLSearchParams(window.location.search);
       params.delete('claim');
       const qs = params.toString();
