@@ -5,17 +5,32 @@ import {
 } from './gameSchema.js';
 import { getGameUuid } from './gameModel.js';
 
-const CREATOR_SELECT = 'id, channel_name, youtube_url';
+const CREATOR_SELECT =
+  'id, channel_name, youtube_url, slug, is_active, is_blacklisted, user_id, verified_at, is_public_indexed, showcase_config';
 
 function normalizeCreator(row) {
   if (!row) return null;
   const name = String(row.channel_name ?? '').trim();
   const youtubeUrl = normalizeYoutubeUrl(row.youtube_url);
   if (!name && !youtubeUrl) return null;
+  const rawSlug = String(row.slug ?? '').trim().toLowerCase();
+  const linkOptOut =
+    row.showcase_config &&
+    typeof row.showcase_config === 'object' &&
+    row.showcase_config.linkFromGuides === false;
+  const hasConsentedSlug = Boolean(
+    rawSlug &&
+      row.is_active !== false &&
+      !row.is_blacklisted &&
+      !linkOptOut &&
+      (row.user_id || row.verified_at || row.is_public_indexed),
+  );
   return {
     id: row.id ?? null,
     channelName: name,
     youtubeUrl: isSafeYoutubeChannelUrl(youtubeUrl) ? youtubeUrl : '',
+    slug: rawSlug,
+    publicSlug: hasConsentedSlug ? rawSlug : '',
   };
 }
 

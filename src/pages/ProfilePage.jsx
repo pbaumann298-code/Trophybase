@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabaseClient';
-import { gameGuidePath, navigateToHome } from '../lib/routeUtils';
+import { gameGuidePath, navigateToHome, writeAppPath } from '../lib/routeUtils';
 import { useLocale } from '../context/LocaleContext';
 import { SUPPORTED_LOCALES } from '../lib/locale';
 import { localeOptions } from '../lib/uiStrings';
 import { getGameCover, getGameTitle } from '../lib/gameModel';
 import AccountDeleteCard from '../components/AccountDeleteCard';
+import CreatorProfilePage from './CreatorProfilePage';
 import GameFallbackCover from '../components/GameFallbackCover';
 import { fetchMyLinkedCreators } from '../lib/creatorQueries';
 import {
@@ -141,10 +142,28 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
   const [coopHintOpen, setCoopHintOpen] = useState(false);
   const [tileOpenId, setTileOpenId] = useState(null);
   const [activeLetter, setActiveLetter] = useState('');
+  const [activeCreatorSlug, setActiveCreatorSlug] = useState('');
   const [viewMode, setViewMode] = useState(() => initialCockpitViewPrefs().viewMode);
   const [groupBy, setGroupBy] = useState(() => initialCockpitViewPrefs().groupBy);
   const [sortBy, setSortBy] = useState(() => initialCockpitViewPrefs().sortBy);
-  const [activeBucket, setActiveBucket] = useState(() => initialCockpitViewPrefs().activeBucket);
+  const [activeBucket, setActiveBucket] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const tabParam = new URLSearchParams(window.location.search).get('tab')?.toLowerCase();
+      if (tabParam === 'creator') return 'CREATOR';
+    }
+    return initialCockpitViewPrefs().activeBucket;
+  });
+
+  useEffect(() => {
+    const syncTabFromUrl = () => {
+      const tabParam = new URLSearchParams(window.location.search).get('tab')?.toLowerCase();
+      if (tabParam === 'creator') {
+        setActiveBucket('CREATOR');
+      }
+    };
+    window.addEventListener('popstate', syncTabFromUrl);
+    return () => window.removeEventListener('popstate', syncTabFromUrl);
+  }, []);
 
   useEffect(() => {
     const prev = document.title;
@@ -171,7 +190,13 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
       fetchUserCockpitBundle(supabase, sessionUser.id, globalLocale),
       fetchMyLinkedCreators(supabase),
     ]);
-    setLinkedCreators(myCreatorsRes.data ?? []);
+    const myCreators = myCreatorsRes.data ?? [];
+    setLinkedCreators(myCreators);
+    if (myCreators.length > 0) {
+      setActiveCreatorSlug((prev) =>
+        prev && myCreators.some((c) => c.slug === prev) ? prev : myCreators[0].slug,
+      );
+    }
 
     if (bundle.errors.profile && !bundle.profile) {
       setError(
@@ -197,6 +222,14 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
 
     setWatchlistItems(bundle.watchlistItems);
     setActiveBucket((current) => {
+      const urlForcesCreator =
+        typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).get('tab')?.toLowerCase() === 'creator';
+      if (urlForcesCreator) return 'CREATOR';
+      if (current === 'CREATOR' && myCreators.length === 0) {
+        const hasPlaying = (bundle.watchlistItems ?? []).some((item) => item.bucket === 'PLAYING');
+        return hasPlaying ? 'PLAYING' : 'ALL';
+      }
       if (current) return current;
       const hasPlaying = (bundle.watchlistItems ?? []).some((item) => item.bucket === 'PLAYING');
       return hasPlaying ? 'PLAYING' : 'ALL';
@@ -576,6 +609,9 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
   const selectBucket = (bucket) => {
     setTileOpenId(null);
     setActiveBucket(bucket);
+    if (typeof window !== 'undefined') {
+      writeAppPath(bucket === 'CREATOR' ? '/profile?tab=creator' : '/profile', { replace: true });
+    }
   };
 
   const changeViewMode = (mode) => {
@@ -983,6 +1019,17 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
             { id: 'COMPLETED', label: `🏆 Fertig & Platin (${stage3Completed.length})` },
             { id: 'ALL', label: `🌐 Alle Spiele (${filteredBySearch.length})` },
             { id: 'CHECKLISTS', label: `☑️ Checklisten (${guideChecklists.length})` },
+            ...(linkedCreators.length > 0 || activeBucket === 'CREATOR'
+              ? [
+                  {
+                    id: 'CREATOR',
+                    label:
+                      linkedCreators.length === 1
+                        ? `🎬 ${linkedCreators[0].channel_name}`
+                        : '🎬 Creator-Seite',
+                  },
+                ]
+              : []),
             { id: 'SETTINGS', label: '⚙️ Sprachen, Koop & Konto' },
           ].map((tab) => {
             const selected = activeBucket === tab.id;
@@ -1299,6 +1346,55 @@ function ProfilePage({ sessionUser, setCurrentView, onRequestLogin, openGame, on
           </div>
         )}
       </div>
+        ) : activeBucket === 'CREATOR' ? (
+          <div className="rounded-xl border border-zinc-800 bg-[#121314] p-4 sm:p-5 space-y-4">
+            {loading ? (
+              <p className="py-8 text-center font-mono text-xs text-zinc-500 animate-pulse">
+                Creator-Bereich wird geladen…
+              </p>
+            ) : linkedCreators.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-zinc-800 bg-[#161719] p-6 text-center space-y-2">
+                <p className="text-sm font-bold text-white">🎬 Noch kein Creator-Kanal verknüpft</p>
+                <p className="text-xs text-zinc-400 max-w-lg mx-auto leading-relaxed">
+                  Öffne deinen persönlichen Creator-Einladungslink oder deine öffentliche Creator-Seite auf TrophyBase und bestätige deinen Kanal einmalig per kurzem Code in deiner YouTube-Kanalbeschreibung. Danach erscheint deine komplette Creator-Seite direkt hier in deinem Profil.
+                </p>
+              </div>
+            ) : (
+              <>
+                {linkedCreators.length > 1 ? (
+                  <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 pb-3">
+                    <span className="text-[11px] font-mono text-zinc-400">Kanal:</span>
+                    {linkedCreators.map((c) => {
+                      const active = (activeCreatorSlug || linkedCreators[0]?.slug) === c.slug;
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setActiveCreatorSlug(c.slug)}
+                          className={`rounded-xl border px-3 py-1.5 text-xs font-mono font-bold transition cursor-pointer ${
+                            active
+                              ? 'border-[#00ff66] bg-[#00ff66] text-zinc-950'
+                              : 'border-zinc-800 bg-[#1a1b1c] text-zinc-300 hover:border-zinc-600'
+                          }`}
+                        >
+                          {c.channel_name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                <CreatorProfilePage
+                  embeddedSlug={activeCreatorSlug || linkedCreators[0]?.slug || ''}
+                  embeddedInProfile
+                  sessionUser={sessionUser}
+                  isAdmin={false}
+                  authLoading={false}
+                  onOpenGame={openGame}
+                />
+              </>
+            )}
+          </div>
         ) : loading || !activeBucket ? (
           <div className="py-12 text-center font-mono text-sm text-zinc-500 animate-pulse">
             Lade Spiele-Bibliothek…

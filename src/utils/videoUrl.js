@@ -154,13 +154,23 @@ export function extractYouTubeStartSeconds(url) {
 }
 
 /**
+ * Liest den numerischen `start`-Parameter aus einer YouTube-Embed-URL (Fallback 0).
+ * @param {string} embedSrc
+ * @returns {number}
+ */
+export function parseYouTubeEmbedStartSeconds(embedSrc) {
+  const parsed = extractYouTubeStartSeconds(embedSrc);
+  return parsed != null && parsed > 0 ? parsed : 0;
+}
+
+/**
  * YouTube-Embed-URL mit optionalem Startzeitpunkt (Sekunden).
  * Fehlt `timecode`, wird `t`/`start` aus der Quell-URL übernommen.
  * @param {string} url
  * @param {string|number|null|undefined} timecode
- * @param {{ autoplay?: boolean }} [options]
+ * @param {{ autoplay?: boolean, enableJsApi?: boolean }} [options]
  */
-export function getYouTubeEmbedUrl(url, timecode, { autoplay = false } = {}) {
+export function getYouTubeEmbedUrl(url, timecode, { autoplay = false, enableJsApi = true } = {}) {
   if (!url || !isPublicVideoUrl(url)) return null;
 
   const videoId = getYouTubeVideoId(url);
@@ -174,6 +184,12 @@ export function getYouTubeEmbedUrl(url, timecode, { autoplay = false } = {}) {
   if (autoplay) {
     params.set('autoplay', '1');
     params.set('rel', '0');
+  }
+  if (enableJsApi) {
+    params.set('enablejsapi', '1');
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      params.set('origin', window.location.origin);
+    }
   }
 
   const query = params.toString();

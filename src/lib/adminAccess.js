@@ -9,6 +9,37 @@ export const INTRANET_GAME_SEARCH_STORAGE_KEY = 'tb_intranet_game_search';
 export const DRAFT_RETURN_STORAGE_KEY = 'tb_draft_return_context';
 export const LAB_MODE_STORAGE_KEY = 'tb_lab_mode';
 export const STAFF_DEVICE_STORAGE_KEY = 'tb_device_is_staff';
+export const POST_LOGIN_ENTRY_KEY = 'tb_post_login_entry';
+const POST_LOGIN_MAX_AGE_MS = 30 * 60 * 1000;
+
+export function savePostLoginEntry(entry) {
+  if (typeof window === 'undefined' || !entry) return;
+  try {
+    window.localStorage.setItem(
+      POST_LOGIN_ENTRY_KEY,
+      JSON.stringify({ entry: String(entry), savedAt: Date.now() }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+export function consumePostLoginEntry() {
+  if (typeof window === 'undefined') return '';
+  try {
+    const raw = window.localStorage.getItem(POST_LOGIN_ENTRY_KEY);
+    if (!raw) return '';
+    window.localStorage.removeItem(POST_LOGIN_ENTRY_KEY);
+    const parsed = JSON.parse(raw);
+    if (!parsed?.entry) return '';
+    if (parsed.savedAt && Date.now() - Number(parsed.savedAt) > POST_LOGIN_MAX_AGE_MS) {
+      return '';
+    }
+    return String(parsed.entry);
+  } catch {
+    return '';
+  }
+}
 
 export const ADMIN_SUBDOMAIN_PREFIXES = new Set([
   'apps',
@@ -47,12 +78,6 @@ function markDeviceAsStaff() {
     }
   } catch {
     /* ignore */
-  }
-}
-
-if (typeof window !== 'undefined') {
-  if (isAdminLocationContext()) {
-    markDeviceAsStaff();
   }
 }
 
@@ -209,7 +234,6 @@ export function isStaffOrPreviewContext() {
     return false;
   }
   if (isAdminLocationContext()) {
-    markDeviceAsStaff();
     return true;
   }
   try {
@@ -518,6 +542,7 @@ export async function fetchMyCreatorProfile(client, timeoutMs = 2500) {
     }
     return {
       id: data.id,
+      slug: String(data.slug ?? '').trim(),
       channel_name: String(data.channel_name ?? '').trim(),
       youtube_url: String(data.youtube_url ?? '').trim(),
       auto_approve: Boolean(data.auto_approve),

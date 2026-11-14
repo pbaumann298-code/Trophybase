@@ -14,7 +14,13 @@ import TesterSetupPage from './pages/TesterSetupPage';
 import MaintenancePage from './pages/MaintenancePage';
 import BetaRegistrationPage from './pages/BetaRegistrationPage';
 import { hasMaintenanceBypass } from './lib/maintenanceAccess';
-import { isAdminUser, isLabModeActive, staffAppHtmlForPath } from './lib/adminAccess';
+import {
+  consumePostLoginEntry,
+  fetchMyCreatorProfile,
+  isAdminUser,
+  isLabModeActive,
+  staffAppHtmlForPath,
+} from './lib/adminAccess';
 import { useHideAdminOverlays, useShowAdminChrome } from './lib/useAdminChrome';
 import AdminSessionPill from './components/AdminSessionPill';
 
@@ -300,6 +306,22 @@ function App() {
           setSessionUser(session?.user ?? null);
           const path = window.location.pathname;
           const onBetaRoute = path === '/beta' || path.startsWith('/beta/');
+          if (session?.user) {
+            const postEntry = consumePostLoginEntry();
+            if (postEntry === 'intranet') {
+              if (isAdminUser(session.user, { allowPublic: true, ignoreGuestSimulation: true })) {
+                window.location.replace('/intranet.html');
+                return;
+              }
+              const creatorProf = await fetchMyCreatorProfile(supabase, 2000);
+              if (!cancelled) {
+                const targetPath = creatorProf?.id ? '/profile?tab=creator' : '/profile';
+                writeAppPath(targetPath, { replace: true });
+                setCurrentView('profile');
+              }
+              return;
+            }
+          }
           if (session?.user && isMaintenanceMode && !onBetaRoute) {
             setCurrentView(resolveAppViewForSession(session.user, path));
           }
@@ -332,6 +354,27 @@ function App() {
 
         if (session?.user && !cancelled) {
           setSessionUser(session.user);
+          if (event === 'SIGNED_IN') {
+            const postEntry = consumePostLoginEntry();
+            if (postEntry === 'intranet') {
+              const signedInUser = session.user;
+              if (isAdminUser(signedInUser, { allowPublic: true, ignoreGuestSimulation: true })) {
+                window.location.replace('/intranet.html');
+                return;
+              }
+              window.setTimeout(() => {
+                if (cancelled) return;
+                fetchMyCreatorProfile(supabase, 2000).then((creatorProf) => {
+                  if (cancelled) return;
+                  const targetPath = creatorProf?.id ? '/profile?tab=creator' : '/profile';
+                  writeAppPath(targetPath, { replace: true });
+                  setCurrentView('profile');
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                });
+              }, 0);
+              return;
+            }
+          }
         }
 
         if (
@@ -1109,11 +1152,17 @@ function App() {
     window.scrollTo(0, 0);
   }, [pushCurrentRouteToStack]);
 
-  const openProfile = useCallback(() => {
-    pushCurrentRouteToStack(PROFILE_PATH);
+  const openProfile = useCallback(({ tab = '' } = {}) => {
+    const targetPath = tab === 'creator' ? `${PROFILE_PATH}?tab=creator` : PROFILE_PATH;
+    pushCurrentRouteToStack(targetPath);
     setCurrentView('profile');
     setSelectedGame(null);
-    navigateToProfile();
+    if (tab === 'creator') {
+      writeAppPath(targetPath);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } else {
+      navigateToProfile();
+    }
     window.scrollTo(0, 0);
   }, [pushCurrentRouteToStack]);
 
@@ -1456,6 +1505,7 @@ function App() {
                 authLoading={authLoading}
                 onOpenGame={openGuide}
                 onBack={goBack}
+                onOpenInProfile={() => openProfile({ tab: 'creator' })}
               />
             )}
             {currentView === 'datenschutz' && (

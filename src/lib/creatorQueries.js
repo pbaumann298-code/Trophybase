@@ -14,7 +14,8 @@ import {
   isGuidePublished,
   publishedGuideLocales,
 } from './guidePublication.js';
-import { getGameTitle } from './gameModel.js';
+import { getGameCover, getGameTitle } from './gameModel.js';
+import { resolveMatchingHomeTagSlugs } from './homeTagDefs.js';
 import { statusAfterGuideDiscard } from './intranetGameEdits.js';
 import { saveProgressOwner } from './localUserProgress.js';
 import { normalizeLocale, SUPPORTED_LOCALES } from './locale.js';
@@ -61,6 +62,7 @@ const PUBLIC_CREATOR_SELECT = [
   'verified_at',
   'is_public_indexed',
   'indexing_consented_at',
+  'showcase_config',
 ].join(', ');
 
 const ADMIN_CREATOR_SELECT = `${PUBLIC_CREATOR_SELECT}, auto_approve, is_blacklisted, blacklist_reason`;
@@ -960,4 +962,162 @@ export async function deleteMyAccount(supabase, { creatorMode = 'keep_guides' } 
     /* session already removed server-side */
   }
   return { data, error: null };
+}
+
+export async function updateMyCreatorShowcase(
+  supabase,
+  { slug, showcaseConfig = {} } = {},
+) {
+  const cleanSlug = String(slug ?? '').trim().toLowerCase();
+  if (!cleanSlug) return { data: null, error: new Error('Creator-Slug fehlt.') };
+  const payload =
+    showcaseConfig && typeof showcaseConfig === 'object' ? showcaseConfig : {};
+  const { data, error } = await supabase.rpc('tb_update_my_creator_showcase', {
+    p_slug: cleanSlug,
+    p_showcase_config: payload,
+  });
+  return { data, error };
+}
+
+const MULTI_WORD_GENRE_PHRASES = new Set([
+  'open world',
+  'mundo abierto',
+  'monde ouvert',
+  'survival horror',
+  'psychological horror',
+  'psychologischer horror',
+  'hidden object',
+  'visual novel',
+  'point and click',
+  'point click',
+  'loot shooter',
+  'looter shooter',
+  'third person shooter',
+  'first person shooter',
+  'ego shooter',
+  'action adventure',
+  'jump n run',
+  'jump and run',
+  'beat em up',
+  'science fiction',
+  'easy platin',
+  'easy platinum',
+]);
+
+export async function searchUnifiedCatalog(
+  supabase,
+  rawQuery,
+  { onlyWithoutGuide = false, limit = 25 } = {},
+) {
+  const trimmed = String(rawQuery ?? '').trim();
+  if (trimmed.length < 2) return { data: [], error: null };
+
+  const words = trimmed
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter(Boolean);
+
+  const genreSlugs = resolveMatchingHomeTagSlugs(trimmed);
+  const normPhrase = trimmed
+    .toLowerCase()
+    .replace(/[-_/&+.,:;'"’()[\]]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const wholeQueryIsGenre =
+    genreSlugs.length > 0 &&
+    (words.length === 1 || MULTI_WORD_GENRE_PHRASES.has(normPhrase));
+
+  const wordGenres = {};
+  for (const w of words) {
+    if (w.length >= 3) {
+      const wSlugs = resolveMatchingHomeTagSlugs(w);
+      if (wSlugs.length > 0) wordGenres[w] = wSlugs;
+    }
+  }
+
+  const { data, error } = await supabase.rpc('tb_search_unified_catalog', {
+    p_query: trimmed,
+    p_genre_slugs: genreSlugs,
+    p_whole_query_is_genre: wholeQueryIsGenre,
+    p_word_genres: wordGenres,
+    p_only_without_guide: Boolean(onlyWithoutGuide),
+    p_limit: Math.max(1, Math.min(Number(limit) || 25, 80)),
+  });
+
+  if (error) return { data: [], error };
+  return { data: Array.isArray(data) ? data : [], error: null };
+}
+
+export async function fetchCreatorWatchlist(supabase, creatorId) {
+  const id = String(creatorId ?? '').trim();
+  if (!id) return { data: [], error: null };
+  const { data, error } = await supabase
+    .from('creator_watchlist')
+    .select(
+      'id, creator_id, source_platform, target_key, game_id, steam_app_id, xbox_title_id, cached_title, cached_cover_url, cached_publisher, cached_hardware, cached_achievement_count, note, created_at',
+    )
+    .eq('creator_id', id)
+    .order('created_at', { ascending: false });
+  if (error) return { data: [], error };
+  return { data: data ?? [], error: null };
+}
+
+export async function addCreatorWatchlistItem(
+  supabase,
+  { creatorId, item, locale = 'de' } = {},
+) {
+  const cid = String(creatorId ?? '').trim();
+  if (!cid || !item) return { data: null, error: new Error('Ungültiger Eintrag.') };
+
+  const sourcePlatform =
+    item.source_platform === 'steam' || item.source_platform === 'xbox'
+      ? item.source_platform
+      : 'psn';
+
+  const targetKey =
+    String(item.target_key ?? '').trim() ||
+    (sourcePlatform === 'steam'
+      ? `steam:${item.steam_app_id}`
+      : sourcePlatform === 'xbox'
+        ? `xbox:${item.xbox_title_id}`
+        : `psn:${item.id}`);
+
+  const resolvedTitle =
+    String(item.title || getGameTitle(item, locale) || '').trim() || 'Unbenanntes Spiel';
+  const resolvedCover = String(getGameCover(item, locale) || '').trim() || null;
+  const resolvedPublisher =
+    String(item.publisher || item.entwickler || '').trim() || null;
+  const resolvedHardware = String(item.hardware || '').trim() || null;
+  const achCount = Number(item.anzahl_trophaeen);
+
+  const row = {
+    creator_id: cid,
+    source_platform: sourcePlatform,
+    target_key: targetKey,
+    game_id: sourcePlatform === 'psn' && item.id ? item.id : null,
+    steam_app_id: item.steam_app_id ? Number(item.steam_app_id) : null,
+    xbox_title_id: item.xbox_title_id ? String(item.xbox_title_id) : null,
+    cached_title: resolvedTitle,
+    cached_cover_url: resolvedCover,
+    cached_publisher: resolvedPublisher,
+    cached_hardware: resolvedHardware,
+    cached_achievement_count: Number.isFinite(achCount) ? achCount : null,
+  };
+
+  const { data, error } = await supabase
+    .from('creator_watchlist')
+    .upsert(row, { onConflict: 'creator_id,target_key' })
+    .select()
+    .maybeSingle();
+
+  return { data, error };
+}
+
+export async function removeCreatorWatchlistItem(supabase, watchlistRowId) {
+  const id = String(watchlistRowId ?? '').trim();
+  if (!id) return { error: new Error('Eintrag-ID fehlt.') };
+  const { error } = await supabase.from('creator_watchlist').delete().eq('id', id);
+  return { error };
 }

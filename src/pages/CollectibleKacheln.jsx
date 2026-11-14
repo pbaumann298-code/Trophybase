@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
 import {
@@ -8,6 +8,7 @@ import {
   resolveProductionVideoAndNote,
 } from '../utils/videoUrl';
 import YouTubeEmbed, { YouTubeThumb, YoutubePlayIcon } from '../components/YouTubeEmbed';
+import VideoRewindButton from '../components/VideoRewindButton';
 import { useGuideVideo } from '../context/GuideVideoContext';
 import { guideProgressKey } from '../lib/guideProgressStorage';
 import { buildGuideGroupTree } from '../lib/guideData';
@@ -31,19 +32,24 @@ function ProductionInlineRowEditor({
   videoUrl,
   onSave,
 }) {
-  const [noteVal, setNoteVal] = useState(prodNote || '');
-  const [urlVal, setUrlVal] = useState(videoUrl || '');
+  const nextNote = prodNote || '';
+  const nextUrl = videoUrl || '';
+  const [prevNote, setPrevNote] = useState(nextNote);
+  const [prevUrl, setPrevUrl] = useState(nextUrl);
+  const [noteVal, setNoteVal] = useState(nextNote);
+  const [urlVal, setUrlVal] = useState(nextUrl);
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  useEffect(() => {
-    setNoteVal(prodNote || '');
-  }, [prodNote]);
-
-  useEffect(() => {
-    setUrlVal(videoUrl || '');
-  }, [videoUrl]);
+  if (nextNote !== prevNote) {
+    setPrevNote(nextNote);
+    setNoteVal(nextNote);
+  }
+  if (nextUrl !== prevUrl) {
+    setPrevUrl(nextUrl);
+    setUrlVal(nextUrl);
+  }
 
   const commit = async (nextNoteRaw, nextUrlRaw) => {
     const nextNote = String(nextNoteRaw ?? '').trim();
@@ -248,15 +254,15 @@ function useTrophyRowExtras(trophyById) {
   );
 
   return useMemo(() => {
-    /** Das Trophäenbild sitzt im Namens-Button, darf also nicht klickbar sein. */
-    const renderTrophyArt = (trophy, size = 20) => {
+    /** Das Trophäenbild sitzt im Namens- bzw. Aktionsbereich, darf also nicht klickbar sein. */
+    const renderTrophyArt = (trophy, size = 28) => {
       if (!trophy) return null;
       const name = String(trophy.trophy_name ?? '').trim();
       return (
         <TrophyArtwork
           trophy={trophy}
           size={size}
-          className="rounded-sm"
+          className="rounded-md"
           title={name ? `Trophäe: ${name}` : 'Zugehörige Trophäe'}
         />
       );
@@ -307,12 +313,16 @@ function useTrophyRowExtras(trophyById) {
           style={{
             margin: '0 16px 10px',
             padding: '8px 12px',
-            borderLeft: '2px solid rgba(0, 255, 102, 0.3)',
+            borderInlineStart: '2px solid rgba(0, 255, 102, 0.3)',
             backgroundColor: 'rgba(9, 9, 11, 0.5)',
-            borderRadius: '0 6px 6px 0',
+            borderStartStartRadius: 0,
+            borderEndStartRadius: 0,
+            borderStartEndRadius: '6px',
+            borderEndEndRadius: '6px',
             fontSize: '11px',
             lineHeight: 1.6,
             color: '#a1a1aa',
+            textAlign: 'start',
           }}
         >
           {name && (
@@ -321,7 +331,7 @@ function useTrophyRowExtras(trophyById) {
                 color: '#00ff66',
                 fontFamily: 'monospace',
                 fontWeight: 'bold',
-                marginRight: '6px',
+                marginInlineEnd: '6px',
               }}
             >
               {name}:
@@ -378,14 +388,18 @@ function useTrophyRowExtras(trophyById) {
       return (
         <div
           style={{
-            marginLeft: '26px',
+            marginTop: '4px',
             padding: '6px 10px',
-            borderLeft: '2px solid rgba(0, 255, 102, 0.3)',
+            borderInlineStart: '2px solid rgba(0, 255, 102, 0.3)',
             backgroundColor: 'rgba(9, 9, 11, 0.5)',
-            borderRadius: '0 6px 6px 0',
+            borderStartStartRadius: 0,
+            borderEndStartRadius: 0,
+            borderStartEndRadius: '6px',
+            borderEndEndRadius: '6px',
             fontSize: '11px',
             lineHeight: 1.6,
             color: '#a1a1aa',
+            textAlign: 'start',
           }}
         >
           {name && (
@@ -394,7 +408,7 @@ function useTrophyRowExtras(trophyById) {
                 color: '#00ff66',
                 fontFamily: 'monospace',
                 fontWeight: 'bold',
-                marginRight: '6px',
+                marginInlineEnd: '6px',
               }}
             >
               {name}:
@@ -444,7 +458,6 @@ function SplitScreenGuideKacheln({
   embedInAccordion = false,
   gameId = '',
   reportEntityType = 'guide_item',
-  reportKeyField = 'guide_id',
   /** Kachel-Überschrift weglassen: die umgebende Zeile ist schon die Gruppe. */
   hideGroupHeader = false,
   /** Admin: Schritt löschen (item) => void|Promise */
@@ -456,7 +469,8 @@ function SplitScreenGuideKacheln({
   onProductionMetaSaved = null,
   videoLayoutFlexClass = '',
 }) {
-  const { t } = useLocale();
+  const { globalLocale, t } = useLocale();
+  const isRtl = globalLocale === 'ar';
   const {
     videoTimestampLayout,
     setVideoTimestampLayout,
@@ -467,15 +481,37 @@ function SplitScreenGuideKacheln({
   const [expandedGroups, setExpandedGroups] = useState({});
   const [expandedLocalisations, setExpandedLocalisations] = useState({});
   const [activeVideos, setActiveVideos] = useState({});
+  const splitPlayerRefs = useRef(new Map());
+  const singlePlayerRef = useRef(null);
+  const setGroupPlayerRef = useCallback(
+    (groupKey) => (inst) => {
+      if (inst) splitPlayerRefs.current.set(groupKey, inst);
+      else splitPlayerRefs.current.delete(groupKey);
+    },
+    [],
+  );
   const videoSide = videoTimestampLayout === VIDEO_TIMESTAMP_LAYOUT.VIDEO_LEFT ? 'left' : 'right';
+  const customVideoFlexClass =
+    videoLayoutFlexClass &&
+    videoLayoutFlexClass !== 'lg:flex-row' &&
+    videoLayoutFlexClass !== 'lg:flex-row-reverse'
+      ? videoLayoutFlexClass
+      : '';
   const resolvedVideoFlexClass =
-    videoLayoutFlexClass || (videoSide === 'left' ? 'lg:flex-row-reverse' : 'lg:flex-row');
+    customVideoFlexClass ||
+    (videoSide === 'left'
+      ? (isRtl ? 'lg:flex-row' : 'lg:flex-row-reverse')
+      : (isRtl ? 'lg:flex-row-reverse' : 'lg:flex-row'));
   const effectiveHideCompleted =
     hideCompleted || completedTrophyStyle === COMPLETED_TROPHY_STYLE.HIDE;
   const canEditProduction = Boolean(isAdmin || isCreator);
-  const [productionMode, setProductionMode] = useState(() =>
-    Boolean(canEditProduction && (isDraftMode || isCreator)),
-  );
+  const forceProdMode = Boolean(canEditProduction && (isDraftMode || isCreator));
+  const [prevForceProdMode, setPrevForceProdMode] = useState(forceProdMode);
+  const [productionMode, setProductionMode] = useState(forceProdMode);
+  if (forceProdMode !== prevForceProdMode) {
+    setPrevForceProdMode(forceProdMode);
+    if (forceProdMode) setProductionMode(true);
+  }
   const [localProdOverrides, setLocalProdOverrides] = useState({});
   /** 'all' | 'open' | 'recorded' | 'linked' */
   const [prodStatusFilter, setProdStatusFilter] = useState('all');
@@ -513,12 +549,6 @@ function SplitScreenGuideKacheln({
       {videoSide === 'right' ? '⇄ Items links | Video rechts' : '⇄ Video links | Items rechts'}
     </button>
   );
-
-  useEffect(() => {
-    if (canEditProduction && (isDraftMode || isCreator)) {
-      setProductionMode(true);
-    }
-  }, [canEditProduction, isDraftMode, isCreator]);
 
   const showProdTools = Boolean(canEditProduction && productionMode);
 
@@ -611,19 +641,22 @@ function SplitScreenGuideKacheln({
   const isProdFilterActive =
     showProdTools && (prodStatusFilter !== 'all' || Boolean(prodTakeQuery.trim()));
 
-  const isProdItemMatch = (item) => {
-    if (showProdTools) {
-      if (prodStatusFilter !== 'all' && getItemProdStatus(item) !== prodStatusFilter) {
-        return false;
+  const isProdItemMatch = useCallback(
+    (item) => {
+      if (showProdTools) {
+        if (prodStatusFilter !== 'all' && getItemProdStatus(item) !== prodStatusFilter) {
+          return false;
+        }
+        const needle = prodTakeQuery.trim().toLowerCase();
+        if (needle) {
+          const note = String(item?.prod_note ?? '').toLowerCase();
+          if (!note.includes(needle)) return false;
+        }
       }
-      const needle = prodTakeQuery.trim().toLowerCase();
-      if (needle) {
-        const note = String(item?.prod_note ?? '').toLowerCase();
-        if (!note.includes(needle)) return false;
-      }
-    }
-    return true;
-  };
+      return true;
+    },
+    [showProdTools, prodStatusFilter, prodTakeQuery, getItemProdStatus],
+  );
 
   const isItemShown = (item) => {
     if (effectiveHideCompleted && isItemCompleted(item)) return false;
@@ -754,7 +787,7 @@ function SplitScreenGuideKacheln({
               textTransform: 'uppercase',
               letterSpacing: '0.05em',
               cursor: 'pointer',
-              textAlign: 'left',
+              textAlign: 'start',
               opacity: isGroupAllCompleted && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM ? 0.65 : 1,
             }}
           >
@@ -822,20 +855,13 @@ function SplitScreenGuideKacheln({
           >
             <div className="guide-split__list">
               {groupTipNode}
-              <table className="guide-split__table">
-                <thead className="guide-split__thead">
-                  <tr
-                    style={{
-                      color: '#71717a',
-                      fontSize: '11px',
-                      textTransform: 'uppercase',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    <th>{nameColumnHeader}</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <div className="guide-split__table">
+                <div
+                  className="guide-split__thead border-b border-zinc-800 pb-1.5 text-[11px] font-mono uppercase text-zinc-500"
+                >
+                  {nameColumnHeader}
+                </div>
+                <div role="list" className="divide-y divide-zinc-800/80">
                   {visibleTableItems.map((item) => {
                     const progressKey = guideProgressKey(item);
                     const isCompleted = isItemCompleted(item);
@@ -846,7 +872,7 @@ function SplitScreenGuideKacheln({
                     const rowDimmed =
                       isCompleted && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM;
                     const isCheckboxRight = guideRowOrder === GUIDE_ROW_ORDER.CHECKBOX_RIGHT;
-                    const isTimestampRight = guideRowOrder === GUIDE_ROW_ORDER.TIMESTAMP_RIGHT;
+                    const addonNode = renderNameAddon ? renderNameAddon(item, rowDimmed) : null;
 
                     const checkboxEl =
                       typeof toggleCompleted === 'function' ? (
@@ -854,182 +880,188 @@ function SplitScreenGuideKacheln({
                           type="checkbox"
                           checked={isCompleted}
                           onChange={() => toggleCompleted(progressKey)}
-                          className={
-                            isCheckboxRight
-                              ? 'ml-auto w-5 h-5 shrink-0 cursor-pointer'
-                              : 'w-4 h-4 shrink-0 cursor-pointer'
-                          }
-                          style={{
-                            accentColor: '#00ff66',
-                            cursor: 'pointer',
-                            width: isCheckboxRight ? '20px' : '16px',
-                            height: isCheckboxRight ? '20px' : '16px',
-                            flexShrink: 0,
-                            ...(isCheckboxRight ? { marginLeft: 'auto' } : {}),
-                          }}
+                          className={`${
+                            isCheckboxRight ? 'w-5 h-5' : 'w-4 h-4'
+                          } shrink-0 cursor-pointer accent-[#00ff66]`}
                           aria-label={
                             isCompleted ? 'Als offen markieren' : 'Als erledigt markieren'
                           }
                         />
                       ) : null;
 
-                    const timestampStyle = {
-                      fontFamily: 'monospace',
-                      fontSize: '11px',
-                      padding: '1px 6px',
-                      borderRadius: '4px',
-                      backgroundColor: isActive ? 'rgba(0, 255, 102, 0.18)' : '#121314',
-                      border: isActive
-                        ? '1px solid rgba(0, 255, 102, 0.5)'
-                        : '1px solid #27272a',
-                      color: hasVideo ? '#00ff66' : '#a1a1aa',
-                      flexShrink: 0,
-                    };
                     const timestampLabel = hasVideo ? `▶ ${item.timestamp}` : item.timestamp;
-                    const timestampBadge = item.timestamp ? (
-                      gameId && reportKey ? (
-                        <Reportable
-                          as="span"
-                          source={gameId}
-                          type={reportEntityType}
-                          reportKey={reportKey}
-                          field="timestamp"
-                          style={timestampStyle}
+                    const timestampPill = item.timestamp ? (
+                      <span
+                        className={`tb-bidi-isolate inline-block whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[11px] font-bold ${
+                          isActive
+                            ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
+                            : hasVideo
+                              ? 'border-zinc-700 bg-[#121314] text-[#00ff66] hover:border-[#00ff66]/40'
+                              : 'border-zinc-800 bg-[#121314] text-zinc-400'
+                        }`}
+                      >
+                        {gameId && reportKey ? (
+                          <Reportable
+                            as="span"
+                            source={gameId}
+                            type={reportEntityType}
+                            reportKey={reportKey}
+                            field="timestamp"
+                          >
+                            {timestampLabel}
+                          </Reportable>
+                        ) : (
+                          timestampLabel
+                        )}
+                      </span>
+                    ) : null;
+
+                    const timestampNode = timestampPill ? (
+                      hasVideo ? (
+                        <button
+                          type="button"
+                          onClick={() => selectItemVideo(group.key, item)}
+                          className="shrink-0 bg-transparent border-0 p-0 cursor-pointer"
                         >
-                          {timestampLabel}
-                        </Reportable>
+                          {timestampPill}
+                        </button>
                       ) : (
-                        <span style={timestampStyle}>{timestampLabel}</span>
+                        timestampPill
                       )
                     ) : null;
 
+                    const actionCol = (
+                      <div className="flex flex-col items-center justify-between self-stretch gap-1.5">
+                        {addonNode ? (
+                          <div className="flex items-center justify-center shrink-0">
+                            {addonNode}
+                          </div>
+                        ) : null}
+                        <div className="mt-auto flex items-center justify-center pt-0.5">
+                          {checkboxEl}
+                        </div>
+                      </div>
+                    );
+
+                    const textCol = (
+                      <div className="min-w-0 self-start text-start flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => selectItemVideo(group.key, item)}
+                            disabled={!hasVideo}
+                            className={`bg-transparent border-0 p-0 text-start text-[13px] break-words ${
+                              hasVideo ? 'cursor-pointer' : 'cursor-default'
+                            } ${isActive ? 'font-bold text-[#00ff66]' : ''} ${
+                              rowDimmed
+                                ? 'text-zinc-500 line-through'
+                                : !isActive
+                                  ? hasVideo
+                                    ? 'text-zinc-200'
+                                    : 'text-zinc-400'
+                                  : ''
+                            } ${isCompleted && !rowDimmed ? 'line-through' : ''}`}
+                          >
+                            {gameId && reportKey ? (
+                              <Reportable
+                                as="span"
+                                source={gameId}
+                                type={reportEntityType}
+                                reportKey={reportKey}
+                                field="name"
+                              >
+                                {displayName}
+                              </Reportable>
+                            ) : (
+                              displayName
+                            )}
+                          </button>
+                          {renderRowAction ? renderRowAction(item, rowDimmed, rowTipCtx) : null}
+                          {showProdTools && (
+                            <ProductionInlineRowEditor
+                              item={item}
+                              prodNote={item.prod_note}
+                              videoUrl={item.video_url}
+                              onSave={handleSaveProductionMeta}
+                            />
+                          )}
+                          {typeof onDeleteStep === 'function' ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteStep(item);
+                              }}
+                              className="shrink-0 bg-transparent border-0 px-0.5 text-base leading-none text-zinc-500 hover:text-zinc-200 cursor-pointer"
+                              aria-label="Schritt löschen"
+                              title="Schritt löschen"
+                            >
+                              ×
+                            </button>
+                          ) : null}
+                        </div>
+                        {renderRowDetail ? renderRowDetail(item, rowDimmed, rowTipCtx) : null}
+                      </div>
+                    );
+
+                    const timeCol = (
+                      <div
+                        className={`flex flex-col justify-between self-stretch gap-1.5 ${
+                          isCheckboxRight ? 'items-start' : 'items-end'
+                        }`}
+                      >
+                        <div className={`flex w-full ${isCheckboxRight ? 'justify-start' : 'justify-end'}`}>
+                          {timestampNode}
+                        </div>
+                        {isActive && embedUrl ? (
+                          <VideoRewindButton
+                            onRewind={(seconds) => splitPlayerRefs.current.get(group.key)?.rewind(seconds)}
+                            className="mt-auto"
+                          />
+                        ) : null}
+                      </div>
+                    );
+
+                    const rowGridClass = isCheckboxRight
+                      ? 'grid grid-cols-[minmax(5.75rem,18%)_minmax(0,1fr)_minmax(2.5rem,7%)]'
+                      : 'grid grid-cols-[minmax(2.5rem,7%)_minmax(0,1fr)_minmax(5.75rem,18%)]';
+
                     return (
-                      <tr
+                      <div
                         key={item.id}
-                        className={`guide-split__row ${rowDimmed ? 'opacity-45' : ''}`}
+                        role="listitem"
+                        className={`guide-split__row ${rowGridClass} gap-x-2 items-stretch ${
+                          rowDimmed ? 'opacity-45' : ''
+                        }`}
                         style={{
                           backgroundColor: isActive ? 'rgba(0, 255, 102, 0.06)' : 'transparent',
                         }}
                       >
-                        <td>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              flexWrap: showProdTools ? 'wrap' : 'nowrap',
-                            }}
-                          >
-                            {!isCheckboxRight ? checkboxEl : null}
-                            <button
-                              type="button"
-                              onClick={() => selectItemVideo(group.key, item)}
-                              disabled={!hasVideo}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                padding: 0,
-                                cursor: hasVideo ? 'pointer' : 'default',
-                                fontSize: '13px',
-                                color: rowDimmed
-                                  ? '#71717a'
-                                  : isActive
-                                    ? '#00ff66'
-                                    : hasVideo
-                                      ? '#e4e4e7'
-                                      : '#a1a1aa',
-                                textDecoration: isCompleted ? 'line-through' : 'none',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                flexWrap: 'wrap',
-                                textAlign: 'left',
-                                fontWeight: isActive ? 'bold' : 'normal',
-                              }}
-                            >
-                              {!isTimestampRight ? timestampBadge : null}
-                              {gameId && reportKey ? (
-                                <Reportable
-                                  as="span"
-                                  source={gameId}
-                                  type={reportEntityType}
-                                  reportKey={reportKey}
-                                  field="name"
-                                >
-                                  {displayName}
-                                </Reportable>
-                              ) : (
-                                displayName
-                              )}
-                              {renderNameAddon ? renderNameAddon(item, rowDimmed) : null}
-                            </button>
-                            {renderRowAction ? renderRowAction(item, rowDimmed, rowTipCtx) : null}
-                            {isTimestampRight && timestampBadge ? (
-                              <button
-                                type="button"
-                                onClick={() => selectItemVideo(group.key, item)}
-                                disabled={!hasVideo}
-                                className="ml-auto shrink-0"
-                                style={{
-                                  background: 'none',
-                                  border: 'none',
-                                  padding: 0,
-                                  marginLeft: 'auto',
-                                  cursor: hasVideo ? 'pointer' : 'default',
-                                  flexShrink: 0,
-                                }}
-                              >
-                                {timestampBadge}
-                              </button>
-                            ) : null}
-                            {showProdTools && (
-                              <ProductionInlineRowEditor
-                                item={item}
-                                prodNote={item.prod_note}
-                                videoUrl={item.video_url}
-                                onSave={handleSaveProductionMeta}
-                              />
-                            )}
-                            {typeof onDeleteStep === 'function' ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onDeleteStep(item);
-                                }}
-                                style={{
-                                  background: 'none',
-                                  border: 'none',
-                                  cursor: 'pointer',
-                                  color: '#71717a',
-                                  fontSize: '16px',
-                                  lineHeight: 1,
-                                  padding: '0 2px',
-                                  flexShrink: 0,
-                                }}
-                                aria-label="Schritt löschen"
-                                title="Schritt löschen"
-                              >
-                                ×
-                              </button>
-                            ) : null}
-                            {isCheckboxRight ? checkboxEl : null}
-                          </div>
-                          {renderRowDetail ? renderRowDetail(item, rowDimmed, rowTipCtx) : null}
-                          </div>
-                        </td>
-                      </tr>
+                        {isCheckboxRight ? (
+                          <>
+                            {timeCol}
+                            {textCol}
+                            {actionCol}
+                          </>
+                        ) : (
+                          <>
+                            {actionCol}
+                            {textCol}
+                            {timeCol}
+                          </>
+                        )}
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
+                </div>
+              </div>
             </div>
 
             <div className="guide-split__video">
               <div className="guide-split__video-inner">
                 {embedUrl ? (
                   <YouTubeEmbed
+                    ref={setGroupPlayerRef(group.key)}
                     key={`${group.key}-${activeVideo?.itemId || 'default'}-${embedUrl}-${activeVideo?.seekKey || 0}`}
                     src={embedUrl}
                     title={activeItem ? getDisplayName(activeItem) : group.name}
@@ -1173,6 +1205,7 @@ function SplitScreenGuideKacheln({
     if (!singleItem) return null;
     const isCompleted = isItemCompleted(singleItem);
     const rowDimmed = isCompleted && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM;
+    const isCheckboxRight = guideRowOrder === GUIDE_ROW_ORDER.CHECKBOX_RIGHT;
     const displayName = getDisplayName(singleItem);
     const reportKey = String(singleItem.guide_sequence ?? singleItem.sort_order ?? '');
     const activeVideo = activeVideos[singleGroupKey];
@@ -1180,6 +1213,7 @@ function SplitScreenGuideKacheln({
     const previewVideoId = getYouTubeVideoId(singleItem.video_url);
     const groupTipNode = renderGroupDetail ? renderGroupDetail([singleItem]) : null;
     const rowTipCtx = { sharedGroupTip: Boolean(groupTipNode) };
+    const singleAddon = renderNameAddon ? renderNameAddon(singleItem, rowDimmed) : null;
     const nameNode =
       gameId && reportKey ? (
         <Reportable
@@ -1195,59 +1229,116 @@ function SplitScreenGuideKacheln({
         displayName
       );
 
-    return (
-      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-[#121314]">
-        <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-[#121314] px-4 py-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            {typeof toggleCompleted === 'function' ? (
-              <input
-                type="checkbox"
-                checked={isCompleted}
-                onChange={() => toggleCompleted(guideProgressKey(singleItem))}
-                className="h-4 w-4 shrink-0 cursor-pointer accent-[#00ff66]"
-                aria-label={isCompleted ? 'Als offen markieren' : 'Als erledigt markieren'}
-              />
-            ) : null}
+    const singleCheckboxEl =
+      typeof toggleCompleted === 'function' ? (
+        <input
+          type="checkbox"
+          checked={isCompleted}
+          onChange={() => toggleCompleted(guideProgressKey(singleItem))}
+          className={`${isCheckboxRight ? 'h-5 w-5' : 'h-4 w-4'} shrink-0 cursor-pointer accent-[#00ff66]`}
+          aria-label={isCompleted ? 'Als offen markieren' : 'Als erledigt markieren'}
+        />
+      ) : null;
+
+    const singleActionCol = (
+      <div className="flex flex-col items-center justify-between self-stretch gap-1.5">
+        {singleAddon ? <div className="flex items-center justify-center shrink-0">{singleAddon}</div> : null}
+        <div className="mt-auto flex items-center justify-center pt-0.5">{singleCheckboxEl}</div>
+      </div>
+    );
+
+    const singleTextCol = (
+      <div className="min-w-0 self-start text-start flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => selectItemVideo(singleGroupKey, singleItem)}
+            className={`min-w-0 bg-transparent border-0 p-0 text-start text-sm font-bold text-white sm:text-base cursor-pointer ${
+              isCompleted ? 'line-through' : ''
+            } ${rowDimmed ? 'opacity-45' : ''}`}
+          >
+            {nameNode}
+          </button>
+          {renderRowAction ? renderRowAction(singleItem, rowDimmed, rowTipCtx) : null}
+          {showProdTools ? (
+            <ProductionInlineRowEditor
+              item={singleItem}
+              prodNote={singleItem.prod_note}
+              videoUrl={singleItem.video_url}
+              onSave={handleSaveProductionMeta}
+            />
+          ) : null}
+          {typeof onDeleteStep === 'function' ? (
             <button
               type="button"
-              onClick={() => selectItemVideo(singleGroupKey, singleItem)}
-              className={`min-w-0 text-left text-sm font-bold text-white sm:text-base ${
-                isCompleted ? 'line-through' : ''
-              } ${rowDimmed ? 'opacity-45' : ''}`}
+              onClick={() => onDeleteStep(singleItem)}
+              className="shrink-0 bg-transparent border-0 px-0.5 text-base leading-none text-zinc-500 hover:text-zinc-200 cursor-pointer"
+              aria-label="Schritt löschen"
+              title="Schritt löschen"
             >
-              {nameNode}
+              ×
             </button>
-            {renderNameAddon ? renderNameAddon(singleItem, rowDimmed) : null}
-            {renderRowAction ? renderRowAction(singleItem, rowDimmed, rowTipCtx) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {showProdTools ? (
-              <ProductionInlineRowEditor
-                item={singleItem}
-                prodNote={singleItem.prod_note}
-                videoUrl={singleItem.video_url}
-                onSave={handleSaveProductionMeta}
-              />
-            ) : null}
-            {typeof onDeleteStep === 'function' ? (
-              <button
-                type="button"
-                onClick={() => onDeleteStep(singleItem)}
-                className="shrink-0 px-0.5 text-base leading-none text-zinc-500 hover:text-zinc-200"
-                aria-label="Schritt löschen"
-                title="Schritt löschen"
-              >
-                ×
-              </button>
-            ) : null}
-          </div>
+          ) : null}
+        </div>
+        {renderRowDetail ? renderRowDetail(singleItem, rowDimmed, rowTipCtx) : null}
+      </div>
+    );
+
+    const singleTimestampChip = singleItem.timestamp ? (
+      <button
+        type="button"
+        onClick={() => selectItemVideo(singleGroupKey, singleItem)}
+        className="tb-bidi-isolate shrink-0 whitespace-nowrap rounded border border-zinc-700 bg-[#121314] px-1.5 py-0.5 font-mono text-[11px] font-bold text-[#00ff66] hover:border-[#00ff66]/40 cursor-pointer"
+      >
+        ▶ {singleItem.timestamp}
+      </button>
+    ) : null;
+
+    const singleTimeCol = (
+      <div
+        className={`flex flex-col justify-between self-stretch gap-1.5 ${
+          isCheckboxRight ? 'items-start' : 'items-end'
+        }`}
+      >
+        <div className={`flex w-full ${isCheckboxRight ? 'justify-start' : 'justify-end'}`}>
+          {singleTimestampChip}
+        </div>
+        {embedUrl ? (
+          <VideoRewindButton
+            onRewind={(seconds) => singlePlayerRef.current?.rewind(seconds)}
+            className="mt-auto"
+          />
+        ) : null}
+      </div>
+    );
+
+    const singleRowGrid = isCheckboxRight
+      ? 'grid grid-cols-[minmax(5.75rem,18%)_minmax(0,1fr)_minmax(2.75rem,7%)]'
+      : 'grid grid-cols-[minmax(2.75rem,7%)_minmax(0,1fr)_minmax(5.75rem,18%)]';
+
+    return (
+      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-[#121314]">
+        <div className={`${singleRowGrid} gap-x-2.5 sm:gap-x-3 items-stretch border-b border-zinc-800 bg-[#121314] px-3.5 py-3`}>
+          {isCheckboxRight ? (
+            <>
+              {singleTimeCol}
+              {singleTextCol}
+              {singleActionCol}
+            </>
+          ) : (
+            <>
+              {singleActionCol}
+              {singleTextCol}
+              {singleTimeCol}
+            </>
+          )}
         </div>
         {groupTipNode}
-        {renderRowDetail ? renderRowDetail(singleItem, rowDimmed, rowTipCtx) : null}
         <div className="mx-auto w-full max-w-4xl bg-[#121314] p-3 sm:p-4">
           <div className="single-video-stage relative aspect-video w-full overflow-hidden rounded-xl border border-zinc-800 bg-black">
             {embedUrl ? (
               <YouTubeEmbed
+                ref={singlePlayerRef}
                 key={`${singleGroupKey}-${singleItem.id}-${embedUrl}-${activeVideo?.seekKey || 0}`}
                 src={embedUrl}
                 title={displayName}
@@ -1736,22 +1827,19 @@ export function BossKacheln({
         style={{
           display: 'inline-flex',
           alignItems: 'center',
-          gap: '3px',
-          fontSize: '10px',
-          fontWeight: 'bold',
-          fontFamily: 'monospace',
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
+          justifyContent: 'center',
+          fontSize: '12px',
+          lineHeight: 1,
           color: dimmed ? '#4ade80' : '#00ff66',
           backgroundColor: 'rgba(0, 255, 102, 0.12)',
           border: '1px solid rgba(0, 255, 102, 0.35)',
-          padding: '1px 5px',
-          borderRadius: '4px',
+          padding: '4px 5px',
+          borderRadius: '6px',
           opacity: dimmed ? 0.7 : 1,
         }}
+        aria-label={t('bossTrophyBadge')}
       >
         <span aria-hidden>🏆</span>
-        {t('bossTrophyBadge')}
       </span>
     );
   };

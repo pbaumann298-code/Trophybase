@@ -4,6 +4,7 @@ import Reportable from './Reportable';
 import TrophyArtwork from './TrophyArtwork';
 import TrophyTypeIcon from './TrophyTypeIcon';
 import YouTubeEmbed from './YouTubeEmbed';
+import VideoRewindButton from './VideoRewindButton';
 import { useGuideVideo } from '../context/GuideVideoContext';
 import { useLocale } from '../context/LocaleContext';
 import { isUuid } from '../lib/gameModel';
@@ -33,13 +34,15 @@ function TrashIcon() {
 function TrophyTipEditor({ trophy, onSave }) {
   const { t } = useLocale();
   const saved = String(trophy.guide_tip ?? '');
+  const [prevSaved, setPrevSaved] = useState(saved);
   const [draft, setDraft] = useState(saved);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState('');
 
-  useEffect(() => {
+  if (saved !== prevSaved) {
+    setPrevSaved(saved);
     setDraft(saved);
-  }, [saved]);
+  }
 
   const commit = async (text) => {
     if (text.trim() === saved.trim() || busy) return;
@@ -90,15 +93,19 @@ function TrophyLongTipEditor({ trophy, onSave }) {
   const { t } = useLocale();
   const saved = String(trophy.guide_tip_long ?? '');
   const hasTip = Boolean(saved.trim());
+  const [prevSaved, setPrevSaved] = useState(saved);
+  const [prevHasTip, setPrevHasTip] = useState(hasTip);
   const [open, setOpen] = useState(hasTip);
   const [draft, setDraft] = useState(saved);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState('');
 
-  useEffect(() => {
+  if (saved !== prevSaved || hasTip !== prevHasTip) {
+    setPrevSaved(saved);
+    setPrevHasTip(hasTip);
     setDraft(saved);
     if (hasTip) setOpen(true);
-  }, [saved, hasTip]);
+  }
 
   const commit = async (text) => {
     if (text.trim() === saved.trim() || busy) return;
@@ -169,17 +176,20 @@ function TrophyVideoEditor({ trophy, onSave }) {
   const savedUrl = String(trophy.video_url ?? '');
   const savedTs = String(trophy.timestamp ?? '');
   const hasVideo = Boolean(savedUrl.trim());
+  const savedKey = `${savedUrl}\n${savedTs}\n${hasVideo}`;
+  const [prevSavedKey, setPrevSavedKey] = useState(savedKey);
   const [open, setOpen] = useState(hasVideo);
   const [urlDraft, setUrlDraft] = useState(savedUrl);
   const [tsDraft, setTsDraft] = useState(savedTs);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState('');
 
-  useEffect(() => {
+  if (savedKey !== prevSavedKey) {
+    setPrevSavedKey(savedKey);
     setUrlDraft(savedUrl);
     setTsDraft(savedTs);
     if (hasVideo) setOpen(true);
-  }, [savedUrl, savedTs, hasVideo]);
+  }
 
   const dirty =
     urlDraft.trim() !== savedUrl.trim() || tsDraft.trim() !== savedTs.trim();
@@ -290,6 +300,7 @@ function TrophyTimestampScrapeQueueBox({ trophy, gameId }) {
   const { t } = useLocale();
   const trophyKey = getTrophyIdKey(trophy);
   const defaultGroupName = String(trophy?.trophy_name ?? '').trim();
+  const [prevDefaultGroupName, setPrevDefaultGroupName] = useState(defaultGroupName);
   const [open, setOpen] = useState(false);
   const [urlDraft, setUrlDraft] = useState('');
   const [groupNameDraft, setGroupNameDraft] = useState(defaultGroupName);
@@ -298,9 +309,10 @@ function TrophyTimestampScrapeQueueBox({ trophy, gameId }) {
   const [hint, setHint] = useState('');
   const [isError, setIsError] = useState(false);
 
-  useEffect(() => {
+  if (defaultGroupName !== prevDefaultGroupName) {
+    setPrevDefaultGroupName(defaultGroupName);
     setGroupNameDraft(defaultGroupName);
-  }, [defaultGroupName]);
+  }
 
   const handleEnqueue = async () => {
     if (busy || !urlDraft.trim()) return;
@@ -527,6 +539,7 @@ function TrophyRow({
   const { t } = useLocale();
   const { notifyVideoStarted, notifyVideoCleared } = useGuideVideo();
   const [videoOpen, setVideoOpen] = useState(false);
+  const playerRef = useRef(null);
   const trophyKey = getTrophyIdKey(trophy);
   const trophyDesc = getTrophyDescription(trophy);
   const trophyTranslation = getTrophyAiTranslation(trophy);
@@ -548,11 +561,10 @@ function TrophyRow({
 
   const isDimmed = isUnlocked && completedTrophyStyle === COMPLETED_TROPHY_STYLE.DIM;
   const isCheckboxRight = guideRowOrder === GUIDE_ROW_ORDER.CHECKBOX_RIGHT;
-  const isTimestampRight = guideRowOrder === GUIDE_ROW_ORDER.TIMESTAMP_RIGHT;
 
   const checkboxSizeClass = isCheckboxRight
-    ? 'ml-auto w-5 h-5 mt-1 flex-shrink-0'
-    : 'w-4 h-4 mt-1 flex-shrink-0';
+    ? 'w-5 h-5 flex-shrink-0'
+    : 'w-4 h-4 flex-shrink-0';
 
   const checkboxNode = onlinePickMode ? (
     <input
@@ -577,15 +589,34 @@ function TrophyRow({
     />
   );
 
+  const artworkNode = (
+    <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 shrink-0">
+      {conceal ? (
+        <div className="flex h-full w-full items-center justify-center text-base text-zinc-600" aria-hidden="true">
+          ?
+        </div>
+      ) : (
+        <TrophyArtwork
+          trophy={trophy}
+          gameId={gameId}
+          reportKey={trophyKey}
+          size={40}
+          reportable
+        />
+      )}
+    </div>
+  );
+
   const timestampChipNode =
     !conceal && !onlinePickMode && trophy.timestamp && embedUrl ? (
       <button
         type="button"
-        onClick={() => setVideoOpen((open) => !open)}
+        onClick={(event) => {
+          event.stopPropagation();
+          setVideoOpen((open) => !open);
+        }}
         aria-expanded={videoOpen}
-        className={`${
-          isTimestampRight ? 'ml-auto ' : ''
-        }shrink-0 rounded border px-1.5 py-0.5 font-mono text-[11px] font-bold transition cursor-pointer ${
+        className={`tb-bidi-isolate shrink-0 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[11px] font-bold transition cursor-pointer ${
           videoOpen
             ? 'border-[#00ff66]/50 bg-[#00ff66]/15 text-[#00ff66]'
             : 'border-zinc-700 bg-[#121314] text-[#00ff66] hover:border-[#00ff66]/40'
@@ -593,6 +624,18 @@ function TrophyRow({
       >
         ▶ {trophy.timestamp}
       </button>
+    ) : !conceal && trophy.timestamp ? (
+      <span className="tb-bidi-isolate shrink-0 whitespace-nowrap rounded border border-zinc-800 bg-[#121314] px-1.5 py-0.5 font-mono text-[11px] text-zinc-400">
+        {trophy.timestamp}
+      </span>
+    ) : null;
+
+  const rewindNode =
+    !conceal && !onlinePickMode && videoOpen && embedUrl ? (
+      <VideoRewindButton
+        onRewind={(seconds) => playerRef.current?.rewind(seconds)}
+        className="mt-auto"
+      />
     ) : null;
 
   const rowTone = onlinePickMode
@@ -605,9 +648,124 @@ function TrophyRow({
         : 'bg-[#121314] border-zinc-800 hover:border-zinc-700'
       : 'bg-[#121314] border-zinc-800 hover:border-zinc-700';
 
+  const actionCol = (
+    <div className="flex flex-col items-center justify-between self-stretch gap-2">
+      {artworkNode}
+      <div className="mt-auto flex items-center justify-center pt-0.5">
+        {checkboxNode}
+      </div>
+    </div>
+  );
+
+  const textCol = (
+    <div className="min-w-0 self-start text-start">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {conceal ? (
+          <p className="text-sm font-bold text-zinc-500">{t('hiddenTrophyName')}</p>
+        ) : (
+          <Reportable
+            as="p"
+            source={gameId}
+            type="trophy"
+            reportKey={trophyKey}
+            field="name"
+            className={`text-sm font-bold ${
+              isDimmed ? 'text-zinc-500 line-through' : 'text-zinc-200'
+            }`}
+          >
+            {trophy.trophy_name}
+          </Reportable>
+        )}
+        <span className="inline-flex items-center shrink-0">
+          <TrophyTypeIcon type={trophy.trophy_type} size={18} />
+        </span>
+        {trophy.is_hidden && (
+          <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded-sm font-mono uppercase">
+            {t('badgeHidden')}
+          </span>
+        )}
+        {!conceal && trophy.is_missable && (
+          <span className="text-[9px] bg-rose-500/10 text-rose-400 border border-rose-500/25 px-1.5 py-0.5 rounded-sm font-mono uppercase">
+            {t('badgeMissable')}
+          </span>
+        )}
+        {isEarned && (
+          <span className="text-[9px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-1.5 py-0.5 rounded-sm font-mono uppercase">
+            PSN
+          </span>
+        )}
+        {!conceal && trophy.is_online && (
+          <span className="text-[9px] bg-sky-500/10 text-sky-400 border border-sky-500/25 px-1.5 py-0.5 rounded-sm font-mono uppercase">
+            {t('badgeOnline')}
+          </span>
+        )}
+      </div>
+      {!conceal && (trophyDesc || trophyTranslation) && (
+        <div className="mt-1">
+          {trophyDesc && (
+            <Reportable
+              as="p"
+              source={gameId}
+              type="trophy"
+              reportKey={trophyKey}
+              field="description"
+              className={`text-xs leading-relaxed ${
+                isDimmed ? 'text-zinc-600' : 'text-zinc-400'
+              }`}
+            >
+              {trophyDesc}
+            </Reportable>
+          )}
+          {trophyTranslation && (
+            <Reportable
+              as="p"
+              source={gameId}
+              type="trophy"
+              reportKey={trophyKey}
+              field="ai_translation"
+              className={`text-xs leading-relaxed italic ${
+                trophyDesc ? 'mt-1' : ''
+              } ${isDimmed ? 'text-zinc-600' : 'text-zinc-500'}`}
+            >
+              {trophyTranslation}
+            </Reportable>
+          )}
+        </div>
+      )}
+      {onTrophyFlags && !conceal && !onlinePickMode ? (
+        <TrophyKindMenu trophy={trophy} onChange={(patch) => onTrophyFlags(trophy, patch)} />
+      ) : null}
+    </div>
+  );
+
+  const timeCol = (
+    <div
+      className={`flex flex-col justify-between self-stretch gap-1.5 ${
+        isCheckboxRight ? 'items-start' : 'items-end'
+      }`}
+    >
+      <div className={`flex w-full ${isCheckboxRight ? 'justify-start' : 'justify-end'}`}>
+        {timestampChipNode}
+      </div>
+      {rewindNode}
+    </div>
+  );
+
+  const gridTemplateClass = isCheckboxRight
+    ? 'grid grid-cols-[minmax(5.75rem,18%)_minmax(0,1fr)_minmax(2.75rem,7%)]'
+    : 'grid grid-cols-[minmax(2.75rem,7%)_minmax(0,1fr)_minmax(5.75rem,18%)]';
+
+  const hasTipsOrVideoBox =
+    !guideTipEditor &&
+    !guideTipLongEditor &&
+    !onlinePickMode &&
+    !conceal &&
+    ((!isUnlocked && (trophy.guide_tip || trophy.guide_tip_long || trophy.video_url)) ||
+      (videoOpen && embedUrl));
+
   return (
     <div
-      className={`flex flex-col gap-3 p-4 rounded-xl border transition-all duration-300 ${rowTone}`}
+      className={`flex flex-col gap-3 p-3.5 sm:p-4 rounded-xl border transition-all duration-300 ${rowTone}`}
       onClick={onlinePickMode && !conceal ? () => onOnlinePickToggle?.(trophyKey) : undefined}
       onKeyDown={
         onlinePickMode && !conceal
@@ -623,104 +781,20 @@ function TrophyRow({
       tabIndex={onlinePickMode && !conceal ? 0 : undefined}
       aria-pressed={onlinePickMode ? onlinePicked : undefined}
     >
-      <div className="flex items-start gap-4">
-        {!isCheckboxRight ? checkboxNode : null}
-        <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0">
-          {conceal ? (
-            <div className="flex h-full w-full items-center justify-center text-lg text-zinc-600" aria-hidden="true">
-              ?
-            </div>
-          ) : (
-            <TrophyArtwork
-              trophy={trophy}
-              gameId={gameId}
-              reportKey={trophyKey}
-              size={48}
-              reportable
-            />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {!isTimestampRight && isCheckboxRight ? timestampChipNode : null}
-            {conceal ? (
-              <p className="text-sm font-bold text-zinc-500">{t('hiddenTrophyName')}</p>
-            ) : (
-              <Reportable
-                as="p"
-                source={gameId}
-                type="trophy"
-                reportKey={trophyKey}
-                field="name"
-                className={`text-sm font-bold ${
-                  isDimmed ? 'text-zinc-500 line-through' : 'text-zinc-200'
-                }`}
-              >
-                {trophy.trophy_name}
-              </Reportable>
-            )}
-            {trophy.is_hidden && (
-              <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded-sm font-mono uppercase">
-                {t('badgeHidden')}
-              </span>
-            )}
-            {!conceal && trophy.is_missable && (
-              <span className="text-[9px] bg-rose-500/10 text-rose-400 border border-rose-500/25 px-1.5 py-0.5 rounded-sm font-mono uppercase">
-                {t('badgeMissable')}
-              </span>
-            )}
-            {isEarned && (
-              <span className="text-[9px] bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/20 px-1.5 py-0.5 rounded-sm font-mono uppercase">
-                PSN
-              </span>
-            )}
-            {!conceal && trophy.is_online && (
-              <span className="text-[9px] bg-sky-500/10 text-sky-400 border border-sky-500/25 px-1.5 py-0.5 rounded-sm font-mono uppercase">
-                {t('badgeOnline')}
-              </span>
-            )}
-            {isTimestampRight ? timestampChipNode : null}
-          </div>
-          {!conceal && (trophyDesc || trophyTranslation) && (
-            <div className="mt-1">
-              {trophyDesc && (
-                <Reportable
-                  as="p"
-                  source={gameId}
-                  type="trophy"
-                  reportKey={trophyKey}
-                  field="description"
-                  className={`text-xs leading-relaxed ${
-                    isDimmed ? 'text-zinc-600' : 'text-zinc-400'
-                  }`}
-                >
-                  {trophyDesc}
-                </Reportable>
-              )}
-              {trophyTranslation && (
-                <Reportable
-                  as="p"
-                  source={gameId}
-                  type="trophy"
-                  reportKey={trophyKey}
-                  field="ai_translation"
-                  className={`text-xs leading-relaxed italic ${
-                    trophyDesc ? 'mt-1' : ''
-                  } ${isDimmed ? 'text-zinc-600' : 'text-zinc-500'}`}
-                >
-                  {trophyTranslation}
-                </Reportable>
-              )}
-            </div>
-          )}
-          {onTrophyFlags && !conceal && !onlinePickMode ? (
-            <TrophyKindMenu trophy={trophy} onChange={(patch) => onTrophyFlags(trophy, patch)} />
-          ) : null}
-          <span className="inline-flex items-center mt-2">
-            <TrophyTypeIcon type={trophy.trophy_type} size={22} />
-          </span>
-        </div>
-        {isCheckboxRight ? checkboxNode : null}
+      <div className={`${gridTemplateClass} gap-x-2.5 sm:gap-x-3 items-stretch`}>
+        {isCheckboxRight ? (
+          <>
+            {timeCol}
+            {textCol}
+            {actionCol}
+          </>
+        ) : (
+          <>
+            {actionCol}
+            {textCol}
+            {timeCol}
+          </>
+        )}
       </div>
       {(guideTipEditor || guideTipLongEditor) && !onlinePickMode ? (
         <>
@@ -747,12 +821,11 @@ function TrophyRow({
           ) : null}
         </>
       ) : null}
-      {!guideTipEditor && !guideTipLongEditor && !onlinePickMode && !conceal && !isUnlocked
-        && (trophy.guide_tip || trophy.guide_tip_long || trophy.video_url) && (
-        <div className="mt-1 pl-4 border-l-2 border-[#00ff66]/30 flex flex-col gap-2 bg-zinc-950/40 p-2 rounded-r-xl">
-          {trophy.guide_tip && (
+      {hasTipsOrVideoBox && (
+        <div className="mt-1 ps-3.5 border-s-2 border-[#00ff66]/30 flex flex-col gap-2 bg-zinc-950/40 p-2.5 rounded-e-xl text-start">
+          {!isUnlocked && trophy.guide_tip && (
             <p className="text-xs text-zinc-400 font-sans italic">
-              <span className="text-[#00ff66] font-mono font-bold not-italic mr-1">{t('trophyTipPrefix')}</span>
+              <span className="text-[#00ff66] font-mono font-bold not-italic me-1">{t('trophyTipPrefix')}</span>
               <Reportable
                 as="span"
                 source={gameId}
@@ -764,9 +837,9 @@ function TrophyRow({
               </Reportable>
             </p>
           )}
-          {trophy.guide_tip_long && (
+          {!isUnlocked && trophy.guide_tip_long && (
             <p className="text-xs text-zinc-400 font-sans italic">
-              <span className="text-[#00ff66] font-mono font-bold not-italic mr-1">{t('trophyLongTipPrefix')}</span>
+              <span className="text-[#00ff66] font-mono font-bold not-italic me-1">{t('trophyLongTipPrefix')}</span>
               <Reportable
                 as="span"
                 source={gameId}
@@ -790,13 +863,14 @@ function TrophyRow({
                 })}
                 onClick={() => setVideoOpen((open) => !open)}
                 aria-expanded={videoOpen}
-                className="text-[11px] text-[#00ff66] hover:underline flex items-center gap-1 font-mono font-bold bg-transparent border-none p-0 cursor-pointer text-left"
+                className="text-[11px] text-[#00ff66] hover:underline flex items-center gap-1 font-mono font-bold bg-transparent border-none p-0 cursor-pointer text-start"
               >
                 {videoOpen ? t('hideVideoGuide') : t('watchVideoGuide')}
               </button>
               {videoOpen ? (
                 <div className="trophy-inline-video mt-1 w-full min-w-0 overflow-hidden rounded-lg border border-zinc-800">
                   <YouTubeEmbed
+                    ref={playerRef}
                     key={`${trophyKey}-${embedUrl}`}
                     src={embedUrl}
                     title={trophy.trophy_name || 'YouTube-Video'}
@@ -829,7 +903,7 @@ function TrophyList({
 }) {
   const { t } = useLocale();
   const { completedTrophyStyle, guideRowOrder } = useUserPreferences();
-  const earnedSet = earnedTrophyIds ?? new Set();
+  const earnedSet = useMemo(() => earnedTrophyIds ?? new Set(), [earnedTrophyIds]);
   const effectiveHideCompleted =
     hideCompleted || completedTrophyStyle === COMPLETED_TROPHY_STYLE.HIDE;
   const visible = trophies.filter((trophy) => {
@@ -903,7 +977,7 @@ function TrophyGroupedChecklist({
     [trophies],
   );
 
-  const earnedSet = earnedTrophyIds ?? new Set();
+  const earnedSet = useMemo(() => earnedTrophyIds ?? new Set(), [earnedTrophyIds]);
   const dlcHeading = (dlc) => (
     gameId ? (
       <Reportable

@@ -21,7 +21,6 @@ import { isSingleLangFertigGame, publishFertigReviewGame } from '../../lib/ferti
 import { publishingFieldsFromStatus } from '../../lib/guidePublication';
 import {
   fetchHomeTagDefs,
-  formatLocalizedHomeTags,
   homeTagKey,
   orderHomeTags,
   readHomeTags,
@@ -322,26 +321,25 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, on
         <table className="min-w-full text-left text-xs">
           <thead className="bg-[#121314] text-[10px] font-mono uppercase tracking-wider text-zinc-500">
             <tr>
-              <th className="px-3 py-2.5 font-medium">cover / cover_status</th>
-              <th className="px-3 py-2.5 font-medium">spieltitel</th>
-              <th className="px-3 py-2.5 font-medium">ecosystem</th>
-              <th className="px-3 py-2.5 font-medium">hardware</th>
-              <th className="px-3 py-2.5 font-medium">platform_game_id</th>
-              <th className="px-3 py-2.5 font-medium">release_jahr</th>
-              <th className="px-3 py-2.5 font-medium">upcoming_date</th>
-              <th className="px-3 py-2.5 font-medium">entwickler</th>
-              <th className="px-3 py-2.5 font-medium">publisher</th>
-              <th className="px-3 py-2.5 font-medium">genre</th>
-              <th className="px-3 py-2.5 font-medium">spiel_typ</th>
-              <th className="px-3 py-2.5 font-medium">home_tags</th>
-              <th className="px-3 py-2.5 font-medium">discovery</th>
-              <th className="px-3 py-2.5 font-medium">trophies</th>
-              <th className="px-3 py-2.5 font-medium">guides</th>
-              <th className="px-3 py-2.5 font-medium">guide_de</th>
-              <th className="px-3 py-2.5 font-medium">#Troph</th>
-              <th className="px-3 py-2.5 font-medium">#Guide</th>
-              <th className="px-3 py-2.5 font-medium">status</th>
-              <th className="px-3 py-2.5 font-medium"></th>
+              <th className="px-3 py-2 font-medium">cover</th>
+              <th className="px-3 py-2 font-medium">spieltitel</th>
+              <th className="px-3 py-2 font-medium">status</th>
+              <th className="px-3 py-2 font-medium">spiel_typ</th>
+              <th className="px-3 py-2 font-medium">hardware</th>
+              <th className="px-3 py-2 font-medium">#Troph</th>
+              <th className="px-3 py-2 font-medium">#Guide</th>
+              <th className="px-3 py-2 font-medium">discovery</th>
+              <th className="px-3 py-2 font-medium">trophies</th>
+              <th className="px-3 py-2 font-medium">guides</th>
+              <th className="px-3 py-2 font-medium">guide_de</th>
+              <th className="px-3 py-2 font-medium">aktionen</th>
+              <th className="px-3 py-2 font-medium">ecosystem</th>
+              <th className="px-3 py-2 font-medium">platform_game_id</th>
+              <th className="px-3 py-2 font-medium">release_jahr</th>
+              <th className="px-3 py-2 font-medium">upcoming_date</th>
+              <th className="px-3 py-2 font-medium">entwickler</th>
+              <th className="px-3 py-2 font-medium">publisher</th>
+              <th className="px-3 py-2 font-medium">home_tags</th>
             </tr>
           </thead>
           <tbody>
@@ -351,31 +349,40 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, on
               const statusEntries = listPipelineStatusEntries(game.status);
               return (
                 <tr key={game.id} className="border-t border-zinc-800/80 odd:bg-[#1a1b1c] even:bg-[#161718] align-top">
-                  <td className="px-3 py-2">
+                  <td className="px-2.5 py-2 whitespace-nowrap">
                     <AdminCoverInspector
                       game={game}
                       size="sm"
+                      compact
                       onUpdated={(partial) => patch(game.id, partial)}
                     />
                   </td>
                   <td className="px-3 py-2 text-zinc-200 max-w-[18rem]">{formatIntranetTitles(game.spieltitel)}</td>
-                  <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.ecosystem || '—'}</td>
-                  <td className="px-3 py-2 text-sky-300 whitespace-nowrap">{game.hardware || '—'}</td>
-                  <td className="px-3 py-2 font-mono text-[10px] text-zinc-500">
-                    {getPlatformGameIds(game).length > 0 ? (
-                      <div className="flex flex-col gap-0.5">
-                        {getPlatformGameIds(game).map((id) => (
-                          <span key={id} className="whitespace-nowrap">{id}</span>
-                        ))}
+                  <td className="px-3 py-2 max-w-[20rem]">
+                    {statusEntries.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {statusEntries.map((entry) => {
+                          const removing = busyKey === `${game.id}:status:${entry.key}`;
+                          return (
+                            <span
+                              key={entry.key}
+                              className="inline-flex items-center gap-1 rounded border border-zinc-800 bg-[#121314] px-1.5 py-0.5"
+                            >
+                              <span className="text-[10px] font-mono tracking-wide text-[#00ff66]/90">
+                                {entry.key}={entry.value}
+                              </span>
+                              <StatusDeleteButton
+                                label={`${entry.key} löschen`}
+                                disabled={removing}
+                                onClick={() => handleRemoveStatus(game, entry.key, entry.value)}
+                              />
+                            </span>
+                          );
+                        })}
                       </div>
-                    ) : '—'}
-                  </td>
-                  <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{game.release_jahr || '—'}</td>
-                  <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.upcoming_date || '—'}</td>
-                  <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.entwickler || '—'}</td>
-                  <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.publisher || '—'}</td>
-                  <td className="px-3 py-2 text-zinc-400 max-w-[12rem]">
-                    {formatLocalizedHomeTags(game.home_tags, 'de') || '—'}
+                    ) : (
+                      <span className="text-[10px] font-mono text-zinc-600">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <AdminGameTypeSelect
@@ -384,14 +391,12 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, on
                       onSaved={(savedType) => patch(game.id, { spiel_typ: savedType })}
                     />
                   </td>
-                  <td className="px-3 py-2">
-                    <HomeTagChecks
-                      defs={tagDefs}
-                      selected={readHomeTags(game)}
-                      disabled={busyKey === `${game.id}:tags`}
-                      onToggle={(slug) => handleTags(game, slug)}
-                      wrap
-                    />
+                  <td className="px-3 py-2 text-sky-300 whitespace-nowrap">{game.hardware || '—'}</td>
+                  <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
+                    {game.anzahl_trophaeen ?? embedCount(game.game_achievements) ?? '—'}
+                  </td>
+                  <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
+                    {embedCount(game.game_guides) ?? '—'}
                   </td>
                   {STATUS_COLUMNS.map((column) => {
                     const value = pipelineStatusValue(game.status, column.key);
@@ -413,38 +418,6 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, on
                       </td>
                     );
                   })}
-                  <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
-                    {game.anzahl_trophaeen ?? embedCount(game.game_achievements) ?? '—'}
-                  </td>
-                  <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">
-                    {embedCount(game.game_guides) ?? '—'}
-                  </td>
-                  <td className="px-3 py-2 max-w-[22rem]">
-                    {statusEntries.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {statusEntries.map((entry) => {
-                          const removing = busyKey === `${game.id}:status:${entry.key}`;
-                          return (
-                            <span
-                              key={entry.key}
-                              className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-[#121314] px-1.5 py-0.5"
-                            >
-                              <span className="text-[10px] font-mono tracking-wide text-[#00ff66]/90">
-                                {entry.key}={entry.value}
-                              </span>
-                              <StatusDeleteButton
-                                label={`${entry.key} löschen`}
-                                disabled={removing}
-                                onClick={() => handleRemoveStatus(game, entry.key, entry.value)}
-                              />
-                            </span>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <span className="text-[10px] font-mono text-zinc-600">—</span>
-                    )}
-                  </td>
                   <td className="min-w-0 max-w-full px-3 py-2">
                     <div className="tb-admin-bar">
                       <DiscardGuideButton
@@ -513,6 +486,29 @@ function IntranetGameTable({ games, sessionUser, onGamePatch, onOpenInDrafts, on
                         </a>
                       ) : null}
                     </div>
+                  </td>
+                  <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.ecosystem || '—'}</td>
+                  <td className="px-3 py-2 font-mono text-[10px] text-zinc-500">
+                    {getPlatformGameIds(game).length > 0 ? (
+                      <div className="flex flex-col gap-0.5">
+                        {getPlatformGameIds(game).map((id) => (
+                          <span key={id} className="whitespace-nowrap">{id}</span>
+                        ))}
+                      </div>
+                    ) : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-zinc-300 whitespace-nowrap">{game.release_jahr || '—'}</td>
+                  <td className="px-3 py-2 text-zinc-400 whitespace-nowrap">{game.upcoming_date || '—'}</td>
+                  <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.entwickler || '—'}</td>
+                  <td className="px-3 py-2 text-zinc-300 max-w-[12rem]">{game.publisher || '—'}</td>
+                  <td className="px-3 py-2">
+                    <HomeTagChecks
+                      defs={tagDefs}
+                      selected={readHomeTags(game)}
+                      disabled={busyKey === `${game.id}:tags`}
+                      onToggle={(slug) => handleTags(game, slug)}
+                      compact
+                    />
                   </td>
                 </tr>
               );

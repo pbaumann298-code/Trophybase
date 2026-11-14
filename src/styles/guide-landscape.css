@@ -16,7 +16,7 @@
   margin: 0;
   padding: 16px 20px;
   border: none;
-  border-left: 3px solid #00ff66;
+  border-inline-start: 3px solid #00ff66;
   background-color: #0e0f10;
   color: #e4e4e7;
   font-family: ui-monospace, monospace;
@@ -24,12 +24,12 @@
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
 .guide-localisation__count {
-  margin-left: 8px;
+  margin-inline-start: 8px;
   font-size: 11px;
   font-weight: 400;
   color: #71717a;
@@ -253,11 +253,12 @@
 .guide-split__table {
   width: 100%;
   border-collapse: collapse;
-  text-align: left;
+  text-align: start;
 }
 
+.guide-split__row,
 .guide-split__row td {
-  padding: 10px 8px;
+  padding: 10px 6px;
   vertical-align: top;
   border-bottom: 1px solid #27272a;
 }
@@ -267,6 +268,16 @@
   .guide-landscape-root {
     padding-left: 0.5rem;
     padding-right: 0.5rem;
+  }
+
+  /* In RTL (ar) keeps physical Video-Links / Video-Rechts placement consistent while list mirrors RTL */
+  [dir="rtl"] .guide-split--expanded {
+    direction: ltr;
+  }
+
+  [dir="rtl"] .guide-split--expanded .guide-split__list,
+  [dir="rtl"] .guide-split--expanded .guide-split__video {
+    direction: rtl;
   }
 
   .guide-split--expanded,
@@ -350,6 +361,12 @@
     grid-row: 1;
     border-left: 1px solid #27272a;
     border-right: none;
+  }
+
+  .guide-split__row {
+    padding: 6px 4px;
+    font-size: 11px;
+    line-height: 1.35;
   }
 
   .guide-split__row td {

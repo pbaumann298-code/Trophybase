@@ -1810,6 +1810,7 @@ function GamePageContent({
       {!trophiesOnly ? (
         <RelatedGuides
           creatorName={contentCreators[0]?.channelName || ''}
+          creatorSlug={contentCreators[0]?.publicSlug || ''}
           creatorGames={relatedGuides.creatorGames}
           similarGames={relatedGuides.similarGames}
           openGame={openGame}

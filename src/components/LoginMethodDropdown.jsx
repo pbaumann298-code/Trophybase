@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
+import { savePostLoginEntry } from '../lib/adminAccess';
 import { normalizeEmail } from '../lib/maintenanceAccess';
 
 const SOCIAL_OPTIONS = [
@@ -41,6 +42,9 @@ export default function LoginMethodDropdown({
   redirectTo = '',
   onPasswordLogin = null,
   compact = false,
+  postLoginEntry = '',
+  externalError = '',
+  passwordBusy = false,
 }) {
   const isDe = locale !== 'en';
   const [menuOpen, setMenuOpen] = useState(false);
@@ -81,6 +85,7 @@ export default function LoginMethodDropdown({
     setErrorMsg('');
     setMagicSent('');
     setOauthBusy(provider);
+    if (postLoginEntry) savePostLoginEntry(postLoginEntry);
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo: resolvedRedirect },
@@ -110,6 +115,7 @@ export default function LoginMethodDropdown({
     setMagicBusy(true);
     setErrorMsg('');
     setMagicSent('');
+    if (postLoginEntry) savePostLoginEntry(postLoginEntry);
     const { error } = await supabase.auth.signInWithOtp({
       email: cleanEmail,
       options: { emailRedirectTo: resolvedRedirect },
@@ -319,14 +325,17 @@ export default function LoginMethodDropdown({
 
           <button
             type="submit"
-            className="w-full rounded-xl bg-[#00ff66] hover:bg-[#00e65c] py-2 text-xs font-bold text-zinc-950 transition cursor-pointer"
+            disabled={passwordBusy}
+            className="w-full rounded-xl bg-[#00ff66] hover:bg-[#00e65c] disabled:opacity-50 py-2 text-xs font-bold text-zinc-950 transition cursor-pointer"
           >
-            {isDe ? 'Einloggen' : 'Sign in'}
+            {passwordBusy ? (isDe ? 'Anmelden…' : 'Signing in…') : isDe ? 'Einloggen' : 'Sign in'}
           </button>
         </form>
       ) : null}
 
-      {errorMsg ? <p className="mt-2.5 text-xs text-red-400">{errorMsg}</p> : null}
+      {errorMsg || externalError ? (
+        <p className="mt-2.5 text-xs text-red-400">{errorMsg || externalError}</p>
+      ) : null}
       {magicSent ? <p className="mt-2.5 text-xs text-[#00ff66]">{magicSent}</p> : null}
     </div>
   );

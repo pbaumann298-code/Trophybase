@@ -4,8 +4,6 @@ import {
   GAME_PLATFORM_ID,
   GAME_STRUCT,
   GAME_I18N,
-  GAME_FK,
-  GUIDE_STRUCT,
   GAME_TYPE,
 } from './gameSchema';
 import { getPlatformGameId } from './gameModel';
@@ -304,6 +302,18 @@ export async function countIntranetQuickFilters(supabase, text = '') {
   return Object.fromEntries(pairs);
 }
 
+async function fetchRowsByIds(supabase, table, select, column, ids, chunkSize = 120) {
+  const unique = [...new Set((ids ?? []).filter(Boolean))];
+  const rows = [];
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    const { data, error } = await supabase.from(table).select(select).in(column, chunk);
+    if (error) return { data: [], error };
+    rows.push(...(data ?? []));
+  }
+  return { data: rows, error: null };
+}
+
 /**
  * Lädt Intranet-Zeilen für bekannte Spiel-UUIDs, ohne Veröffentlichungsfilter.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
@@ -334,189 +344,4 @@ export async function fetchIntranetGamesByIds(supabase, ids) {
     data: unique.map((id) => byId.get(id)).filter(Boolean),
     error: null,
   };
-}
-
-const CREATOR_SELECT = 'id, channel_name, youtube_url';
-
-function normalizeCreatorRow(row) {
-  if (!row) return null;
-  const channelName = String(row.channel_name ?? '').trim();
-  const youtubeUrl = String(row.youtube_url ?? '').trim();
-  if (!row.id && !channelName) return null;
-  return {
-    id: row.id ?? null,
-    channelName,
-    youtubeUrl,
-  };
-}
-
-async function fetchRowsByIds(supabase, table, select, column, ids, chunkSize = 120) {
-  const unique = [...new Set((ids ?? []).filter(Boolean))];
-  const rows = [];
-  for (let i = 0; i < unique.length; i += chunkSize) {
-    const chunk = unique.slice(i, i + chunkSize);
-    const { data, error } = await supabase.from(table).select(select).in(column, chunk);
-    if (error) return { data: [], error };
-    rows.push(...(data ?? []));
-  }
-  return { data: rows, error: null };
-}
-
-/** PostgREST liefert pro Request höchstens 1000 Zeilen. Darüber wird weitergeblättert. */
-const QUERY_PAGE_SIZE = 1000;
-
-function chunkList(values, size) {
-  const chunks = [];
-  for (let i = 0; i < values.length; i += size) chunks.push(values.slice(i, i + size));
-  return chunks;
-}
-
-async function fetchAllPages(buildQuery) {
-  const rows = [];
-  for (let from = 0; from < 40000; from += QUERY_PAGE_SIZE) {
-    const { data, error } = await buildQuery().range(from, from + QUERY_PAGE_SIZE - 1);
-    if (error) return { data: [], error };
-    const page = data ?? [];
-    rows.push(...page);
-    if (page.length < QUERY_PAGE_SIZE) return { data: rows, error: null };
-  }
-  return {
-    data: [],
-    error: { message: 'Zu viele Treffer. Bitte die Suche enger fassen.' },
-  };
-}
-
-async function fetchGuideCreatorRows(supabase, { creatorIds, gameIds }) {
-  const creatorChunks = creatorIds?.length ? chunkList(creatorIds, 80) : [null];
-  const gameChunks = gameIds?.length ? chunkList(gameIds, 80) : [null];
-  const rows = [];
-
-  for (const creators of creatorChunks) {
-    for (const games of gameChunks) {
-      const page = await fetchAllPages(() => {
-        let query = supabase
-          .from(TABLES.gameGuideCreators)
-          .select(`${GAME_FK}, ${GUIDE_STRUCT.creatorId}`)
-          .order(GUIDE_STRUCT.creatorId, { ascending: true })
-          .order(GAME_FK, { ascending: true });
-        if (creators) query = query.in(GUIDE_STRUCT.creatorId, creators);
-        if (games) query = query.in(GAME_FK, games);
-        return query;
-      });
-      if (page.error) return page;
-      rows.push(...page.data);
-    }
-  }
-
-  return { data: rows, error: null };
-}
-
-/**
- * Creator → Spiele über game_guides.creator_id. Leere Filter laden alle Creator mit ihren Spielen.
- */
-export async function searchIntranetCreators(supabase, filters = {}) {
-  const name = textFilter(filters.channelName);
-  const youtube = textFilter(filters.youtubeUrl);
-  const gameTitle = textFilter(filters.gameTitle);
-  const hasCreatorFilter = name.valid || youtube.valid;
-
-  let gameIdsFromTitle = null;
-  if (gameTitle.valid) {
-    const titlePage = await fetchAllPages(() => supabase
-      .from(TABLES.games)
-      .select(GAME_PK)
-      .or(buildLocalizedOrFilter(GAME_I18N.title, gameTitle.pattern))
-      .order(GAME_PK, { ascending: true }));
-
-    if (titlePage.error) return { data: [], error: titlePage.error };
-    gameIdsFromTitle = (titlePage.data ?? []).map((row) => row[GAME_PK]).filter(Boolean);
-    if (gameIdsFromTitle.length === 0) return { data: [], error: null };
-  }
-
-  let creators = [];
-  if (hasCreatorFilter) {
-    const creatorPage = await fetchAllPages(() => {
-      let creatorQuery = supabase
-        .from(TABLES.contentCreators)
-        .select(CREATOR_SELECT)
-        .order('channel_name', { ascending: true })
-        .order('id', { ascending: true });
-      if (name.valid) creatorQuery = creatorQuery.ilike('channel_name', name.pattern);
-      if (youtube.valid) creatorQuery = creatorQuery.ilike('youtube_url', youtube.pattern);
-      return creatorQuery;
-    });
-
-    if (creatorPage.error) return { data: [], error: creatorPage.error };
-    creators = (creatorPage.data ?? []).map(normalizeCreatorRow).filter(Boolean);
-    if (creators.length === 0) return { data: [], error: null };
-  }
-
-  const { data: maps, error: mapError } = await fetchGuideCreatorRows(supabase, {
-    creatorIds: hasCreatorFilter ? creators.map((creator) => creator.id) : null,
-    gameIds: gameIdsFromTitle,
-  });
-  if (mapError) return { data: [], error: mapError };
-
-  const mapRows = maps ?? [];
-  if (mapRows.length === 0) {
-    if (hasCreatorFilter) {
-      return {
-        data: creators.map((creator) => ({ ...creator, games: [] })),
-        error: null,
-      };
-    }
-    return { data: [], error: null };
-  }
-
-  const creatorIds = [...new Set(mapRows.map((row) => row[GUIDE_STRUCT.creatorId]).filter(Boolean))];
-  const gameIds = [...new Set(mapRows.map((row) => row[GAME_FK]).filter(Boolean))];
-
-  if (!hasCreatorFilter) {
-    const { data: mappedCreators, error: mappedError } = await fetchRowsByIds(
-      supabase,
-      TABLES.contentCreators,
-      CREATOR_SELECT,
-      'id',
-      creatorIds,
-    );
-
-    if (mappedError) return { data: [], error: mappedError };
-    creators = (mappedCreators ?? []).map(normalizeCreatorRow).filter(Boolean);
-  } else if (gameIdsFromTitle) {
-    const mappedSet = new Set(creatorIds);
-    creators = creators.filter((creator) => mappedSet.has(creator.id));
-  }
-
-  const { data: games, error: gamesError } = await fetchRowsByIds(
-    supabase,
-    TABLES.games,
-    INTRANET_GAME_SELECT,
-    GAME_PK,
-    gameIds,
-  );
-
-  if (gamesError) return { data: [], error: gamesError };
-
-  const gamesById = new Map((games ?? []).map((game) => [game[GAME_PK], game]));
-  const gamesByCreator = new Map();
-
-  for (const row of mapRows) {
-    const creatorId = row[GUIDE_STRUCT.creatorId];
-    const game = gamesById.get(row[GAME_FK]);
-    if (!creatorId || !game) continue;
-    const list = gamesByCreator.get(creatorId) ?? [];
-    if (list.some((entry) => entry.id === game.id)) continue;
-    list.push(game);
-    gamesByCreator.set(creatorId, list);
-  }
-
-  const result = creators
-    .map((creator) => ({
-      ...creator,
-      games: gamesByCreator.get(creator.id) ?? [],
-    }))
-    .filter((creator) => creator.games.length > 0 || hasCreatorFilter)
-    .sort((a, b) => a.channelName.localeCompare(b.channelName, 'de'));
-
-  return { data: result, error: null };
 }

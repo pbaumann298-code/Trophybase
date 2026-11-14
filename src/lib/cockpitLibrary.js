@@ -4,7 +4,7 @@ import { GAME_TYPE, parseGameTypes } from './gameSchema';
 
 export const COCKPIT_VIEW_PREFS_KEY = 'tb_cockpit_view_prefs';
 
-export const LIBRARY_BUCKETS = ['PLAYING', 'BACKLOG', 'COMPLETED', 'ALL', 'CHECKLISTS', 'SETTINGS'];
+export const LIBRARY_BUCKETS = ['PLAYING', 'BACKLOG', 'COMPLETED', 'ALL', 'CHECKLISTS', 'CREATOR', 'SETTINGS'];
 export const GAME_BUCKETS = new Set(['PLAYING', 'BACKLOG', 'COMPLETED', 'ALL']);
 
 export const VIEW_MODES = [

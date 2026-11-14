@@ -1,12 +1,13 @@
 import { Component, useEffect, useState } from 'react';
 import { supabase } from '../pages/supabaseClient';
 import {
+  consumePostLoginEntry,
   fetchMyCreatorProfile,
   isAdminUser,
   readCachedSessionUser,
   readDraftReturnContext,
 } from '../lib/adminAccess';
-import AdminLoginForm from '../components/admin/AdminLoginForm';
+import LoginMethodDropdown from '../components/LoginMethodDropdown';
 import IntranetGameSearch from '../components/intranet/IntranetGameSearch';
 import IntranetCreators from '../components/intranet/IntranetCreators';
 import IntranetFollowups from '../components/intranet/IntranetFollowups';
@@ -177,8 +178,8 @@ function IntranetApp() {
         }
 
         if (user) {
+          consumePostLoginEntry();
           if (isAdminUser(user)) {
-            // Admin braucht nicht auf Creator-RPC zu warten; im Hintergrund nachladen
             window.setTimeout(() => {
               fetchMyCreatorProfile(supabase).then((profile) => {
                 if (!cancelled && profile) setCreatorProfile(profile);
@@ -187,7 +188,8 @@ function IntranetApp() {
           } else {
             const profile = await fetchMyCreatorProfile(supabase, 2000);
             if (!cancelled) {
-              setCreatorProfile(profile);
+              window.location.replace(profile?.id ? '/profile?tab=creator' : '/profile');
+              return;
             }
           }
         }
@@ -222,8 +224,19 @@ function IntranetApp() {
 
       const user = session?.user ?? null;
       if (user && !cancelled) {
+        consumePostLoginEntry();
+        if (!isAdminUser(user)) {
+          window.setTimeout(() => {
+            if (cancelled) return;
+            fetchMyCreatorProfile(supabase).then((profile) => {
+              if (!cancelled) {
+                window.location.replace(profile?.id ? '/profile?tab=creator' : '/profile');
+              }
+            });
+          }, 0);
+          return;
+        }
         setSessionUser(user);
-        // DB-/RPC-Aufruf zwingend über setTimeout entkoppeln!
         window.setTimeout(() => {
           if (cancelled) return;
           fetchMyCreatorProfile(supabase).then((profile) => {
@@ -251,13 +264,13 @@ function IntranetApp() {
       return;
     }
 
+    consumePostLoginEntry();
     const admin = isAdminUser(data.user);
     const profile = await fetchMyCreatorProfile(supabase);
     setLoginLoading(false);
 
-    if (!admin && !profile) {
-      await supabase.auth.signOut();
-      setLoginError('Kein Admin- oder Creator-Zugang für dieses Konto.');
+    if (!admin) {
+      window.location.replace(profile?.id ? '/profile?tab=creator' : '/profile');
       return;
     }
 
@@ -290,30 +303,48 @@ function IntranetApp() {
     );
   }
 
-  const isCreatorOnly = Boolean(sessionUser && !isAdmin && creatorProfile);
+  if (sessionUser && !isAdmin) {
+    return (
+      <div className="tb-fill-screen flex flex-col items-center justify-center gap-3 bg-[#0a0b0c] px-4 text-center font-mono">
+        <p className="text-sm text-zinc-300">Weiterleitung zu deinem Profil…</p>
+      </div>
+    );
+  }
 
-  if (!sessionUser || (!isAdmin && !creatorProfile)) {
+  if (!sessionUser) {
     return (
       <div className="tb-fill-screen flex flex-col items-center justify-center px-4 py-12">
-        <AdminLoginForm
-          onLogin={handleLogin}
-          loading={loginLoading}
-          errorMessage={loginError}
-          kicker="Interner Bereich"
-          title="Intranet & Creator Studio"
-          submitLabel="Anmelden"
-        />
-        <p className="mt-6 text-xs text-zinc-500 text-center max-w-md leading-relaxed">
-          Auf dem Handy diese Adresse speichern:{' '}
-          <span className="font-mono text-zinc-400">trophybase.app/intranet.html</span>
-        </p>
+        <div className="w-full max-w-sm mx-auto bg-[#1a1b1c] border border-zinc-800 rounded-2xl p-8 shadow-2xl">
+          <div className="text-center mb-6">
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-500 mb-2">
+              Anmeldung
+            </p>
+            <h1 className="text-xl font-bold text-white">
+              TrophyBase <span className="text-[#00ff66]">Login</span>
+            </h1>
+            <p className="mt-2 text-xs text-zinc-400 leading-relaxed">
+              Creator &amp; Spieler gelangen direkt in ihr Profil.
+            </p>
+          </div>
+
+          <LoginMethodDropdown
+            locale="de"
+            redirectTo={
+              typeof window !== 'undefined' ? `${window.location.origin}/intranet.html` : ''
+            }
+            postLoginEntry="intranet"
+            onPasswordLogin={handleLogin}
+            externalError={loginError}
+            passwordBusy={loginLoading}
+          />
+        </div>
         <a
           href="/"
-          className="mt-4 text-[10px] font-mono uppercase tracking-wider text-zinc-600 hover:text-zinc-400 no-underline"
+          className="mt-5 text-[10px] font-mono uppercase tracking-wider text-zinc-600 hover:text-zinc-400 no-underline"
         >
-          Zur Website
+          ← Zur Website
         </a>
-        <p className="mt-8 text-[10px] text-zinc-600 font-mono uppercase tracking-widest">
+        <p className="mt-6 text-[10px] text-zinc-600 font-mono uppercase tracking-widest">
           noindex · nofollow
         </p>
       </div>
@@ -326,19 +357,10 @@ function IntranetApp() {
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-[0.15em] text-zinc-600">
-              {isCreatorOnly ? 'TrophyBase Creator Studio' : 'TrophyBase Intranet'}
+              TrophyBase Intranet
             </p>
             <h1 className="text-lg font-bold text-white">
-              {isCreatorOnly ? (
-                <>
-                  TrophyBase Creator Studio{' '}
-                  <span className="text-[#00ff66]">· {creatorProfile.channel_name}</span>
-                </>
-              ) : (
-                <>
-                  Interne Suche <span className="text-[#00ff66]">· Datenbank</span>
-                </>
-              )}
+              Interne Suche <span className="text-[#00ff66]">· Datenbank</span>
             </h1>
           </div>
           <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
@@ -361,81 +383,68 @@ function IntranetApp() {
           </div>
         </div>
 
-        {!isCreatorOnly && (
-          <nav className="mx-auto mt-4 flex min-w-0 max-w-full flex-wrap gap-1 overflow-x-auto">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider whitespace-nowrap transition ${
-                  activeTab === tab.id
-                    ? 'bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/30'
-                    : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
-                }`}
-              >
-                <span aria-hidden>{tab.icon}</span>
-                {tab.label}
-                {tab.id === 'entwuerfe' && draftsCount > 0 ? (
-                  <span className="rounded-full bg-[#00ff66]/15 px-1.5 py-0.5 text-[10px] text-[#00ff66] border border-[#00ff66]/30 font-bold">
-                    {draftsCount}
-                  </span>
-                ) : null}
-                {tab.id === 'followups' && followups.length > 0 ? (
-                  <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
-                    {followups.length}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
-        )}
+        <nav className="mx-auto mt-4 flex min-w-0 max-w-full flex-wrap gap-1 overflow-x-auto">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider whitespace-nowrap transition ${
+                activeTab === tab.id
+                  ? 'bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/30'
+                  : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
+              }`}
+            >
+              <span aria-hidden>{tab.icon}</span>
+              {tab.label}
+              {tab.id === 'entwuerfe' && draftsCount > 0 ? (
+                <span className="rounded-full bg-[#00ff66]/15 px-1.5 py-0.5 text-[10px] text-[#00ff66] border border-[#00ff66]/30 font-bold">
+                  {draftsCount}
+                </span>
+              ) : null}
+              {tab.id === 'followups' && followups.length > 0 ? (
+                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
+                  {followups.length}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </nav>
       </header>
 
       <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-8">
         <IntranetErrorBoundary>
-          {isCreatorOnly ? (
+          {activeTab === 'games' && (
+            <IntranetGameSearch sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
+          )}
+          {activeTab === 'entwuerfe' && (
             <IntranetDrafts
-              initialDataSource="staging"
+              initialDataSource={draftSource}
               initialGameId={draftTargetGameId}
               creatorProfile={creatorProfile}
-              isCreatorMode={true}
+              isCreatorMode={false}
             />
-          ) : (
-            <>
-              {activeTab === 'games' && (
-                <IntranetGameSearch sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
-              )}
-              {activeTab === 'entwuerfe' && (
-                <IntranetDrafts
-                  initialDataSource={draftSource}
-                  initialGameId={draftTargetGameId}
-                  creatorProfile={creatorProfile}
-                  isCreatorMode={false}
-                />
-              )}
-              {activeTab === 'd_freigabe' && (
-                <IntranetRadarAndServertot
-                  mode="d_freigabe"
-                  sessionUser={sessionUser}
-                  onOpenInDrafts={openInDrafts}
-                />
-              )}
-              {activeTab === 'servertot_qa' && (
-                <IntranetRadarAndServertot
-                  mode="servertot"
-                  sessionUser={sessionUser}
-                  onOpenInDrafts={openInDrafts}
-                />
-              )}
-              {activeTab === 'roadmap' && <IntranetRoadmap />}
-              {activeTab === 'followups' && (
-                <IntranetFollowups sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
-              )}
-              {activeTab === 'creators' && <IntranetCreators />}
-              {activeTab === 'platforms' && <IntranetPlatformCatalog />}
-            </>
           )}
+          {activeTab === 'd_freigabe' && (
+            <IntranetRadarAndServertot
+              mode="d_freigabe"
+              sessionUser={sessionUser}
+              onOpenInDrafts={openInDrafts}
+            />
+          )}
+          {activeTab === 'servertot_qa' && (
+            <IntranetRadarAndServertot
+              mode="servertot"
+              sessionUser={sessionUser}
+              onOpenInDrafts={openInDrafts}
+            />
+          )}
+          {activeTab === 'roadmap' && <IntranetRoadmap />}
+          {activeTab === 'followups' && (
+            <IntranetFollowups sessionUser={sessionUser} onOpenInDrafts={openInDrafts} />
+          )}
+          {activeTab === 'creators' && <IntranetCreators />}
+          {activeTab === 'platforms' && <IntranetPlatformCatalog />}
         </IntranetErrorBoundary>
       </main>
     </div>

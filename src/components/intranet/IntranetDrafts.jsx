@@ -3,7 +3,8 @@ import { supabase } from '../../pages/supabaseClient';
 import { TABLES, GAME_FK, GAME_PK, GAME_STRUCT, GAME_TYPE, parseGameTypes, resolveSheetTypes } from '../../lib/gameSchema';
 import AdminGameTypeSelect from '../AdminGameTypeSelect';
 import AdminCoverInspector from '../AdminCoverInspector';
-import { getYouTubeEmbedUrl, parseTimecodeToSeconds, buildVideoUrlWithTimestamp } from '../../utils/videoUrl';
+import { getYouTubeEmbedUrl, parseTimecodeToSeconds } from '../../utils/videoUrl';
+import { buildTrophyVideoSearchUrl } from '../../utils/trophyVideoSearch';
 import {
   GUIDE_PUBLICATION,
   buildUnifiedGuidePublishPatch,
@@ -24,7 +25,9 @@ import {
   enqueueMultipleVideosForTimestampScrape,
 } from '../../lib/intranetGameEdits';
 import { intranetGameHref } from '../../lib/intranetQueries';
-import { isYoutubeChannelBlacklisted } from '../../lib/creatorQueries';
+import { isYoutubeChannelBlacklisted, searchUnifiedCatalog } from '../../lib/creatorQueries';
+import { resolveMatchingHomeTagSlugs } from '../../lib/homeTagDefs';
+import UnifiedGameSearchField from '../common/UnifiedGameSearchField';
 import { listPipelineStatusEntries } from '../../lib/gamePipelineStatus';
 import {
   handleStaffGamePreviewClick,
@@ -48,7 +51,7 @@ import {
 const EMPTY_GROUP_TOKEN = '__EMPTY_GROUP__';
 const MAX_VISIBLE_QUEUE_GAMES = 10;
 const GAMES_QUEUE_SELECT_COLS =
-  'id, platform_game_id, slug, status, publishing_status, published_locales, fortschritt, is_guide_locked, guide_typ, spieltitel, cover_url, cover_status, publisher, entwickler, spiel_typ, anzahl_trophaeen, hardware';
+  'id, platform_game_id, slug, status, publishing_status, published_locales, fortschritt, is_guide_locked, guide_typ, spieltitel, cover_url, cover_status, publisher, entwickler, spiel_typ, anzahl_trophaeen, hardware, home_tags, steam_app_id';
 
 const ADMIN_APPROVE_LOCALE_ORDER = [
   'de',
@@ -223,14 +226,14 @@ function areGroupNamesSimilar(nameA, nameB) {
  * - Entfernt typische YouTube-Suffixe/Wörter (trophy, guide, achievement, bronze, silver, gold, collectible)
  * - Entfernt Satzzeichen und mehrfache Leerzeichen
  */
-export function normalizeForMatch(str) {
+function normalizeForMatch(str) {
   if (!str) return '';
   let s = String(str).toLowerCase().trim();
 
   // Führende Timestamps wie "01:23 - ", "1:02:03 " entfernen
   s = s.replace(/^(?:\d{1,2}:)+\d{2}\s*[-–—:|.]*\s*/g, '');
   // Führende Nummern/Aufzählungen wie "01 -", "#1", "1.", "(01)" entfernen
-  s = s.replace(/^(?:#?\d+|[(\[]\d+[)\]])\s*(?:[-–—:|.]+\s*|\s+)/g, '');
+  s = s.replace(/^(?:#?\d+|[([]\d+[)\]])\s*(?:[-–—:|.]+\s*|\s+)/g, '');
   // Nachgelagerte Timestamps am Ende entfernen
   s = s.replace(/\s*[-–—:|.]*\s*(?:\d{1,2}:)+\d{2}$/g, '');
 
@@ -251,7 +254,7 @@ export function normalizeForMatch(str) {
  * Extrahiert die reine Zahl für staging_game_guides.trophy_id (integer)
  * z. B. 'trophy_12' -> 12, '05' -> 5
  */
-export function extractNumericTrophyId(platform_achievement_id, fallbackIndex = 1) {
+function extractNumericTrophyId(platform_achievement_id, fallbackIndex = 1) {
   const raw = String(platform_achievement_id ?? '').trim();
   const matches = raw.match(/\d+/g);
   if (matches && matches.length > 0) {
@@ -818,7 +821,7 @@ function formatSecondsAsTimecode(totalSeconds) {
  * - Entfernt typische YouTube-/Plattform-Zusätze (Trophy/Achievement Guide, 100% Platinum Walkthrough, PS4/PS5/Xbox, Dauer-Timestamps etc.)
  * - Erhält relevante Teil-/Kapitel-/Boss-/Sammelobjekt-/Trophäen-Bezeichnungen
  */
-export function cleanVideoChapterName(rawChapter, game = null) {
+function cleanVideoChapterName(rawChapter, game = null) {
   const original = getLocalizedItemName(rawChapter).trim();
   if (!original) return '';
 
@@ -1405,6 +1408,7 @@ function TrophyDraftItem({
   onAssign,
   onSaveGuideTip,
   gameId,
+  gameTitle = '',
   platformGameId,
   defaultVideoUrl,
 }) {
@@ -1412,7 +1416,14 @@ function TrophyDraftItem({
   const nameStr = getLocalizedTrophyName(trophy.trophy_name, trophyLang);
   const descStr = getLocalizedTrophyDesc(trophy.trophy_desc ?? trophy.trophy_description, trophyLang);
   const tipStr = getLocalizedGuideTip(trophy.guide_tip, trophyLang);
+  const videoSearchUrl = buildTrophyVideoSearchUrl({
+    gameTitle,
+    trophyName: trophy.trophy_name,
+    fallbackTrophyName: nameStr,
+  });
 
+  const [prevTipStr, setPrevTipStr] = useState(tipStr);
+  const [prevNameStr, setPrevNameStr] = useState(nameStr);
   const [isEditingTip, setIsEditingTip] = useState(false);
   const [tipDraft, setTipDraft] = useState(tipStr);
   const [savingTip, setSavingTip] = useState(false);
@@ -1424,13 +1435,15 @@ function TrophyDraftItem({
   const [scrapeHint, setScrapeHint] = useState('');
   const [scrapeError, setScrapeError] = useState(false);
 
-  useEffect(() => {
+  if (tipStr !== prevTipStr) {
+    setPrevTipStr(tipStr);
     setTipDraft(tipStr);
-  }, [tipStr]);
+  }
 
-  useEffect(() => {
+  if (nameStr !== prevNameStr) {
+    setPrevNameStr(nameStr);
     setScrapeGroupName(nameStr || '');
-  }, [nameStr]);
+  }
 
   const handleEnqueueTrophyScrape = async () => {
     if (scrapeBusy || !scrapeUrl.trim()) return;
@@ -1508,17 +1521,32 @@ function TrophyDraftItem({
           </div>
         </div>
 
-        {/* Quick Assign Button */}
-        {activeRowId && (
-          <button
-            type="button"
-            onClick={() => onAssign(trophyId)}
-            title="Trophy ID der aktiven Zeile zuordnen"
-            className="shrink-0 rounded bg-[#00ff66]/15 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/30 border border-[#00ff66]/30"
-          >
-            + Assign
-          </button>
-        )}
+        {/* 1-Klick Videosuche & Quick Assign Button */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {videoSearchUrl ? (
+            <a
+              href={videoSearchUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              title="Google Videosuche für diese Trophäe / Sammelobjekte öffnen"
+              className="inline-flex items-center gap-1 rounded border border-zinc-700/80 bg-zinc-900 px-1.5 py-1 text-[10px] font-mono text-zinc-300 hover:border-cyan-400/60 hover:text-cyan-200 no-underline transition"
+            >
+              <span aria-hidden="true">🔍</span>
+              <span>Video</span>
+            </a>
+          ) : null}
+          {activeRowId && (
+            <button
+              type="button"
+              onClick={() => onAssign(trophyId)}
+              title="Trophy ID der aktiven Zeile zuordnen"
+              className="shrink-0 rounded bg-[#00ff66]/15 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/30 border border-[#00ff66]/30"
+            >
+              + Assign
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Trophy Description (trophy_desc) */}
@@ -1807,10 +1835,6 @@ export default function IntranetDrafts({
 
   // Spiel-Zuordnung umhängen (verrutster Match)
   const [showReassignGame, setShowReassignGame] = useState(false);
-  const [reassignQuery, setReassignQuery] = useState('');
-  const [reassignResults, setReassignResults] = useState([]);
-  const [reassignSearching, setReassignSearching] = useState(false);
-  const [reassignSearchDone, setReassignSearchDone] = useState(false);
 
   // Markierte Zeilen auf ein anderes Spiel verschieben oder duplizieren
   const [batchTransferMode, setBatchTransferMode] = useState(null);
@@ -1902,9 +1926,6 @@ export default function IntranetDrafts({
 
   // Creator Studio: Neues Guide-Projekt / Dreh-Liste Modal & Qwen-VL Modal State
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
-  const [newProjectSearchQuery, setNewProjectSearchQuery] = useState('');
-  const [newProjectSearchResults, setNewProjectSearchResults] = useState([]);
-  const [newProjectSearching, setNewProjectSearching] = useState(false);
   const [newProjectSelectedGame, setNewProjectSelectedGame] = useState(null);
   const [newProjectMode, setNewProjectMode] = useState('trophies'); // 'trophies' | 'custom'
   const [newProjectCustomLines, setNewProjectCustomLines] = useState('');
@@ -2404,15 +2425,32 @@ export default function IntranetDrafts({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDataSource, fertigReviewGames, fertigReviewRows, rohmaterialGames, rohGameGroups, queueGamesList, getGameRandomWeight, randomSeed]);
 
-  // Filtered Queue List (all matching games)
+  // Filtered Queue List (Titel, lokalisierte Titel, Publisher, Studio, Genre, Steam-ID, NPWR)
   const filteredQueueList = useMemo(() => {
     if (!filterQuery.trim()) return activeSidebarGamesList;
     const q = filterQuery.toLowerCase().trim();
-    return activeSidebarGamesList.filter(
-      (item) =>
-        item.title.toLowerCase().includes(q) ||
-        String(item.platformGameId).toLowerCase().includes(q)
-    );
+    const matchedGenreSlugs = new Set(resolveMatchingHomeTagSlugs(q));
+    return activeSidebarGamesList.filter((item) => {
+      if (item.title?.toLowerCase().includes(q)) return true;
+      if (String(item.platformGameId ?? '').toLowerCase().includes(q)) return true;
+      const g = item.game;
+      if (!g) return false;
+      if (String(g.publisher ?? '').toLowerCase().includes(q)) return true;
+      if (String(g.entwickler ?? '').toLowerCase().includes(q)) return true;
+      if (g.steam_app_id && String(g.steam_app_id).includes(q)) return true;
+      if (g.spieltitel && typeof g.spieltitel === 'object') {
+        for (const val of Object.values(g.spieltitel)) {
+          if (String(val ?? '').toLowerCase().includes(q)) return true;
+        }
+      }
+      if (Array.isArray(g.home_tags) && g.home_tags.length > 0) {
+        for (const slug of g.home_tags) {
+          const s = String(slug ?? '').toLowerCase();
+          if (s.includes(q) || matchedGenreSlugs.has(s)) return true;
+        }
+      }
+      return false;
+    });
   }, [activeSidebarGamesList, filterQuery]);
 
   // Visible Queue List: Load max 10 games into the sidebar list; remaining games automatically slide in
@@ -5750,7 +5788,7 @@ export default function IntranetDrafts({
       return { matchCount: 0, matchedRows: [], regexError: null };
     }
 
-    let regex = null;
+    let regex;
     try {
       const flags = caseSensitive ? 'g' : 'gi';
       const pattern = useRegex
@@ -5827,12 +5865,8 @@ export default function IntranetDrafts({
     setReplaceValue('');
   };
 
-  // Titel via RPC tb_search_games_trophies_only, NPWR über platform_game_id-Containment.
+  // Vereinheitlichte Suche (Titel, Publisher, Genre, Steam, Xbox & NPWR)
   const searchGamesByTitleOrNpwr = async (raw) => {
-    const words = String(raw ?? '')
-      .split(/\s+/)
-      .map((word) => word.trim())
-      .filter(Boolean);
     const merged = [];
     const seen = new Set();
     const pushGame = (game) => {
@@ -5853,39 +5887,16 @@ export default function IntranetDrafts({
       for (const game of npwrRows ?? []) pushGame(game);
     }
 
-    if (words.length > 0) {
-      const { data, error: rpcErr } = await supabase.rpc('tb_search_games_trophies_only', {
-        p_words: words,
-        p_limit: 15,
-      });
-      if (rpcErr) throw new Error(rpcErr.message);
-      const list = Array.isArray(data) ? data : [];
-      for (const game of list) pushGame(game);
+    const { data, error: rpcErr } = await searchUnifiedCatalog(supabase, raw, {
+      onlyWithoutGuide: false,
+      limit: 25,
+    });
+    if (rpcErr) throw new Error(rpcErr.message);
+    for (const game of data ?? []) {
+      if (game?.id) pushGame(game);
     }
 
-    return merged.slice(0, 15);
-  };
-
-  // 8c-c. Zielspiel für verrutschte Creator-Zuordnung suchen (Titel via RPC, NPWR via Containment)
-  const handleSearchReassignGames = async (event) => {
-    if (event) event.preventDefault();
-    const raw = reassignQuery.trim();
-    if (!raw || reassignSearching) return;
-
-    setReassignSearching(true);
-    setReassignSearchDone(false);
-    setError('');
-
-    try {
-      setReassignResults(await searchGamesByTitleOrNpwr(raw));
-      setReassignSearchDone(true);
-    } catch (err) {
-      setReassignResults([]);
-      setReassignSearchDone(true);
-      setError(`Spielsuche fehlgeschlagen: ${err.message}`);
-    } finally {
-      setReassignSearching(false);
-    }
+    return merged.slice(0, 20);
   };
 
   const handleSearchBatchTransferGames = async (event) => {
@@ -6345,9 +6356,6 @@ export default function IntranetDrafts({
       }
 
       setShowReassignGame(false);
-      setReassignQuery('');
-      setReassignResults([]);
-      setReassignSearchDone(false);
       setSelectedGameId(targetGameId);
       setNotice(
         `✓ Entwurf (${currentCreatorRows.length} Zeilen) erfolgreich zu "${getLocalizedTitle(targetGame.spieltitel)}" verschoben!`
@@ -7337,42 +7345,6 @@ export default function IntranetDrafts({
   };
 
   // --- CREATOR STUDIO: NEUES GUIDE-PROJEKT, WORKFLOW-STATUS & YOUTUBE-CHAPTERS ---
-
-  // 10a. Spielsuche für "+ Neues Guide-Projekt" (Spieltitel oder NPWR)
-  const handleSearchGamesForNewProject = async (e) => {
-    if (e) e.preventDefault();
-    const raw = newProjectSearchQuery.trim();
-    if (!raw || newProjectSearching) return;
-
-    const words = raw
-      .split(/\s+/)
-      .map((w) => w.trim())
-      .filter(Boolean);
-    if (words.length === 0) return;
-
-    setNewProjectSearching(true);
-    setError('');
-    try {
-      const { data, error: rpcErr } = await supabase.rpc('tb_search_games_trophies_only', {
-        p_words: words,
-        p_limit: 25,
-      });
-      if (rpcErr) {
-        setError(`Spielsuche fehlgeschlagen: ${rpcErr.message}`);
-        setNewProjectSearchResults([]);
-      } else {
-        const list = Array.isArray(data) ? data : [];
-        setNewProjectSearchResults(list);
-        if (list.length === 1) {
-          setNewProjectSelectedGame(list[0]);
-        }
-      }
-    } catch (err) {
-      setError(`Spielsuche fehlgeschlagen: ${err.message}`);
-    } finally {
-      setNewProjectSearching(false);
-    }
-  };
 
   // 10b. Neues Guide-Projekt / Dreh-Liste in staging_game_guides anlegen
   const handleCreateNewGuideProject = async () => {
@@ -8450,16 +8422,17 @@ export default function IntranetDrafts({
                   </div>
                 )}
 
-                {/* B. GAME-HEADER & CREATOR TABS & VIDEO PLAYER */}
-                <div className="rounded-2xl border border-zinc-800 bg-[#121314] p-4 flex flex-col gap-4">
-                  
-                  {/* Header Top: Cover + Game Details + Video Player */}
-                  <div className="flex flex-wrap sm:flex-nowrap gap-4 items-start justify-between">
+                {/* B. GAME-HEADER & KOMPAKTE STEUERLEISTE & VIDEO PLAYER */}
+                <div className="rounded-2xl border border-zinc-800 bg-[#121314] p-3.5 flex flex-col gap-3">
+
+                  {/* Header Top: Cover + Titel/Metadaten + Video Player (kompakt ohne Leer-Rahmen unter dem Cover) */}
+                  <div className="flex flex-wrap sm:flex-nowrap gap-3 items-start justify-between">
                     <div className="flex items-start gap-3 min-w-0 flex-1">
                       {!isCreatorMode ? (
                         <AdminCoverInspector
                           game={selectedGame}
-                          size="md"
+                          size="sm"
+                          compact
                           onUpdated={(patch) => {
                             setGamesMap((prev) => {
                               const next = new Map(prev);
@@ -8473,7 +8446,7 @@ export default function IntranetDrafts({
                         <img
                           src={getLocalizedCover(selectedGame.cover_url)}
                           alt="Cover"
-                          className="h-20 w-16 shrink-0 rounded-lg object-cover shadow-md border border-zinc-700/60"
+                          className="h-16 w-12 shrink-0 rounded-lg object-cover shadow-md border border-zinc-700/60"
                         />
                       ) : null}
                       <div className="min-w-0 flex-1">
@@ -8520,304 +8493,11 @@ export default function IntranetDrafts({
                         <p className="text-xs text-zinc-400 mt-0.5">
                           {selectedGame.publisher || selectedGame.entwickler || 'Publisher N/A'}
                         </p>
-
-                        {showDbInspector && selectedGameId && selectedGameDeepLinks && (
-                          <div className="mt-2.5 rounded-xl border border-emerald-500/40 bg-zinc-950/95 p-3 shadow-xl flex flex-col gap-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-2">
-                              <div className="min-w-0 flex items-center gap-2 flex-wrap">
-                                <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-[#00ff66]">
-                                  🗄️ Supabase Deep-Links &amp; DB-Röntgenblick
-                                </span>
-                                <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-mono text-zinc-300 select-all">
-                                  {selectedGameId}
-                                </code>
-                                {dbCopiedTable && (
-                                  <span className="rounded bg-[#00ff66]/15 border border-[#00ff66]/40 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#00ff66]">
-                                    ✓ UUID kopiert ({dbCopiedTable})
-                                  </span>
-                                )}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setShowDbInspector(false)}
-                                className="rounded px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-white"
-                                title="Schließen"
-                              >
-                                ✕
-                              </button>
-                            </div>
-
-                            {/* 1. 5 Direkt-Sprung-Buttons ins Supabase-Dashboard */}
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                              {selectedGameDeepLinks.items.map((item) => (
-                                <a
-                                  key={item.key}
-                                  href={item.url || '#'}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={() => {
-                                    navigator.clipboard?.writeText(selectedGameId);
-                                    setDbCopiedTable(item.key);
-                                  }}
-                                  title={`${item.tableName} (${item.filterText}) in Supabase öffnen & game_id kopieren`}
-                                  className="inline-flex items-center justify-between gap-1 rounded-lg border border-zinc-700/90 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-mono font-bold text-zinc-100 hover:border-[#00ff66] hover:bg-[#00ff66]/10 hover:text-[#00ff66] no-underline transition"
-                                >
-                                  <span className="truncate">{item.label}</span>
-                                </a>
-                              ))}
-                            </div>
-
-                            {/* 2. Handy-optimierter Inline DB-Röntgenblick */}
-                            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-2.5 flex flex-col gap-2 text-[11px] font-mono">
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                                <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1">
-                                  <span className="block text-[9px] uppercase text-zinc-500">spiel_typ</span>
-                                  <span className="font-bold text-zinc-100">
-                                    {selectedGame.spiel_typ || '—'}
-                                  </span>
-                                </div>
-                                <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1">
-                                  <span className="block text-[9px] uppercase text-zinc-500">guide_typ</span>
-                                  <span className="font-bold text-[#00ff66]">
-                                    {selectedGame.guide_typ || '—'}
-                                  </span>
-                                </div>
-                                <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1">
-                                  <span className="block text-[9px] uppercase text-zinc-500">Tabellen-Zeilen (DB)</span>
-                                  <span className="text-zinc-200">
-                                    guides: <strong className="text-white">{dbXrayStats.guidesCount}</strong>
-                                    {' · '}roh: <strong className="text-white">{dbXrayStats.rohCount}</strong>
-                                    {' · '}staging: <strong className="text-white">{dbXrayStats.stagingCount}</strong>
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1.5">
-                                <span className="block text-[9px] uppercase text-zinc-500 mb-1">
-                                  games.status
-                                </span>
-                                {Object.keys(dbXrayStats.statusObj).length > 0 ? (
-                                  <div className="flex flex-wrap gap-1">
-                                    {Object.entries(dbXrayStats.statusObj).map(([k, v]) => (
-                                      <span
-                                        key={k}
-                                        className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-200"
-                                      >
-                                        <span className="text-zinc-400">{k}:</span>{' '}
-                                        <strong className="text-[#00ff66]">{String(v)}</strong>
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <span className="text-zinc-500">&#123;&#125; (leer)</span>
-                                )}
-                              </div>
-
-                              <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1.5 flex flex-col gap-1.5">
-                                <div className="flex flex-wrap items-center justify-between gap-1">
-                                  <span className="text-[9px] uppercase text-zinc-500">
-                                    Geladene Quelle: <strong className="text-zinc-300">{dbXrayStats.sourceLabel}</strong> ({dbXrayStats.totalLoadedRows} Zeilen)
-                                  </span>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="text-[10px] text-zinc-400">sheet_type:</span>
-                                  {dbXrayStats.sheetDistribution.length > 0 ? (
-                                    dbXrayStats.sheetDistribution.map((entry) => (
-                                      <span
-                                        key={entry.label}
-                                        className="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-200"
-                                      >
-                                        {entry.label}: <strong>{entry.count}</strong>
-                                      </span>
-                                    ))
-                                  ) : (
-                                    <span className="text-zinc-500">keine Zeilen</span>
-                                  )}
-                                </div>
-                                <div className="grid grid-cols-3 gap-1.5 pt-0.5">
-                                  <div className="rounded border border-zinc-800/90 bg-zinc-900/80 px-2 py-1">
-                                    <span className="block text-[9px] text-zinc-400 truncate">chronological_group</span>
-                                    <strong className="text-xs text-white">
-                                      {dbXrayStats.chronoFilled}
-                                    </strong>
-                                    <span className="text-[10px] text-zinc-500">
-                                      {' '}/ {dbXrayStats.totalLoadedRows}
-                                    </span>
-                                  </div>
-                                  <div className="rounded border border-zinc-800/90 bg-zinc-900/80 px-2 py-1">
-                                    <span className="block text-[9px] text-zinc-400 truncate">category_group</span>
-                                    <strong className="text-xs text-white">
-                                      {dbXrayStats.categoryFilled}
-                                    </strong>
-                                    <span className="text-[10px] text-zinc-500">
-                                      {' '}/ {dbXrayStats.totalLoadedRows}
-                                    </span>
-                                  </div>
-                                  <div className="rounded border border-zinc-800/90 bg-zinc-900/80 px-2 py-1">
-                                    <span className="block text-[9px] text-zinc-400 truncate">boss_group</span>
-                                    <strong className="text-xs text-white">
-                                      {dbXrayStats.bossFilled}
-                                    </strong>
-                                    <span className="text-[10px] text-zinc-500">
-                                      {' '}/ {dbXrayStats.totalLoadedRows}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {!isCreatorMode && (
-                          <div className="mt-2">
-                            <button
-                              type="button"
-                              disabled={actionBusy}
-                              onClick={() => {
-                                setShowReassignGame((prev) => !prev);
-                                setReassignSearchDone(false);
-                              }}
-                              title="Entwurf dieses Creators an ein anderes Spiel hängen (verrutster Match)"
-                              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-mono font-bold transition disabled:opacity-40 ${
-                                showReassignGame
-                                  ? 'border-sky-300 bg-sky-400/20 text-sky-100'
-                                  : 'border-sky-500/40 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20'
-                              }`}
-                            >
-                              🔀 Spiel-Zuordnung ändern
-                            </button>
-                            {showReassignGame && (
-                              <div className="mt-2 rounded-xl border border-sky-500/30 bg-sky-500/5 p-2 flex flex-col gap-2">
-                                <form onSubmit={handleSearchReassignGames} className="flex gap-1.5">
-                                  <input
-                                    type="text"
-                                    value={reassignQuery}
-                                    onChange={(e) => setReassignQuery(e.target.value)}
-                                    placeholder="Spieltitel oder NPWR-ID…"
-                                    className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] text-zinc-100 placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
-                                  />
-                                  <button
-                                    type="submit"
-                                    disabled={reassignSearching || actionBusy || !reassignQuery.trim()}
-                                    className="shrink-0 rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2.5 py-1 text-[11px] font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/25 disabled:opacity-40"
-                                  >
-                                    {reassignSearching ? 'Sucht…' : 'Suchen'}
-                                  </button>
-                                </form>
-                                {reassignResults.length > 0 && (
-                                  <div className="flex max-h-48 flex-col gap-1 overflow-y-auto">
-                                    {reassignResults.map((game) => {
-                                      const npwr = resolveDraftPlatformGameId(game);
-                                      const isCurrent = game.id === selectedGameId;
-                                      return (
-                                        <button
-                                          key={game.id}
-                                          type="button"
-                                          disabled={actionBusy || isCurrent}
-                                          onClick={() => handleReassignCreatorToGame(game)}
-                                          className="flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-left text-[11px] hover:border-[#00ff66]/50 disabled:opacity-40"
-                                        >
-                                          <span className="truncate font-bold text-white">
-                                            {getLocalizedTitle(game.spieltitel)}
-                                          </span>
-                                          <span className="shrink-0 font-mono text-[10px] text-zinc-400">
-                                            {npwr || 'ohne NPWR'}
-                                            {isCurrent ? ' · aktuell' : ''}
-                                          </span>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                                {reassignSearchDone && !reassignSearching && reassignResults.length === 0 && (
-                                  <p className="text-[10px] font-mono text-zinc-500">Keine Spiele gefunden.</p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Spiel-Typ & Status Dropdowns (nur Admin) */}
-                        {!isCreatorMode && (
-                          <>
-                            <div className="mt-2.5 flex items-center gap-2">
-                              <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider w-16 shrink-0">Spiel-Typ:</span>
-                              <AdminGameTypeSelect
-                                gameId={selectedGame.id}
-                                gameType={selectedGame.spiel_typ}
-                                onSaved={(savedType) => {
-                                  setGamesMap((prev) => {
-                                    const next = new Map(prev);
-                                    const current = next.get(selectedGame.id);
-                                    if (current) next.set(selectedGame.id, { ...current, spiel_typ: savedType });
-                                    return next;
-                                  });
-                                }}
-                              />
-                            </div>
-
-                            <div className="mt-2 flex items-center gap-2">
-                              <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider w-16 shrink-0">Status:</span>
-                              <AdminGameStatusDropdown
-                                game={selectedGame}
-                                onStatusUpdated={(updatedStatus) => {
-                                  setGamesMap((prev) => {
-                                    const next = new Map(prev);
-                                    const current = next.get(selectedGame.id);
-                                    if (current) next.set(selectedGame.id, { ...current, status: updatedStatus });
-                                    return next;
-                                  });
-                                  setNotice('Status-Eintrag wurde gelöscht.');
-                                }}
-                              />
-                            </div>
-                          </>
-                        )}
-
-                        {/* Workflow-Leiste & Qwen-VL Eichung */}
-                        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-800/90 bg-zinc-900/70 px-3 py-2">
-                          <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
-                            Workflow:
-                          </span>
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-0.5 text-[11px] font-mono font-bold ${getWorkflowStatusMeta(currentWorkflowStatus).badgeClass}`}
-                          >
-                            {getWorkflowStatusMeta(currentWorkflowStatus).label}
-                          </span>
-                          <button
-                            type="button"
-                            disabled={actionBusy}
-                            onClick={() => {
-                              setQwenVideoUrlInput(
-                                activeVideoUrl ||
-                                  currentCreatorRows.find((r) => r.video_url)?.video_url ||
-                                  ''
-                              );
-                              setShowQwenModal(true);
-                            }}
-                            title="Ungelistetes Rohvideo an Qwen-VL zur automatischen Timestamp-Eichung übergeben"
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/45 bg-purple-500/15 px-2.5 py-1 text-[11px] font-mono font-bold text-purple-200 hover:bg-purple-500/25 hover:border-purple-400 disabled:opacity-40 transition"
-                          >
-                            <span>🤖 Rohvideo an Qwen-VL senden</span>
-                          </button>
-                          {intranetGameHref(selectedGame) && (
-                            <a
-                              href={intranetGameHref(selectedGame)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => handleStaffGamePreviewClick(e, intranetGameHref(selectedGame))}
-                              className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[11px] font-mono font-bold text-amber-200 hover:bg-amber-500/25 no-underline transition"
-                              title="Produktions-Modus (Split-Screen & Takes) direkt auf der Spieleseite öffnen"
-                            >
-                              <span>🎬 Live-Vorschau &amp; Takes ↗</span>
-                            </a>
-                          )}
-                        </div>
                       </div>
                     </div>
 
                     {/* Compact Video Player (Sticky Top Right) */}
-                    <div className="w-full sm:w-56 shrink-0 flex flex-col gap-1">
+                    <div className="w-full sm:w-52 shrink-0 flex flex-col gap-1">
                       <div className="relative aspect-video w-full rounded-xl overflow-hidden border border-zinc-800 bg-black">
                         {currentEmbedUrl ? (
                           <iframe
@@ -8842,58 +8522,264 @@ export default function IntranetDrafts({
                     </div>
                   </div>
 
-                  {/* Creator Tabs */}
-                  {creatorTabs.length > 0 && (
-                    <div className="border-t border-zinc-800/80 pt-3">
-                      <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 mb-1.5">
-                        Creator in der Queue ({creatorTabs.length}):
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {creatorTabs.map((tab) => {
-                          const isActive = tab.creatorName === selectedCreatorName;
-                          return (
-                            <button
-                              key={tab.creatorName}
-                              type="button"
-                              onClick={() => setSelectedCreatorName(tab.creatorName)}
-                              className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-mono transition ${
-                                isActive
-                                  ? 'bg-[#00ff66]/15 text-[#00ff66] border border-[#00ff66]/40 font-bold'
-                                  : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:bg-zinc-700'
-                              }`}
-                            >
-                              <span>▶ {tab.creatorName}</span>
-                              <span className="rounded bg-zinc-900/60 px-1.5 py-0.5 text-[10px] text-zinc-400">
-                                {tab.videoCount} Videos | {tab.rowCount} Zeilen
-                              </span>
-                            </button>
-                          );
-                        })}
-                        {creatorTabs.length > 1 && (
-                          <label className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-300">
-                            <span>🔗 Mit Creator zusammenführen:</span>
-                            <select
-                              value=""
-                              disabled={actionBusy}
-                              onChange={(e) => {
-                                const next = e.target.value;
-                                if (next) handleMergeCreatorIntoTarget(next);
-                              }}
-                              title="Aktuelle Zeilen (oder nur die markierten) in den gewählten Creator-Tab übernehmen"
-                              className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] font-mono text-zinc-200 focus:border-[#00ff66] focus:outline-none"
-                            >
-                              <option value="">wählen…</option>
-                              {creatorTabs
-                                .filter((tab) => tab.creatorName !== selectedCreatorName)
-                                .map((tab) => (
-                                  <option key={tab.creatorName} value={tab.creatorName}>
-                                    {tab.creatorName} ({tab.rowCount})
-                                  </option>
-                                ))}
-                            </select>
-                          </label>
-                        )}
+                  {showDbInspector && selectedGameId && selectedGameDeepLinks && (
+                    <div className="rounded-xl border border-emerald-500/40 bg-zinc-950/95 p-3 shadow-xl flex flex-col gap-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+                        <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                          <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-[#00ff66]">
+                            🗄️ Supabase Deep-Links &amp; DB-Röntgenblick
+                          </span>
+                          <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-mono text-zinc-300 select-all">
+                            {selectedGameId}
+                          </code>
+                          {dbCopiedTable && (
+                            <span className="rounded bg-[#00ff66]/15 border border-[#00ff66]/40 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#00ff66]">
+                              ✓ UUID kopiert ({dbCopiedTable})
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowDbInspector(false)}
+                          className="rounded px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                          title="Schließen"
+                        >
+                          ✕
+                        </button>
                       </div>
+
+                      {/* 1. 5 Direkt-Sprung-Buttons ins Supabase-Dashboard */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        {selectedGameDeepLinks.items.map((item) => (
+                          <a
+                            key={item.key}
+                            href={item.url || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(selectedGameId);
+                              setDbCopiedTable(item.key);
+                            }}
+                            title={`${item.tableName} (${item.filterText}) in Supabase öffnen & game_id kopieren`}
+                            className="inline-flex items-center justify-between gap-1 rounded-lg border border-zinc-700/90 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-mono font-bold text-zinc-100 hover:border-[#00ff66] hover:bg-[#00ff66]/10 hover:text-[#00ff66] no-underline transition"
+                          >
+                            <span className="truncate">{item.label}</span>
+                          </a>
+                        ))}
+                      </div>
+
+                      {/* 2. Handy-optimierter Inline DB-Röntgenblick */}
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-2.5 flex flex-col gap-2 text-[11px] font-mono">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                          <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1">
+                            <span className="block text-[9px] uppercase text-zinc-500">spiel_typ</span>
+                            <span className="font-bold text-zinc-100">
+                              {selectedGame.spiel_typ || '—'}
+                            </span>
+                          </div>
+                          <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1">
+                            <span className="block text-[9px] uppercase text-zinc-500">guide_typ</span>
+                            <span className="font-bold text-[#00ff66]">
+                              {selectedGame.guide_typ || '—'}
+                            </span>
+                          </div>
+                          <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1">
+                            <span className="block text-[9px] uppercase text-zinc-500">Tabellen-Zeilen (DB)</span>
+                            <span className="text-zinc-200">
+                              guides: <strong className="text-white">{dbXrayStats.guidesCount}</strong>
+                              {' · '}roh: <strong className="text-white">{dbXrayStats.rohCount}</strong>
+                              {' · '}staging: <strong className="text-white">{dbXrayStats.stagingCount}</strong>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1.5">
+                          <span className="block text-[9px] uppercase text-zinc-500 mb-1">
+                            games.status
+                          </span>
+                          {Object.keys(dbXrayStats.statusObj).length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(dbXrayStats.statusObj).map(([k, v]) => (
+                                <span
+                                  key={k}
+                                  className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-200"
+                                >
+                                  <span className="text-zinc-400">{k}:</span>{' '}
+                                  <strong className="text-[#00ff66]">{String(v)}</strong>
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-zinc-500">&#123;&#125; (leer)</span>
+                          )}
+                        </div>
+
+                        <div className="rounded border border-zinc-800 bg-zinc-950/80 px-2 py-1.5 flex flex-col gap-1.5">
+                          <div className="flex flex-wrap items-center justify-between gap-1">
+                            <span className="text-[9px] uppercase text-zinc-500">
+                              Geladene Quelle: <strong className="text-zinc-300">{dbXrayStats.sourceLabel}</strong> ({dbXrayStats.totalLoadedRows} Zeilen)
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] text-zinc-400">sheet_type:</span>
+                            {dbXrayStats.sheetDistribution.length > 0 ? (
+                              dbXrayStats.sheetDistribution.map((entry) => (
+                                <span
+                                  key={entry.label}
+                                  className="rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-200"
+                                >
+                                  {entry.label}: <strong>{entry.count}</strong>
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-zinc-500">keine Zeilen</span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5 pt-0.5">
+                            <div className="rounded border border-zinc-800/90 bg-zinc-900/80 px-2 py-1">
+                              <span className="block text-[9px] text-zinc-400 truncate">chronological_group</span>
+                              <strong className="text-xs text-white">
+                                {dbXrayStats.chronoFilled}
+                              </strong>
+                              <span className="text-[10px] text-zinc-500">
+                                {' '}/ {dbXrayStats.totalLoadedRows}
+                              </span>
+                            </div>
+                            <div className="rounded border border-zinc-800/90 bg-zinc-900/80 px-2 py-1">
+                              <span className="block text-[9px] text-zinc-400 truncate">category_group</span>
+                              <strong className="text-xs text-white">
+                                {dbXrayStats.categoryFilled}
+                              </strong>
+                              <span className="text-[10px] text-zinc-500">
+                                {' '}/ {dbXrayStats.totalLoadedRows}
+                              </span>
+                            </div>
+                            <div className="rounded border border-zinc-800/90 bg-zinc-900/80 px-2 py-1">
+                              <span className="block text-[9px] text-zinc-400 truncate">boss_group</span>
+                              <strong className="text-xs text-white">
+                                {dbXrayStats.bossFilled}
+                              </strong>
+                              <span className="text-[10px] text-zinc-500">
+                                {' '}/ {dbXrayStats.totalLoadedRows}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Steuerleiste ganz links: Status -> Spiel-Typ -> Spiel-Zuordnung -> Qwen/Vorschau */}
+                  <div className="border-t border-zinc-800/80 pt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+                    {!isCreatorMode && (
+                      <>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider shrink-0">Status:</span>
+                          <AdminGameStatusDropdown
+                            game={selectedGame}
+                            onStatusUpdated={(updatedStatus) => {
+                              setGamesMap((prev) => {
+                                const next = new Map(prev);
+                                const current = next.get(selectedGame.id);
+                                if (current) next.set(selectedGame.id, { ...current, status: updatedStatus });
+                                return next;
+                              });
+                              setNotice('Status-Eintrag wurde gelöscht.');
+                            }}
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider shrink-0">Spiel-Typ:</span>
+                          <AdminGameTypeSelect
+                            gameId={selectedGame.id}
+                            gameType={selectedGame.spiel_typ}
+                            onSaved={(savedType) => {
+                              setGamesMap((prev) => {
+                                const next = new Map(prev);
+                                const current = next.get(selectedGame.id);
+                                if (current) next.set(selectedGame.id, { ...current, spiel_typ: savedType });
+                                return next;
+                              });
+                            }}
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={actionBusy}
+                          onClick={() => {
+                            setShowReassignGame((prev) => !prev);
+                          }}
+                          title="Entwurf an ein anderes Spiel hängen (verrutster Match)"
+                          className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-mono font-bold transition disabled:opacity-40 ${
+                            showReassignGame
+                              ? 'border-sky-300 bg-sky-400/20 text-sky-100'
+                              : 'border-sky-500/40 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20'
+                          }`}
+                        >
+                          🔀 Spiel-Zuordnung
+                        </button>
+                      </>
+                    )}
+
+                    {isCreatorMode && (
+                      <>
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
+                          Workflow:
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-0.5 text-[11px] font-mono font-bold ${getWorkflowStatusMeta(currentWorkflowStatus).badgeClass}`}
+                        >
+                          {getWorkflowStatusMeta(currentWorkflowStatus).label}
+                        </span>
+                      </>
+                    )}
+
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => {
+                        setQwenVideoUrlInput(
+                          activeVideoUrl ||
+                            currentCreatorRows.find((r) => r.video_url)?.video_url ||
+                            ''
+                        );
+                        setShowQwenModal(true);
+                      }}
+                      title="Ungelistetes Rohvideo an Qwen-VL zur automatischen Timestamp-Eichung übergeben"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/45 bg-purple-500/15 px-2.5 py-1 text-[11px] font-mono font-bold text-purple-200 hover:bg-purple-500/25 hover:border-purple-400 disabled:opacity-40 transition"
+                    >
+                      <span>🤖 Rohvideo an Qwen-VL senden</span>
+                    </button>
+                    {intranetGameHref(selectedGame) && (
+                      <a
+                        href={intranetGameHref(selectedGame)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => handleStaffGamePreviewClick(e, intranetGameHref(selectedGame))}
+                        className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[11px] font-mono font-bold text-amber-200 hover:bg-amber-500/25 no-underline transition"
+                        title="Produktions-Modus (Split-Screen & Takes) direkt auf der Spieleseite öffnen"
+                      >
+                        <span>🎬 Live-Vorschau &amp; Takes ↗</span>
+                      </a>
+                    )}
+                  </div>
+
+                  {!isCreatorMode && showReassignGame && (
+                    <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-2">
+                      <UnifiedGameSearchField
+                        compact
+                        requireGamesEntry
+                        selectedTargetKey={selectedGameId || ''}
+                        placeholder="Zielspiel suchen (Titel, Publisher, Genre, Steam, Xbox, NPWR)…"
+                        actionLabel="Zuordnen"
+                        onSelect={(game) => {
+                          if (!actionBusy && game?.id && game.id !== selectedGameId) {
+                            void handleReassignCreatorToGame(game);
+                          }
+                        }}
+                      />
                     </div>
                   )}
                 </div>
@@ -8966,42 +8852,6 @@ export default function IntranetDrafts({
                     </div>
                   ) : (
                     <>
-                  {creatorTabs.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#00ff66]/30 bg-[#00ff66]/5 px-2.5 py-2">
-                      <span className="text-xs font-mono font-bold text-[#00ff66]">
-                        ▶ {selectedCreatorName}
-                      </span>
-                      {creatorTabs.length === 1 && (
-                        <span className="rounded bg-zinc-900/60 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400">
-                          {creatorTabs[0].videoCount} Videos | {creatorTabs[0].rowCount} Zeilen
-                        </span>
-                      )}
-                      {creatorTabs.length > 1 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {creatorTabs.map((tab) => {
-                            const isActive = tab.creatorName === selectedCreatorName;
-                            return (
-                              <button
-                                key={tab.creatorName}
-                                type="button"
-                                onClick={() => setSelectedCreatorName(tab.creatorName)}
-                                className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-mono transition ${
-                                  isActive
-                                    ? 'bg-[#00ff66]/15 text-[#00ff66] border border-[#00ff66]/40 font-bold'
-                                    : 'bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 hover:bg-zinc-700'
-                                }`}
-                              >
-                                <span>▶ {tab.creatorName}</span>
-                                <span className="rounded bg-zinc-900/60 px-1.5 py-0.5 text-[10px] text-zinc-400">
-                                  {tab.videoCount} Videos | {tab.rowCount} Zeilen
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
                   <div className="flex min-w-0 items-center justify-between px-1 flex-wrap gap-2">
                     <div className="flex min-w-0 items-center gap-2 flex-wrap">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-white">
@@ -9609,61 +9459,82 @@ export default function IntranetDrafts({
                                 const activeGroupObj = matcherSmartGroups.find(
                                   (g) => g.key === matcherActiveGroupKey
                                 );
+                                const videoSearchUrl = buildTrophyVideoSearchUrl({
+                                  gameTitle: selectedGame?.spieltitel,
+                                  trophyName: t.raw?.trophy_name,
+                                  fallbackTrophyName: t.nameEn || t.nameDe || t.displayName,
+                                });
 
                                 return (
-                                  <button
+                                  <div
                                     key={t.rawAchId || t.numericId}
-                                    type="button"
-                                    disabled={!activeGroupObj || actionBusy}
-                                    onClick={() => {
-                                      if (activeGroupObj) {
-                                        handleMatcherAssignTrophyToGroup(activeGroupObj, t.numericId);
-                                      }
-                                    }}
-                                    className={`w-full text-left flex items-start gap-2.5 rounded-xl border p-2 transition ${
+                                    className={`flex items-stretch gap-1.5 rounded-xl border p-2 transition ${
                                       isAlreadyUsed
                                         ? 'border-zinc-800/70 bg-zinc-900/40 opacity-75 hover:opacity-100 hover:border-[#00ff66]/50'
                                         : 'border-zinc-800 bg-zinc-900/80 hover:border-[#00ff66] hover:bg-[#00ff66]/10'
-                                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                                    }`}
                                   >
-                                    {t.iconUrl ? (
-                                      <img
-                                        src={t.iconUrl}
-                                        alt=""
-                                        className="h-9 w-9 shrink-0 rounded-lg bg-zinc-800 object-cover mt-0.5"
-                                      />
-                                    ) : (
-                                      <div className="h-9 w-9 shrink-0 rounded-lg bg-zinc-800 flex items-center justify-center text-xs mt-0.5">
-                                        🏆
-                                      </div>
-                                    )}
+                                    <button
+                                      type="button"
+                                      disabled={!activeGroupObj || actionBusy}
+                                      onClick={() => {
+                                        if (activeGroupObj) {
+                                          handleMatcherAssignTrophyToGroup(activeGroupObj, t.numericId);
+                                        }
+                                      }}
+                                      className="min-w-0 flex-1 text-left flex items-start gap-2.5 bg-transparent border-0 p-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                      {t.iconUrl ? (
+                                        <img
+                                          src={t.iconUrl}
+                                          alt=""
+                                          className="h-9 w-9 shrink-0 rounded-lg bg-zinc-800 object-cover mt-0.5"
+                                        />
+                                      ) : (
+                                        <div className="h-9 w-9 shrink-0 rounded-lg bg-zinc-800 flex items-center justify-center text-xs mt-0.5">
+                                          🏆
+                                        </div>
+                                      )}
 
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="rounded bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#00ff66]">
-                                          #{t.numericId}
-                                        </span>
-                                        <TrophyTypeBadge type={t.trophyType} />
-                                        <span className="text-xs font-bold text-white break-words">
-                                          {t.displayName}
-                                        </span>
-                                        {isAlreadyUsed && (
-                                          <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-mono text-emerald-300">
-                                            ✓ vergeben
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className="rounded bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#00ff66]">
+                                            #{t.numericId}
                                           </span>
+                                          <TrophyTypeBadge type={t.trophyType} />
+                                          <span className="text-xs font-bold text-white break-words">
+                                            {t.displayName}
+                                          </span>
+                                          {isAlreadyUsed && (
+                                            <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-mono text-emerald-300">
+                                              ✓ vergeben
+                                            </span>
+                                          )}
+                                        </div>
+                                        {t.displayDesc && (
+                                          <p className="mt-0.5 text-[11px] text-zinc-400 line-clamp-2 leading-snug">
+                                            {t.displayDesc}
+                                          </p>
                                         )}
                                       </div>
-                                      {t.displayDesc && (
-                                        <p className="mt-0.5 text-[11px] text-zinc-400 line-clamp-2 leading-snug">
-                                          {t.displayDesc}
-                                        </p>
-                                      )}
-                                    </div>
 
-                                    <span className="shrink-0 self-center rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66]">
-                                      1-Tap ⚡
-                                    </span>
-                                  </button>
+                                      <span className="shrink-0 self-center rounded-lg border border-[#00ff66]/40 bg-[#00ff66]/15 px-2 py-1 text-[10px] font-mono font-bold text-[#00ff66]">
+                                        1-Tap ⚡
+                                      </span>
+                                    </button>
+                                    {videoSearchUrl ? (
+                                      <a
+                                        href={videoSearchUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        title="Google Videosuche für diese Trophäe / Sammelobjekte öffnen"
+                                        className="shrink-0 self-center inline-flex items-center gap-1 rounded-lg border border-zinc-700/80 bg-zinc-950 px-2 py-1 text-[10px] font-mono text-zinc-300 hover:border-cyan-400/60 hover:text-cyan-200 no-underline transition"
+                                      >
+                                        <span aria-hidden="true">🔍</span>
+                                      </a>
+                                    ) : null}
+                                  </div>
                                 );
                               })
                             )}
@@ -10238,7 +10109,7 @@ export default function IntranetDrafts({
                     </div>
                   </div>
 
-                  {creatorTabs.length > 0 && (
+                  {(isCreatorMode ? creatorTabs.length > 0 : creatorTabs.length > 1) && (
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-2.5 py-1.5">
                       <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">
                         Creator ({creatorTabs.length}):
@@ -10294,7 +10165,7 @@ export default function IntranetDrafts({
 
                   <div
                     ref={tableScrollRef}
-                    className={`min-w-0 w-full max-w-full overflow-x-auto lg:max-h-[58vh] lg:overflow-y-auto ${selectedRowIds.size > 0 ? 'pb-28' : ''}`}
+                    className={`min-w-0 w-full max-w-full overflow-x-auto lg:max-h-[68vh] lg:overflow-y-auto ${selectedRowIds.size > 0 ? 'pb-28' : ''}`}
                   >
                     <table className="w-max min-w-full text-left text-[11px] font-mono border-collapse">
                       <thead className="sticky top-0 z-10 bg-[#121314] max-lg:static">
@@ -11447,6 +11318,7 @@ export default function IntranetDrafts({
                     activeRowId={activeRowId}
                     trophyLang={trophyLang}
                     gameId={selectedGameId}
+                    gameTitle={selectedGame?.spieltitel}
                     platformGameId={resolveDraftPlatformGameId(selectedGame)}
                     defaultVideoUrl={activeVideoUrl}
                     onAssign={handleAssignTrophyToActiveRow}
@@ -12069,81 +11941,33 @@ export default function IntranetDrafts({
               </button>
             </div>
 
-            {/* Schritt 1: Spiel nach Spieltitel oder NPWR suchen */}
+            {/* Schritt 1: Schlanke vereinheitlichte Spielsuche (Titel, Publisher, Genre, Steam, Xbox, NPWR) */}
             <div className="flex flex-col gap-2">
               <label className="text-xs font-bold text-zinc-300">
-                1. Spiel suchen (Spieltitel oder NPWR-ID)
+                1. Spiel suchen (Titel, Publisher, Genre, Steam, Xbox oder NPWR)
               </label>
-              <form onSubmit={handleSearchGamesForNewProject} className="flex gap-2">
-                <input
-                  type="text"
-                  value={newProjectSearchQuery}
-                  onChange={(e) => setNewProjectSearchQuery(e.target.value)}
-                  placeholder="z. B. Elden Ring oder NPWR24123_00…"
-                  autoFocus
-                  className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-white placeholder-zinc-500 focus:border-[#00ff66] focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={newProjectSearching || !newProjectSearchQuery.trim()}
-                  className="rounded-xl bg-[#00ff66] px-4 py-2 text-xs font-mono font-bold text-black hover:bg-[#00ff66]/90 disabled:opacity-40 transition"
-                >
-                  {newProjectSearching ? 'Suche…' : '🔍 Suchen'}
-                </button>
-              </form>
-
-              {newProjectSearchResults.length > 0 && (
-                <div className="mt-1 max-h-52 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950/80 divide-y divide-zinc-800/60">
-                  {newProjectSearchResults.map((g) => {
-                    const isPicked = newProjectSelectedGame?.id === g.id;
-                    const gTitle = getLocalizedTitle(g.spieltitel);
-                    const gCover = getLocalizedCover(g.cover_url);
-                    const gNpwr = Array.isArray(g.platform_game_id)
-                      ? g.platform_game_id.join(', ')
-                      : String(g.platform_game_id || '—');
-                    return (
-                      <div
-                        key={g.id}
-                        onClick={() => setNewProjectSelectedGame(g)}
-                        className={`flex items-center justify-between gap-3 p-2.5 cursor-pointer transition ${
-                          isPicked
-                            ? 'bg-[#00ff66]/15 border-l-4 border-l-[#00ff66] text-white'
-                            : 'hover:bg-zinc-800/60 text-zinc-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {gCover ? (
-                            <img
-                              src={gCover}
-                              alt={gTitle}
-                              className="h-10 w-8 shrink-0 rounded object-cover bg-zinc-800"
-                            />
-                          ) : (
-                            <div className="h-10 w-8 shrink-0 rounded bg-zinc-800 flex items-center justify-center text-xs">
-                              🎮
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <p className="text-xs font-bold truncate">{gTitle}</p>
-                            <p className="text-[10px] font-mono text-zinc-400 truncate">
-                              {gNpwr} · {g.hardware || 'PS5/PS4'} · 🏆 {g.anzahl_trophaeen ?? '?'} Trophäen
-                            </p>
-                          </div>
-                        </div>
-                        <span
-                          className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-mono font-bold ${
-                            isPicked
-                              ? 'bg-[#00ff66] text-black'
-                              : 'border border-zinc-700 bg-zinc-900 text-zinc-400'
-                          }`}
-                        >
-                          {isPicked ? '✓ Ausgewählt' : 'Wählen'}
-                        </span>
-                      </div>
-                    );
-                  })}
+              <UnifiedGameSearchField
+                autoFocus
+                requireGamesEntry
+                selectedTargetKey={newProjectSelectedGame?.id || ''}
+                actionLabel="Wählen"
+                addedLabel="✓ Ausgewählt"
+                onSelect={(g) => setNewProjectSelectedGame(g)}
+              />
+              {newProjectSelectedGame ? (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-[#00ff66]/40 bg-[#00ff66]/10 px-3 py-2 text-xs">
+                  <span className="truncate font-bold text-white">
+                    ✓ {getLocalizedTitle(newProjectSelectedGame.spieltitel)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setNewProjectSelectedGame(null)}
+                    className="shrink-0 text-[11px] font-mono text-zinc-400 hover:text-white"
+                  >
+                    Ändern
+                  </button>
                 </div>
-              )}
+              ) : null}
             </div>
 
             {/* Falls Admin ohne festes Creator-Profil: Creator-Name editierbar */}

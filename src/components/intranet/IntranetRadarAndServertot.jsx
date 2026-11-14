@@ -48,6 +48,7 @@ import AdminCoverInspector from '../AdminCoverInspector';
 import GameRadarCard from '../GameRadarCard';
 import TrophyArtwork from '../TrophyArtwork';
 import TrophyTypeIcon from '../TrophyTypeIcon';
+import { buildTrophyVideoSearchUrl } from '../../utils/trophyVideoSearch';
 
 /**
  * High-Speed-Freigabe ohne Video-Guide.
@@ -1225,18 +1226,6 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
         .eq(GAME_PK, id);
       if (saveError) throw saveError;
       patchAndRecheck(id, { guide_typ: typ });
-    });
-
-  const handleGameField = (field, value, { recheck = true } = {}) =>
-    run(field, async () => {
-      const id = activeGame[GAME_PK];
-      const { error: saveError } = await supabase
-        .from(TABLES.games)
-        .update({ [field]: value })
-        .eq(GAME_PK, id);
-      if (saveError) throw saveError;
-      if (recheck) patchAndRecheck(id, { [field]: value });
-      else patchGame(id, { [field]: value });
     });
 
   const handlePlaytime = (partial) =>
@@ -2476,6 +2465,11 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                       {achievements.map((trophy) => {
                         const id = trophy[ACHIEVEMENT_PK];
                         const name = pickText(trophy.trophy_name);
+                        const videoSearchUrl = buildTrophyVideoSearchUrl({
+                          gameTitle: activeGame?.spieltitel,
+                          trophyName: trophy.trophy_name,
+                          fallbackTrophyName: name,
+                        });
                         return (
                           <tr key={id} className="border-t border-zinc-900 align-top">
                             <td className="px-3 py-2 font-mono text-[10px] text-zinc-500">{id}</td>
@@ -2487,14 +2481,28 @@ export default function IntranetRadarAndServertot({ mode = 'd_freigabe', session
                                   size={36}
                                   className="flex-none"
                                 />
-                                <div className="min-w-0">
-                                  <p className="flex items-center gap-1.5 font-bold text-zinc-100">
-                                    <TrophyTypeIcon type={trophy.trophy_type} size={12} />
-                                    <span className="truncate">{name || '—'}</span>
-                                    {String(trophy.ist_versteckt ?? '').toLowerCase() === 'true' ? (
-                                      <span className="text-[9px] uppercase text-zinc-500">versteckt</span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="flex min-w-0 items-center gap-1.5 font-bold text-zinc-100">
+                                      <TrophyTypeIcon type={trophy.trophy_type} size={12} />
+                                      <span className="truncate">{name || '—'}</span>
+                                      {String(trophy.ist_versteckt ?? '').toLowerCase() === 'true' ? (
+                                        <span className="text-[9px] uppercase text-zinc-500">versteckt</span>
+                                      ) : null}
+                                    </p>
+                                    {videoSearchUrl ? (
+                                      <a
+                                        href={videoSearchUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        title="Google Videosuche für diese Trophäe / Sammelobjekte öffnen"
+                                        className="shrink-0 inline-flex items-center gap-1 rounded border border-zinc-700/80 bg-zinc-900 px-1.5 py-0.5 text-[10px] font-mono text-zinc-300 hover:border-cyan-400/60 hover:text-cyan-200 no-underline transition"
+                                      >
+                                        <span aria-hidden="true">🔍</span>
+                                        <span>Video</span>
+                                      </a>
                                     ) : null}
-                                  </p>
+                                  </div>
                                   <p className="text-[11px] leading-snug text-zinc-400">{pickText(trophy.trophy_desc)}</p>
                                 </div>
                               </div>

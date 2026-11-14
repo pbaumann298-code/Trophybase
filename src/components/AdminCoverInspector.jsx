@@ -36,25 +36,31 @@ export default function AdminCoverInspector({
   game,
   size = 'md',
   hideThumb = false,
+  compact = false,
   onUpdated,
 }) {
   const gameId = String(game?.id ?? game?.game_id ?? '').trim();
-  const [localCoverUrl, setLocalCoverUrl] = useState(() => extractCoverUrl(game?.cover_url ?? game?.cover));
+  const propCoverUrl = extractCoverUrl(game?.cover_url ?? game?.cover);
+  const propCoverStatus = game?.cover_status;
+  const syncKey = `${gameId}|${propCoverUrl}|${String(propCoverStatus ?? '')}`;
+  const [prevSyncKey, setPrevSyncKey] = useState(syncKey);
+  const [localCoverUrl, setLocalCoverUrl] = useState(propCoverUrl);
   const [localCoverStatus, setLocalCoverStatus] = useState(() =>
-    game?.cover_status !== undefined ? game.cover_status : undefined,
+    propCoverStatus !== undefined ? propCoverStatus : undefined,
   );
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [igdbOpen, setIgdbOpen] = useState(false);
   const [igdbInput, setIgdbInput] = useState('');
 
-  useEffect(() => {
-    setLocalCoverUrl(extractCoverUrl(game?.cover_url ?? game?.cover));
-    if (game?.cover_status !== undefined) {
-      setLocalCoverStatus(game.cover_status);
+  if (syncKey !== prevSyncKey) {
+    setPrevSyncKey(syncKey);
+    setLocalCoverUrl(propCoverUrl);
+    if (propCoverStatus !== undefined) {
+      setLocalCoverStatus(propCoverStatus);
     }
     setErrorMsg('');
-  }, [gameId, game?.cover_url, game?.cover, game?.cover_status]);
+  }
 
   useEffect(() => {
     if (!gameId || localCoverStatus !== undefined) return undefined;
@@ -275,6 +281,116 @@ export default function AdminCoverInspector({
           document.body,
         )
       : null;
+
+  if (compact && !hideThumb) {
+    return (
+      <div className="flex items-start gap-2 min-w-0" onClick={(e) => e.stopPropagation()}>
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            stopEvent(e);
+            setErrorMsg('');
+            setIgdbOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              stopEvent(e);
+              setErrorMsg('');
+              setIgdbOpen(true);
+            }
+          }}
+          title="Klicken, um IGDB-Link zu hinterlegen"
+          className={`group relative ${thumbSizeClass} shrink-0 overflow-hidden rounded-lg border border-zinc-700/80 bg-[#121314] shadow-md transition hover:border-[#00ff66]/60 cursor-pointer`}
+        >
+          {localCoverUrl ? (
+            <img
+              src={localCoverUrl}
+              alt="Cover"
+              loading="lazy"
+              className="h-full w-full object-cover transition group-hover:opacity-85"
+            />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center px-1 text-center font-mono text-[8px] font-bold uppercase leading-tight text-amber-300">
+              Kein Cover
+            </span>
+          )}
+        </span>
+
+        {!isVerified || errorMsg ? (
+          <div className="flex flex-col gap-1 min-w-0">
+            {!isVerified ? (
+              <>
+                <div className="flex items-center gap-1">
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      stopEvent(e);
+                      if (busy) return;
+                      setErrorMsg('');
+                      setIgdbOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        stopEvent(e);
+                        if (busy) return;
+                        setErrorMsg('');
+                        setIgdbOpen(true);
+                      }
+                    }}
+                    title="Neuen IGDB-Bildlink als Cover hinterlegen"
+                    className={`rounded border border-[#00ff66]/40 bg-[#00ff66]/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase text-[#00ff66] transition hover:bg-[#00ff66]/20 cursor-pointer select-none ${
+                      busy ? 'opacity-50 pointer-events-none' : ''
+                    }`}
+                  >
+                    IGDB
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={handleClear}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') handleClear(e);
+                    }}
+                    title="Falsches Cover löschen und status.igdb entfernen"
+                    className={`rounded border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-red-300 transition hover:bg-red-500/20 cursor-pointer select-none ${
+                      busy || !localCoverUrl ? 'opacity-40 pointer-events-none' : ''
+                    }`}
+                  >
+                    {busy ? '…' : '✕'}
+                  </span>
+                </div>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleVerifyStatus}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') handleVerifyStatus(e);
+                  }}
+                  title="Klick darauf verifiziert das Cover (setzt cover_status = 'valid')"
+                  className={`rounded border px-1.5 py-0.5 text-center font-mono text-[9px] font-bold transition cursor-pointer whitespace-nowrap select-none ${
+                    busy ? 'opacity-50 pointer-events-none' : ''
+                  } ${
+                    isInvalid
+                      ? 'border-red-500/40 bg-red-500/15 text-red-300 hover:bg-red-500/25'
+                      : 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:border-[#00ff66]/50 hover:bg-[#00ff66]/15 hover:text-[#00ff66]'
+                  }`}
+                >
+                  {`✓ ${statusValue}`}
+                </span>
+              </>
+            ) : null}
+            {errorMsg && !igdbOpen ? (
+              <p className="max-w-[9rem] font-mono text-[9px] text-red-400 leading-tight m-0">{errorMsg}</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {modalNode}
+      </div>
+    );
+  }
 
   return (
     <div

@@ -3,6 +3,7 @@ import { supabase } from './supabaseClient';
 import { useLocale } from '../context/LocaleContext';
 import AccountDeleteCard from '../components/AccountDeleteCard';
 import CreatorShowcaseGrid from '../components/creator/CreatorShowcaseGrid';
+import CreatorWatchlistPanel from '../components/creator/CreatorWatchlistPanel';
 import LoginMethodDropdown from '../components/LoginMethodDropdown';
 import { creatorPublicPath, parseCreatorPath } from '../lib/creatorPage';
 import { isSafeYoutubeChannelUrl } from '../lib/contentCreators';
@@ -13,6 +14,7 @@ import {
   prepareCreatorYoutubeOptOut,
   signatureTagsToList,
   updateMyCreatorProfile,
+  updateMyCreatorShowcase,
   verifyCreatorYoutubeBio,
   verifyCreatorYoutubeOptOut,
 } from '../lib/creatorQueries';
@@ -205,12 +207,17 @@ function CreatorProfilePage({
   authLoading = false,
   onOpenGame,
   onBack,
+  onOpenInProfile,
+  embeddedSlug = '',
+  embeddedInProfile = false,
 }) {
   const { globalLocale } = useLocale();
   const copy = copyFor(globalLocale);
-  const parsed = parseCreatorPath(window.location.pathname);
-  const slug = parsed?.slug || '';
-  const urlClaimToken = new URLSearchParams(window.location.search).get('claim')?.trim() || '';
+  const parsed = embeddedInProfile ? null : parseCreatorPath(window.location.pathname);
+  const slug = (embeddedInProfile ? embeddedSlug : parsed?.slug || '').trim().toLowerCase();
+  const urlClaimToken = embeddedInProfile
+    ? ''
+    : new URLSearchParams(window.location.search).get('claim')?.trim() || '';
   const claimStorageKey = slug ? `tb_creator_claim:${slug}` : '';
   const storedClaimToken = (() => {
     if (!claimStorageKey || typeof window === 'undefined') return '';
@@ -243,10 +250,14 @@ function CreatorProfilePage({
   const [optOutDone, setOptOutDone] = useState(false);
 
   const [editorOpen, setEditorOpen] = useState(false);
+  const [copiedPublicUrl, setCopiedPublicUrl] = useState(false);
   const [editForm, setEditForm] = useState(() => buildEditDraft(null));
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
+  const [showcaseSaving, setShowcaseSaving] = useState(false);
+  const [showcaseNotice, setShowcaseNotice] = useState('');
+  const [showcaseError, setShowcaseError] = useState('');
 
   const [profile, setProfile] = useState({
     slug,
@@ -288,27 +299,29 @@ function CreatorProfilePage({
   }, [claimStorageKey, urlClaimToken]);
 
   useEffect(() => {
+    if (embeddedInProfile) return undefined;
     const onPop = () => setPathTick((value) => value + 1);
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, []);
+  }, [embeddedInProfile]);
 
   useEffect(() => {
+    if (embeddedInProfile) return undefined;
     const name = creator?.channel_name?.trim();
     const previous = document.title;
     document.title = name ? `${name} · TrophyBase` : 'Creator · TrophyBase';
     return () => {
       document.title = previous;
     };
-  }, [creator?.channel_name]);
+  }, [creator?.channel_name, embeddedInProfile]);
 
   // Rechtssicherer SEO-Schutz: Indexierung NUR nach aktivem Creator-Opt-In (`is_public_indexed === true`)!
   useEffect(() => {
-    if (!slug) return;
+    if (embeddedInProfile || !slug) return;
     const canonical = creatorPublicPath(globalLocale, slug);
     const shouldNoIndex = Boolean(claimToken) || !creator?.is_public_indexed;
     applyPathCanonical(canonical, { noIndex: shouldNoIndex });
-  }, [slug, globalLocale, claimToken, creator?.is_public_indexed]);
+  }, [embeddedInProfile, slug, globalLocale, claimToken, creator?.is_public_indexed]);
 
   useEffect(() => {
     if (!slug) return undefined;
@@ -571,6 +584,38 @@ function CreatorProfilePage({
     setSaveSuccess(copy.savedMsg);
   };
 
+  const handleSaveShowcase = async (nextConfig) => {
+    if (!slug || showcaseSaving) return;
+    setShowcaseSaving(true);
+    setShowcaseError('');
+    setShowcaseNotice('');
+    const { data, error } = await updateMyCreatorShowcase(supabase, {
+      slug,
+      showcaseConfig: nextConfig,
+    });
+    setShowcaseSaving(false);
+    if (error) {
+      setShowcaseError(error.message || 'Layout konnte nicht gespeichert werden.');
+      return;
+    }
+    if (data && typeof data === 'object') {
+      setProfile((prev) => ({
+        ...prev,
+        creator: { ...prev.creator, ...data },
+      }));
+    } else {
+      setProfile((prev) => ({
+        ...prev,
+        creator: prev.creator ? { ...prev.creator, showcase_config: nextConfig } : prev.creator,
+      }));
+    }
+    setShowcaseNotice(
+      globalLocale === 'de'
+        ? '✓ Seiten-Layout für alle Besucher gespeichert.'
+        : '✓ Public layout saved for all visitors.',
+    );
+  };
+
   const profileStatus = profile.slug === slug ? profile.status : slug ? 'loading' : 'missing';
   if (profileStatus === 'loading' || waitingForAuth) {
     return <p className="px-4 py-16 text-center text-sm text-zinc-500">{copy.loading}</p>;
@@ -595,18 +640,34 @@ function CreatorProfilePage({
 
   if (profileStatus === 'missing' || hidden || !creator) {
     return (
-      <div className="mx-auto w-full max-w-3xl px-4 py-16">
-        <button
-          type="button"
-          onClick={onBack}
-          className="mb-6 text-xs font-mono text-zinc-500 hover:text-[#00ff66] cursor-pointer"
-        >
-          ← TrophyBase
-        </button>
+      <div className={embeddedInProfile ? 'w-full py-8' : 'mx-auto w-full max-w-3xl px-4 py-16'}>
+        {!embeddedInProfile ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-6 text-xs font-mono text-zinc-500 hover:text-[#00ff66] cursor-pointer"
+          >
+            ← TrophyBase
+          </button>
+        ) : null}
         <p className="text-sm text-zinc-400">{hidden ? copy.inactive : copy.missing}</p>
       </div>
     );
   }
+
+  const publicCardPath = creatorPublicPath(globalLocale, creator.slug || slug);
+  const publicCardFullUrl =
+    typeof window !== 'undefined' ? `${window.location.origin}${publicCardPath}` : publicCardPath;
+
+  const handleCopyPublicUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(publicCardFullUrl);
+      setCopiedPublicUrl(true);
+      window.setTimeout(() => setCopiedPublicUrl(false), 1800);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const avatar = safeHttps(creator.avatar_url);
   const youtube = isSafeYoutubeChannelUrl(creator.youtube_url) ? creator.youtube_url : '';
@@ -621,15 +682,67 @@ function CreatorProfilePage({
   })).filter((p) => Boolean(p.url));
 
   return (
-    <article className="mx-auto w-full max-w-7xl min-w-0 px-4 sm:px-6 py-8">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-xs font-mono text-zinc-500 hover:text-[#00ff66] cursor-pointer"
-        >
-          ← TrophyBase
-        </button>
+    <article
+      className={
+        embeddedInProfile
+          ? 'w-full min-w-0 pt-2'
+          : 'mx-auto w-full max-w-7xl min-w-0 px-4 sm:px-6 py-8'
+      }
+    >
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+        {embeddedInProfile ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={publicCardPath}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl border border-zinc-700 bg-[#121314] px-3 py-1.5 text-xs font-mono text-zinc-200 hover:border-[#00ff66]/40 hover:text-[#00ff66] no-underline transition"
+            >
+              {globalLocale === 'de'
+                ? '🌐 Öffentliche Creator-Seite öffnen ↗'
+                : '🌐 Open public creator page ↗'}
+            </a>
+            <button
+              type="button"
+              onClick={handleCopyPublicUrl}
+              className="rounded-xl border border-zinc-800 bg-[#121314] px-3 py-1.5 text-xs font-mono text-zinc-400 hover:border-zinc-600 hover:text-white cursor-pointer transition"
+            >
+              {copiedPublicUrl
+                ? copy.copied
+                : globalLocale === 'de'
+                  ? '🔗 Link kopieren'
+                  : '🔗 Copy link'}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-xs font-mono text-zinc-500 hover:text-[#00ff66] cursor-pointer"
+          >
+            ← TrophyBase
+          </button>
+        )}
+
+        {!embeddedInProfile && isOwner ? (
+          <a
+            href="/profile?tab=creator"
+            onClick={(e) => {
+              e.preventDefault();
+              if (onOpenInProfile) {
+                onOpenInProfile();
+              } else {
+                writeAppPath('/profile?tab=creator');
+                window.dispatchEvent(new PopStateEvent('popstate'));
+              }
+            }}
+            className="rounded-xl border border-[#00ff66]/40 bg-[#00ff66]/10 px-3 py-1.5 text-xs font-mono font-bold text-[#00ff66] hover:bg-[#00ff66]/20 no-underline transition"
+          >
+            {globalLocale === 'de'
+              ? '🏆 Im eigenen Profil öffnen →'
+              : '🏆 Manage in my profile →'}
+          </a>
+        ) : null}
 
         {isUnclaimed && !showTakeoverPanel && !optOutOpen ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -993,7 +1106,7 @@ function CreatorProfilePage({
                 {saveError ? <span className="text-xs text-red-300">{saveError}</span> : null}
               </div>
 
-              {isOwner && !isAdmin ? (
+              {isOwner && !isAdmin && !embeddedInProfile ? (
                 <div className="pt-3 border-t border-zinc-800/80">
                   <AccountDeleteCard
                     locale={globalLocale}
@@ -1005,6 +1118,15 @@ function CreatorProfilePage({
             </form>
           ) : null}
         </section>
+      ) : null}
+
+      {/* Gekaperter Creator-Bereich: Watchlist + schlanke "Spiele ohne Guide"-Suche */}
+      {canEdit ? (
+        <CreatorWatchlistPanel
+          creatorId={creator.id}
+          locale={globalLocale}
+          onOpenGame={onOpenGame}
+        />
       ) : null}
 
       {canPreview ? (
@@ -1024,6 +1146,14 @@ function CreatorProfilePage({
         <CreatorShowcaseGrid
           games={gameState.games}
           creatorId={creator.id}
+          creatorName={creator.channel_name}
+          showcaseConfig={creator.showcase_config}
+          canCustomize={canEdit}
+          isOwnerView={Boolean(isOwner || embeddedInProfile)}
+          savingShowcase={showcaseSaving}
+          showcaseNotice={showcaseNotice}
+          showcaseError={showcaseError}
+          onSaveShowcase={handleSaveShowcase}
           locale={globalLocale}
           onOpenGame={onOpenGame}
           showDraftState={canPreview && includeDrafts}

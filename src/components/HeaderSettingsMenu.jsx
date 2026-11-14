@@ -130,6 +130,12 @@ function HeaderSettingsMenu({
     onOpenProfile?.();
   };
 
+  const openCreatorInProfile = (event) => {
+    event.preventDefault();
+    setOpen(false);
+    onOpenProfile?.({ tab: 'creator' });
+  };
+
   const openHelp = (event) => {
     event.preventDefault();
     setOpen(false);
@@ -630,11 +636,12 @@ function HeaderSettingsMenu({
             <>
               <div className="my-1.5 border-t border-zinc-800" role="separator" />
               <a
-                href="/intranet.html"
+                href="/profile?tab=creator"
                 role="menuitem"
+                onClick={openCreatorInProfile}
                 className="block px-3 py-2 text-xs font-mono font-bold text-amber-300 no-underline hover:bg-zinc-800/80"
               >
-                🎬 Creator Studio öffnen
+                🎬 Meine Creator-Seite
               </a>
             </>
           ) : null}
