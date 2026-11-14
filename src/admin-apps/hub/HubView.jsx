@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { setAdminReturnFlag } from '../../lib/adminAccess';
+import AdminPushControl from '../AdminPushControl';
 import { MICRO_APPS } from '../microAppRegistry';
 
-export default function HubView() {
+export default function HubView({ sessionUser }) {
   const [badges, setBadges] = useState({
     roadmap: null,
     reports: null,
@@ -66,6 +67,14 @@ export default function HubView() {
           Einmal einloggen gilt automatisch für alle Apps.
         </p>
       </div>
+
+      {sessionUser && (
+        <AdminPushControl
+          sessionUser={sessionUser}
+          appTitle="TB Cockpit"
+          variant="banner"
+        />
+      )}
 
       {/* 3x3 App-Gitter */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

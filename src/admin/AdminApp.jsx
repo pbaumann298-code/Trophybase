@@ -9,6 +9,7 @@ import {
 } from '../lib/adminAccess';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
 import AdminPipelineLawNotice from '../components/admin/AdminPipelineLawNotice';
+import AdminPushControl from '../admin-apps/AdminPushControl';
 import AdminWaffleMenu from '../admin-apps/AdminWaffleMenu';
 
 const WebsitePanel = lazy(() => import('../components/admin/WebsitePanel'));
@@ -270,6 +271,11 @@ function AdminApp() {
             >
               📱 Einzel-Apps
             </a>
+            <AdminPushControl
+              sessionUser={sessionUser}
+              appTitle="Admin Cockpit"
+              variant="popover"
+            />
             <AdminWaffleMenu />
             <span className="text-xs font-mono text-zinc-500 hidden md:inline">{sessionUser.email}</span>
             <button

@@ -6,7 +6,9 @@ import {
   setDraftReturnContext,
 } from '../lib/adminAccess';
 import { registerPwa } from '../lib/registerPwa';
+import { ensureAdminServiceWorker } from '../lib/adminPush';
 import AdminLoginForm from '../components/admin/AdminLoginForm';
+import AdminPushControl from './AdminPushControl';
 import AdminWaffleMenu from './AdminWaffleMenu';
 import { getMicroAppById } from './microAppRegistry';
 
@@ -62,6 +64,9 @@ export default function AdminMicroAppShell({
     if (!pwaRegistered) {
       pwaRegistered = true;
       registerPwa();
+      if (import.meta.env.PROD) {
+        ensureAdminServiceWorker().catch(() => {});
+      }
     }
   }, []);
 
@@ -226,6 +231,12 @@ export default function AdminMicroAppShell({
                 📲 Installieren
               </button>
             )}
+
+            <AdminPushControl
+              sessionUser={sessionUser}
+              appTitle={effectiveTitle}
+              variant="popover"
+            />
 
             <AdminWaffleMenu currentAppId={appId} />
 

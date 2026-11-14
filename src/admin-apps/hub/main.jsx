@@ -7,7 +7,7 @@ import HubView from './HubView';
 createRoot(document.getElementById('micro-app-root')).render(
   <StrictMode>
     <AdminMicroAppShell appId="hub" title="TB App-Zentrale" iconSrc="/icons/apps/hub-192.png">
-      <HubView />
+      {({ sessionUser }) => <HubView sessionUser={sessionUser} />}
     </AdminMicroAppShell>
   </StrictMode>,
 );
