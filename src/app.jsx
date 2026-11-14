@@ -959,8 +959,9 @@ function App() {
       const canonical = creatorRoute
         ? creatorPublicPath(creatorRoute.locale, creatorRoute.slug)
         : window.location.pathname;
-      const noIndex = new URLSearchParams(window.location.search).has('claim');
-      applyPathCanonical(canonical, { noIndex });
+      // Standardmäßig strikt noindex (Marken-/Namensrechtsschutz):
+      // Erst CreatorProfilePage schaltet noIndex auf false, wenn creator.is_public_indexed === true!
+      applyPathCanonical(canonical, { noIndex: true });
       return () => clearGameSeoLinks();
     }
     if (currentView === 'search-results') {

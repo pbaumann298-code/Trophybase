@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../pages/supabaseClient';
 import { LocaleProvider, useLocale } from '../../context/LocaleContext';
 import CreatorShowcaseGrid from '../creator/CreatorShowcaseGrid';
-import { setAdminReturnFlag } from '../../lib/adminAccess';
+import { isAdminSubdomainHost, setAdminReturnFlag } from '../../lib/adminAccess';
 import { creatorPublicPath } from '../../lib/creatorPage';
 import { slugify } from '../../lib/gameSlug';
 import { isSafeYoutubeChannelUrl } from '../../lib/contentCreators';
@@ -15,6 +15,7 @@ import {
   fetchCreatorGames,
   isYoutubeChannelBlacklisted,
   parseSignatureTagsInput,
+  resetAdminCreatorClaim,
   rotateCreatorClaimToken,
   saveAdminCreator,
 } from '../../lib/creatorQueries';
@@ -423,7 +424,33 @@ function IntranetCreatorsBody() {
   const publicUrl = () => {
     const slug = String(selectedCreator?.slug || form.slug || '').trim();
     if (!slug) return '';
-    return `${window.location.origin}${creatorPublicPath(globalLocale, slug)}`;
+    const baseOrigin = isAdminSubdomainHost(window.location.hostname)
+      ? 'https://trophybase.app'
+      : window.location.origin;
+    return `${baseOrigin}${creatorPublicPath(globalLocale, slug)}`;
+  };
+
+  const resetClaim = async () => {
+    if (!form.id) return;
+    const confirmed = window.confirm(
+      `Account-Verknüpfung für „${form.channel_name}“ zurücksetzen und einen frischen Einladungslink erzeugen?`,
+    );
+    if (!confirmed) return;
+    setSaving(true);
+    setError('');
+    const { data: newToken, error: resetErr } = await resetAdminCreatorClaim(supabase, form.id);
+    setSaving(false);
+    if (resetErr || !newToken) {
+      setError(resetErr?.message || 'Zurücksetzen fehlgeschlagen.');
+      return;
+    }
+    await loadCreators(form.id);
+    const base = publicUrl();
+    if (base) {
+      copyText(`${base}?claim=${encodeURIComponent(newToken)}`, 'Verknüpfung gelöst & neuer Einladungslink kopiert.');
+    } else {
+      setNotice('Verknüpfung gelöst & neuer Token erzeugt.');
+    }
   };
 
   const copyPublic = () => {
@@ -618,6 +645,15 @@ function IntranetCreatorsBody() {
                     Account verknüpft
                   </span>
                 ) : null}
+                <span
+                  className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider ${
+                    form.is_public_indexed
+                      ? 'border-sky-500/40 bg-sky-500/10 text-sky-300'
+                      : 'border-zinc-700 bg-zinc-900 text-zinc-400'
+                  }`}
+                >
+                  {form.is_public_indexed ? '🌐 Google-Index' : '🔒 noindex'}
+                </span>
                 {form.is_blacklisted ? (
                   <span className="inline-flex rounded-full border border-red-500/50 bg-red-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-300">
                     BLACKLIST
@@ -762,6 +798,16 @@ function IntranetCreatorsBody() {
                 >
                   Token rotieren
                 </button>
+                {form.user_id ? (
+                  <button
+                    type="button"
+                    onClick={resetClaim}
+                    disabled={saving}
+                    className="rounded-xl border border-amber-500/40 px-4 py-2 text-xs font-bold uppercase tracking-wider text-amber-300 disabled:opacity-50"
+                  >
+                    Verknüpfung lösen
+                  </button>
+                ) : null}
                 {!form.is_blacklisted ? (
                   <button
                     type="button"

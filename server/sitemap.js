@@ -5,6 +5,7 @@ import { servertotPublicPath } from '../src/lib/servertotPage.js';
 import { easyPlatinsPublicPath } from '../src/lib/easyPlatinsPage.js';
 import { quickwinsPublicPath } from '../src/lib/quickwinsPage.js';
 import { guideHelpPublicPath } from '../src/lib/guideHelpPage.js';
+import { creatorPublicPath } from '../src/lib/creatorPage.js';
 import { getPublicSupabase, publicOrigin } from './publicSupabase.js';
 import { parseSitemapLocale } from './prettyPath.js';
 import { escapeHtml } from './escapeHtml.js';
@@ -96,9 +97,21 @@ export function staticCollectionUrls(origin, locale) {
   return urls;
 }
 
-function urlset(origin, locale, games) {
+function urlset(origin, locale, games, indexedCreators = []) {
   const staticPart = staticCollectionUrls(origin, locale)
     .map((loc) => urlEntry(loc))
+    .join('\n');
+
+  const creatorPart = indexedCreators
+    .map((creator) => {
+      const slug = String(creator?.slug ?? '').trim().toLowerCase();
+      if (!slug) return '';
+      const absolute = `${origin}${creatorPublicPath(locale, slug)}`;
+      assertLocalizedStaticUrl(origin, locale, absolute);
+      const lastmod = String(creator.updated_at ?? '').slice(0, 10);
+      return urlEntry(absolute, lastmod);
+    })
+    .filter(Boolean)
     .join('\n');
 
   const gamePart = games
@@ -114,7 +127,7 @@ function urlset(origin, locale, games) {
     .filter(Boolean)
     .join('\n');
 
-  const body = [staticPart, gamePart].filter(Boolean).join('\n');
+  const body = [staticPart, creatorPart, gamePart].filter(Boolean).join('\n');
 
   return xmlWrap(
     `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>`,
@@ -129,6 +142,17 @@ function sitemapIndex(origin, locales) {
   return xmlWrap(
     `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${items}\n</sitemapindex>`,
   );
+}
+
+async function loadIndexableCreators(supabase) {
+  const { data, error } = await supabase
+    .from('content_creators')
+    .select('slug, updated_at')
+    .eq('is_public_indexed', true)
+    .eq('is_active', true)
+    .eq('is_blacklisted', false);
+  if (error || !Array.isArray(data)) return [];
+  return data;
 }
 
 export async function handleSitemapRequest(requestUrl) {
@@ -146,8 +170,11 @@ export async function handleSitemapRequest(requestUrl) {
     }
 
     const supabase = getPublicSupabase();
-    const games = await loadIndexablePublishedGames(supabase, parsed.locale);
-    return new Response(urlset(origin, parsed.locale, games), {
+    const [games, indexedCreators] = await Promise.all([
+      loadIndexablePublishedGames(supabase, parsed.locale),
+      loadIndexableCreators(supabase),
+    ]);
+    return new Response(urlset(origin, parsed.locale, games, indexedCreators), {
       status: 200,
       headers,
     });

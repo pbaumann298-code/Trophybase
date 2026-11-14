@@ -57,6 +57,9 @@ const PUBLIC_CREATOR_SELECT = [
   'signature_tags',
   'is_active',
   'user_id',
+  'verified_at',
+  'is_public_indexed',
+  'indexing_consented_at',
 ].join(', ');
 
 const ADMIN_CREATOR_SELECT = `${PUBLIC_CREATOR_SELECT}, auto_approve, is_blacklisted, blacklist_reason`;
@@ -861,4 +864,52 @@ export async function blacklistCreator(supabase, creatorId, { reason = '', mode 
 
   const unlinked = await unlinkCreatorGuideVideos(supabase, id);
   return { error: unlinked.error };
+}
+
+export async function prepareCreatorYoutubeClaim(
+  supabase,
+  { slug, claimToken = null, regenerate = false } = {},
+) {
+  const cleanSlug = String(slug ?? '').trim().toLowerCase();
+  if (!cleanSlug) return { data: null, error: new Error('Creator-Slug fehlt.') };
+  const { data, error } = await supabase.rpc('tb_prepare_creator_youtube_claim', {
+    p_slug: cleanSlug,
+    p_claim_token: claimToken || null,
+    p_regenerate: Boolean(regenerate),
+  });
+  return { data, error };
+}
+
+export async function verifyCreatorYoutubeBio(supabase, { slug } = {}) {
+  const cleanSlug = String(slug ?? '').trim().toLowerCase();
+  if (!cleanSlug) return { data: null, error: new Error('Creator-Slug fehlt.') };
+  const { data, error } = await supabase.functions.invoke('verify-youtube-creator', {
+    body: { slug: cleanSlug },
+  });
+  return { data, error };
+}
+
+export async function updateMyCreatorProfile(
+  supabase,
+  { slug, bio = {}, avatarUrl = null, socialLinks = {}, isPublicIndexed = false } = {},
+) {
+  const cleanSlug = String(slug ?? '').trim().toLowerCase();
+  if (!cleanSlug) return { data: null, error: new Error('Creator-Slug fehlt.') };
+  const { data, error } = await supabase.rpc('tb_update_my_creator_profile', {
+    p_slug: cleanSlug,
+    p_bio: bio && typeof bio === 'object' ? bio : {},
+    p_avatar_url: avatarUrl && String(avatarUrl).trim() ? String(avatarUrl).trim() : null,
+    p_social_links: socialLinks && typeof socialLinks === 'object' ? socialLinks : {},
+    p_is_public_indexed: Boolean(isPublicIndexed),
+  });
+  return { data, error };
+}
+
+export async function resetAdminCreatorClaim(supabase, creatorId) {
+  const id = String(creatorId ?? '').trim();
+  if (!id) return { data: null, error: new Error('Creator-ID fehlt.') };
+  const { data, error } = await supabase.rpc('tb_admin_reset_creator_claim', {
+    p_creator_id: id,
+  });
+  return { data, error };
 }
