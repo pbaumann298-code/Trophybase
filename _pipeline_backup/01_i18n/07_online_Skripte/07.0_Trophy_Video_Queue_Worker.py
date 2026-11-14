@@ -69,6 +69,12 @@ def detect_text_locale(sample_text: str) -> str:
     ):
         return "fr"
     if re.search(
+        r"([ąćęłńóśźż]|\b(poradnik|trofeum|trofea|rozdział|rozdzial|część|czesc|wspomnienie|znajdźki|znajdzki|wszystkie|misja)\b)",
+        t,
+    ):
+        return "pl"
+
+    if re.search(
         r"(ä|ö|ü|ß|\bsammelobjekte|\bkapitel\b|\btrophäe|\bhauptspiel\b|\blösung\b)", t
     ):
         return "de"
@@ -334,12 +340,17 @@ def process_queue():
                     )
                 batch_key = batch_key_by_game_creator[b_key_tuple]
 
-                group_jsonb = {"de": group_name, src_lang: group_name}
+                group_jsonb = {src_lang: group_name}
+                if src_lang == "de":
+                    group_jsonb["de"] = group_name
 
                 roh_rows = []
                 for it in items:
-                    item_jsonb = {"de": it["label"], src_lang: it["label"]}
-                    chap_jsonb = {"de": it["video_title"], src_lang: it["video_title"]}
+                    item_jsonb = {src_lang: it["label"]}
+                    chap_jsonb = {src_lang: it["video_title"]}
+                    if src_lang == "de":
+                        item_jsonb["de"] = it["label"]
+                        chap_jsonb["de"] = it["video_title"]
 
                     roh_rows.append(
                         {

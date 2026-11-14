@@ -4,7 +4,7 @@ import { parsePrettyGuidePath } from './server/prettyPath.js';
 
 export const config = {
   runtime: 'nodejs',
-  matcher: ['/((?!api/|assets/|icons/|src/).*)'],
+  matcher: ['/((?!api/|admin-apps/|assets/|icons/|src/).*)'],
 };
 
 /**

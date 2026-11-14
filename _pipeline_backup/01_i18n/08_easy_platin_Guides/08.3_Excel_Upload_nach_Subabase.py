@@ -87,6 +87,13 @@ def detect_text_locale(sample_text: str) -> str:
     ):
         return "fr"
 
+    # 4.5 Polnisch
+    if re.search(
+        r"([ąćęłńóśźż]|\b(poradnik|trofeum|trofea|rozdział|rozdzial|część|czesc|wspomnienie|znajdźki|znajdzki|wszystkie|misja)\b)",
+        t,
+    ):
+        return "pl"
+
     # 5. Deutsch
     if re.search(
         r"(ä|ö|ü|ß|\bsammelobjekte|\bkapitel\b|\btrophäe|\bhauptspiel\b|\blösung\b)", t

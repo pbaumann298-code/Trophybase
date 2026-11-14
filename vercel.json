@@ -1,7 +1,7 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD ./src ./public ./shared ./package.json ./vercel.json ./server ./api ./middleware.js ./index.html ./admin.html ./intranet.html ./vite.config.js",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD ./src ./public ./shared ./package.json ./vercel.json ./server ./api ./middleware.js ./index.html ./admin.html ./intranet.html ./admin-apps ./vite.config.js",
   "headers": [
     {
       "source": "/",
@@ -95,9 +95,22 @@
     {
       "source": "/admin.html",
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/admin-apps",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/admin-apps/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+      ]
     }
   ],
   "redirects": [
+    { "source": "/admin-apps", "destination": "/admin-apps/", "permanent": false },
+    { "source": "/admin-apps/:slug(roadmap|drafts|workflows|radar|krankenstation|reports|db|creators)", "destination": "/admin-apps/:slug/", "permanent": false },
     { "source": "/quickwins", "destination": "/de/micro-platins", "permanent": true },
     { "source": "/de/quickwins", "destination": "/de/micro-platins", "permanent": true },
     { "source": "/en/quickwins", "destination": "/en/micro-platinums", "permanent": true },
@@ -170,6 +183,14 @@
       "destination": "/intranet.html"
     },
     {
+      "source": "/admin-apps/",
+      "destination": "/admin-apps/index.html"
+    },
+    {
+      "source": "/admin-apps/:slug(roadmap|drafts|workflows|radar|krankenstation|reports|db|creators)/",
+      "destination": "/admin-apps/:slug/index.html"
+    },
+    {
       "source": "/sitemap.xml",
       "destination": "/api/sitemap"
     },
@@ -182,7 +203,7 @@
       "destination": "/api/guide?locale=:locale&hardware=:hardware&slug=:slug"
     },
     {
-      "source": "/((?!api/|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt|sitemap).*)",
+      "source": "/((?!api/|admin-apps/|sw\\.js|manifest\\.webmanifest|offline\\.html|icons/|favicon|robots\\.txt|sitemap).*)",
       "destination": "/index.html"
     }
   ]

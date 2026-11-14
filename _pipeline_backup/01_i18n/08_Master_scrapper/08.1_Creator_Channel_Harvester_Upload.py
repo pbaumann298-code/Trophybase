@@ -92,6 +92,12 @@ def detect_text_locale(sample_text: str) -> str:
         return "fr"
 
     if re.search(
+        r"([ąćęłńóśźż]|\b(poradnik|trofeum|trofea|rozdział|rozdzial|część|czesc|wspomnienie|znajdźki|znajdzki|wszystkie|misja)\b)",
+        t,
+    ):
+        return "pl"
+
+    if re.search(
         r"(ä|ö|ü|ß|\bsammelobjekte|\bkapitel\b|\btrophäe|\bhauptspiel\b|\blösung\b)", t
     ):
         return "de"
@@ -377,7 +383,15 @@ def push_rows_to_supabase(rows: List[Dict[str, Any]]) -> Tuple[int, int]:
             batch_key = f"qa_{str(gid)[:8]}_{safe_creator}_{int(time.time())}"
             roh_rows = []
             for r in clean_rows:
-                # Schreibt 'de' + src_lang ins JSONB, damit das Frontend immer sofort Text hat (ohne extra Spalte)
+                # Schreibt den erkannten Quell-Text in src_lang. Nur wenn src_lang == 'de' ist, auch in 'de'!
+                item_dict = {src_lang: r["item_name"]}
+                chrono_dict = {src_lang: r["chronological_group"]}
+                chap_dict = {src_lang: r["video_chapter"]}
+                if src_lang == "de":
+                    item_dict["de"] = r["item_name"]
+                    chrono_dict["de"] = r["chronological_group"]
+                    chap_dict["de"] = r["video_chapter"]
+
                 roh_rows.append(
                     {
                         "batch_key": batch_key,
@@ -389,15 +403,9 @@ def push_rows_to_supabase(rows: List[Dict[str, Any]]) -> Tuple[int, int]:
                         "playlist_url": r.get("creator_input_url"),
                         "guide_id": str(r["guide_id"]),
                         "sheet_type": [1],
-                        "item_name": {"de": r["item_name"], src_lang: r["item_name"]},
-                        "chronological_group": {
-                            "de": r["chronological_group"],
-                            src_lang: r["chronological_group"],
-                        },
-                        "video_chapter": {
-                            "de": r["video_chapter"],
-                            src_lang: r["video_chapter"],
-                        },
+                        "item_name": item_dict,
+                        "chronological_group": chrono_dict,
+                        "video_chapter": chap_dict,
                         "timestamp": r["timestamp"],
                         "video_url": r["video_url"],
                         "trophy_id": None,

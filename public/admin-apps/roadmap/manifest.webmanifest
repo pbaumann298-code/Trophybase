@@ -1,0 +1,40 @@
+{
+    "id":  "/admin-apps/roadmap/",
+    "name":  "TB Bugs \u0026 Ideen",
+    "short_name":  "TB Bugs",
+    "description":  "TB Bugs \u0026 Ideen – TrophyBase Admin Mikro-App",
+    "start_url":  "/admin-apps/roadmap/",
+    "scope":  "/admin-apps/roadmap/",
+    "display":  "standalone",
+    "orientation":  "any",
+    "lang":  "de",
+    "dir":  "ltr",
+    "background_color":  "#0a0b0c",
+    "theme_color":  "#0a0b0c",
+    "icons":  [
+                  {
+                      "src":  "/icons/apps/roadmap-192.png",
+                      "sizes":  "192x192",
+                      "type":  "image/png",
+                      "purpose":  "any"
+                  },
+                  {
+                      "src":  "/icons/apps/roadmap-512.png",
+                      "sizes":  "512x512",
+                      "type":  "image/png",
+                      "purpose":  "any"
+                  },
+                  {
+                      "src":  "/icons/apps/roadmap-192.png",
+                      "sizes":  "192x192",
+                      "type":  "image/png",
+                      "purpose":  "maskable"
+                  },
+                  {
+                      "src":  "/icons/apps/roadmap-512.png",
+                      "sizes":  "512x512",
+                      "type":  "image/png",
+                      "purpose":  "maskable"
+                  }
+              ]
+}

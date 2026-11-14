@@ -108,6 +108,34 @@ function devApiPlugin(env) {
           return;
         }
 
+        if (url.pathname === '/admin-apps') {
+          res.statusCode = 302;
+          res.setHeader('Location', '/admin-apps/');
+          res.end();
+          return;
+        }
+
+        if (url.pathname === '/admin-apps/') {
+          req.url = '/admin-apps/index.html';
+          next();
+          return;
+        }
+
+        const microMatch = url.pathname.match(
+          /^\/admin-apps\/(roadmap|drafts|workflows|radar|krankenstation|reports|db|creators)(\/?)$/,
+        );
+        if (microMatch) {
+          if (!microMatch[2]) {
+            res.statusCode = 302;
+            res.setHeader('Location', `/admin-apps/${microMatch[1]}/${url.search || ''}`);
+            res.end();
+            return;
+          }
+          req.url = `/admin-apps/${microMatch[1]}/index.html`;
+          next();
+          return;
+        }
+
         if (url.pathname === '/sitemap.xml' || url.pathname.startsWith('/sitemap-')) {
           try {
             await sendWebResponse(res, await handleSitemapRequest(url));
@@ -158,6 +186,15 @@ export default defineConfig(({ mode }) => {
           main: resolve(__dirname, 'index.html'),
           admin: resolve(__dirname, 'admin.html'),
           intranet: resolve(__dirname, 'intranet.html'),
+          adminAppsHub: resolve(__dirname, 'admin-apps/index.html'),
+          adminAppRoadmap: resolve(__dirname, 'admin-apps/roadmap/index.html'),
+          adminAppDrafts: resolve(__dirname, 'admin-apps/drafts/index.html'),
+          adminAppWorkflows: resolve(__dirname, 'admin-apps/workflows/index.html'),
+          adminAppRadar: resolve(__dirname, 'admin-apps/radar/index.html'),
+          adminAppKrankenstation: resolve(__dirname, 'admin-apps/krankenstation/index.html'),
+          adminAppReports: resolve(__dirname, 'admin-apps/reports/index.html'),
+          adminAppDb: resolve(__dirname, 'admin-apps/db/index.html'),
+          adminAppCreators: resolve(__dirname, 'admin-apps/creators/index.html'),
         },
       },
     },

@@ -338,6 +338,17 @@ def fetch_published_games_queue(target_langs: list[str]) -> list[dict]:
         if "quickwin" in low_type or "unlesbar" in low_type:
             continue
         status = g.get("status") if isinstance(g.get("status"), dict) else {}
+        # Reine Asia-Spiele (asian_only) ignorieren, es sei denn, eine asiatische Welle wird angefordert
+        is_asian_only = status.get("asian_only") in (True, "true")
+        if is_asian_only:
+            asian_targets = [lg for lg in target_langs if lg in ("ja", "ko", "zh-hans", "zh-hant")]
+            if not asian_targets:
+                continue
+            needs_work = any(not is_locale_done_in_status(status, lg) for lg in asian_targets)
+            if needs_work:
+                queue.append(g)
+            continue
+
         src_lang = detect_source_lang(status)
         if not src_lang:
             continue

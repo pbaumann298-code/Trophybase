@@ -23,6 +23,7 @@ function mustStayNetworkOnly(url, request) {
   if (request.mode === 'navigate' || request.destination === 'document') return true;
   const path = url.pathname;
   if (path === '/intranet.html' || path === '/admin.html') return true;
+  if (path === '/admin-apps' || path.startsWith('/admin-apps/')) return true;
   if (path === '/intranet' || path === '/admin' || path.startsWith('/intranet/') || path.startsWith('/admin/')) {
     return true;
   }

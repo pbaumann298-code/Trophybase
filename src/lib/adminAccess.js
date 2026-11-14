@@ -116,10 +116,13 @@ export function setAdminReturnFlag(active = true, originPath = null) {
       sessionStorage.setItem(ADMIN_RETURN_STORAGE_KEY, '1');
       let resolvedOrigin = originPath;
       if (!resolvedOrigin && typeof window !== 'undefined') {
-        const pathname = String(window.location.pathname || '').toLowerCase();
-        if (pathname.includes('intranet')) {
+        const pathname = String(window.location.pathname || '');
+        const lower = pathname.toLowerCase();
+        if (lower.startsWith('/admin-apps/')) {
+          resolvedOrigin = pathname;
+        } else if (lower.includes('intranet')) {
           resolvedOrigin = '/intranet.html';
-        } else if (pathname.includes('admin')) {
+        } else if (lower.includes('admin')) {
           resolvedOrigin = '/admin.html';
         }
       }
